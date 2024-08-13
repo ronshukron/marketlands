@@ -87,6 +87,11 @@ const OrderForm = () => {
         }));
     };
 
+    const removeFromCart = (uid) => {
+        setCartProducts(cartProducts.filter(product => product.uid !== uid));
+    };
+    
+
     const addToCart = (productIndex) => {
         const productToAdd = products[productIndex];
         if (productToAdd.selectedOption === "") {
@@ -132,13 +137,19 @@ const OrderForm = () => {
     };
 
     const handleSubmitOrder = () => {
-        if (userName.trim() === '') {
-            setNameValid(false);
+        if (cartProducts.length === 0) {
+            Swal.fire({
+                icon: 'error',
+                title: 'הסל שלך ריק',
+                text: 'אנא הוסף מוצרים לסל הקניות לפני המעבר לדף הסיכום',
+                showConfirmButton: false,
+                timer: 3000
+            });
             return;
         }
         navigate('/order-confirmation', { state: { cartProducts, userName, orderId } });
     };
-
+    
     if (loading) {
         return <LoadingSpinner />;
     }
@@ -170,6 +181,20 @@ const OrderForm = () => {
                 <p>בחר מוצר, אופציה וכמות-</p>
                 <p>לחץ על הוסף לסל-</p>
                 <p>לחץ עבור לסיכום הזמנה-</p>
+            </div>
+            <div>
+            <input
+                type="text"
+                placeholder="השם שלך"
+                value={userName}
+                onChange={(e) => {
+                    setUserName(e.target.value);
+                    if (e.target.value.trim() !== '') {
+                        setNameValid(true);
+                    }
+                }}
+                className={`name-input ${!nameValid ? 'invalid' : ''}`}
+            />
             </div>
             {products.map((product, index) => (
                 <div key={index} className="product-item">
@@ -207,7 +232,7 @@ const OrderForm = () => {
                     </div>
                 </div>
             ))}
-            <input
+            {/* <input
                 type="text"
                 placeholder="השם שלך"
                 value={userName}
@@ -218,10 +243,24 @@ const OrderForm = () => {
                     }
                 }}
                 className={`name-input ${!nameValid ? 'invalid' : ''}`}
-            />
+            /> */}
             <div className="button-container">
                 <button onClick={handleSubmitOrder} className="submit-button">עבור לסיכום הזמנה וצפייה בסל הקניות שלך</button>
             </div>
+        {/* Floating Cart */}
+        <div className="floating-cart">
+            <h2>הסל שלי</h2>
+            <div className="cart-items">
+                {cartProducts.map((product) => (
+                    <div key={product.uid} className="cart-item">
+                        <span>{product.quantity} x {product.price}₪</span>
+                        <span>{product.name} - {product.selectedOption}</span>
+                        <button className="remove-from-cart" onClick={() => removeFromCart(product.uid)}>X</button>
+                    </div>
+                ))}
+            </div>
+            <button className="cart-submit-button" onClick={handleSubmitOrder}>עבור לסיכום הזמנה וצפייה בסל הקניות שלך</button>
+        </div>
         </div>
     );};
 

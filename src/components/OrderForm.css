@@ -200,3 +200,169 @@ h1 {
     text-align: center; /* Align text to the right */
     border: 1px solid #ddd; /* Add a subtle border */
 }
+
+
+
+/* Floating Cart Styles for Mobile */
+@media (max-width: 768px) {
+    .floating-cart {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 30%;
+        background-color: #fff;
+        border-top: 2px solid #4CAF50;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+        padding: 20px;
+        overflow-y: auto;
+        z-index: 1000;
+    }
+
+    .floating-cart h2 {
+        margin-top: 0;
+        font-size: 24px; /* Increased font size */
+        /* font-weight: bold; Bold font weight */
+        text-align: center;
+        /* color: #4CAF50; Green color for emphasis */
+        text-transform: uppercase; /* Uppercase letters for title */
+        margin-bottom: 10px; /* Added margin below */
+        border-bottom: 2px solid #4CAF50; /* Added bottom border */
+        padding-bottom: 10px; /* Added padding at bottom */
+    }
+
+    .cart-items {
+        max-height: 60%;
+        overflow-y: auto;
+        margin-bottom: 20px;
+    }
+
+    .cart-item {
+        padding: 10px;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .cart-item span {
+        flex: 1;
+        text-align: center;
+    }
+
+    .remove-from-cart {
+        background: red;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        padding: 5px;
+        font-size: 12px;
+        margin-left: 30px;
+        width: 30px;
+
+    }
+
+    .remove-from-cart:hover {
+        background: darkred;
+    }
+
+    .cart-submit-button {
+        display: block;
+        width: 100%;
+        padding: 10px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        text-align: center;
+    }
+
+    .cart-submit-button:hover {
+        background-color: #e68900;
+    }
+}
+
+/* Floating Cart Styles for Desktop */
+@media (min-width: 769px) {
+    .floating-cart {
+        position: fixed;
+        top: 20%;
+        right: 20px;
+        width: 300px;
+        height: auto;
+        background-color: #fff;
+        border: 2px solid #4CAF50;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        padding: 20px;
+        overflow-y: auto;
+        z-index: 1000;
+    }
+
+    .floating-cart h2 {
+        margin-top: 0;
+        font-size: 24px; /* Increased font size */
+        /* font-weight: bold; Bold font weight */
+        text-align: center;
+        /* color: #4CAF50; Green color for emphasis */
+        text-transform: uppercase; /* Uppercase letters for title */
+        margin-bottom: 10px; /* Added margin below */
+        border-bottom: 2px solid #4CAF50; /* Added bottom border */
+        padding-bottom: 10px; /* Added padding at bottom */
+    }
+    
+    .cart-items {
+        max-height: 300px;
+        overflow-y: auto;
+        margin-bottom: 20px;
+    }
+
+    .cart-item {
+        padding: 10px;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .cart-item span {
+        flex: 1;
+        text-align: center;
+    }
+
+    .remove-from-cart {
+        background: red;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        padding: 5px;
+        font-size: 12px;
+        margin-left: 10px;
+        width: 30px;
+    }
+
+    .remove-from-cart:hover {
+        background: darkred;
+    }
+
+    .cart-submit-button {
+        display: block;
+        width: 100%;
+        padding: 10px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        text-align: center;
+    }
+
+    .cart-submit-button:hover {
+        background-color: #e68900;
+    }
+}
+
