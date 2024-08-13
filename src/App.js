@@ -1,25 +1,46 @@
-import logo from './logo.svg';
-import './App.css';
+// src/App.js
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from "./contexts/authContext";
+import Menu from './components/Menu';
+import Home from './components/Home';
+import Producers from './components/Producers';
+import ProducerDetails from './components/ProducerDetails';
+import CreateOrder from './components/CreateOrder';
+import Signup from './components/auth/register/index';
+import Login from './components/auth/login/index.jsx';
+import OrderForm from './components/OrderForm';
+import OrderSummary from './components/OrderSummary';
+import OrderConfirmation from './components/OrderConfirmation';
+import Dashboard from './components/Dashboard.js';
+import OrderConfirmationSuccess from './components/OrderConfirmationSuccess';
+import OrderDetails from './components/OrderDetails';
+import Contact from './components/ContactForm.js'; // Import the new contact component
 
-function App() {
+
+const App = () => {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Router>
+      <AuthProvider>  {/* Wrap all routes with AuthProvider */}
+        <Menu />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/producers" element={<Producers />} />
+          <Route path="/producers/:producerId" element={<ProducerDetails />} />
+          <Route path="/create-order" element={<CreateOrder />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/order-form/:orderId" element={<OrderForm />} />
+          <Route path="/order-summary/:orderId" element={<OrderSummary />} />
+          <Route path="/order-confirmation" element={<OrderConfirmation />} />
+          <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
+          <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
+          <Route path="/contact" element={<Contact />} /> 
+        </Routes>
+      </AuthProvider>
+    </Router>
   );
-}
+};
 
 export default App;

@@ -1,0 +1,202 @@
+.order-form-container {
+    max-width: 800px;
+    margin: auto;
+    padding: 20px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.header-section {
+    text-align: center;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 20px;
+}
+
+.producer-image {
+    width: 100%;
+    max-width: 300px; /* Limit maximum width */
+    height: auto;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.producer-details p {
+    font-size: 16px;
+    color: #666;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+h1 {
+    font-size: 24px;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.product-item {
+    border: 1px solid #ddd;
+    padding: 20px;
+    margin-bottom: 20px;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: box-shadow 0.3s ease-in-out;
+}
+
+.product-item:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.product-image {
+    width: auto;
+    height: 350px; /* Increased height for better display */
+    object-fit: cover;
+    margin: 10px auto;
+    display: block;
+    border-radius: 4px;
+}
+
+.quantity-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.quantity-controls button {
+    padding: 5px 10px;
+    margin: 0 5px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px; /* Larger font size for better readability */
+    display: inline-block; /* Ensure buttons are inline-block */
+    width: auto; /* Ensure buttons do not take full width */
+}
+
+.quantity-controls span {
+    font-size: 16px;
+    padding: 5px 10px;
+    margin: 0 10px;
+    border: 1px solid #ccc; /* Adds a border to the quantity display */
+    border-radius: 4px;
+    min-width: 50px;
+    text-align: center;
+}
+
+.name-input {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-top: 20px;
+    border: 2px solid #ccc;
+    border-radius: 5px;
+    font-size: 16px;
+    text-align: right;
+}
+
+.name-input.invalid {
+    border-color: red;
+}
+
+.button-container {
+    display: flex; /* Use flexbox */
+    justify-content: center; /* Center the button horizontally */
+    margin-top: 20px;
+}
+
+.submit-button {
+    display: inline-block; /* Ensure button is inline-block */
+    width: auto; /* Ensure button does not take full width */
+    padding: 12px 24px; /* Adjust padding */
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 20px;
+    font-size: 18px; /* Larger font size for button */
+}
+
+.options-dropdown {
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+
+.options-dropdown select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 16px;
+    color: #333;
+    cursor: pointer;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+    appearance: none; /* Remove default styles provided by the browser */
+    text-align: center;
+}
+
+.options-dropdown select:focus {
+    outline: none;
+    border-color: #0056b3;
+    box-shadow: 0 0 5px rgba(30, 144, 255, 0.5); /* Add a blue glow effect when focused */
+}
+
+.options-dropdown select:hover {
+    border-color: #007bff;
+}
+
+.product-item h3,
+.product-item p {
+    text-align: center;
+}
+
+.button-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.slider {
+    margin-bottom: 40px;
+}
+
+.add-to-cart {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    text-align: center;
+    display: inline-block; /* Ensure button is inline-block */
+    width: auto; /* Ensure button does not take full width */
+}
+
+.add-to-cart:hover {
+    background-color: #e68900;
+}
+
+
+.instructions {
+    background-color: #f9f9f9;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 18px;
+    color: #333;
+    text-align: center; /* Align text to the right */
+    border: 1px solid #ddd; /* Add a subtle border */
+}

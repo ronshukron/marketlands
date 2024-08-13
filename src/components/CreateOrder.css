@@ -1,0 +1,85 @@
+.create-order-container {
+    padding: 20px;
+    max-width: 1000px; /* Adjust max-width as necessary */
+    margin: auto;
+    background: #f4f4f4; /* Ensuring the background is visible */
+}
+
+.create-order-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.order-name-input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+    text-align: right;
+}
+
+.producer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); /* Define the size of the columns */
+    gap: 20px; /* Adjust gap for space between grid items */
+    margin-bottom: 20px;
+}
+
+.producer-item {
+    border: 1px solid #ccc;
+    background: #ffffff;
+    padding: 10px;
+    box-sizing: border-box; /* Include padding and border in the element's width */
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+}
+
+.producer-item:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
+
+.producer-item.selected {
+    border-color: #4CAF50; /* More noticeable green border */
+    box-shadow: 0 0 15px #4CAF50; /* Stronger glowing effect */
+    /* background-color: #f0fff0; /* A light green background for a subtle highlight */
+    transform: scale(1.05); /* Slightly increase the size */
+    z-index: 10; /* Ensure it pops out over other grid items */
+    transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
+}
+
+
+
+.producer-item img {
+    width: 100%; /* Ensure images take full width of the container */
+    height: auto; /* Maintain aspect ratio */
+    margin-bottom: 10px;
+}
+
+.create-order-button {
+    width: 100%;
+    padding: 10px 20px;
+    font-size: 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.3s, background-color 0.3s;
+}
+
+.create-order-button:not(:disabled) {
+    opacity: 1;
+    cursor: pointer;
+}
+
+.create-order-button:hover {
+    background-color: #45a049; /* Slightly darker green on hover */
+}
+
+.link-container {
+    margin-top: 20px;
+    text-align: center;
+}

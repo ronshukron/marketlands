@@ -1,0 +1,135 @@
+body {
+  font-family: 'Arial', sans-serif; /* Modern sans-serif font */
+}
+
+.navbar {
+  background-color: #ffffff; /* Crisp white background */
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* Subtle shadow for a layered effect */
+  padding: 10px 20px; /* Ample padding for a spacious feel */
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  display: none; /* Hidden by default */
+  font-size: 24px;
+  font-weight: bold;
+  color: #333;
+  text-align: center; /* Center text */
+  width: 100%; /* Full width */
+}
+
+.hamburger {
+  display: none; /* Hidden by default */
+  cursor: pointer;
+  font-size: 30px; /* Large enough for easy interaction */
+  color: #333; /* Dark gray for contrast */
+  padding: 12px; /* Increased padding for a chunkier icon */
+  position: absolute; /* Absolute positioning */
+  right: 10px; /* Position the hamburger to the right */
+}
+
+.menu-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto; /* Centered horizontally */
+  display: flex;
+  justify-content: center; /* Center items horizontally */
+  align-items: center; /* Align items vertically */
+}
+
+.menu-list li {
+  margin: 0 20px; /* Space between menu items */
+}
+
+.menu-list a, .menu-list button {
+  text-decoration: none;
+  color: #333; /* Dark gray for readability */
+  font-weight: 500; /* Medium font weight for emphasis */
+  font-size: 16px; /* Optimal size for readability */
+  transition: color 0.3s ease; /* Smooth color transition on hover */
+  padding: 10px 20px; /* Increased padding around links and buttons */
+}
+
+.menu-list a:hover, .menu-list button:hover {
+  color: #007BFF; /* Bright blue on hover for visual feedback */
+}
+
+.logout-button {
+  background: none;
+  border: none;
+  padding: 10px 20px; /* Match padding of other menu items */
+  cursor: pointer;
+  color: #333; /* Ensure consistent text color */
+  font-weight: 500;
+  font-size: 16px;
+  transition: color 0.3s ease;
+}
+
+.logout-button:hover {
+  color: #007BFF; /* Match hover color of other menu items */
+}
+
+@media (max-width: 768px) {
+  .navbar {
+      padding: 5px 10px; /* Reduced padding for the navbar */
+  }
+
+  .title {
+      display: block; /* Show title on mobile */
+      font-size: 20px; /* Smaller font size for the title */
+  }
+
+  .hamburger {
+      display: block; /* Show hamburger icon on smaller screens */
+      font-size: 25px; /* Smaller font size for the hamburger icon */
+      padding: 8px; /* Reduced padding for the hamburger icon */
+  }
+
+  .menu-list {
+      display: none; /* Hide by default on mobile */
+      position: fixed;
+      top: 50px; /* Positioned below the hamburger */
+      left: 0;
+      right: 0;
+      background-color: #f8f9fa; /* Light grey background */
+      flex-direction: column; /* Stack items vertically */
+      width: 100%; /* Full width */
+      z-index: 1000; /* Ensures menu is on top */
+  }
+
+  .menu-list.open {
+      display: flex; /* Display when menu is open */
+      animation: slideDown 0.3s ease-out forwards; /* Smooth slide down animation */
+  }
+
+  .menu-list li {
+      width: 100%; /* Full width for each item */
+      padding: 15px 10px; /* Larger tap area */
+      border-bottom: 1px solid #e7e7e7; /* Subtle separator */
+      text-align: center; /* Center align text */
+  }
+
+  .menu-list a, .menu-list button {
+      display: block; /* Block level for full width access */
+      color: #333; /* Maintain dark gray color for contrast */
+  }
+
+  .menu-list button {
+      width: 100%; /* Button takes full width */
+      background: transparent; /* No background to blend with the menu */
+  }
+}
+
+@keyframes slideDown {
+  from {
+      transform: translateY(-100%);
+  }
+  to {
+      transform: translateY(0);
+  }
+}
