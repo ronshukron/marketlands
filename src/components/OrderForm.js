@@ -183,28 +183,19 @@ const OrderForm = () => {
                 <p>לחץ עבור לסיכום הזמנה-</p>
             </div>
             <div>
-            <input
-                type="text"
-                placeholder="השם שלך"
-                value={userName}
-                onChange={(e) => {
-                    setUserName(e.target.value);
-                    if (e.target.value.trim() !== '') {
-                        setNameValid(true);
-                    }
-                }}
-                className={`name-input ${!nameValid ? 'invalid' : ''}`}
-            />
             </div>
             {products.map((product, index) => (
                 <div key={index} className="product-item">
-                    <h3>{product.name} - ₪{product.price}</h3>
-                    <p>{product.description}</p>
+                    <h3 className="product-name">{product.name}</h3>
+                    <p className="product-price">₪{product.price}</p>
+                    <p className="product-description">{product.description}</p>
                     {product.images.length > 0 && (
-                        <Slider className='slider' {...settings}>
+                        <Slider className="slider" {...settings}>
                             {product.images.map((image, idx) => (
                                 <div key={idx} className="slider-image-container">
-                                    <img src={image} alt={`Image ${idx + 1} for ${product.name}`} className="product-image" />
+                                    <div className="image-wrapper">
+                                        <img src={image} alt={`Image ${idx + 1} for ${product.name}`} className="product-image" />
+                                    </div>
                                 </div>
                             ))}
                         </Slider>
@@ -215,7 +206,7 @@ const OrderForm = () => {
                                 value={product.selectedOption}
                                 onChange={(e) => handleOptionChange(index, e.target.value)}
                             >
-                                <option value="" disabled>בחר אפשרות</option> {/* Placeholder option */}
+                                <option value="" disabled>בחר אפשרות</option>
                                 {product.options.map((option, idx) => (
                                     <option key={idx} value={option}>{option}</option>
                                 ))}

@@ -48,10 +48,41 @@ h1 {
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     transition: box-shadow 0.3s ease-in-out;
+    text-align: center; /* Center align text within product items */
 }
 
 .product-item:hover {
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.product-name {
+    font-size: 20px;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.product-price {
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.product-description {
+    font-size: 16px;
+    color: #666;
+    margin-bottom: 15px; /* Increased margin for better separation */
+    line-height: 1.5; /* Improved readability */}
+
+.slider-image-container {
+    display: flex;  
+    justify-content: center;
+    align-items: center;
+    border: 0px solid #ddd;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 15px; /* Adjust margin as needed */
+    background-color: #fcfbfb;
+    width: 100%;
 }
 
 .product-image {
@@ -60,7 +91,7 @@ h1 {
     object-fit: cover;
     margin: 10px auto;
     display: block;
-    border-radius: 4px;
+    border-radius: 8px;
 }
 
 .quantity-controls {

@@ -16,7 +16,7 @@ import Dashboard from './components/Dashboard.js';
 import OrderConfirmationSuccess from './components/OrderConfirmationSuccess';
 import OrderDetails from './components/OrderDetails';
 import Contact from './components/ContactForm.js'; // Import the new contact component
-
+import CommunityCoordinators from './components/CommunityCoordinators'; // Import the new component
 
 const App = () => {
   return (
@@ -26,6 +26,7 @@ const App = () => {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/producers" element={<Producers />} />
+          <Route path="/coordinators" element={<CommunityCoordinators />} /> 
           <Route path="/producers/:producerId" element={<ProducerDetails />} />
           <Route path="/create-order" element={<CreateOrder />} />
           <Route path="/dashboard" element={<Dashboard />} />
