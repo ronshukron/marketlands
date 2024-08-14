@@ -1,0 +1,81 @@
+/* src/components/CommunityCoordinatorDetails.css */
+.coordinator-details-container {
+    max-width: 800px;
+    margin: auto;
+    padding: 20px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    text-align: center;
+    justify-content: center;
+}
+
+h2{
+    text-align: center;
+}
+
+.coordinator-image {
+    width: 100%;
+    max-width: 300px;
+    height: auto;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.coordinator-details-container p {
+    font-size: 16px;
+    color: #666;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.message-box {
+    margin-top: 30px;
+    text-align: left;
+}
+
+.message-box h2 {
+    font-size: 20px;
+    margin-bottom: 10px;
+}
+
+.message-box form {
+    display: flex;
+    flex-direction: column;
+}
+
+.message-box .form-group {
+    margin-bottom: 15px;
+}
+
+.message-box input,
+.message-box textarea {
+    width: 100%;
+    padding: 10px;
+    border: 2px solid #ccc;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+.message-box button {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.message-box button:hover {
+    background-color: #e68900;
+}
+
+.success-message {
+    color: green;
+    margin-top: 10px;
+}

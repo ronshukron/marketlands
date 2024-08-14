@@ -7,6 +7,10 @@
   margin-bottom: 40px;
 }
 
+/* p {
+  text-align: center;
+} */
+
 .producers-container {
   display: flex;
   flex-wrap: wrap;
@@ -14,6 +18,7 @@
   gap: 50px; /* Increased space between cards */
   padding: 20px;
   padding-top: 80px;
+  text-align: center;
 }
 
 .producer-item {
@@ -24,6 +29,7 @@
   background: #ffffff;
   border-radius: 10px;
   overflow: hidden;
+  text-align: left; /* Align text to the right */
 }
 
 .producer-item:hover {

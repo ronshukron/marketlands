@@ -27,7 +27,7 @@ const ContactForm = () => {
             .then((response) => {
                 console.log('SUCCESS!', response.status, response.text);
                 setMessageSent(true);
-                setFormState({ from_name: '', from_email: '', to_name: 'Recipient', message: '' });
+                setFormState({ from_name: '', from_email: '', to_name: 'ron', message: '' });
             }, (err) => {
                 console.error('FAILED...', err);
             });

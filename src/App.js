@@ -17,6 +17,8 @@ import OrderConfirmationSuccess from './components/OrderConfirmationSuccess';
 import OrderDetails from './components/OrderDetails';
 import Contact from './components/ContactForm.js'; // Import the new contact component
 import CommunityCoordinators from './components/CommunityCoordinators'; // Import the new component
+import CommunityCoordinatorDetails from './components/CommunityCoordinatorDetails';
+import Footer from './components/Footer'; // Import Footer
 
 const App = () => {
   return (
@@ -27,6 +29,7 @@ const App = () => {
           <Route path="/" element={<Home />} />
           <Route path="/producers" element={<Producers />} />
           <Route path="/coordinators" element={<CommunityCoordinators />} /> 
+          <Route path="/coordinators/:coordinatorId" element={<CommunityCoordinatorDetails />} />
           <Route path="/producers/:producerId" element={<ProducerDetails />} />
           <Route path="/create-order" element={<CreateOrder />} />
           <Route path="/dashboard" element={<Dashboard />} />
@@ -39,6 +42,7 @@ const App = () => {
           <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
           <Route path="/contact" element={<Contact />} /> 
         </Routes>
+        <Footer /> {/* Add Footer component */}
       </AuthProvider>
     </Router>
   );
