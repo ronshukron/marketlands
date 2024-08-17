@@ -36,7 +36,7 @@ const CommunityCoordinators = () => {
 
     return (
         <div>
-            <h1 className="producers-header">קהילות קהילה שלנו</h1>
+            <h1 className="producers-header">קהילות</h1>
             <div className="producers-container">
                 {coordinators.map(coordinator => (
                     <Link to={`/coordinators/${coordinator.id}`} key={coordinator.id} className="producer-item">

@@ -139,7 +139,7 @@ h1 {
     border-color: red;
 }
 
-.button-container {
+.button-container-sal {
     display: flex; /* Use flexbox */
     justify-content: center; /* Center the button horizontally */
     margin-top: 20px;

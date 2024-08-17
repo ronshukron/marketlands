@@ -19,6 +19,8 @@ import Contact from './components/ContactForm.js'; // Import the new contact com
 import CommunityCoordinators from './components/CommunityCoordinators'; // Import the new component
 import CommunityCoordinatorDetails from './components/CommunityCoordinatorDetails';
 import Footer from './components/Footer'; // Import Footer
+import PaymentCancel from './components/PaymentCancel';  // Import the PaymentCancel component
+import PaymentSuccess from './components/PaymentSuccess';  // Import the PaymentCancel component
 
 const App = () => {
   return (
@@ -41,6 +43,10 @@ const App = () => {
           <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
           <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
           <Route path="/contact" element={<Contact />} /> 
+          <Route path="/payment-cancel" element={<PaymentCancel />} /> {/* Add the cancel page route */}
+          <Route path="/payment-cancel/*" element={<PaymentCancel />} /> {/* Add the cancel page route */}
+          <Route path="/payment-success" element={<PaymentSuccess />} />
+          <Route path="/payment-success/*" element={<PaymentSuccess />} />        
         </Routes>
         <Footer /> {/* Add Footer component */}
       </AuthProvider>

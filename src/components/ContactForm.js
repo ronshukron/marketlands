@@ -36,6 +36,12 @@ const ContactForm = () => {
     return (
         <div className="contact-form-container">
             <h1>צרו קשר</h1>
+            <p className="contact-info">
+                נשמח לעמוד לרשותכם בכל שאלה או בקשה. אתם מוזמנים ליצור איתנו קשר דרך הטופס הבא או בטלפון: <strong>050-7932705</strong>.
+            </p>
+            <p className="contact-info"><strong>שעות פעילות:</strong> א'-ה' 08:00-18:00, ו' 08:00-13:00</p>
+            <p className="contact-info">כתובת: אור הנר, 7919000</p>
+
             <form onSubmit={handleSubmit}>
                 <div className="form-group">
                     <label htmlFor="from_name">שם</label>

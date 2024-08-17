@@ -1,0 +1,36 @@
+/* src/components/PaymentCancel.css */
+.cancel-container {
+    max-width: 600px;
+    margin: auto;
+    padding: 20px;
+    background: #fff;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cancel-container h1 {
+    font-size: 2rem;
+    color: #e74c3c;
+    margin-bottom: 20px;
+}
+
+.cancel-container p {
+    font-size: 1.2rem;
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.retry-button {
+    padding: 10px 20px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.retry-button:hover {
+    background-color: #2980b9;
+}

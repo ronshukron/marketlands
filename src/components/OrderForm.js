@@ -218,7 +218,7 @@ const OrderForm = () => {
                         <span>{product.quantity || 0}</span>
                         <button onClick={() => handleQuantityChange(index, true)}>+</button>
                     </div>
-                    <div className="button-container">
+                    <div className="button-container-sal">
                         <button className="add-to-cart" onClick={() => addToCart(index)}>הוסף לסל</button>
                     </div>
                 </div>

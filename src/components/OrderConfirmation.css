@@ -10,6 +10,7 @@
 
 h1, h2, h3 {
     color: #333;
+    margin-bottom: 20px;
 }
 
 ul {
@@ -39,7 +40,7 @@ li {
     border-radius: 5px;
     cursor: pointer;
     font-size: 16px;
-    width: auto; /* Ensure button width is auto */
+    width: auto;
 }
 
 .quantity-controls span {
@@ -52,30 +53,107 @@ li {
     text-align: center;
 }
 
-.button-container {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 20px;
+.user-details-container {
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.cancel-button, .submit-button {
-    padding: 10px 20px;
+.user-details {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.input-group label {
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+    text-align: right; /* Align text to the right */
+    direction: rtl; /* Ensure right-to-left input for Hebrew */
+}
+
+.input-group.invalid input {
+    border-color: red;
+}
+
+.popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.popup-content {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.popup-content h3 {
+    margin-bottom: 20px;
+}
+
+.popup-content button {
     background-color: #4CAF50;
     color: white;
     border: none;
     border-radius: 5px;
     cursor: pointer;
+    padding: 10px 20px;
     font-size: 16px;
-    width: auto; /* Ensure button width is auto */
+}
+
+.popup-content button:hover {
+    background-color: #45a049;
+}
+
+.button-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.cancel-button, .submit-button {
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 10px 20px;
+    font-size: 16px;
+    flex: 1;
+    max-width: 200px;
+    height: 50px; /* Ensure equal height for both buttons */
 }
 
 .cancel-button {
     background-color: #f44336;
-}
-
-.cancel-button:hover {
-    background-color: #d32f2f;
 }
 
 .submit-button:disabled {
@@ -83,6 +161,18 @@ li {
     cursor: not-allowed;
 }
 
-.submit-button:hover {
+.submit-button:hover:not(:disabled) {
     background-color: #45a049;
+}
+
+.cancel-button:hover {
+    background-color: #d32f2f;
+}
+
+
+.payment-iframe-container {
+    margin-top: 20px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
 }
