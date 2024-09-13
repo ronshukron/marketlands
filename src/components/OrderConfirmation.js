@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from '../firebase/firebase';
@@ -18,6 +18,7 @@ const OrderConfirmation = () => {
     const [paymentUrl, setPaymentUrl] = useState('');
     const [formIsValid, setFormIsValid] = useState(false);
     const [showPopup, setShowPopup] = useState(false);
+    const [agreeToTerms, setAgreeToTerms] = useState(false);
 
     useEffect(() => {
         const isValid = userName.trim() !== '' && 
@@ -32,6 +33,11 @@ const OrderConfirmation = () => {
     const handleSubmitOrder = async () => {
         if (!formIsValid) {
             setShowPopup(true);
+            return;
+        }
+
+        if (!agreeToTerms) {
+            alert('יש לאשר את תנאי השימוש לפני ביצוע ההזמנה');
             return;
         }
     
@@ -170,6 +176,18 @@ const OrderConfirmation = () => {
                         />
                     </div>
                 </div>
+            </div>
+
+            <div className="terms-agreement">
+                <input className='terms-checkbox'
+                    type="checkbox" 
+                    id="agreeToTerms" 
+                    checked={agreeToTerms}
+                    onChange={(e) => setAgreeToTerms(e.target.checked)}
+                />
+                <label htmlFor="agreeToTerms">
+                    קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank">-תנאי השימוש</Link>
+                </label>
             </div>
 
             <div className="button-container">

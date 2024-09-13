@@ -21,6 +21,7 @@ import CommunityCoordinatorDetails from './components/CommunityCoordinatorDetail
 import Footer from './components/Footer'; // Import Footer
 import PaymentCancel from './components/PaymentCancel';  // Import the PaymentCancel component
 import PaymentSuccess from './components/PaymentSuccess';  // Import the PaymentCancel component
+import TermsOfService from './components/TermsOfService';
 
 const App = () => {
   return (
@@ -46,7 +47,8 @@ const App = () => {
           <Route path="/payment-cancel" element={<PaymentCancel />} /> {/* Add the cancel page route */}
           <Route path="/payment-cancel/*" element={<PaymentCancel />} /> {/* Add the cancel page route */}
           <Route path="/payment-success" element={<PaymentSuccess />} />
-          <Route path="/payment-success/*" element={<PaymentSuccess />} />        
+          <Route path="/payment-success/*" element={<PaymentSuccess />} />     
+          <Route path="/terms-of-service" element={<TermsOfService />} />   
         </Routes>
         <Footer /> {/* Add Footer component */}
       </AuthProvider>

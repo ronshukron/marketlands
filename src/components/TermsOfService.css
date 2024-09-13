@@ -1,0 +1,28 @@
+.terms-of-service {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    direction: rtl;
+}
+
+.terms-of-service h1 {
+    text-align: center;
+    color: #4CAF50;
+}
+
+.terms-content {
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.terms-content h2 {
+    color: #333;
+    margin-top: 20px;
+}
+
+.terms-content p {
+    margin-bottom: 15px;
+    line-height: 1.6;
+}
