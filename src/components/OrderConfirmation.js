@@ -46,6 +46,7 @@ const OrderConfirmation = () => {
         let newMemberData = {};
         const memberKey = `Member_${new Date().getTime()}`;
         newMemberData[`${memberKey}.Name`] = userName;
+        newMemberData[`${memberKey}.Email`] = userEmail; // Add this line
         let totalOrderValue = 0;
     
         cartProducts.forEach(product => {

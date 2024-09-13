@@ -4,14 +4,14 @@ import { useAuth } from '../contexts/authContext';
 import './Menu.css';
 
 const Menu = () => {
-    const { userLoggedIn, signOut } = useAuth();
+    const { userLoggedIn, signOut, userRole } = useAuth();
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
 
     const toggleMenu = () => {
         setIsOpen(!isOpen);
     };
-    
+   
     const handleLogout = async () => {
         try {
             await signOut();
@@ -31,16 +31,30 @@ const Menu = () => {
                     ☰
                 </div>
             </div>
-
             <ul className={`menu-list ${isOpen ? 'open' : ''}`}>
                 <li><Link to="/" onClick={toggleMenu}>בית</Link></li>
                 <li><Link to="/producers" onClick={toggleMenu}>ספקים</Link></li>
-                <li><Link to="/coordinators" onClick={toggleMenu}>רכזי קהילות</Link></li> 
                 <li><Link to="/contact" onClick={toggleMenu}>צור קשר</Link></li>
-                {userLoggedIn && (
+                
+                {userLoggedIn && userRole === 'coordinator' && (
                     <>
                         <li><Link to="/create-order" onClick={toggleMenu}>יצירת הזמנה</Link></li>
                         <li><Link to="/dashboard" onClick={toggleMenu}>לוח הזמנות</Link></li>
+                        <li><Link to="/manage-community" onClick={toggleMenu}>ניהול קהילה</Link></li>
+                    </>
+                )}
+
+                {userLoggedIn && userRole === 'user' && (
+                    <>
+                        <li><Link to="/my-orders" onClick={toggleMenu}>ההזמנות שלי</Link></li>
+                        <li><Link to="/join-community" onClick={toggleMenu}>הצטרף לקהילה</Link></li>
+                    </>
+                )}
+
+                {userLoggedIn && (
+                    <>
+                        <li><Link to="/coordinators" onClick={toggleMenu}>רכזי קהילות</Link></li>
+                        <li><Link to="/profile" onClick={toggleMenu}>פרופיל</Link></li>
                         <li>
                             <button className="logout-button" onClick={handleLogout}>
                                 התנתק
@@ -48,9 +62,11 @@ const Menu = () => {
                         </li>
                     </>
                 )}
+
                 {!userLoggedIn && (
                     <>
-                        <li><Link to="/signup" onClick={toggleMenu}>הירשמו</Link></li>
+                        <li><Link to="/user-register" onClick={toggleMenu}>הירשמו כמשתמש</Link></li>
+                        <li><Link to="/coordinator-register" onClick={toggleMenu}>הירשמו כרכז</Link></li>
                         <li><Link to="/login" onClick={toggleMenu}>התחברו</Link></li>
                     </>
                 )}
