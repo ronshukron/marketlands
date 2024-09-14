@@ -133,13 +133,13 @@ li {
 
 .button-container {
     display: flex;
-    justify-content: space-between;
+    justify-content: center; /* Center the buttons horizontally */
     align-items: center;
     gap: 20px;
     margin-top: 20px;
 }
 
-.cancel-button, .submit-button {
+/* .cancel-button, .submit-button {
     color: white;
     border: none;
     border-radius: 5px;
@@ -147,13 +147,43 @@ li {
     transition: all 0.3s ease;
     padding: 10px 20px;
     font-size: 16px;
-    flex: 1;
-    max-width: 200px;
-    height: 50px; /* Ensure equal height for both buttons */
-}
+    flex: 0 1 200px; 
+    height: 50px; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    text-align: center; 
+} */
 
 .cancel-button {
     background-color: #f44336;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    width: 200px;
+
+}
+
+.sub-button{
+    background-color: #4CAF50; /* Add a default background color for the submit button */
+    width: 200px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+
+}
+
+.submit-button {
+    background-color: #4CAF50; /* Add a default background color for the submit button */
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    width: 200px;
 }
 
 .submit-button:disabled {

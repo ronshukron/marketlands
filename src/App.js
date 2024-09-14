@@ -22,6 +22,7 @@ import Footer from './components/Footer';
 import PaymentCancel from './components/PaymentCancel';
 import PaymentSuccess from './components/PaymentSuccess';
 import TermsOfService from './components/TermsOfService';
+import MyOrders from './components/MyOrders';
 
 const App = () => {
   return (
@@ -50,6 +51,7 @@ const App = () => {
           <Route path="/payment-success" element={<PaymentSuccess />} />
           <Route path="/payment-success/*" element={<PaymentSuccess />} />    
           <Route path="/terms-of-service" element={<TermsOfService />} />  
+          <Route path="/my-orders" element={<MyOrders />} />
         </Routes>
         <Footer />
       </AuthProvider>

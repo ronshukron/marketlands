@@ -105,7 +105,7 @@ const OrderDetails = () => {
                     )
                 ))}
             </ul>
-            <button className="delete-button" onClick={handleDeleteOrder}>מחק הזמנה</button>
+            {/* <button className="delete-button" onClick={handleDeleteOrder}>מחק הזמנה</button> */}
         </div>
     );
 };

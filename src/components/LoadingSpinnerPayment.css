@@ -1,0 +1,50 @@
+.payment-processing-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.payment-processing-content {
+    text-align: center;
+}
+
+.payment-spinner {
+    display: inline-block;
+    width: 80px;
+    height: 80px;
+    border: 3px solid rgba(0, 150, 136, 0.3);
+    border-radius: 50%;
+    border-top-color: #009688;
+    animation: spin 1s ease-in-out infinite;
+    -webkit-animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { -webkit-transform: rotate(360deg); }
+}
+@-webkit-keyframes spin {
+    to { -webkit-transform: rotate(360deg); }
+}
+
+.payment-processing-text {
+    margin-top: 20px;
+}
+
+.payment-processing-text h2 {
+    color: #009688;
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+
+.payment-processing-text p {
+    color: #333;
+    font-size: 16px;
+    margin: 5px 0;
+}

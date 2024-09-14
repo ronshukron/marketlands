@@ -1,11 +1,9 @@
-/* src/components/Footer.css */
 .footer {
-    background-color: #ececec;
+    background-color: #333;
     color: white;
-    padding: 40px 20px;
-    position: relative;
-    bottom: 0;
-    width: 100%;
+    padding: 40px 20px 20px;
+    font-family: Arial, sans-serif;
+    direction: rtl; /* Set the main direction to RTL */
 }
 
 .footer-content {
@@ -20,17 +18,18 @@
     flex: 1;
     margin: 20px;
     min-width: 200px;
+    text-align: right; /* Align text to the right */
 }
 
 .footer-section h2 {
-    font-size: 20px;
-    margin-bottom: 20px;
+    font-size: 1.2rem;
+    margin-bottom: 15px;
     color: #f0a500;
 }
 
 .footer-section p, .footer-section ul, .footer-section a {
-    font-size: 16px;
-    color: white;
+    font-size: 0.9rem;
+    color: #ddd;
     text-decoration: none;
 }
 
@@ -44,31 +43,42 @@
 }
 
 .footer-section a:hover {
+    color: #f0a500;
     text-decoration: underline;
 }
 
-.footer-section .fa-icon {
-    margin-right: 10px;
+.social-links {
+    display: flex;
+    justify-content: flex-end; /* Align social links to the right */
+}
+
+.social-links a {
+    margin-left: 15px; /* Change margin-right to margin-left for RTL */
 }
 
 .footer-bottom {
     text-align: center;
-    padding: 20px;
-    background-color: #575757;
+    padding-top: 20px;
+    margin-top: 20px;
+    border-top: 1px solid #555;
 }
 
 .footer-bottom p {
     margin: 0;
-    font-size: 14px;
+    font-size: 0.8rem;
+    color: #aaa;
 }
 
-.footer-section.social a {
-    display: inline-block;
-    margin: 0 10px;
-    color: white;
-    transition: color 0.3s ease;
-}
+@media (max-width: 768px) {
+    .footer-content {
+        flex-direction: column;
+    }
 
-.footer-section.social a:hover {
-    color: #f0a500;
+    .footer-section {
+        margin: 10px 0;
+    }
+
+    .social-links {
+        justify-content: flex-start; /* Align social links to the right on mobile */
+    }
 }

@@ -41,12 +41,18 @@ const PaymentSuccess = () => {
         navigate('/');
     };
 
+    const handleRegister = () => {
+        // Break out of iframe and navigate to registration page
+        window.top.location.href = '/user-register';
+    };
+
     return (
         <div className="payment-success-container">
             <h1>התשלום בוצע בהצלחה</h1>
             <p>תודה רבה על הזמנתך. פרטי ההזמנה נשמרו במערכת.</p>
-            <button onClick={handleBackToHome} className="back-home-button">חזור לדף הבית</button>
-        </div>
+            <p>ניתן לעקוב אחרי ההזמנה שלכם אם נרשמים לאתר באותו אימייל שאיתו ביצעתם את התשלום</p>
+            <button onClick={handleRegister} className="register-button">הירשם לאתר</button>
+            </div>
     );
 };
 

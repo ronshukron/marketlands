@@ -1,11 +1,11 @@
 body {
-  font-family: 'Arial', sans-serif; /* Modern sans-serif font */
+  font-family: 'Arial', sans-serif;
 }
 
 .navbar {
-  background-color: #ffffff; /* Crisp white background */
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* Subtle shadow for a layered effect */
-  padding: 10px 20px; /* Ample padding for a spacious feel */
+  background-color: #ffffff;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  padding: 10px 20px;
 }
 
 .header {
@@ -15,121 +15,152 @@ body {
 }
 
 .title {
-  display: none; /* Hidden by default */
+  display: none;
   font-size: 24px;
   font-weight: bold;
   color: #333;
-  text-align: center; /* Center text */
-  width: 100%; /* Full width */
+  text-align: center;
+  width: 100%;
 }
 
 .hamburger {
-  display: none; /* Hidden by default */
+  display: none;
   cursor: pointer;
-  font-size: 30px; /* Large enough for easy interaction */
-  color: #333; /* Dark gray for contrast */
-  padding: 12px; /* Increased padding for a chunkier icon */
-  position: absolute; /* Absolute positioning */
-  right: 10px; /* Position the hamburger to the right */
+  font-size: 30px;
+  color: #333;
+  padding: 12px;
+  position: absolute;
+  right: 10px;
 }
 
 .menu-list {
   list-style: none;
   padding: 0;
-  margin: 0 auto; /* Centered horizontally */
+  margin: 0 auto;
   display: flex;
-  justify-content: center; /* Center items horizontally */
-  align-items: center; /* Align items vertically */
+  justify-content: center;
+  align-items: center;
 }
 
 .menu-list li {
-  margin: 0 20px; /* Space between menu items */
+  margin: 0 20px;
 }
 
 .menu-list a, .menu-list button {
   text-decoration: none;
-  color: #333; /* Dark gray for readability */
-  font-weight: 500; /* Medium font weight for emphasis */
-  font-size: 16px; /* Optimal size for readability */
-  transition: color 0.3s ease; /* Smooth color transition on hover */
-  padding: 10px 20px; /* Increased padding around links and buttons */
+  color: #333;
+  font-weight: 500;
+  font-size: 16px;
+  transition: color 0.3s ease;
+  padding: 10px 20px;
 }
 
 .menu-list a:hover, .menu-list button:hover {
-  color: #007BFF; /* Bright blue on hover for visual feedback */
+  color: #007BFF;
 }
 
 .logout-button {
   background: none;
   border: none;
-  padding: 10px 20px; /* Match padding of other menu items */
+  padding: 10px 20px;
   cursor: pointer;
-  color: #333; /* Ensure consistent text color */
+  color: #333;
   font-weight: 500;
   font-size: 16px;
   transition: color 0.3s ease;
 }
 
 .logout-button:hover {
-  color: #007BFF; /* Match hover color of other menu items */
+  color: #007BFF;
 }
 
 @media (max-width: 768px) {
   .navbar {
-      padding: 5px 10px; /* Reduced padding for the navbar */
-  }
+    padding: 5px 10px;
+    position: relative;
+    z-index: 1001; /* Ensure navbar is above the overlay */  }
 
   .title {
-      display: block; /* Show title on mobile */
-      font-size: 20px; /* Smaller font size for the title */
+    display: block;
+    font-size: 20px;
+    margin-left: 15px; /* Add left margin */
+    cursor: pointer; /* Make it look clickable */
+  }
+
+  .title a {
+    color: #333;
+    text-decoration: none;
   }
 
   .hamburger {
-      display: block; /* Show hamburger icon on smaller screens */
-      font-size: 25px; /* Smaller font size for the hamburger icon */
-      padding: 8px; /* Reduced padding for the hamburger icon */
+    display: block;
+    font-size: 25px;
+    padding: 8px;
+  }
+
+  .menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 999; /* Just below the menu */
   }
 
   .menu-list {
-      display: none; /* Hide by default on mobile */
-      position: fixed;
-      top: 50px; /* Positioned below the hamburger */
-      left: 0;
-      right: 0;
-      background-color: #f8f9fa; /* Light grey background */
-      flex-direction: column; /* Stack items vertically */
-      width: 100%; /* Full width */
-      z-index: 1000; /* Ensures menu is on top */
-  }
+    display: none;
+    position: fixed;
+    top: 50px; /* Adjust this value to match your navbar height */
+    left: 0;
+    right: 0;
+    bottom: 0; /* Extend to the bottom of the screen */
+    background-color: #f8f9fa;
+    flex-direction: column;
+    width: 100%;
+    z-index: 1000;
+    overflow-y: auto; /* Enable vertical scrolling */
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+    scroll-behavior: smooth;
+    }
 
   .menu-list.open {
-      display: flex; /* Display when menu is open */
-      animation: slideDown 0.3s ease-out forwards; /* Smooth slide down animation */
+    display: flex;
+    animation: slideDown 0.3s ease-out forwards;
   }
 
+  .menu-list::after {
+    content: '';
+    display: block;
+    height: 10px;
+    background: linear-gradient(to top, #f8f9fa, transparent);
+    position: sticky;
+    bottom: 0;
+  }
+  
   .menu-list li {
-      width: 100%; /* Full width for each item */
-      padding: 15px 10px; /* Larger tap area */
-      border-bottom: 1px solid #e7e7e7; /* Subtle separator */
-      text-align: center; /* Center align text */
+    width: 100%;
+    padding: 10px 5px;
+    border-bottom: 1px solid #e7e7e7;
+    text-align: center;
   }
 
   .menu-list a, .menu-list button {
-      display: block; /* Block level for full width access */
-      color: #333; /* Maintain dark gray color for contrast */
+    display: block;
+    color: #333;
   }
 
   .menu-list button {
-      width: 100%; /* Button takes full width */
-      background: transparent; /* No background to blend with the menu */
+    width: 100%;
+    background: transparent;
   }
 }
 
 @keyframes slideDown {
   from {
-      transform: translateY(-100%);
+    transform: translateY(-100%);
   }
   to {
-      transform: translateY(0);
+    transform: translateY(0);
   }
 }

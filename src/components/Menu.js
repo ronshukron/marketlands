@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/authContext';
 import './Menu.css';
@@ -7,7 +7,8 @@ const Menu = () => {
     const { userLoggedIn, signOut, userRole } = useAuth();
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
-
+    const menuRef = useRef(null);
+    
     const toggleMenu = () => {
         setIsOpen(!isOpen);
     };
@@ -23,10 +24,29 @@ const Menu = () => {
         }
     };
 
+    const handleTitleClick = () => {
+        navigate('/');
+    };
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (menuRef.current && !menuRef.current.contains(event.target) && isOpen) {
+                setIsOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isOpen]);
+
     return (
         <nav className="navbar">
             <div className="header">
-                <div className="title">Community Cart</div>
+                <div className="title">
+                    <Link to="/" onClick={handleTitleClick}>Basta Basket</Link>
+                </div>
                 <div className="hamburger" onClick={toggleMenu}>
                     ☰
                 </div>
@@ -40,21 +60,21 @@ const Menu = () => {
                     <>
                         <li><Link to="/create-order" onClick={toggleMenu}>יצירת הזמנה</Link></li>
                         <li><Link to="/dashboard" onClick={toggleMenu}>לוח הזמנות</Link></li>
-                        <li><Link to="/manage-community" onClick={toggleMenu}>ניהול קהילה</Link></li>
+                        {/* <li><Link to="/manage-community" onClick={toggleMenu}>ניהול קהילה</Link></li> */}
                     </>
                 )}
 
                 {userLoggedIn && userRole === 'user' && (
                     <>
                         <li><Link to="/my-orders" onClick={toggleMenu}>ההזמנות שלי</Link></li>
-                        <li><Link to="/join-community" onClick={toggleMenu}>הצטרף לקהילה</Link></li>
+                        {/* <li><Link to="/join-community" onClick={toggleMenu}>הצטרף לקהילה</Link></li> */}
                     </>
                 )}
 
                 {userLoggedIn && (
                     <>
                         <li><Link to="/coordinators" onClick={toggleMenu}>רכזי קהילות</Link></li>
-                        <li><Link to="/profile" onClick={toggleMenu}>פרופיל</Link></li>
+                        {/* <li><Link to="/profile" onClick={toggleMenu}>פרופיל</Link></li> */}
                         <li>
                             <button className="logout-button" onClick={handleLogout}>
                                 התנתק
@@ -71,6 +91,7 @@ const Menu = () => {
                     </>
                 )}
             </ul>
+            {isOpen && <div className="menu-overlay" onClick={toggleMenu}></div>}
         </nav>
     );
 };

@@ -5,6 +5,7 @@ import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from '../firebase/firebase';
 import './OrderConfirmation.css';
 import LoadingSpinner from './LoadingSpinner';
+import LoadingSpinnerPayment from './LoadingSpinnerPayment';
 
 const OrderConfirmation = () => {
     const location = useLocation();
@@ -47,6 +48,8 @@ const OrderConfirmation = () => {
         const memberKey = `Member_${new Date().getTime()}`;
         newMemberData[`${memberKey}.Name`] = userName;
         newMemberData[`${memberKey}.Email`] = userEmail; // Add this line
+        newMemberData[`${memberKey}.Phone`] = userPhone; // Optionally add phone number as well
+        newMemberData[`${memberKey}.Mem_Order_Time`] = new Date().getTime(); // Properly add the order time in milliseconds
         let totalOrderValue = 0;
     
         cartProducts.forEach(product => {
@@ -61,7 +64,8 @@ const OrderConfirmation = () => {
                 totalOrderValue += quantity * product.price;
             }
         });
-    
+        newMemberData[`${memberKey}.OrderValue`] = totalOrderValue; // Optionally add phone number as well
+
         try {
             const orderDocSnap = await getDoc(orderDocRef);
             const currentTotalAmount = orderDocSnap.exists() ? (orderDocSnap.data().Total_Amount || 0) : 0;
@@ -80,7 +84,7 @@ const OrderConfirmation = () => {
                 userEmail,
                 successUrl: 'http://localhost:3000/payment-success/',
                 cancelUrl: 'http://localhost:3000/payment-cancel/',
-                description: `Payment for order farmer goods`,
+                description: `תשלום עבור תוצרת חקלאית`,
             };
     
             console.log("Sending payment data:", paymentData);
@@ -108,7 +112,7 @@ const OrderConfirmation = () => {
     };
 
     if (loading) {
-        return <LoadingSpinner />;
+        return <LoadingSpinnerPayment />;
     }
 
     const handleQuantityChange = (index, increment) => {
@@ -193,9 +197,9 @@ const OrderConfirmation = () => {
 
             <div className="button-container">
                 <button onClick={handleCancel} className="cancel-button">ביטול</button>
-                <button onClick={handleSubmitOrder} disabled={ loading} className="submit-button">
-                    {loading ? 'מעבד הזמנה...' : 'Bit שלם עם'}
-                </button>
+                <button onClick={handleSubmitOrder} className="sub-button">Bit שלם עם</button>
+
+                {/* <button onClick={handleSubmitOrder} className="submit-button"></button> */}
             </div>
 
             {paymentUrl && (
