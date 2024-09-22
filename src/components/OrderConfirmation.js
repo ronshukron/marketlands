@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
-import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, collection } from "firebase/firestore";
 import { db } from '../firebase/firebase';
 import './OrderConfirmation.css';
 import LoadingSpinner from './LoadingSpinner';
@@ -43,48 +43,46 @@ const OrderConfirmation = () => {
         }
     
         setLoading(true);
-        const orderDocRef = doc(db, "Orders", orderId);
-        let newMemberData = {};
-        const memberKey = `Member_${new Date().getTime()}`;
-        newMemberData[`${memberKey}.Name`] = userName;
-        newMemberData[`${memberKey}.Email`] = userEmail; // Add this line
-        newMemberData[`${memberKey}.Phone`] = userPhone; // Optionally add phone number as well
-        newMemberData[`${memberKey}.Mem_Order_Time`] = new Date().getTime(); // Properly add the order time in milliseconds
-        let totalOrderValue = 0;
-    
+        const tempOrderId = `temp_${new Date().getTime()}`; // Generate a temporary ID
+        const tempOrderRef = doc(collection(db, "pendingOrders"), tempOrderId);
+        
+        let newMemberData = {
+            Name: userName,
+            Email: userEmail,
+            Phone: userPhone,
+            Mem_Order_Time: new Date().getTime(),
+            OrderValue: cartProducts.reduce((total, product) => total + (product.quantity * product.price), 0)
+        };
+
         cartProducts.forEach(product => {
-            const quantity = product.quantity;
-            if (quantity > 0) {
-                newMemberData[`${memberKey}.${product.uid}`] = {
+            if (product.quantity > 0) {
+                newMemberData[product.uid] = {
                     Name: product.name,
                     Quantity: product.quantity,
                     Price: product.price,
                     Option: product.selectedOption || "None"
                 };
-                totalOrderValue += quantity * product.price;
             }
         });
-        newMemberData[`${memberKey}.OrderValue`] = totalOrderValue; // Optionally add phone number as well
 
         try {
-            const orderDocSnap = await getDoc(orderDocRef);
-            const currentTotalAmount = orderDocSnap.exists() ? (orderDocSnap.data().Total_Amount || 0) : 0;
-            const updatedTotalAmount = currentTotalAmount + totalOrderValue;
-    
-            await updateDoc(orderDocRef, {
+            // Create temporary order document
+            await setDoc(tempOrderRef, {
                 ...newMemberData,
-                Total_Amount: updatedTotalAmount
+                status: 'pending_payment',
+                createdAt: new Date().toISOString()
             });
     
-            // Debug: Log the data being sent to the server
+            // Call to create Bit payment
             const paymentData = {
-                amount: totalOrderValue,
+                amount: newMemberData.OrderValue,
                 userName,
                 userPhone,
                 userEmail,
-                successUrl: 'http://localhost:3000/payment-success/',
-                cancelUrl: 'http://localhost:3000/payment-cancel/',
+                successUrl: `${window.location.origin}/payment-success/`,
+                cancelUrl: `${window.location.origin}/payment-cancel/`,
                 description: `תשלום עבור תוצרת חקלאית`,
+                tempOrderId // Include the temporary order ID
             };
     
             console.log("Sending payment data:", paymentData);
