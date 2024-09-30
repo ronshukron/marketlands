@@ -100,7 +100,8 @@ const OrderConfirmation = () => {
             });
     
             if (paymentResponse.data.paymentLink) {
-                setPaymentUrl(paymentResponse.data.paymentLink);
+                window.location.href = paymentResponse.data.paymentLink;
+                // setPaymentUrl(paymentResponse.data.paymentLink); // for iframe Open the payment link in an iframe 
             } else {
                 console.error('Failed to create payment link');
             }
@@ -207,7 +208,7 @@ const OrderConfirmation = () => {
                 {/* <button onClick={handleSubmitOrder} className="submit-button"></button> */}
             </div>
 
-            {paymentUrl && (
+            {/* {paymentUrl && (                                  // for iframe
                 <div className="payment-iframe-container">
                     <iframe 
                         src={paymentUrl} 
@@ -216,7 +217,7 @@ const OrderConfirmation = () => {
                         title="Bit Payment"
                     />
                 </div>
-            )}
+            )} */}
 
             {showPopup && (
                 <div className="popup">

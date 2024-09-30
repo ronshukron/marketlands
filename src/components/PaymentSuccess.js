@@ -51,8 +51,10 @@ const PaymentSuccess = () => {
             <h1>התשלום בוצע בהצלחה</h1>
             <p>תודה רבה על הזמנתך. פרטי ההזמנה נשמרו במערכת.</p>
             <p>ניתן לעקוב אחרי ההזמנה שלכם אם נרשמים לאתר באותו אימייל שאיתו ביצעתם את התשלום</p>
-            <button onClick={handleRegister} className="register-button">הירשם לאתר</button>
+            <div className="buttons-container">
+                <button onClick={handleRegister} className="register-button">הירשם לאתר</button>
             </div>
+        </div>
     );
 };
 
