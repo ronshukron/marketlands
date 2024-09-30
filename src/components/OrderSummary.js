@@ -42,9 +42,11 @@ const OrderSummary = () => {
     };
 
     const calculateMemberTotal = (memberDetails) => {
-        return Object.values(memberDetails).filter(item => typeof item === 'object' && item.Quantity).reduce((total, item) => {
-            return total + (item.Quantity * item.Price);
-        }, 0);
+        return Object.values(memberDetails)
+            .filter(item => typeof item === 'object' && item.Quantity)
+            .reduce((total, item) => {
+                return total + (item.Quantity * item.Price);
+            }, 0);
     };
 
     if (loading) {
@@ -71,11 +73,13 @@ const OrderSummary = () => {
                     <div key={index} className="order-member">
                         <h3>{orderData[memberKey].Name} - סה"כ: ₪{memberTotal}</h3>
                         <ul>
-                            {Object.entries(orderData[memberKey]).filter(([key,]) => key !== 'Name').map(([productKey, productDetails], idx) => (
-                                <li key={idx}>
-                                    {productKey.split('_')[0]} ({productDetails.Option}): {productDetails.Quantity} יחידות ₪{productDetails.Price} 
-                                </li>
-                            ))}
+                            {Object.entries(orderData[memberKey])
+                                .filter(([key, value]) => typeof value === 'object' && value.Quantity)
+                                .map(([productKey, productDetails], idx) => (
+                                    <li key={idx}>
+                                        {productDetails.Name} ({productDetails.Option}): {productDetails.Quantity} יחידות ₪{productDetails.Price}
+                                    </li>
+                                ))}
                         </ul>
                     </div>
                 );

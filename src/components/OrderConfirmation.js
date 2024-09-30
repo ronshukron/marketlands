@@ -22,6 +22,10 @@ const OrderConfirmation = () => {
     const [agreeToTerms, setAgreeToTerms] = useState(false);
 
     useEffect(() => {
+        window.scrollTo(0, 0);
+    }, []);
+
+    useEffect(() => {
         const isValid = userName.trim() !== '' && 
                         userPhone.trim() !== '' && 
                         userEmail.trim() !== '' &&
@@ -70,7 +74,8 @@ const OrderConfirmation = () => {
             await setDoc(tempOrderRef, {
                 ...newMemberData,
                 status: 'pending_payment',
-                createdAt: new Date().toISOString()
+                createdAt: new Date().toISOString(),
+                orderId: orderId // Include the orderId from the Orders collection
             });
     
             // Call to create Bit payment
@@ -82,7 +87,8 @@ const OrderConfirmation = () => {
                 successUrl: `${window.location.origin}/payment-success/`,
                 cancelUrl: `${window.location.origin}/payment-cancel/`,
                 description: `תשלום עבור תוצרת חקלאית`,
-                tempOrderId // Include the temporary order ID
+                tempOrderId, // Include the temporary order ID
+                orderId // Include the orderId from the Orders collection
             };
     
             console.log("Sending payment data:", paymentData);
@@ -182,15 +188,16 @@ const OrderConfirmation = () => {
             </div>
 
             <div className="terms-agreement">
+                <label htmlFor="agreeToTerms">
+                    קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank">-תנאי השימוש</Link>
+                </label>
                 <input className='terms-checkbox'
                     type="checkbox" 
                     id="agreeToTerms" 
                     checked={agreeToTerms}
                     onChange={(e) => setAgreeToTerms(e.target.checked)}
                 />
-                <label htmlFor="agreeToTerms">
-                    קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank">-תנאי השימוש</Link>
-                </label>
+
             </div>
 
             <div className="button-container">
