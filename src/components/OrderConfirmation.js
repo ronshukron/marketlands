@@ -21,9 +21,6 @@ const OrderConfirmation = () => {
     const [showPopup, setShowPopup] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
 
-    useEffect(() => {
-        window.scrollTo(0, 0);
-    }, []);
 
     useEffect(() => {
         const isValid = userName.trim() !== '' && 
@@ -150,7 +147,7 @@ const OrderConfirmation = () => {
             <h3>סה"כ: {total.toFixed(2)}₪</h3>
             
             <div className="user-details-container">
-                <h3>פרטי המזמין</h3>
+                <h3>פרטי תשלום</h3>
                 <div className="user-details">
                     <div className={`input-group ${userName.trim() === '' ? 'invalid' : ''}`}>
                         <label htmlFor="userName">שם מלא</label>
@@ -203,7 +200,7 @@ const OrderConfirmation = () => {
 
             <div className="button-container">
                 <button onClick={handleCancel} className="cancel-button">ביטול</button>
-                <button onClick={handleSubmitOrder} className="sub-button">Bit שלם עם</button>
+                <button onClick={handleSubmitOrder} className="sub-button">עבור לדף תשלום</button>
 
                 {/* <button onClick={handleSubmitOrder} className="submit-button"></button> */}
             </div>

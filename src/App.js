@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import ScrollToTop from './components/ScrollToTop';
 import { AuthProvider } from "./contexts/authContext";
 import Menu from './components/Menu';
 import Home from './components/Home';
@@ -23,10 +24,12 @@ import PaymentCancel from './components/PaymentCancel';
 import PaymentSuccess from './components/PaymentSuccess';
 import TermsOfService from './components/TermsOfService';
 import MyOrders from './components/MyOrders';
+import './App.css';
 
 const App = () => {
   return (
     <Router>
+      <ScrollToTop />
       <AuthProvider>
         <Menu />
         <Routes>

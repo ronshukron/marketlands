@@ -18,6 +18,7 @@ const OrderForm = () => {
     const [nameValid, setNameValid] = useState(true);
     const [cartProducts, setCartProducts] = useState([]);
     const navigate = useNavigate();
+    const isCartEmpty = cartProducts.length === 0;
 
     useEffect(() => {
         const fetchOrderDetails = async () => {
@@ -60,7 +61,7 @@ const OrderForm = () => {
                 }));
             setProducts(extractedProducts.map(product => ({
                 ...product,
-                selectedOption: "", // Default to empty string for placeholder
+                selectedOption: product.options && product.options.length > 0 ? product.options[0] : "", // Set default to first option if available
                 quantity: 0,
                 uid: `${product.name}_${Math.random().toString(36).substr(2, 9)}` // Unique identifier for each entry
             })));
@@ -99,7 +100,8 @@ const OrderForm = () => {
                 icon: 'error',
                 title: 'בחר אפשרות למוצר',
                 text: 'אנא בחר אפשרות לפני הוספה לסל הקניות',
-                showConfirmButton: false,
+                showConfirmButton: true,
+                confirmButtonText: 'אישור', 
                 timer: 3000
             });
             return;
@@ -110,7 +112,8 @@ const OrderForm = () => {
                 icon: 'error',
                 title: 'הוסיפו כמות גדולה מ-0',
                 text: '',
-                showConfirmButton: false,
+                showConfirmButton: true,
+                confirmButtonText: 'אישור', 
                 timer: 3000
             });
         } else {
@@ -130,7 +133,8 @@ const OrderForm = () => {
                 icon: 'success',
                 title: 'המוצר נוסף בהצלחה לסל הקניות',
                 text: 'תוכלו לראות את כל המוצרים שהוספתם בדף סיכום הזמנה',
-                showConfirmButton: false,
+                showConfirmButton: true,
+                confirmButtonText: 'אישור', 
                 timer: 5500
             });
         }
@@ -142,7 +146,8 @@ const OrderForm = () => {
                 icon: 'error',
                 title: 'הסל שלך ריק',
                 text: 'אנא הוסף מוצרים לסל הקניות לפני המעבר לדף הסיכום',
-                showConfirmButton: false,
+                showConfirmButton: true,
+                confirmButtonText: 'אישור', 
                 timer: 3000
             });
             return;
@@ -177,7 +182,6 @@ const OrderForm = () => {
             </div>
             <div className="instructions">
                 <h4>הסבר שימוש</h4>
-                <p>הכנס את שמך-</p>
                 <p>בחר מוצר, אופציה וכמות-</p>
                 <p>לחץ על הוסף לסל-</p>
                 <p>לחץ עבור לסיכום הזמנה-</p>
@@ -186,8 +190,8 @@ const OrderForm = () => {
             </div>
             {products.map((product, index) => (
                 <div key={index} className="product-item">
-                    <h3 className="product-name">{product.name}</h3>
-                    <p className="product-price">₪{product.price}</p>
+                    <h3 className="product-name">{product.name} - ₪ {product.price}</h3>
+                    {/* <p className="product-price">₪{product.price}</p> */}
                     <p className="product-description">{product.description}</p>
                     {product.images.length > 0 && (
                         <Slider className="slider" {...settings}>
@@ -206,7 +210,7 @@ const OrderForm = () => {
                                 value={product.selectedOption}
                                 onChange={(e) => handleOptionChange(index, e.target.value)}
                             >
-                                <option value="" disabled>בחר אפשרות</option>
+                                <option value="" disabled>בחר אפשרות</option> // Commented out to allow default selection
                                 {product.options.map((option, idx) => (
                                     <option key={idx} value={option}>{option}</option>
                                 ))}
@@ -239,19 +243,27 @@ const OrderForm = () => {
                 <button onClick={handleSubmitOrder} className="submit-button">עבור לסיכום הזמנה וצפייה בסל הקניות שלך</button>
             </div>
         {/* Floating Cart */}
-        <div className="floating-cart">
+        <div className={`floating-cart ${isCartEmpty ? 'collapsed' : ''}`}>
             <h2>הסל שלי</h2>
             <div className="cart-items">
-                {cartProducts.map((product) => (
-                    <div key={product.uid} className="cart-item">
-                        <span>{product.quantity} x {product.price}₪</span>
-                        <span>{product.name} - {product.selectedOption}</span>
-                        <button className="remove-from-cart" onClick={() => removeFromCart(product.uid)}>X</button>
+                {cartProducts.length > 0 ? (
+                    <div className="cart-items-list">
+                        {cartProducts.map((product) => (
+                            <div key={product.uid} className="cart-item">
+                                <span>{product.quantity} x {product.price}₪</span>
+                                <span>{product.name}{product.selectedOption ? ` - ${product.selectedOption}` : ''}</span>
+                                <button className="remove-from-cart" onClick={() => removeFromCart(product.uid)}>X</button>
+                            </div>
+                        ))}
                     </div>
-                ))}
+                ) : (
+                    <div className="empty-cart-message">
+                        <p>הסל ריק</p>
+                    </div>
+                )}
             </div>
-            <button className="cart-submit-button" onClick={handleSubmitOrder}>עבור לסיכום הזמנה וצפייה בסל הקניות שלך</button>
-        </div>
+            <button className="cart-submit-button" onClick={handleSubmitOrder}>לסיכום הזמנה וצפייה בסל הקניות</button>
+        </div>        
         </div>
     );};
 

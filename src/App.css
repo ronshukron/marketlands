@@ -1,3 +1,6 @@
+/* src/index.css or src/App.css */
+@import url('https://fonts.googleapis.com/css2?family=Alef&display=swap');
+
 .App {
   text-align: center;
 }
@@ -22,6 +25,10 @@
   justify-content: center;
   font-size: calc(10px + 2vmin);
   color: white;
+}
+
+body {
+  font-family: 'Alef', sans-serif;
 }
 
 .App-link {

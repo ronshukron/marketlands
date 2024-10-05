@@ -1,5 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Pacifico&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Dancing+Scripto&display=swap');
+
+@import url('https://fonts.googleapis.com/css2?family=Satisfy&display=swap');
+
+@import url('https://fonts.googleapis.com/css2?family=Lobster&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Alex+Brush&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cookie&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Allura&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Amatic+SC&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sacramento&display=swap');
+
+
 body {
-  font-family: 'Arial', sans-serif;
+  font-family: 'Alef', sans-serif;
 }
 
 .navbar {
@@ -82,14 +97,16 @@ body {
 
   .title {
     display: block;
-    font-size: 20px;
+    font-size: 24px;
     margin-left: 15px; /* Add left margin */
     cursor: pointer; /* Make it look clickable */
+    font-family: 'Lobster', sans-serif; /* Apply the new font here */
   }
 
   .title a {
     color: #333;
     text-decoration: none;
+    font-family: inherit; /* Ensure the link inherits the font */
   }
 
   .hamburger {

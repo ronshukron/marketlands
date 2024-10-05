@@ -47,13 +47,13 @@ const UserRegister = () => {
           placeholder="שם מלא" 
           required 
         />
-        <input 
+        {/* <input 
           type="tel" 
           value={phone} 
           onChange={(e) => setPhone(e.target.value)} 
           placeholder="טלפון" 
           required 
-        />
+        /> */}
         <button type="submit">הירשם</button>
       </form>
       {error && <p className="auth-form-error">{error}</p>}
