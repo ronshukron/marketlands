@@ -42,6 +42,13 @@ const OrderConfirmation = () => {
             alert('יש לאשר את תנאי השימוש לפני ביצוע ההזמנה');
             return;
         }
+
+        const orderHasEnded = await checkIfOrderEnded();
+        if (orderHasEnded) {
+            alert('ההזמנה הסתיימה. לא ניתן לבצע הזמנה.');
+            navigate(`/order-form/${orderId}`);
+            return;
+        }
     
         setLoading(true);
         const tempOrderId = `temp_${new Date().getTime()}`; // Generate a temporary ID
@@ -112,6 +119,31 @@ const OrderConfirmation = () => {
     const handleCancel = () => {
         navigate(`/order-form/${orderId}`);
     };
+
+    const checkIfOrderEnded = async () => {
+        try {
+            const orderDoc = doc(db, "Orders", orderId);
+            const docSnap = await getDoc(orderDoc);
+    
+            if (docSnap.exists()) {
+                const orderData = docSnap.data();
+                if (orderData.Ending_Time) {
+                    const endingTime = orderData.Ending_Time.toDate();
+                    const currentTime = new Date();
+                    if (currentTime >= endingTime) {
+                        return true; // Order has ended
+                    }
+                }
+            } else {
+                console.log("Order does not exist!");
+                navigate('/error');
+            }
+        } catch (error) {
+            console.error("Error checking if order has ended:", error);
+        }
+        return false; // Order has not ended
+    };
+    
 
     if (loading) {
         return <LoadingSpinnerPayment />;

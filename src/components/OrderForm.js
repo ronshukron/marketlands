@@ -154,7 +154,20 @@ const OrderForm = () => {
         }
     };
 
-    const handleSubmitOrder = () => {
+    const handleSubmitOrder = async () => {
+        const orderHasEnded = await checkIfOrderEnded();
+        if (orderHasEnded) {
+            Swal.fire({
+                icon: 'error',
+                title: 'ההזמנה הסתיימה',
+                text: 'צר לנו, אבל זמן ההזמנה הזו כבר הסתיימה.',
+                showConfirmButton: true,
+                confirmButtonText: 'אישור',
+                timer: 3000
+            });
+            return;
+        }
+
         if (cartProducts.length === 0) {
             Swal.fire({
                 icon: 'error',
@@ -168,6 +181,33 @@ const OrderForm = () => {
         }
         navigate('/order-confirmation', { state: { cartProducts, userName, orderId } });
     };
+
+    const checkIfOrderEnded = async () => {
+        try {
+            const orderDoc = doc(db, "Orders", orderId);
+            const docSnap = await getDoc(orderDoc);
+    
+            if (docSnap.exists()) {
+                const orderData = docSnap.data();
+                if (orderData.Ending_Time) {
+                    const endingTime = orderData.Ending_Time.toDate();
+                    const currentTime = new Date();
+                    if (currentTime >= endingTime) {
+                        setOrderEnded(true);
+                        setCartProducts([]); // Clear the cart if necessary
+                        return true; // Order has ended
+                    }
+                }
+            } else {
+                console.log("Order does not exist!");
+                navigate('/error');
+            }
+        } catch (error) {
+            console.error("Error checking if order has ended:", error);
+        }
+        return false; // Order has not ended
+    };
+    
     
     if (loading) {
         return <LoadingSpinner />;

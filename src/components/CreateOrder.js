@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { db, auth } from '../firebase/firebase';
-import { collection, addDoc, getDocs } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, getDoc} from "firebase/firestore";
 import './CreateOrder.css';  // Ensure this path is correct
 import LoadingSpinner from './LoadingSpinner';
 import Swal from 'sweetalert2'; // Import SweetAlert2
+import communityToRegion from '../utils/communityToRegion'; // Adjust the path as necessary
 
 const CreateOrder = () => {
     const [producers, setProducers] = useState([]);
@@ -80,6 +81,21 @@ const CreateOrder = () => {
 
         try {
             const producer = producers.find(p => p.id === selectedProducerId);
+            // Fetch coordinator's data
+            const userDoc = doc(db, 'coordinators', user.uid);
+            const userSnap = await getDoc(userDoc);
+            let coordinatorCommunity = '';
+            if (userSnap.exists()) {
+                const userData = userSnap.data();
+                coordinatorCommunity = userData.community;
+            } else {
+                console.log('Coordinator user document not found.');
+                alert('אירעה שגיאה בעת יצירת ההזמנה.');
+                return;
+            }
+
+            const coordinatorRegion = communityToRegion[coordinatorCommunity] || 'אחר';
+
             const docRef = await addDoc(collection(db, "Orders"), {
                 Coordinator_Email: user.email, 
                 Producer_ID: selectedProducerId,
@@ -87,6 +103,8 @@ const CreateOrder = () => {
                 Order_Time: currentTime,
                 Ending_Time: endingTime,
                 Producer_Name: producer.name,
+                Coordinator_Community: coordinatorCommunity,
+                Coordinator_Region: coordinatorRegion,
             });
             const newLink = `${window.location.origin}/order-form/${docRef.id}`;
             setLink(newLink);
