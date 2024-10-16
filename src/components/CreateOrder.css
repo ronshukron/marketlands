@@ -3,6 +3,7 @@
     max-width: 1000px; /* Adjust max-width as necessary */
     margin: auto;
     background: #f4f4f4; /* Ensuring the background is visible */
+    direction: rtl;
 }
 
 .create-order-header {
@@ -82,4 +83,23 @@
 .link-container {
     margin-top: 20px;
     text-align: center;
+}
+
+.duration-select {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+    font-size: 16px;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    text-align: right;
+}
+
+.duration-explanation {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 10px;
+    text-align: right;
 }

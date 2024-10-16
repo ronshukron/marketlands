@@ -53,11 +53,11 @@ const Menu = () => {
             </div>
             <ul className={`menu-list ${isOpen ? 'open' : ''}`}>
                 <li><Link to="/" onClick={toggleMenu}>בית</Link></li>
-                <li><Link to="/producers" onClick={toggleMenu}>ספקים</Link></li>
                 <li><Link to="/contact" onClick={toggleMenu}>צור קשר</Link></li>
                 
                 {userLoggedIn && userRole === 'coordinator' && (
                     <>
+                        <li><Link to="/producers" onClick={toggleMenu}>ספקים</Link></li>
                         <li><Link to="/create-order" onClick={toggleMenu}>יצירת הזמנה</Link></li>
                         <li><Link to="/dashboard" onClick={toggleMenu}>לוח הזמנות</Link></li>
                         {/* <li><Link to="/manage-community" onClick={toggleMenu}>ניהול קהילה</Link></li> */}

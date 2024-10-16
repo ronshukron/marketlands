@@ -15,6 +15,7 @@ const CreateOrder = () => {
     const [user] = useAuthState(auth);
     const [link, setLink] = useState('');
     const [loading, setLoading] = useState(true);
+    const [selectedDuration, setSelectedDuration] = useState(''); // New state for duration
 
     useEffect(() => {
         fetchProducers();
@@ -39,18 +40,52 @@ const CreateOrder = () => {
         setSelectedProducerId(producerId);
     };
 
+    // Function to calculate ending date based on duration
+    const calculateEndingDate = (duration) => {
+        const currentTime = new Date();
+        switch (duration) {
+            case '3_days':
+                currentTime.setDate(currentTime.getDate() + 3);
+                break;
+            case '5_days':
+                currentTime.setDate(currentTime.getDate() + 5);
+                break;
+            case '1_week':
+                currentTime.setDate(currentTime.getDate() + 7);
+                break;
+            case '2_weeks':
+                currentTime.setDate(currentTime.getDate() + 14);
+                break;
+            case '1_month':
+                currentTime.setMonth(currentTime.getMonth() + 1);
+                break;
+            default:
+                return null;
+        }
+        return currentTime;
+    };
+
     const handleCreateOrder = async () => {
-        if (!selectedProducerId || !orderName.trim()) {
-            alert("Please select a producer and enter an order name.");
+        if (!selectedProducerId || !orderName.trim() || !selectedDuration) {
+            alert("אנא בחרו ספק, הזינו שם הזמנה, ובחרו זמן סיום.");
             return;
         }
+        
+        const currentTime = new Date();
+        const endingTime = calculateEndingDate(selectedDuration);
+        if (!endingTime) {
+            alert("אנא בחרו משך זמן תקין.");
+            return;
+        }
+
         try {
             const producer = producers.find(p => p.id === selectedProducerId);
             const docRef = await addDoc(collection(db, "Orders"), {
                 Coordinator_Email: user.email, 
                 Producer_ID: selectedProducerId,
                 Order_Name: orderName,
-                Order_Time: new Date(),
+                Order_Time: currentTime,
+                Ending_Time: endingTime,
                 Producer_Name: producer.name,
             });
             const newLink = `${window.location.origin}/order-form/${docRef.id}`;
@@ -67,7 +102,7 @@ const CreateOrder = () => {
           console.error("Error adding document: ", e);
         }
     };
-
+    
     if (loading) {
         return <LoadingSpinner />;
     }
@@ -82,6 +117,21 @@ const CreateOrder = () => {
                 value={orderName}
                 onChange={(e) => setOrderName(e.target.value)}
             />
+            <p className="ending-time-explanation">
+                אנא בחרו את משך הזמן עד סיום ההזמנה:
+            </p>
+            <select
+                className="duration-select"
+                value={selectedDuration}
+                onChange={(e) => setSelectedDuration(e.target.value)}
+            >
+                <option value="" disabled>בחרו משך זמן</option>
+                <option value="3_days">3 ימים</option>
+                <option value="5_days">5 ימים</option>
+                <option value="1_week">שבוע</option>
+                <option value="2_weeks">שבועיים</option>
+                <option value="1_month">חודש</option>
+            </select>
             <div className="producer-grid">
                 {producers.map(producer => (
                     <div

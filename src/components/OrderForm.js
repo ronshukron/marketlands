@@ -19,14 +19,28 @@ const OrderForm = () => {
     const [cartProducts, setCartProducts] = useState([]);
     const navigate = useNavigate();
     const isCartEmpty = cartProducts.length === 0;
-
+    const [orderDetails, setOrderDetails] = useState({});
+    const [orderEnded, setOrderEnded] = useState(false);
+    
     useEffect(() => {
         const fetchOrderDetails = async () => {
             const orderDoc = doc(db, "Orders", orderId);
             const docSnap = await getDoc(orderDoc);
 
             if (docSnap.exists()) {
-                fetchProducerDetails(docSnap.data().Producer_ID);
+                const orderData = docSnap.data();
+                setOrderDetails(orderData);
+                fetchProducerDetails(orderData.Producer_ID);
+
+                // Check if order has ended
+                if (orderData.Ending_Time) {
+                    const endingTime = orderData.Ending_Time.toDate();
+                    const currentTime = new Date();
+                    if (currentTime >= endingTime) {
+                        setOrderEnded(true);
+                    }
+                }
+
             } else {
                 console.log("No such document!");
                 navigate('/error');
@@ -157,6 +171,17 @@ const OrderForm = () => {
     
     if (loading) {
         return <LoadingSpinner />;
+    }
+
+    if (orderEnded) {
+        return (
+            <div className="order-form-container">
+                <div className="order-ended-message">
+                    <h1>ההזמנה הסתיימה</h1>
+                    <p>צר לנו, אבל זמן ההזמנה הזו כבר הסתיימה.</p>
+                </div>
+            </div>
+        );
     }
 
     // Slider settings
