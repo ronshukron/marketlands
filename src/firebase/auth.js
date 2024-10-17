@@ -38,7 +38,7 @@ export const doSignInWithGoogle = async (collection) => {
     email: user.email,
     displayName: user.displayName,
     photoURL: user.photoURL,
-    role: collection === 'coordinators' ? 'coordinator' : 'user',
+    role: collection === 'coordinators' ? 'coordinator' : (collection === 'businesses' ? 'business' : 'user'),
     createdAt: new Date()
   }, { merge: true });
 

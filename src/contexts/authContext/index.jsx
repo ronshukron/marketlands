@@ -27,34 +27,45 @@ export function AuthProvider({ children }) {
     if (user) {
       setCurrentUser({ ...user });
       setUserLoggedIn(true);
-
+  
       // Check if provider is email and password login
       const isEmail = user.providerData.some(
         (provider) => provider.providerId === "password"
       );
       setIsEmailUser(isEmail);
-
+  
       // Check if the auth provider is Google
       const isGoogle = user.providerData.some(
         (provider) => provider.providerId === "google.com"
       );
       setIsGoogleUser(isGoogle);
-
+  
       // Fetch user role from Firestore
       try {
+        let userRole = 'user'; // Default role if not found in any collection
+  
+        // Check in 'users' collection
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists()) {
-          setUserRole(userDoc.data().role);
+          userRole = userDoc.data().role;
         } else {
+          // Check in 'coordinators' collection
           const coordinatorDocRef = doc(db, 'coordinators', user.uid);
           const coordinatorDoc = await getDoc(coordinatorDocRef);
           if (coordinatorDoc.exists()) {
-            setUserRole('coordinator');
+            userRole = 'coordinator';
           } else {
-            setUserRole('user'); // Default role if not found in either collection
+            // Check in 'businesses' collection
+            const businessDocRef = doc(db, 'businesses', user.uid);
+            const businessDoc = await getDoc(businessDocRef);
+            if (businessDoc.exists()) {
+              userRole = 'business';
+            }
           }
         }
+  
+        setUserRole(userRole);
       } catch (error) {
         console.error("Error fetching user role:", error);
         setUserRole('user'); // Default to 'user' in case of error
@@ -66,6 +77,7 @@ export function AuthProvider({ children }) {
     }
     setLoading(false);
   }
+  
 
   const signOut = () => {
     return doSignOut().then(() => {

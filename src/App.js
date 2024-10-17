@@ -26,6 +26,9 @@ import TermsOfService from './components/TermsOfService';
 import MyOrders from './components/MyOrders';
 import './App.css';
 import OngoingOrders from './components/OngoingOrders';
+import BusinessRegister from './components/auth/BusinessRegister';
+import BusinessDashBoard from './components/businesses/BusinessDashBoard.js';
+import BusinessProducts from './components/businesses/BusinessProducts';
 
 const App = () => {
   return (
@@ -57,6 +60,9 @@ const App = () => {
           <Route path="/terms-of-service" element={<TermsOfService />} />  
           <Route path="/my-orders" element={<MyOrders />} />
           <Route path="/ongoing-orders" element={<OngoingOrders />} />
+          <Route path="/business-register" element={<BusinessRegister />} />
+          <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
+          <Route path="/Business-Products" element={<BusinessProducts />} />
         </Routes>
         <Footer />
       </AuthProvider>

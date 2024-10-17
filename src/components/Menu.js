@@ -84,10 +84,18 @@ const Menu = () => {
                     </>
                 )}
 
+                {userLoggedIn && userRole === 'business' && (
+                    <>
+                        <li><Link to="/Business-DashBoard" onClick={toggleMenu}>החנות שלי</Link></li>
+                        <li><Link to="/Business-Products" onClick={toggleMenu}>המוצרים שלי</Link></li>
+                    </>
+                )}
+
                 {!userLoggedIn && (
                     <>
                         <li><Link to="/user-register" onClick={toggleMenu}>הירשמו כמשתמש</Link></li>
                         <li><Link to="/coordinator-register" onClick={toggleMenu}>הירשמו כרכז</Link></li>
+                        <li><Link to="/business-register" onClick={toggleMenu}>הירשמו כעסק</Link></li>
                         <li><Link to="/login" onClick={toggleMenu}>התחברו</Link></li>
                     </>
                 )}

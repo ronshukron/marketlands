@@ -1,0 +1,59 @@
+.business-dashboard-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: auto;
+  background: #f9f9f9;
+}
+
+.business-dashboard-header {
+  text-align: center;
+  font-size: 2em;
+  margin-bottom: 20px;
+  color: #333;
+}
+
+.my-products-button {
+  display: block;
+  margin: 0 auto 20px;
+  padding: 10px 20px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+.my-products-button:hover {
+  background-color: #45a049;
+}
+
+.orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.order-item {
+  padding: 15px;
+  border: 1px solid #ddd;
+  background-color: #fff;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: box-shadow 0.3s;
+}
+
+.order-item:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.order-item h3 {
+  margin: 0;
+  font-size: 1.5em;
+  color: #333;
+}
+
+.order-item p {
+  margin: 5px 0;
+  color: #666;
+}
