@@ -1,12 +1,14 @@
+// src/components/Dashboard.js
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { db, auth } from '../firebase/firebase'; // Make sure the path is correct
-import { useAuthState } from 'react-firebase-hooks/auth'; // for Firebase auth
-import './Dashboard.css'; // CSS for styling the dashboard
-import { format } from 'date-fns'; // You may need to install date-fns if not already installed
+import { db, auth } from '../firebase/firebase';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import './Dashboard.css';
+import { format } from 'date-fns';
 import LoadingSpinner from './LoadingSpinner';
-import Swal from 'sweetalert2'; // Import SweetAlert2
+import Swal from 'sweetalert2';
 
 const Dashboard = () => {
     const [orders, setOrders] = useState([]);
@@ -21,43 +23,78 @@ const Dashboard = () => {
     }, [user]);
 
     const fetchOrders = async () => {
-        const ordersRef = collection(db, "Orders");
-        const q = query(ordersRef, where("Coordinator_Email", "==", user.email));
-        const querySnapshot = await getDocs(q);
-        const fetchedOrders = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            Order_Time: doc.data().Order_Time ? doc.data().Order_Time.toDate() : null,
-        }));
+        setLoading(true);
+        try {
+            // Fetch farmer orders where the user is the coordinator
+            const farmerOrdersRef = collection(db, "Orders");
+            const farmerOrdersQuery = query(farmerOrdersRef, where("Coordinator_Email", "==", user.email));
+            const farmerOrdersSnapshot = await getDocs(farmerOrdersQuery);
+            const fetchedFarmerOrders = farmerOrdersSnapshot.docs.map(doc => ({
+                id: doc.id,
+                orderType: 'farmer',
+                ...doc.data(),
+                Order_Time: doc.data().Order_Time ? doc.data().Order_Time.toDate() : null,
+            }));
 
-        // Sort orders by date, with the latest date first
-        const sortedOrders = fetchedOrders.sort((a, b) => b.Order_Time - a.Order_Time);
+            // Fetch business orders where the user is the business owner
+            const businessOrdersRef = collection(db, "Orders");
+            const businessOrdersQuery = query(businessOrdersRef, where("businessEmail", "==", user.email));
+            const businessOrdersSnapshot = await getDocs(businessOrdersQuery);
+            const fetchedBusinessOrders = businessOrdersSnapshot.docs.map(doc => ({
+                id: doc.id,
+                orderType: 'business',
+                ...doc.data(),
+                createdAt: doc.data().createdAt ? doc.data().createdAt.toDate() : null,
+            }));
 
-        setOrders(sortedOrders.map(order => ({
-            ...order,
-            Order_Time: order.Order_Time ? formatDate(order.Order_Time) : 'No date',
-        })));
+            // Combine orders
+            const combinedOrders = [...fetchedFarmerOrders, ...fetchedBusinessOrders];
 
-        setLoading(false);
+            // Sort orders by date, with the latest date first
+            const sortedOrders = combinedOrders.sort((a, b) => {
+                const dateA = a.Order_Time || a.createdAt;
+                const dateB = b.Order_Time || b.createdAt;
+                return dateB - dateA;
+            });
+
+            setOrders(sortedOrders.map(order => ({
+                ...order,
+                displayDate: order.Order_Time ? formatDate(order.Order_Time) : order.createdAt ? formatDate(order.createdAt) : 'No date',
+            })));
+
+            setLoading(false);
+        } catch (error) {
+            console.error('Error fetching orders:', error);
+            setLoading(false);
+        }
     };
 
     const formatDate = (date) => {
         return format(date, 'PPpp');
     };
 
-    const handleRowClick = (orderId) => {
-        navigate(`/order-summary/${orderId}`);
+    const handleRowClick = (order) => {
+        if (order.orderType === 'farmer') {
+            navigate(`/order-summary/${order.id}`);
+        } else if (order.orderType === 'business') {
+            navigate(`/business-order-summary/${order.id}`);
+        }
     };
 
-    const handleCopyLink = (e, orderId) => {
+    const handleCopyLink = (e, order) => {
         e.stopPropagation(); // Prevents the row click event
-        const link = `${window.location.origin}/order-form/${orderId}`;
+        let link = '';
+        if (order.orderType === 'farmer') {
+            link = `${window.location.origin}/order-form/${order.id}`;
+        } else if (order.orderType === 'business') {
+            link = `${window.location.origin}/order-form-business/${order.id}`;
+        }
         navigator.clipboard.writeText(link)
             .then(() => {
                 Swal.fire({
                     icon: 'success',
                     title: 'הקישור הועתק',
-                    text: 'הקישור להזמנה הועתק למקלדת שלך',
+                    text: 'הקישור להזמנה הועתק ללוח שלך',
                     showConfirmButton: false,
                     timer: 1500
                 });
@@ -77,7 +114,7 @@ const Dashboard = () => {
                     <thead>
                         <tr>
                             <th>שם הזמנה</th>
-                            <th>זמן</th>
+                            <th>תאריך</th>
                             <th>ספק</th>
                             <th>עלות כוללת</th>
                             <th>קישור להזמנה</th>
@@ -85,13 +122,13 @@ const Dashboard = () => {
                     </thead>
                     <tbody>
                         {orders.map(order => (
-                            <tr key={order.id} onClick={() => handleRowClick(order.id)}>
-                                <td>{order.Order_Name}</td>
-                                <td>{order.Order_Time}</td>
-                                <td>{order.Producer_Name}</td>
-                                <td>{order.Total_Amount}₪</td>
+                            <tr key={order.id} onClick={() => handleRowClick(order)}>
+                                <td>{order.Order_Name || order.orderName}</td>
+                                <td>{order.displayDate}</td>
+                                <td>{order.Producer_Name || order.businessName}</td>
+                                <td>{order.Total_Amount ? `${order.Total_Amount}₪` : 'N/A'}</td>
                                 <td>
-                                    <button onClick={(e) => handleCopyLink(e, order.id)}>העתק קישור</button>
+                                    <button onClick={(e) => handleCopyLink(e, order)}>העתק קישור</button>
                                 </td>
                             </tr>
                         ))}

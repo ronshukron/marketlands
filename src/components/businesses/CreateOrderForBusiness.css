@@ -1,0 +1,82 @@
+/* CreateOrderForBusiness.css */
+
+.create-order-for-business-container {
+    direction: rtl;
+    max-width: 600px;
+    margin: 50px auto;
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    text-align: center;
+  }
+  
+  .create-order-for-business-container h1 {
+    font-size: 2.5em;
+    color: #333;
+    margin-bottom: 20px;
+  }
+  
+  .create-order-for-business-container input {
+    width: 100%;
+    padding: 10px;
+    font-size: 1.2em;
+    margin-bottom: 20px;
+    border: 2px solid #ccc;
+    border-radius: 5px;
+    box-sizing: border-box;
+  }
+  
+  .create-order-for-business-container input:focus {
+    outline: none;
+    border-color: #007bff;
+  }
+  
+  .create-order-for-business-container button {
+    padding: 12px 25px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1.2em;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    width: 100%;
+  }
+  
+  .create-order-for-business-container button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
+  
+  .create-order-for-business-container button:hover:not(:disabled) {
+    background-color: #218838;
+  }
+  
+  .create-order-for-business-container button:disabled:hover {
+    background-color: #ccc;
+  }
+  
+  .create-order-for-business-container .loading-spinner {
+    margin: 20px 0;
+  }
+  
+  /* Media queries for responsiveness */
+  @media (max-width: 600px) {
+    .create-order-for-business-container {
+      padding: 15px;
+    }
+  
+    .create-order-for-business-container h1 {
+      font-size: 2em;
+    }
+  
+    .create-order-for-business-container input {
+      font-size: 1.1em;
+    }
+  
+    .create-order-for-business-container button {
+      font-size: 1.1em;
+    }
+  }
+  

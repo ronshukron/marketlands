@@ -1,7 +1,13 @@
 // src/components/OngoingOrders.js
 
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc as docRef, getDoc } from 'firebase/firestore';
+import {
+  collection,
+  query,
+  getDocs,
+  doc,
+  getDoc,
+} from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import './OngoingOrders.css';
 import LoadingSpinner from './LoadingSpinner';
@@ -9,7 +15,7 @@ import { Link } from 'react-router-dom';
 
 const OngoingOrders = () => {
   const [orders, setOrders] = useState([]);
-  const [filteredOrders, setFilteredOrders] = useState([]); // State for filtered orders
+  const [filteredOrders, setFilteredOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRegion, setSelectedRegion] = useState('הכל');
 
@@ -25,38 +31,50 @@ const OngoingOrders = () => {
     setLoading(true);
     try {
       const currentTime = new Date();
-      const q = query(
-        collection(db, 'Orders'),
-        where('Ending_Time', '>', currentTime)
-      );
-
+      const q = query(collection(db, 'Orders'));
       const querySnapshot = await getDocs(q);
-      const ordersData = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
 
-      // Fetch producer data
-      const producerPromises = ordersData.map((order) => {
-        const producerDocRef = docRef(db, 'Producers', order.Producer_ID);
-        return getDoc(producerDocRef);
-      });
+      const ordersData = [];
+      for (const docSnap of querySnapshot.docs) {
+        const data = docSnap.data();
+        const endingTime = data.Ending_Time || data.endingTime;
 
-      const producerDocs = await Promise.all(producerPromises);
+        if (endingTime && endingTime.toDate() > currentTime) {
+          let order = {
+            id: docSnap.id,
+            ...data,
+          };
 
-      const ongoingOrders = ordersData.map((order, index) => {
-        const producerDocSnap = producerDocs[index];
-        let producerData = {};
-        if (producerDocSnap.exists()) {
-          producerData = producerDocSnap.data();
+          if (order.Producer_ID) {
+            // Farmer order
+            const producerDocRef = doc(db, 'Producers', order.Producer_ID);
+            const producerDocSnap = await getDoc(producerDocRef);
+            let producerData = {};
+            if (producerDocSnap.exists()) {
+              producerData = producerDocSnap.data();
+            }
+            order = {
+              ...order,
+              type: 'farmer',
+              producerData,
+            };
+          } else if (order.businessId) {
+            // Business order
+            order = {
+              ...order,
+              type: 'business',
+            };
+            // Image is in order.imageUrl
+          } else {
+            // Unknown order type
+            continue; // Skip this order
+          }
+
+          ordersData.push(order);
         }
-        return {
-          ...order,
-          producerData,
-        };
-      });
+      }
 
-      setOrders(ongoingOrders);
+      setOrders(ordersData);
     } catch (error) {
       console.error('Error fetching ongoing orders: ', error);
     } finally {
@@ -68,9 +86,14 @@ const OngoingOrders = () => {
     if (selectedRegion === 'הכל') {
       setFilteredOrders(orders);
     } else {
-      const filtered = orders.filter(
-        (order) => order.Coordinator_Region === selectedRegion
-      );
+      const filtered = orders.filter((order) => {
+        if (order.type === 'farmer') {
+          return order.Coordinator_Region === selectedRegion;
+        } else if (order.type === 'business') {
+          return order.region === selectedRegion;
+        }
+        return false;
+      });
       setFilteredOrders(filtered);
     }
   };
@@ -123,35 +146,80 @@ const OngoingOrders = () => {
         <div className="orders-list">
           {filteredOrders.map((order) => (
             <div key={order.id} className="order-item">
-              <Link to={`/order-form/${order.id}`} className="order-link">
-                {order.producerData.Image && (
+              <Link
+                to={
+                  order.type === 'farmer'
+                    ? `/order-form/${order.id}`
+                    : `/order-form-business/${order.id}`
+                }
+                className="order-link"
+              >
+                {/* Display image */}
+                {order.type === 'farmer' && order.producerData?.Image && (
                   <img
                     src={order.producerData.Image}
                     alt={order.Producer_Name}
                     className="producer-image"
                   />
                 )}
-                <h3>{order.Order_Name}</h3>
+                {order.type === 'business' && order.imageUrl && (
+                  <img
+                    src={order.imageUrl}
+                    alt={order.businessName}
+                    className="producer-image"
+                  />
+                )}
+
+                <h3>{order.Order_Name || order.orderName}</h3>
+
+                {/* Display order details */}
+                {order.type === 'farmer' && (
+                  <>
+                    <p>
+                      <strong>ספק:</strong> {order.Producer_Name}
+                    </p>
+                    {order.producerData?.Kind && (
+                      <p>
+                        <strong>סוג ספק:</strong> {order.producerData.Kind}
+                      </p>
+                    )}
+                    {order.Coordinator_Region && (
+                      <p>
+                        <strong>אזור:</strong> {order.Coordinator_Region}
+                      </p>
+                    )}
+                    {order.Coordinator_Community && (
+                      <p>
+                        <strong>קהילה:</strong> {order.Coordinator_Community}
+                      </p>
+                    )}
+                  </>
+                )}
+                {order.type === 'business' && (
+                  <>
+                    <p>
+                      <strong>עסק:</strong> {order.businessName}
+                    </p>
+                    {order.businessKind && (
+                      <p>
+                        <strong>סוג עסק:</strong> {order.businessKind}
+                      </p>
+                    )}
+                    {order.region && (
+                      <p>
+                        <strong>אזור:</strong> {order.region}
+                      </p>
+                    )}
+                    {order.communityName && (
+                      <p>
+                        <strong>קהילה:</strong> {order.communityName}
+                      </p>
+                    )}
+                  </>
+                )}
                 <p>
-                  <strong>ספק:</strong> {order.Producer_Name}
-                </p>
-                {order.producerData.Kind && (
-                  <p>
-                    <strong>סוג ספק:</strong> {order.producerData.Kind}
-                  </p>
-                )}
-                {order.Coordinator_Region && (
-                  <p>
-                    <strong>אזור:</strong> {order.Coordinator_Region}
-                  </p>
-                )}
-                {order.Coordinator_Community && (
-                  <p>
-                    <strong>קהילה:</strong> {order.Coordinator_Community}
-                  </p>
-                )}
-                <p>
-                  <strong>זמן שנותר:</strong> {calculateTimeRemaining(order.Ending_Time)}
+                  <strong>זמן שנותר:</strong>{' '}
+                  {calculateTimeRemaining(order.Ending_Time || order.endingTime)}
                 </p>
               </Link>
             </div>

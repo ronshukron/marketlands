@@ -9,13 +9,16 @@ const BusinessRegister = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [businessName, setBusinessName] = useState('');
+  const [communityName, setCommunityName] = useState('');
+  const [businessKind, setBusinessKind] = useState('');
+
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const userData = { email, name, phone, businessName, role: 'business' };
+      const userData = { email, name, phone, businessName, communityName, businessKind, role: 'business' };
       await doCreateUserWithEmailAndPassword(email, password, userData, 'businesses');
       navigate('/business-dashboard');
     } catch (error) {
@@ -60,6 +63,20 @@ const BusinessRegister = () => {
           value={businessName} 
           onChange={(e) => setBusinessName(e.target.value)} 
           placeholder="שם העסק" 
+          required 
+        />
+          <input 
+          type="text" 
+          value={communityName} 
+          onChange={(e) => setCommunityName(e.target.value)} 
+          placeholder="שם יישוב" 
+          required 
+        />
+        <input 
+          type="text" 
+          value={businessKind} 
+          onChange={(e) => setBusinessKind(e.target.value)} 
+          placeholder="סוג העסק (מסעדה, חנות ירקות, וכו')" 
           required 
         />
         <button type="submit">הירשם כעסק</button>

@@ -29,6 +29,11 @@ import OngoingOrders from './components/OngoingOrders';
 import BusinessRegister from './components/auth/BusinessRegister';
 import BusinessDashBoard from './components/businesses/BusinessDashBoard.js';
 import BusinessProducts from './components/businesses/BusinessProducts';
+import AddProduct from './components/businesses/AddProduct';
+import EditProduct from './components/businesses/EditProduct';
+import CreateOrderForBusiness from './components/businesses/CreateOrderForBusiness';
+import OrderFormBusiness from './components/businesses/OrderFormBusiness';
+import BusinessOrderSummary from './components/businesses/BusinessOrderSummary';
 
 const App = () => {
   return (
@@ -63,6 +68,12 @@ const App = () => {
           <Route path="/business-register" element={<BusinessRegister />} />
           <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
           <Route path="/Business-Products" element={<BusinessProducts />} />
+          <Route path="/add-product" element={<AddProduct />} />
+          <Route path="/edit-product/:productId" element={<EditProduct />} />
+          <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
+          <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
+          <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
+
         </Routes>
         <Footer />
       </AuthProvider>

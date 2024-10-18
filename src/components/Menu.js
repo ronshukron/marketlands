@@ -88,6 +88,8 @@ const Menu = () => {
                     <>
                         <li><Link to="/Business-DashBoard" onClick={toggleMenu}>החנות שלי</Link></li>
                         <li><Link to="/Business-Products" onClick={toggleMenu}>המוצרים שלי</Link></li>
+                        <li><Link to="/dashboard" onClick={toggleMenu}>לוח הזמנות</Link></li>
+
                     </>
                 )}
 

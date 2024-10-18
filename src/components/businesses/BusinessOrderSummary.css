@@ -1,0 +1,63 @@
+/* src/components/BusinessOrderSummary.css */
+
+.order-summary-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    direction: rtl; /* Set text direction to right-to-left for Hebrew */
+    font-family: Arial, sans-serif;
+  }
+  
+  .order-details p {
+    margin: 5px 0;
+  }
+  
+  .order-image {
+    display: block;
+    margin: 20px auto; /* Center the image horizontally and add vertical margin */
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+  }
+  
+  h1,
+  h2 {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  
+  .customer-orders-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+  }
+  
+  .customer-orders-table th,
+  .customer-orders-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+  }
+  
+  .customer-orders-table th {
+    background-color: #f2f2f2;
+  }
+  
+  .customer-orders-table tr:nth-child(even) {
+    background-color: #f9f9f9;
+  }
+  
+  .customer-orders-table tr:hover {
+    background-color: #ddd;
+  }
+  
+  .product-item {
+    margin-bottom: 5px;
+  }
+  
+  .loading,
+  .error {
+    text-align: center;
+    margin-top: 50px;
+    font-size: 1.2em;
+  }
+  

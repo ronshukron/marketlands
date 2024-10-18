@@ -1,0 +1,158 @@
+/* AddProduct.css */
+
+.add-product-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .add-product-header {
+    text-align: center;
+    margin-bottom: 30px;
+    font-size: 2em;
+    color: #333;
+  }
+  
+  .add-product-form label {
+    display: block;
+    margin-bottom: 15px;
+    direction: rtl; /* Set direction to right-to-left for Hebrew text */
+
+  }
+  
+  .add-product-form input,
+  .add-product-form textarea {
+    width: 100%;
+    padding: 8px;
+    margin-top: 5px;
+    font-size: 1em; /* Increase font size */
+    box-sizing: border-box;
+    direction: rtl; /* Set direction to right-to-left for Hebrew text */
+    border: 3px solid #f1f1f1;
+
+  }
+  
+  .add-product-form textarea {
+    resize: vertical;
+  }
+  
+  .option-input,
+  .image-input,
+  .drop-area {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    width: 100%;
+  }
+
+  .drop-area {
+    border: 2px dashed #ccc;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+
+  .file-display {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+  }
+
+  .option-input input,
+  .image-input input {
+    flex: 1;
+    padding: 8px;
+    font-size: 1em; /* Increase font size */
+  }
+  
+  .option-input button,
+  .image-input button {
+    margin-left: 10px;
+    padding: 5px 10px;
+  }
+  
+  .regular-button {
+    margin-top: 15px;
+    margin-bottom: 10px;
+    margin-right: 10px;
+    padding: 10px 20px;
+    background-color: #28a745; /* Green color */
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    width: 15%;
+    align-items: center;
+  }
+  
+  .add-product-form button:hover {
+    background-color: #218838;
+  }
+  
+  .remove-button {
+    background-color: #dc3545; /* Red color */
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    padding: 5px 10px;
+    margin-left: 10px;
+    width: 15%;
+    margin-bottom: 10px;
+    margin-right: 10px;
+
+  }
+
+  .option-display {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .submit-button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    cursor: pointer;
+  }
+
+  .file-display {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 8px;
+    background-color: #f8f9fa;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  
+  .file-display img {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    margin-right: 10px;
+  }
+  
+  .file-display button {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 4px;
+    width: 15%;
+  }
+  
+  .file-display button:hover {
+    background-color: #c82333;
+  }
+  
+  .product-image {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    margin-right: 10px;
+  }
