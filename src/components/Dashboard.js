@@ -29,37 +29,45 @@ const Dashboard = () => {
             const farmerOrdersRef = collection(db, "Orders");
             const farmerOrdersQuery = query(farmerOrdersRef, where("Coordinator_Email", "==", user.email));
             const farmerOrdersSnapshot = await getDocs(farmerOrdersQuery);
-            const fetchedFarmerOrders = farmerOrdersSnapshot.docs.map(doc => ({
-                id: doc.id,
-                orderType: 'farmer',
-                ...doc.data(),
-                Order_Time: doc.data().Order_Time ? doc.data().Order_Time.toDate() : null,
-            }));
+            const fetchedFarmerOrders = farmerOrdersSnapshot.docs.map(doc => {
+                const data = doc.data();
+                const orderDate = parseDate(data.Order_Time) || parseDate(data.createdAt);
+                return {
+                    id: doc.id,
+                    orderType: 'farmer',
+                    ...data,
+                    orderDate,
+                };
+            });
 
             // Fetch business orders where the user is the business owner
             const businessOrdersRef = collection(db, "Orders");
             const businessOrdersQuery = query(businessOrdersRef, where("businessEmail", "==", user.email));
             const businessOrdersSnapshot = await getDocs(businessOrdersQuery);
-            const fetchedBusinessOrders = businessOrdersSnapshot.docs.map(doc => ({
-                id: doc.id,
-                orderType: 'business',
-                ...doc.data(),
-                createdAt: doc.data().createdAt ? doc.data().createdAt.toDate() : null,
-            }));
+            const fetchedBusinessOrders = businessOrdersSnapshot.docs.map(doc => {
+                const data = doc.data();
+                const orderDate = parseDate(data.Order_Time) || parseDate(data.createdAt);
+                return {
+                    id: doc.id,
+                    orderType: 'business',
+                    ...data,
+                    orderDate,
+                };
+            });
 
             // Combine orders
             const combinedOrders = [...fetchedFarmerOrders, ...fetchedBusinessOrders];
 
             // Sort orders by date, with the latest date first
             const sortedOrders = combinedOrders.sort((a, b) => {
-                const dateA = a.Order_Time || a.createdAt;
-                const dateB = b.Order_Time || b.createdAt;
+                const dateA = a.orderDate ? a.orderDate.getTime() : 0;
+                const dateB = b.orderDate ? b.orderDate.getTime() : 0;
                 return dateB - dateA;
             });
 
             setOrders(sortedOrders.map(order => ({
                 ...order,
-                displayDate: order.Order_Time ? formatDate(order.Order_Time) : order.createdAt ? formatDate(order.createdAt) : 'No date',
+                displayDate: order.orderDate ? formatDate(order.orderDate) : 'No date',
             })));
 
             setLoading(false);
@@ -69,8 +77,25 @@ const Dashboard = () => {
         }
     };
 
+    const parseDate = (dateField) => {
+        if (!dateField) return null;
+        if (dateField.toDate) {
+            return dateField.toDate();
+        } else if (typeof dateField === 'string') {
+            return new Date(dateField);
+        } else if (typeof dateField === 'number') {
+            // If the timestamp is in seconds, multiply by 1000
+            return new Date(dateField.toString().length === 10 ? dateField * 1000 : dateField);
+        } else {
+            return null;
+        }
+    };
+
     const formatDate = (date) => {
-        return format(date, 'PPpp');
+        if (!date || isNaN(date.getTime())) {
+            return 'No date';
+        }
+        return format(date, 'dd/MM/yyyy HH:mm');
     };
 
     const handleRowClick = (order) => {

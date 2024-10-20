@@ -89,7 +89,7 @@ h1 {
     width: 100%;
 }
 
-.product-image {
+.image-wrapper .product-image {
     width: auto;
     height: 350px; /* Increased height for better display */
     object-fit: cover;
@@ -446,4 +446,3 @@ h1 {
         background-color: #e68900;
     }
 }
-

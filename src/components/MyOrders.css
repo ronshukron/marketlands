@@ -8,12 +8,13 @@
     width: 100%;
     border-collapse: collapse;
     margin-top: 20px;
+    
 }
 
 .orders-table th, .orders-table td {
     border: 1px solid #ddd;
     padding: 12px;
-    text-align: left;
+    /* text-align: left; */
 }
 
 .orders-table th {

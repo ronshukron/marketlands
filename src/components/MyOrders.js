@@ -6,87 +6,128 @@ import { collection, query, getDocs } from 'firebase/firestore';
 import './MyOrders.css';
 
 const MyOrders = () => {
-    const { currentUser } = useAuth();
-    const [orders, setOrders] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
-    useEffect(() => {
-        const fetchOrders = async () => {
-            if (currentUser && currentUser.email) {
-                const ordersRef = collection(db, 'Orders');
-                const q = query(ordersRef);
-                const querySnapshot = await getDocs(q);
-                
-                const fetchedOrders = querySnapshot.docs.flatMap(doc => {
-                    const orderData = doc.data();
-                    console.log(orderData);
+  useEffect(() => {
+    const fetchOrders = async () => {
+      if (currentUser && currentUser.email) {
+        const ordersRef = collection(db, 'Orders');
+        const q = query(ordersRef);
+        const querySnapshot = await getDocs(q);
 
-                    return Object.entries(orderData)
-                        .filter(([key, value]) => 
-                            key.startsWith('Member_') && value.Email === currentUser.email
-                        )
-                        .map(([memberId, memberData]) => ({
-                            orderId: doc.id,
-                            memberId,
-                            orderName: orderData.Order_Name,
-                            producerName: orderData.Producer_Name,
-                            orderTime: orderData.Mem_Order_Time,
-                            ...memberData
-                        }));
-                });
-                // console.log(fetchedOrders);
-                setOrders(fetchedOrders);
-                setLoading(false);
-            }
-        };
+        const fetchedOrders = querySnapshot.docs.flatMap((doc) => {
+          const orderData = doc.data();
 
-        fetchOrders();
-    }, [currentUser]);
+          return Object.entries(orderData)
+            .filter(
+              ([key, value]) =>
+                key.startsWith('Member_') &&
+                value.Email === currentUser.email
+            )
+            .map(([memberId, memberData]) => ({
+              orderId: doc.id,
+              memberId,
+              orderName: orderData.orderName || orderData.Order_Name || 'N/A',
+              supplierName:
+                orderData.businessName ||
+                orderData.Producer_Name ||
+                'N/A',
+              orderTime: memberData.Mem_Order_Time,
+              orderValue: memberData.OrderValue,
+              ...memberData,
+            }));
+        });
 
-    const handleOrderClick = (orderId, memberId) => {
-        navigate(`/order-details/${orderId}/${memberId}`);
+        setOrders(fetchedOrders);
+        setLoading(false);
+      }
     };
 
-    const calculateOrderValue = (memberData) => {
-        return Object.entries(memberData)
-            .filter(([key, value]) => key !== 'Name' && key !== 'Email' && key !== 'Phone' && typeof value === 'object')
-            .reduce((total, [_, product]) => total + (Number(product.Price) * product.Quantity), 0);
-    };
+    fetchOrders();
+  }, [currentUser]);
 
-    if (loading) {
-        return <div>Loading orders...</div>;
-    }
+  const handleOrderClick = (orderId, memberId) => {
+    navigate(`/order-details/${orderId}/${memberId}`);
+  };
 
-    return (
-        <div className="my-orders-container">
-            <h1>ההזמנות שלי</h1>
-            {orders.length === 0 ? (
-                <p>עוד לא ביצעתם שום הזמנה</p>
-            ) : (
-                <table className="orders-table">
-                    <thead>
-                        <tr>
-                            <th>שם הזמנה</th>
-                            <th>ספק</th>
-                            <th>תאריך הזמנה</th>
-                            <th>סה"כ עלות</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {orders.map((order, index) => (
-                            <tr key={`${order.orderId}-${order.memberId}`} onClick={() => handleOrderClick(order.orderId, order.memberId)}>
-                                <td>{order.orderName}</td>
-                                <td>{order.producerName}</td>
-                                <td>{order.Mem_Order_Time ? new Date(order.Mem_Order_Time).toLocaleDateString() : 'N/A'}</td>
-                                <td>₪{order.OrderValue ? order.OrderValue.toFixed(2) : calculateOrderValue(order).toFixed(2)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            )}
-        </div>
-    );
+  const calculateOrderValue = (memberData) => {
+    return Object.entries(memberData)
+      .filter(
+        ([key, value]) =>
+          ![
+            'Name',
+            'Email',
+            'Phone',
+            'Mem_Order_Time',
+            'OrderValue',
+            'completedAt',
+            'createdAt',
+            'orderId',
+            'paymentDetails',
+            'status',
+          ].includes(key) &&
+          typeof value === 'object' &&
+          value.Quantity
+      )
+      .reduce(
+        (total, [_, product]) =>
+          total + Number(product.Price) * product.Quantity,
+        0
+      );
+  };
+
+  if (loading) {
+    return <div>טוען הזמנות...</div>;
+  }
+
+  return (
+    <div className="my-orders-container">
+      <h1>ההזמנות שלי</h1>
+      {orders.length === 0 ? (
+        <p>עוד לא ביצעתם שום הזמנה</p>
+      ) : (
+        <table className="orders-table">
+          <thead>
+            <tr>
+              <th>שם הזמנה</th>
+              <th>ספק</th>
+              <th>תאריך הזמנה</th>
+              <th>סה"כ עלות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((order) => (
+              <tr
+                key={`${order.orderId}-${order.memberId}`}
+                onClick={() => handleOrderClick(order.orderId, order.memberId)}
+              >
+                <td>{order.orderName}</td>
+                <td>{order.supplierName}</td>
+                <td>
+                  {order.orderTime
+                    ? new Date(
+                        typeof order.orderTime === 'number'
+                          ? order.orderTime
+                          : parseInt(order.orderTime)
+                      ).toLocaleDateString()
+                    : 'N/A'}
+                </td>
+                <td>
+                  ₪
+                  {order.orderValue
+                    ? Number(order.orderValue).toFixed(2)
+                    : calculateOrderValue(order).toFixed(2)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 };
 
 export default MyOrders;

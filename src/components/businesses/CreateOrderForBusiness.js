@@ -118,7 +118,7 @@ const CreateOrderForBusiness = () => {
         businessId: currentUser.uid,
         orderName,
         selectedProducts,
-        createdAt: currentTime,
+        Order_Time: currentTime,
         endingTime, // Include ending time in the order document
         businessName,
         communityName,
