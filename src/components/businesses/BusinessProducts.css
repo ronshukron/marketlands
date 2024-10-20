@@ -15,10 +15,11 @@
   display: block;
   margin: 0 auto 30px auto;
   padding: 10px 20px;
-  background-color: #007bff;
+  background-color: #28a745;
   color: #fff;
   border: none;
   cursor: pointer;
+  width: 30%;
 }
 
 .add-product-button:hover {
@@ -164,6 +165,48 @@
   cursor: pointer;
   transform: scale(1.5); /* Scale it to increase size */
 }
+
+/* Slider container */
+.product-images-slider {
+  width: 100%;
+  margin-top: 10px;
+}
+
+/* Individual slides */
+.product-images-slider .slick-slide {
+  display: flex !important;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Images inside the slider */
+.product-images-slider img {
+  max-width: 100%;
+  height: auto;
+  object-fit: cover;
+  border-radius: 5px;
+}
+
+/* Adjust dots position if needed */
+.product-images-slider .slick-dots {
+  bottom: -25px; /* Adjust the value as needed */
+}
+
+/* Adjust arrows for RTL */
+.product-images-slider .slick-prev,
+.product-images-slider .slick-next {
+  z-index: 1;
+}
+.product-images-slider .slick-slide div {
+  display: flex;
+  justify-content: center;
+}
+
+.product-images-slider img {
+  width: 100%;
+  height: auto;
+}
+
 
 @media (max-width: 600px) {
   .product-item h3 {

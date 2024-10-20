@@ -7,6 +7,12 @@ import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import './BusinessProducts.css';
 
+// Import Slider and CSS
+import Slider from "react-slick";
+import "slick-carousel/slick/slick.css";
+import "slick-carousel/slick/slick-theme.css";
+
+
 const BusinessProducts = () => {
   const { currentUser } = useAuth();
   const [products, setProducts] = useState([]);
@@ -53,6 +59,17 @@ const BusinessProducts = () => {
       setSelectedProducts([...selectedProducts, productId]);
     }
   };
+
+    // Slider settings
+    const sliderSettings = {
+      dots: true,
+      infinite: true,
+      speed: 500,
+      slidesToShow: 1,
+      slidesToScroll: 1,
+      arrows: true,
+      rtl: true,
+    };
 
   const handleCreateOrder = () => {
     if (selectedProducts.length === 0) {
@@ -119,7 +136,7 @@ const BusinessProducts = () => {
     <div className="my-products-container">
       <h1 className="my-products-header">המוצרים שלי</h1>
       <button className="add-product-button" onClick={handleAddProduct}>
-        הוסף מוצר חדש
+        הוסף מוצר 
       </button>
       <div className="products-list">
         {products.length === 0 ? (
@@ -157,16 +174,18 @@ const BusinessProducts = () => {
                 <p>אופציות: {product.options.join(', ')}</p>
               )}
               {product.images && product.images.length > 0 && (
-                <div className="product-images">
-                  {product.images.map((image, index) => (
-                    <img
-                      key={index}
-                      src={image}
-                      alt={`תמונה ${index + 1} של ${product.name}`}
-                      className="product-image"
-                    />
-                  ))}
-                </div>
+                  <div className="product-images">
+                    <Slider {...sliderSettings} className="product-images-slider">
+                      {product.images.map((image, index) => (
+                        <img
+                          key={index}
+                          src={image}
+                          alt={`תמונה ${index + 1} של ${product.name}`}
+                          className="product-image"
+                        />
+                      ))}
+                    </Slider>
+                  </div>
               )}
             </div>
           ))

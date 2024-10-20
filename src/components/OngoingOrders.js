@@ -31,6 +31,8 @@ const OngoingOrders = () => {
     setLoading(true);
     try {
       const currentTime = new Date();
+      const adjustedCurrentTime = new Date(currentTime.getTime() + 60 * 60 * 1000); // Add 1 hour
+
       const q = query(collection(db, 'Orders'));
       const querySnapshot = await getDocs(q);
 
@@ -39,7 +41,7 @@ const OngoingOrders = () => {
         const data = docSnap.data();
         const endingTime = data.Ending_Time || data.endingTime;
 
-        if (endingTime && endingTime.toDate() > currentTime) {
+        if (endingTime && endingTime.toDate() > adjustedCurrentTime) {
           let order = {
             id: docSnap.id,
             ...data,
@@ -101,8 +103,10 @@ const OngoingOrders = () => {
   const calculateTimeRemaining = (endingTime) => {
     const now = new Date();
     const end = endingTime.toDate();
-    const diff = end - now;
-
+    
+    // Adjust the ending time by subtracting one hour
+    const adjustedEndTime = new Date(end.getTime() - 60 * 60 * 1000);
+    const diff = adjustedEndTime - now;
     if (diff <= 0) {
       return 'ההזמנה הסתיימה';
     }
