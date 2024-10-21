@@ -195,7 +195,24 @@ const OrderFormBusiness = () => {
       });
       return;
     }
-    navigate('/order-confirmation', { state: { cartProducts, userName, orderId } });
+
+        // Fetch the order details to get the payment method
+        const orderDoc = doc(db, "Orders", orderId);
+        const docSnap = await getDoc(orderDoc);
+        if (docSnap.exists()) {
+          const orderData = docSnap.data();
+          if (orderData.paymentMethod === 'free') {
+            // Navigate to the new confirmation page for free payment method
+            navigate('/order-confirmation-free', { state: { cartProducts, orderId } });
+          } else {
+            // Navigate to the regular confirmation page
+            navigate('/order-confirmation', { state: { cartProducts, orderId } });
+          }
+        } else {
+          console.log("Order does not exist!");
+          navigate('/error');
+        }
+
   };
 
   if (loading) {

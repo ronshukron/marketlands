@@ -1,12 +1,14 @@
+// src/components/CreateOrderForBusiness.js
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/authContext';
 import { collection, addDoc, getDoc, doc } from 'firebase/firestore';
-import { db, storage } from '../../firebase/firebase'; // Import storage
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Import storage functions
+import { db, storage } from '../../firebase/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Swal from 'sweetalert2';
 import './CreateOrderForBusiness.css';
-import communityToRegion from '../../utils/communityToRegion'; // Import communityToRegion mapping
+import communityToRegion from '../../utils/communityToRegion';
 
 const CreateOrderForBusiness = () => {
   const { state } = useLocation();
@@ -15,7 +17,10 @@ const CreateOrderForBusiness = () => {
   const [orderName, setOrderName] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedDuration, setSelectedDuration] = useState('');
-  const [imageFile, setImageFile] = useState(null); // State for the uploaded image file
+  const [imageFile, setImageFile] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('commission'); // 'commission' or 'free'
+  const [selectedPaymentApps, setSelectedPaymentApps] = useState([]); // ['paybox', 'bit']
+  const [payboxLink, setPayboxLink] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -68,6 +73,50 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
+    if (paymentMethod === 'free' && selectedPaymentApps.length === 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'שגיאה',
+        text: 'אנא בחרו לפחות אפליקציית תשלום אחת (ביט או פייבוקס).',
+      });
+      return;
+    }
+
+    if (paymentMethod === 'free' && selectedPaymentApps.includes('paybox') && !payboxLink.trim()) {
+      Swal.fire({
+        icon: 'error',
+        title: 'שגיאה',
+        text: 'אנא הזינו קישור לפייבוקס.',
+      });
+      return;
+    }
+
+    // Check if phone number is available if Bit is selected
+    let phoneNumber = '';
+    if (paymentMethod === 'free' && selectedPaymentApps.includes('bit')) {
+      const userDoc = doc(db, 'businesses', currentUser.uid);
+      const userSnap = await getDoc(userDoc);
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        phoneNumber = userData.phone || '';
+        if (!phoneNumber.trim()) {
+          Swal.fire({
+            icon: 'error',
+            title: 'שגיאה',
+            text: 'מספר הטלפון שלך לא נמצא במערכת. אנא עדכן את מספר הטלפון שלך בפרופיל.',
+          });
+          return;
+        }
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'שגיאה',
+          text: 'לא ניתן לאחזר את פרטי המשתמש שלך.',
+        });
+        return;
+      }
+    }
+
     const endingTime = calculateEndingDate(selectedDuration);
     if (!endingTime) {
       Swal.fire({
@@ -93,6 +142,8 @@ const CreateOrderForBusiness = () => {
         businessName = userData.businessName;
         communityName = userData.communityName || '';
         businessKind = userData.businessKind || '';
+        phoneNumber = userData.phone || phoneNumber; // Ensure phoneNumber is set
+
         // Map community to region
         if (communityName) {
           region = communityToRegion[communityName] || 'אחר';
@@ -125,6 +176,10 @@ const CreateOrderForBusiness = () => {
         businessKind,
         region,
         imageUrl, // Include the image URL in the order document
+        paymentMethod, // Include payment method
+        paymentApps: paymentMethod === 'free' ? selectedPaymentApps : [], // Include selected payment apps
+        payboxLink: selectedPaymentApps.includes('paybox') ? payboxLink : '', // Include Paybox link if applicable
+        phoneNumber: selectedPaymentApps.includes('bit') ? phoneNumber : '', // Include phone number if Bit is selected
       };
 
       const docRef = await addDoc(collection(db, 'Orders'), orderData);
@@ -147,6 +202,15 @@ const CreateOrderForBusiness = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePaymentAppChange = (e) => {
+    const { value, checked } = e.target;
+    if (checked) {
+      setSelectedPaymentApps([...selectedPaymentApps, value]);
+    } else {
+      setSelectedPaymentApps(selectedPaymentApps.filter((app) => app !== value));
     }
   };
 
@@ -184,6 +248,82 @@ const CreateOrderForBusiness = () => {
         accept="image/*"
         onChange={(e) => setImageFile(e.target.files[0])}
       />
+
+      {/* Payment method selection */}
+      <p className="payment-method-explanation">בחרו את אמצעי התשלום להזמנה:</p>
+      <div className="payment-method-selection">
+        <label>
+          <input
+            type="radio"
+            name="paymentMethod"
+            value="commission"
+            checked={paymentMethod === 'commission'}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+          />
+          תשלום דרך האתר (עם עמלה)
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="paymentMethod"
+            value="free"
+            checked={paymentMethod === 'free'}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+          />
+          תשלום דרך אפליקציות חינמיות (ביט או פייבוקס)
+        </label>
+      </div>
+
+      {/* Payment apps selection */}
+      {paymentMethod === 'free' && (
+        <>
+          <p className="payment-apps-explanation">בחרו את אפליקציות התשלום הרצויות:</p>
+          <div className="payment-apps-selection">
+            <label>
+              <input
+                type="checkbox"
+                name="paymentApps"
+                value="paybox"
+                checked={selectedPaymentApps.includes('paybox')}
+                onChange={handlePaymentAppChange}
+              />
+              פייבוקס
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                name="paymentApps"
+                value="bit"
+                checked={selectedPaymentApps.includes('bit')}
+                onChange={handlePaymentAppChange}
+              />
+              ביט
+            </label>
+          </div>
+
+          {/* Paybox link input */}
+          {selectedPaymentApps.includes('paybox') && (
+            <>
+              <p>הזינו את הקישור לפייבוקס:</p>
+              <input
+                type="text"
+                value={payboxLink}
+                placeholder="הכנס קישור לפייבוקס"
+                onChange={(e) => setPayboxLink(e.target.value)}
+              />
+            </>
+          )}
+
+          {/* Bit phone number notice */}
+          {selectedPaymentApps.includes('bit') && (
+            <>
+              <p className="phone-number-notice">
+                שימו לב: מספר הטלפון שלכם יוצג ללקוחות לצורך תשלום דרך ביט.
+              </p>
+            </>
+          )}
+        </>
+      )}
 
       <button onClick={handleCreateOrder} disabled={loading}>
         {loading ? 'יוצר הזמנה...' : 'צור הזמנה'}

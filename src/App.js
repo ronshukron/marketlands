@@ -34,6 +34,8 @@ import EditProduct from './components/businesses/EditProduct';
 import CreateOrderForBusiness from './components/businesses/CreateOrderForBusiness';
 import OrderFormBusiness from './components/businesses/OrderFormBusiness';
 import BusinessOrderSummary from './components/businesses/BusinessOrderSummary';
+import OrderConfirmationFree from './components/businesses/OrderConfirmationFree';
+import PaymentInstructions from './components/businesses/PaymentInstructions';
 
 const App = () => {
   return (
@@ -73,6 +75,8 @@ const App = () => {
           <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
           <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
           <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
+          <Route path="/order-confirmation-free" element={<OrderConfirmationFree />} />
+          <Route path="/payment-instructions" element={<PaymentInstructions />} />
 
         </Routes>
         <Footer />

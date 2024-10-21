@@ -1,0 +1,164 @@
+/* Container for the entire order confirmation page */
+.confirmation-container {
+    max-width: 800px;
+    margin: 50px auto;
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    direction: rtl; /* For Hebrew text */
+    text-align: center;
+}
+
+.confirmation-container h1 {
+    font-size: 2.5em;
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.confirmation-container h2 {
+    font-size: 1.8em;
+    color: #555;
+    margin-bottom: 15px;
+}
+
+.confirmation-container ul {
+    list-style: none;
+    padding: 0;
+}
+
+.confirmation-container li {
+    font-size: 1.2em;
+    margin: 10px 0;
+    color: #333;
+    background-color: #f1f1f1;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.confirmation-container .quantity-controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.confirmation-container .quantity-controls button {
+    padding: 5px 10px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1em;
+    cursor: pointer;
+}
+
+.confirmation-container .quantity-controls span {
+    font-size: 1.2em;
+    padding: 5px 15px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+.confirmation-container h3 {
+    margin-top: 30px;
+    font-size: 1.8em;
+    /* color: #d9534f; */
+}
+
+.user-details-container {
+    margin-top: 40px;
+}
+
+.user-details-container h3 {
+    font-size: 1.5em;
+    margin-bottom: 15px;
+}
+
+.user-details .input-group {
+    margin-bottom: 20px;
+    text-align: right;
+}
+
+.user-details .input-group label {
+    display: block;
+    font-size: 1.2em;
+    color: #333;
+}
+
+.user-details .input-group input {
+    width: 100%;
+    padding: 10px;
+    font-size: 1.1em;
+    border: 2px solid #ddd;
+    border-radius: 5px;
+    box-sizing: border-box;
+}
+
+.user-details .input-group.invalid input {
+    border-color: red;
+}
+
+.terms-agreement {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.terms-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.button-container {
+    margin-top: 40px;
+}
+
+.button-container .submit-button {
+    padding: 12px 25px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1.2em;
+    cursor: pointer;
+    width: 100%;
+    transition: background-color 0.3s ease;
+}
+
+.button-container .submit-button:hover {
+    background-color: #218838;
+}
+
+.popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    padding: 20px;
+    width: 300px;
+    text-align: center;
+}
+
+.popup-content h3 {
+    font-size: 1.5em;
+    color: #333;
+    margin-bottom: 15px;
+}
+
+.popup-content button {
+    padding: 10px 20px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1em;
+    cursor: pointer;
+}

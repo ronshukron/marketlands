@@ -6,6 +6,7 @@ import { db } from '../firebase/firebase';
 import './OrderConfirmation.css';
 import LoadingSpinner from './LoadingSpinner';
 import LoadingSpinnerPayment from './LoadingSpinnerPayment';
+import Swal from 'sweetalert2';
 
 const OrderConfirmation = () => {
     const location = useLocation();
@@ -45,8 +46,14 @@ const OrderConfirmation = () => {
 
         const orderHasEnded = await checkIfOrderEnded();
         if (orderHasEnded) {
-            alert('ההזמנה הסתיימה. לא ניתן לבצע הזמנה.');
-            navigate(`/order-form/${orderId}`);
+            Swal.fire({
+                icon: 'error',
+                title: 'ההזמנה הסתיימה',
+                text: 'צר לנו, אבל זמן ההזמנה הזו כבר הסתיימה.',
+                confirmButtonText: 'אישור',
+            }).then(() => {
+                navigate(`/order-form-business/${orderId}`);
+            });
             return;
         }
     
