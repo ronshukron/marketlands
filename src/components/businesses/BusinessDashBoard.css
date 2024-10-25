@@ -28,17 +28,18 @@
   }
   
   .orders-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 20px;
   }
   
   .order-item {
-    padding: 20px;
+    position: relative;
+    background-color: #fff;
     border: 1px solid #ddd;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background-color 0.2s;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.3s ease;
   }
   
   .order-item:hover {
@@ -104,8 +105,8 @@
     background-color: #f9f9f9;
   }
   
-  .order-image {
-    width: 10%;
+  .my-store-container .orders-list .order-image {
+    max-width: 50%;
     /* height: 100px; */
     object-fit: cover;
     margin-right: 15px;
@@ -113,13 +114,15 @@
   }
 
   .order-item img {
-    width: 40%;
+    width: 20%;
     height: 150px;
     object-fit: cover;
     margin-right: 15px;
     border-radius: 4px;  }
   
   .order-details {
+    margin-top: 70px;
+
     display: flex;
     flex-direction: column;
   }
@@ -147,17 +150,21 @@
   }
     
   .delete-order-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
     background-color: #dc3545;
     color: white;
     border: none;
-    padding: 5px 10px;
-    border-radius: 4px;
+    padding: 5px 8px;
+    /* border-radius: 50%; */
     cursor: pointer;
-    margin-left: 20px;
-    align-self: flex-start;
-    width: 10%;
+    font-size: 1em;
+    line-height: 1;
+    margin-bottom: 50px;
+    width: 50px;
   }
-  
+
   .delete-order-button:hover {
     background-color: #c82333;
   }

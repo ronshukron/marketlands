@@ -40,8 +40,34 @@ const OngoingOrders = () => {
       for (const docSnap of querySnapshot.docs) {
         const data = docSnap.data();
         const endingTime = data.Ending_Time || data.endingTime;
+        let orderType = data.orderType;
+        if (!orderType) {
+          if (data.schedule) {
+            orderType = 'recurring';
+          } else if (endingTime) {
+            orderType = 'one_time';
+          } else {
+            orderType = 'unknown';
+          }
+        }
+        const schedule = data.schedule; // For recurring orders
 
-        if (endingTime && endingTime.toDate() > adjustedCurrentTime) {
+        let isActive = false;
+
+        if (orderType === 'one_time') {
+          if (endingTime && endingTime.toDate() > adjustedCurrentTime) {
+            isActive = true;
+          }
+        } else if (orderType === 'recurring') {
+          if (schedule && isOrderActiveNow(schedule)) {
+            isActive = true;
+          }
+        } else {
+          // Skip unknown order types
+          continue;
+        }
+
+        if (isActive) {
           let order = {
             id: docSnap.id,
             ...data,
@@ -84,6 +110,50 @@ const OngoingOrders = () => {
     }
   };
 
+  const isOrderActiveNow = (schedule) => {
+    const now = new Date();
+    const currentDayIndex = now.getDay(); // Sunday - Saturday : 0 - 6
+    const currentTime = now.getHours() * 60 + now.getMinutes(); // Minutes since midnight
+
+    // Map of days to indices (adjusted for Hebrew days)
+    const dayIndexMap = {
+      0: ['Sunday', 'ראשון'],
+      1: ['Monday', 'שני'],
+      2: ['Tuesday', 'שלישי'],
+      3: ['Wednesday', 'רביעי'],
+      4: ['Thursday', 'חמישי'],
+      5: ['Friday', 'שישי'],
+      6: ['Saturday', 'שבת'],
+    };
+
+    const dayNames = dayIndexMap[currentDayIndex];
+
+    const daySchedule = schedule.find((day) => dayNames.includes(day.day));
+
+    if (daySchedule && daySchedule.active) {
+      const [startHour, startMinute] = daySchedule.startTime.split(':').map(Number);
+      const [endHour, endMinute] = daySchedule.endTime.split(':').map(Number);
+
+      let startTimeInMinutes = startHour * 60 + startMinute;
+      let endTimeInMinutes = endHour * 60 + endMinute;
+
+      // Handle cases where end time is past midnight
+      if (endTimeInMinutes <= startTimeInMinutes) {
+        endTimeInMinutes += 24 * 60;
+      }
+
+      // Adjust current time if necessary
+      let adjustedCurrentTime = currentTime;
+      if (currentTime < startTimeInMinutes) {
+        adjustedCurrentTime += 24 * 60;
+      }
+
+      return adjustedCurrentTime >= startTimeInMinutes && adjustedCurrentTime <= endTimeInMinutes;
+    } else {
+      return false;
+    }
+  };
+
   const filterOrdersByRegion = () => {
     if (selectedRegion === 'הכל') {
       setFilteredOrders(orders);
@@ -100,27 +170,54 @@ const OngoingOrders = () => {
     }
   };
 
-  const calculateTimeRemaining = (endingTime) => {
-    const now = new Date();
-    const end = endingTime.toDate();
-    
-    // Adjust the ending time by subtracting one hour
-    const adjustedEndTime = new Date(end.getTime() - 60 * 60 * 1000);
-    const diff = adjustedEndTime - now;
-    if (diff <= 0) {
-      return 'ההזמנה הסתיימה';
+  const calculateTimeRemaining = (order) => {
+    let orderType = order.orderType;
+    if (!orderType) {
+      if (order.schedule) {
+        orderType = 'recurring';
+      } else if (order.Ending_Time || order.endingTime) {
+        orderType = 'one_time';
+      } else {
+        orderType = 'unknown';
+      }
     }
 
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-    const minutes = Math.floor((diff / (1000 * 60)) % 60);
+    const now = new Date();
 
-    let timeString = '';
-    if (days > 0) timeString += `${days} ימים `;
-    if (hours > 0) timeString += `${hours} שעות `;
-    if (minutes > 0) timeString += `${minutes} דקות`;
+    if (orderType === 'one_time') {
+      const endingTime = order.Ending_Time || order.endingTime;
+      if (endingTime) {
+        const end = endingTime.toDate();
+        const adjustedEndTime = new Date(end.getTime() - 60 * 60 * 1000); // Adjust if needed
+        const diff = adjustedEndTime - now;
+        if (diff <= 0) {
+          return 'ההזמנה הסתיימה';
+        }
 
-    return timeString || 'פחות מדקה';
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+        const minutes = Math.floor((diff / (1000 * 60)) % 60);
+
+        let timeString = '';
+        if (days > 0) timeString += `${days} ימים `;
+        if (hours > 0) timeString += `${hours} שעות `;
+        if (minutes > 0) timeString += `${minutes} דקות`;
+
+        return timeString || 'פחות מדקה';
+      } else {
+        return 'תאריך סיום לא זמין';
+      }
+    } else if (orderType === 'recurring') {
+      const schedule = order.schedule;
+      if (schedule) {
+        const isActive = isOrderActiveNow(schedule);
+        return isActive ? 'פעיל כעת' : 'לא פעיל כעת';
+      } else {
+        return 'לוח זמנים לא זמין';
+      }
+    } else {
+      return 'סוג הזמנה לא ידוע';
+    }
   };
 
   if (loading) {
@@ -129,7 +226,7 @@ const OngoingOrders = () => {
 
   return (
     <div className="ongoing-orders-container">
-      <h1 className="ongoing-orders-header">הזמנות פעילות</h1>
+      <h1 className="ongoing-orders-header">הזמנות פעילות באזור שלך</h1>
       <div className="filter-container">
         <label htmlFor="region-filter">סנן לפי אזור:</label>
         <select
@@ -222,8 +319,7 @@ const OngoingOrders = () => {
                   </>
                 )}
                 <p>
-                  <strong>זמן שנותר:</strong>{' '}
-                  {calculateTimeRemaining(order.Ending_Time || order.endingTime)}
+                  <strong>זמן שנותר:</strong> {calculateTimeRemaining(order)}
                 </p>
               </Link>
             </div>

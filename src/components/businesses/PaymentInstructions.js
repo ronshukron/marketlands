@@ -3,6 +3,7 @@
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import './PaymentInstructions.css'; // Create or reuse styles as needed
+import OngoingOrders from '../OngoingOrders'; // Import OngoingOrders component
 
 const PaymentInstructions = () => {
   const location = useLocation();
@@ -36,11 +37,17 @@ const PaymentInstructions = () => {
         </div>
       )}
 
-      <p>ההזמנה שלכם עוגנה בערכת, הספק ממתין לתשלום. </p>
+      <p>ההזמנה שלכם עודכנה בערכת, הספק ממתין לתשלום. </p>
 
       <div className="buttons-container">
         <Link to="/" className="home-button">חזרה לדף הבית</Link>
       </div>
+
+      {/* Include OngoingOrders component to display active orders */}
+      <section className="ongoing-orders-section">
+        {/* <h2>הזמנות פעילות</h2> */}
+        <OngoingOrders /> {/* Display ongoing orders */}
+      </section>
     </div>
   );
 };

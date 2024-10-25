@@ -1,0 +1,278 @@
+/* src/components/MyStore.css */
+
+/* Global Styles */
+body {
+    font-family: 'Roboto', sans-serif;
+    background-color: #f8f9fa;
+    color: #212529;
+  }
+  
+  .my-store-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .my-store-header {
+    position: relative;
+    background-size: cover;
+    background-position: center;
+    padding: 60px 20px;
+    text-align: center;
+    color: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  
+  .my-store-header h1 {
+    font-size: 2.5em;
+    margin-top: 20px;
+    font-weight: bold;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+  
+  /* Profile Image Container */
+  .my-store-profile-container {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 10px;
+  }
+  
+  /* Profile Image */
+  .my-store-profile-image {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  }
+  
+  /* Hide the Change Profile Button */
+  .my-store-change-profile-button {
+    display: none;
+  }
+  
+  /* Show the Button on Hover */
+  .my-store-profile-container:hover .my-store-change-profile-button {
+    display: block;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 5px 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9em;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+  }
+  
+  /* Change Background Button */
+  .my-store-change-background-button {
+    display: none;
+  }
+  
+  .my-store-header:hover .my-store-change-background-button {
+    display: block;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 5px 10px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9em;
+    border-radius: 4px;
+  }
+  
+  /* Sections */
+  .my-store-description-section,
+  .my-store-active-orders-section,
+  .my-store-products-section {
+    margin-bottom: 40px;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 8px;
+    direction: rtl;
+
+  }
+  
+  /* Section Headings */
+  .my-store-description-section h2,
+  .my-store-active-orders-section h2,
+  .my-store-products-section h2 {
+    font-size: 1.8em;
+    color: #343a40;
+    margin-bottom: 20px;
+    font-weight: bold;
+  }
+  
+  /* Description */
+  .my-store-description-section p {
+    font-size: 1em;
+    line-height: 1.6;
+    color: #495057;
+  }
+  
+  /* Textarea */
+  .my-store-description-section textarea {
+    width: 100%;
+    font-size: 1em;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    border: 1px solid #ced4da;
+  }
+  
+  /* Buttons */
+  .my-store-button {
+    padding: 8px 16px;
+    background-color: #28a745;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9em;
+    border-radius: 4px;
+    transition: background-color 0.3s ease;
+  }
+  
+  .my-store-button:hover {
+    background-color: #0056b3;
+  }
+  
+  .my-store-button-secondary {
+    background-color: #6c757d;
+  }
+  
+  .my-store-button-secondary:hover {
+    background-color: #5a6268;
+  }
+  
+  /* Lists */
+  .my-store-orders-list,
+  .my-store-products-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  
+  /* Items */
+  .my-store-order-item,
+  .my-store-product-item {
+    width: calc(33.333% - 20px);
+    background-color: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    box-sizing: border-box;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  
+  .my-store-order-item:hover,
+  .my-store-product-item:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+  }
+  
+  /* Item Headings */
+  .my-store-order-item h3,
+  .my-store-product-item h3 {
+    font-size: 1.2em;
+    margin-bottom: 10px;
+    color: #212529;
+  }
+  
+  /* Item Text */
+  .my-store-order-item p,
+  .my-store-product-item p {
+    font-size: 1em;
+    color: #6c757d;
+    margin-bottom: 10px;
+  }
+  
+  /* Product Images */
+  .my-store-product-item img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    margin-bottom: 10px;
+    border-radius: 4px;
+  }
+  
+  /* Buttons within Items */
+  .my-store-item-button {
+    padding: 6px 12px;
+    font-size: 0.9em;
+  }
+  
+  /* Section Buttons */
+  .my-store-section-button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 0.9em;
+  }
+  
+  /* Responsive Adjustments */
+  @media (max-width: 768px) {
+    .my-store-order-item,
+    .my-store-product-item {
+      width: calc(50% - 20px);
+    }
+  }
+  
+/* src/components/MyStore.css */
+
+/* Styling for the smaller, subtle buttons */
+.my-store-small-button {
+    padding: 6px 12px;
+    background-color: #6c757d;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8em;
+    border-radius: 4px;
+    transition: background-color 0.3s ease, opacity 0.3s ease;
+  }
+  
+  /* Hover effect */
+  .my-store-small-button:hover {
+    background-color: #5a6268;
+    opacity: 0.9;
+  }
+  
+
+  @media (max-width: 700px) {
+    .my-store-order-item,
+    .my-store-product-item {
+      width: 100%;
+    }
+  
+    .my-store-header h1 {
+      font-size: 2em;
+    }
+  
+    .my-store-profile-image {
+      width: 120px;
+      height: 120px;
+    }
+
+    .my-store-small-button {
+        padding: 4px 10px;
+        background-color: #6c757d;
+        font-size: 0.75em;
+        opacity: 0.7; /* Reduce visibility on desktop */
+        transition: opacity 0.2s ease;
+      }
+    
+      .my-store-small-button:hover {
+        background-color: #5a6268;
+        opacity: 1; /* Restore full opacity on hover */
+      }
+  }
+  

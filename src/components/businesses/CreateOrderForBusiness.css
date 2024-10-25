@@ -4,26 +4,39 @@
   direction: rtl;
   max-width: 600px;
   margin: 50px auto;
-  padding: 20px;
-  background-color: #f9f9f9;
+  padding: 30px;
+  background-color: #ffffff;
   border-radius: 10px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   text-align: center;
 }
 
 .create-order-for-business-container h1 {
-  font-size: 2.5em;
+  font-size: 2em;
   color: #333;
   margin-bottom: 20px;
 }
 
+.create-order-for-business-container .form-group {
+  margin-bottom: 20px;
+  text-align: right;
+}
+
+.create-order-for-business-container label {
+  display: block;
+  font-size: 1.1em;
+  margin-bottom: 5px;
+  color: #333;
+}
+
 .create-order-for-business-container input[type="text"],
 .create-order-for-business-container input[type="file"],
-.create-order-for-business-container select {
+.create-order-for-business-container select,
+.create-order-for-business-container input[type="time"] {
   width: 100%;
   padding: 10px;
-  font-size: 1.2em;
-  margin-bottom: 20px;
+  font-size: 1.1em;
+  margin-bottom: 10px;
   border: 2px solid #ccc;
   border-radius: 5px;
   box-sizing: border-box;
@@ -45,6 +58,7 @@
   cursor: pointer;
   transition: background-color 0.3s ease;
   width: 100%;
+  margin-top: 20px;
 }
 
 .create-order-for-business-container button:disabled {
@@ -60,15 +74,12 @@
   background-color: #ccc;
 }
 
-.create-order-for-business-container .loading-spinner {
-  margin: 20px 0;
-}
-
 /* Payment method selection styles */
 .payment-method-explanation {
   font-size: 1.2em;
   margin-bottom: 10px;
   color: #333;
+  text-align: right;
 }
 
 .payment-method-selection {
@@ -93,6 +104,7 @@
   font-size: 1.1em;
   margin-bottom: 10px;
   color: #333;
+  text-align: right;
 }
 
 .payment-apps-selection {
@@ -118,6 +130,116 @@
   color: #555;
   margin-top: -10px;
   margin-bottom: 20px;
+  text-align: right;
+}
+
+/* Request Address styles */
+.request-address {
+  margin-top: 20px;
+  margin-bottom: 20px;
+  text-align: right;
+  font-size: 1.1em;
+  color: #333;
+}
+
+.request-address label {
+  display: block;
+  font-size: 1em;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.request-address input[type="checkbox"] {
+  margin-left: 10px;
+  transform: scale(1.2);
+}
+
+/* Order Type Selection */
+.order-type-selection {
+  margin-bottom: 20px;
+  text-align: right;
+}
+
+.order-type-selection p {
+  font-size: 1.2em;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.order-type-selection label {
+  display: block;
+  font-size: 1.1em;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.order-type-selection input[type="radio"] {
+  margin-left: 10px;
+  transform: scale(1.2);
+}
+
+/* Schedule Selection */
+.order-schedule {
+  margin-bottom: 20px;
+  text-align: right;
+}
+
+.order-schedule h3 {
+  font-size: 1.2em;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.day-schedule {
+  margin-bottom: 10px;
+}
+
+.day-schedule label {
+  font-size: 1.1em;
+  cursor: pointer;
+}
+
+.day-schedule input[type="checkbox"] {
+  margin-left: 10px;
+  transform: scale(1.2);
+}
+
+.time-range {
+  display: flex;
+  align-items: center;
+  margin-top: 5px;
+}
+
+.time-range input[type="time"] {
+  width: 45%;
+  margin: 0 5px;
+}
+
+.time-range span {
+  margin: 0 5px;
+}
+
+/* Ending Time Explanation */
+.ending-time-explanation {
+  font-size: 1.1em;
+  margin-bottom: 10px;
+  color: #333;
+  text-align: right;
+}
+
+.duration-select {
+  width: 100%;
+  padding: 10px;
+  font-size: 1.1em;
+  margin-bottom: 20px;
+  border: 2px solid #ccc;
+  border-radius: 5px;
+  box-sizing: border-box;
+}
+
+.duration-select:focus {
+  outline: none;
+  border-color: #007bff;
 }
 
 /* Media queries for responsiveness */
@@ -127,20 +249,21 @@
   }
 
   .create-order-for-business-container h1 {
-    font-size: 2em;
+    font-size: 1.8em;
   }
 
   .create-order-for-business-container input,
   .create-order-for-business-container select {
-    font-size: 1.1em;
+    font-size: 1em;
   }
 
   .create-order-for-business-container button {
-    font-size: 1.1em;
+    font-size: 1em;
   }
 
   .payment-method-selection label,
-  .payment-apps-selection label {
+  .payment-apps-selection label,
+  .order-type-selection label {
     font-size: 1em;
   }
 }

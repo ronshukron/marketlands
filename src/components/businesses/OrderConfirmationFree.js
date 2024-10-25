@@ -19,6 +19,8 @@ const OrderConfirmationFree = () => {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [orderData, setOrderData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [userAddress, setUserAddress] = useState(''); 
+  const [requestAddress, setRequestAddress] = useState(false); 
 
   useEffect(() => {
     // Fetch order data to get payment apps and other details
@@ -28,6 +30,7 @@ const OrderConfirmationFree = () => {
         const orderSnap = await getDoc(orderDocRef);
         if (orderSnap.exists()) {
           setOrderData(orderSnap.data());
+          setRequestAddress(orderSnap.data().requestAddress || false); // Check if address is requested
         } else {
           console.log("Order does not exist!");
           navigate('/error');
@@ -47,9 +50,10 @@ const OrderConfirmationFree = () => {
     const isValid = userName.trim() !== '' &&
       userPhone.trim() !== '' &&
       userEmail.trim() !== '' &&
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail);
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
+      (!requestAddress || userAddress.trim() !== ''); // Address must be filled if requested
     setFormIsValid(isValid);
-  }, [userName, userPhone, userEmail]);
+  }, [userName, userPhone, userEmail, userAddress, requestAddress]);
 
   const total = cartProducts.reduce((acc, item) => acc + item.quantity * item.price, 0);
 
@@ -104,6 +108,7 @@ const OrderConfirmationFree = () => {
         Name: userName,
         Email: userEmail,
         Phone: userPhone,
+        Address: userAddress, 
         Mem_Order_Time: new Date().getTime(),
         OrderValue: total,
       };
@@ -220,6 +225,21 @@ const OrderConfirmationFree = () => {
               required
             />
           </div>
+          {/* Conditionally show address field */}
+          {requestAddress && (
+            <div className={`input-group ${userAddress.trim() === '' ? 'invalid' : ''}`}>
+              <label htmlFor="userAddress">כתובת למשלוח</label>
+              <input
+                id="userAddress"
+                type="text"
+                placeholder="כתובת מלאה"
+                value={userAddress}
+                onChange={(e) => setUserAddress(e.target.value)}
+                required
+              />
+            </div>
+          )}
+
         </div>
       </div>
 

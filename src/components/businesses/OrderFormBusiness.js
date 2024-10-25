@@ -21,6 +21,8 @@ const OrderFormBusiness = () => {
   const isCartEmpty = cartProducts.length === 0;
   const [orderDetails, setOrderDetails] = useState({});
   const [orderEnded, setOrderEnded] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState([]);
+
 
   useEffect(() => {
     const fetchOrderDetails = async () => {
@@ -30,15 +32,17 @@ const OrderFormBusiness = () => {
       if (docSnap.exists()) {
         const orderData = docSnap.data();
         setOrderDetails(orderData);
-        fetchBusinessDetails(orderData.businessId);
+        setSelectedProductIds(orderData.selectedProducts || []);
 
-        if (orderData.Ending_Time) {
-          const endingTime = orderData.Ending_Time.toDate();
+        if (orderData.endingTime) {
+          const endingTime = orderData.endingTime.toDate();
           const currentTime = new Date();
           if (currentTime >= endingTime) {
             setOrderEnded(true);
           }
         }
+
+        await fetchBusinessDetails(orderData.businessId, orderData.selectedProducts || []);
       } else {
         console.log("No such document!");
         navigate('/error');
@@ -49,7 +53,7 @@ const OrderFormBusiness = () => {
     fetchOrderDetails();
   }, [orderId, navigate]);
 
-  const fetchBusinessDetails = async (businessId) => {
+  const fetchBusinessDetails = async (businessId, selectedProductIds) => {
     const businessDoc = doc(db, "businesses", businessId);
     const businessSnap = await getDoc(businessDoc);
   
@@ -61,27 +65,45 @@ const OrderFormBusiness = () => {
         image: businessData.logo || '',
       });
   
-      // Now fetch the products from the Products collection where Owner_ID matches businessId
-      const productsQuery = collection(db, 'Products');
-      const querySnapshot = await getDocs(query(productsQuery, where('Owner_ID', '==', businessId)));
-  
-      const fetchedProducts = querySnapshot.docs.map(doc => {
-        const productData = doc.data();
-        return {
-          ...productData,
-          selectedOption: productData.options && productData.options.length > 0 ? productData.options[0] : "",
-          quantity: 0,
-          uid: `${productData.name}_${Math.random().toString(36).substr(2, 9)}`
-        };
-      });
-  
+      // Fetch only the selected products
+      let fetchedProducts = [];
+      if (selectedProductIds.length > 0) {
+        const chunkSize = 10;
+        const productChunks = [];
+        for (let i = 0; i < selectedProductIds.length; i += chunkSize) {
+          productChunks.push(selectedProductIds.slice(i, i + chunkSize));
+        }
+
+        for (const chunk of productChunks) {
+          const productsQuery = query(
+            collection(db, 'Products'),
+            where('Owner_ID', '==', businessId),
+            where('__name__', 'in', chunk)
+          );
+
+          const querySnapshot = await getDocs(productsQuery);
+
+          const productsInChunk = querySnapshot.docs.map(doc => {
+            const productData = doc.data();
+            return {
+              ...productData,
+              selectedOption: productData.options && productData.options.length > 0 ? productData.options[0] : "",
+              quantity: 0,
+              uid: `${doc.id}_${Math.random().toString(36).substr(2, 9)}` // Use doc.id for uniqueness
+            };
+          });
+
+          fetchedProducts = [...fetchedProducts, ...productsInChunk];
+        }
+      }
+
       setProducts(fetchedProducts);
   
     } else {
       console.log("Business document not found!");
     }
   };
-  
+    
   const handleQuantityChange = (index, increment) => {
     setProducts(products.map((product, i) => {
       if (i === index) {

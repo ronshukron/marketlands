@@ -27,8 +27,8 @@
 }
 
 .products-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); /* Responsive grid */
   gap: 20px;
 }
 
@@ -36,7 +36,18 @@
   padding: 20px;
   border: 1px solid #ddd;
   border-radius: 5px;
-  position: relative; /* To position the checkbox absolutely */
+  position: relative;
+  background-color: #fff;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between; /* Make sure content is spaced properly */
+}
+
+/* Adjust the size of product images inside the grid */
+.product-images-slider {
+  width: 100%;
+  margin-bottom: 10px; /* Spacing between slider and other content */
 }
 
 .product-item h3 {
@@ -214,5 +225,9 @@
   }
   .primary-button {
       width: 100%;
+  }
+
+  .products-list {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); /* Adjust grid for smaller screens */
   }
 }

@@ -1,5 +1,3 @@
-// src/components/CreateOrderForBusiness.js
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/authContext';
@@ -16,18 +14,40 @@ const CreateOrderForBusiness = () => {
   const { currentUser } = useAuth();
   const [orderName, setOrderName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [orderType, setOrderType] = useState('one_time'); // 'one_time' or 'recurring'
   const [selectedDuration, setSelectedDuration] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('commission'); // 'commission' or 'free'
   const [selectedPaymentApps, setSelectedPaymentApps] = useState([]); // ['paybox', 'bit']
   const [payboxLink, setPayboxLink] = useState('');
+  const [requestAddress, setRequestAddress] = useState(false);
+  const [schedule, setSchedule] = useState([
+    { day: 'ראשון', active: false, startTime: '', endTime: '' },
+    { day: 'שני', active: false, startTime: '', endTime: '' },
+    { day: 'שלישי', active: false, startTime: '', endTime: '' },
+    { day: 'רביעי', active: false, startTime: '', endTime: '' },
+    { day: 'חמישי', active: false, startTime: '', endTime: '' },
+    { day: 'שישי', active: false, startTime: '', endTime: '' },
+    { day: 'שבת', active: false, startTime: '', endTime: '' },
+  ]);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!selectedProducts || selectedProducts.length === 0) {
-      navigate('/business-products'); // Redirect if no products were selected
+      navigate('/business-products');
     }
   }, [selectedProducts, navigate]);
+
+  const handleScheduleChange = (index, field, value) => {
+    setSchedule((prevSchedule) => {
+      const newSchedule = [...prevSchedule];
+      newSchedule[index] = {
+        ...newSchedule[index],
+        [field]: value,
+      };
+      return newSchedule;
+    });
+  };
 
   // Function to calculate ending date based on duration
   const calculateEndingDate = (duration) => {
@@ -64,13 +84,27 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
-    if (!selectedDuration) {
+    if (orderType === 'one_time' && !selectedDuration) {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
         text: 'אנא בחרו משך זמן להזמנה.',
       });
       return;
+    }
+
+    if (orderType === 'recurring') {
+      const hasActiveSchedule = schedule.some(
+        (day) => day.active && day.startTime && day.endTime
+      );
+      if (!hasActiveSchedule) {
+        Swal.fire({
+          icon: 'error',
+          title: 'שגיאה',
+          text: 'אנא בחרו לפחות יום ושעות פעילות להזמנה.',
+        });
+        return;
+      }
     }
 
     if (paymentMethod === 'free' && selectedPaymentApps.length === 0) {
@@ -82,7 +116,11 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
-    if (paymentMethod === 'free' && selectedPaymentApps.includes('paybox') && !payboxLink.trim()) {
+    if (
+      paymentMethod === 'free' &&
+      selectedPaymentApps.includes('paybox') &&
+      !payboxLink.trim()
+    ) {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
@@ -117,8 +155,10 @@ const CreateOrderForBusiness = () => {
       }
     }
 
-    const endingTime = calculateEndingDate(selectedDuration);
-    if (!endingTime) {
+    const endingTime =
+      orderType === 'one_time' ? calculateEndingDate(selectedDuration) : null;
+
+    if (orderType === 'one_time' && !endingTime) {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
@@ -170,7 +210,7 @@ const CreateOrderForBusiness = () => {
         orderName,
         selectedProducts,
         Order_Time: currentTime,
-        endingTime, // Include ending time in the order document
+        endingTime: endingTime || null,
         businessName,
         communityName,
         businessKind,
@@ -180,6 +220,9 @@ const CreateOrderForBusiness = () => {
         paymentApps: paymentMethod === 'free' ? selectedPaymentApps : [], // Include selected payment apps
         payboxLink: selectedPaymentApps.includes('paybox') ? payboxLink : '', // Include Paybox link if applicable
         phoneNumber: selectedPaymentApps.includes('bit') ? phoneNumber : '', // Include phone number if Bit is selected
+        requestAddress,
+        schedule: orderType === 'recurring' ? schedule : [],
+        orderType, // Include order type
       };
 
       const docRef = await addDoc(collection(db, 'Orders'), orderData);
@@ -217,41 +260,130 @@ const CreateOrderForBusiness = () => {
   return (
     <div className="create-order-for-business-container">
       <h1>יצירת הזמנה חדשה</h1>
-      <input
-        type="text"
-        value={orderName}
-        placeholder="הכנס שם להזמנה"
-        onChange={(e) => setOrderName(e.target.value)}
-      />
+      <div className="form-group">
+        <label htmlFor="orderName">שם ההזמנה:</label>
+        <input
+          type="text"
+          id="orderName"
+          value={orderName}
+          placeholder="הכנס שם להזמנה"
+          onChange={(e) => setOrderName(e.target.value)}
+        />
+      </div>
 
-      {/* Select for order duration */}
-      <p className="ending-time-explanation">אנא בחרו את משך הזמן עד סיום ההזמנה:</p>
-      <select
-        className="duration-select"
-        value={selectedDuration}
-        onChange={(e) => setSelectedDuration(e.target.value)}
-      >
-        <option value="" disabled>
-          בחרו משך זמן
-        </option>
-        <option value="3_days">3 ימים</option>
-        <option value="5_days">5 ימים</option>
-        <option value="1_week">שבוע</option>
-        <option value="2_weeks">שבועיים</option>
-        <option value="1_month">חודש</option>
-      </select>
+      {/* Order Type Selection */}
+      <div className="order-type-selection">
+        <p>בחרו סוג הזמנה:</p>
+        <label>
+          <input
+            type="radio"
+            name="orderType"
+            value="one_time"
+            checked={orderType === 'one_time'}
+            onChange={(e) => setOrderType(e.target.value)}
+          />
+          הזמנה חד פעמית
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="orderType"
+            value="recurring"
+            checked={orderType === 'recurring'}
+            onChange={(e) => setOrderType(e.target.value)}
+          />
+          הזמנה חוזרת אוטומטית
+        </label>
+      </div>
+
+      {/* Duration Selection */}
+      {orderType === 'one_time' && (
+        <>
+          <p className="ending-time-explanation">
+            אנא בחרו את משך הזמן עד סיום ההזמנה:
+          </p>
+          <select
+            className="duration-select"
+            value={selectedDuration}
+            onChange={(e) => setSelectedDuration(e.target.value)}
+          >
+            <option value="" disabled>
+              בחרו משך זמן
+            </option>
+            <option value="3_days">3 ימים</option>
+            <option value="5_days">5 ימים</option>
+            <option value="1_week">שבוע</option>
+            <option value="2_weeks">שבועיים</option>
+            <option value="1_month">חודש</option>
+          </select>
+        </>
+      )}
+
+      {/* Schedule Selection */}
+      {orderType === 'recurring' && (
+        <div className="order-schedule">
+          <h3>בחרו את הימים והשעות שבהם ההזמנה תהיה פעילה:</h3>
+          {schedule.map((daySchedule, index) => (
+            <div key={index} className="day-schedule">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={daySchedule.active}
+                  onChange={(e) =>
+                    handleScheduleChange(index, 'active', e.target.checked)
+                  }
+                />
+                {daySchedule.day}
+              </label>
+              {daySchedule.active && (
+                <div className="time-range">
+                  <input
+                    type="time"
+                    value={daySchedule.startTime}
+                    onChange={(e) =>
+                      handleScheduleChange(index, 'startTime', e.target.value)
+                    }
+                  />
+                  עד
+                  <input
+                    type="time"
+                    value={daySchedule.endTime}
+                    onChange={(e) =>
+                      handleScheduleChange(index, 'endTime', e.target.value)
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Image upload */}
-      <p className="image-upload-explanation">העלו תמונה להזמנה:</p>
-      <input
-        type="file"
-        accept="image/*"
-        onChange={(e) => setImageFile(e.target.files[0])}
-      />
+      <div className="form-group">
+        <label>העלו תמונה להזמנה:</label>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setImageFile(e.target.files[0])}
+        />
+      </div>
+
+      {/* Request Address Option */}
+      <div className="request-address">
+        <label>
+          <input
+            type="checkbox"
+            checked={requestAddress}
+            onChange={(e) => setRequestAddress(e.target.checked)}
+          />
+          בקש כתובת ממשתמשים בעת ביצוע ההזמנה
+        </label>
+      </div>
 
       {/* Payment method selection */}
-      <p className="payment-method-explanation">בחרו את אמצעי התשלום להזמנה:</p>
       <div className="payment-method-selection">
+        <p className="payment-method-explanation">בחרו את אמצעי התשלום להזמנה:</p>
         <label>
           <input
             type="radio"
@@ -277,7 +409,9 @@ const CreateOrderForBusiness = () => {
       {/* Payment apps selection */}
       {paymentMethod === 'free' && (
         <>
-          <p className="payment-apps-explanation">בחרו את אפליקציות התשלום הרצויות:</p>
+          <p className="payment-apps-explanation">
+            בחרו את אפליקציות התשלום הרצויות:
+          </p>
           <div className="payment-apps-selection">
             <label>
               <input

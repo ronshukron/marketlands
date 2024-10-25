@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import './PaymentSuccess.css';
+import OngoingOrders from './OngoingOrders'; // Import OngoingOrders component
 
 const PaymentSuccess = () => {
     const navigate = useNavigate();
@@ -54,6 +55,11 @@ const PaymentSuccess = () => {
             <div className="buttons-container">
                 <button onClick={handleRegister} className="register-button">הירשם לאתר</button>
             </div>
+            {/* Include OngoingOrders component to display active orders */}
+            <section className="ongoing-orders-section">
+                {/* <h2>הזמנות פעילות</h2> */}
+                <OngoingOrders /> {/* Display ongoing orders */}
+            </section>
         </div>
     );
 };

@@ -1,5 +1,3 @@
-// src/components/BusinessOrderSummary.js
-
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
@@ -91,6 +89,12 @@ const BusinessOrderSummary = () => {
               <p>
                 <strong>טלפון:</strong> {memberDetails.Phone}
               </p>
+              {/* Conditionally render the address if available */}
+              {memberDetails.Address && (
+                <p>
+                  <strong>כתובת:</strong> {memberDetails.Address}
+                </p>
+              )}
               <ul>
                 {Object.entries(memberDetails)
                   .filter(([key, value]) => typeof value === 'object' && value.Quantity)

@@ -21,15 +21,40 @@ const OrderConfirmation = () => {
     const [formIsValid, setFormIsValid] = useState(false);
     const [showPopup, setShowPopup] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
+    const [userAddress, setUserAddress] = useState(''); 
+    const [requestAddress, setRequestAddress] = useState(false); 
+    const [orderData, setOrderData] = useState({});
 
+    useEffect(() => {
+        // Fetch order data to get if address is requested
+        const fetchOrderData = async () => {
+            try {
+                const orderDocRef = doc(db, "Orders", orderId);
+                const orderSnap = await getDoc(orderDocRef);
+                if (orderSnap.exists()) {
+                    const orderInfo = orderSnap.data();
+                    setOrderData(orderInfo);
+                    setRequestAddress(orderInfo.requestAddress || false); // Check if address is requested
+                } else {
+                    console.log("Order does not exist!");
+                    navigate('/error');
+                }
+            } catch (error) {
+                console.error("Error fetching order data:", error);
+                navigate('/error');
+            }
+        };
+        fetchOrderData();
+    }, [orderId, navigate]);
 
     useEffect(() => {
         const isValid = userName.trim() !== '' && 
                         userPhone.trim() !== '' && 
                         userEmail.trim() !== '' &&
-                        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail);
+                        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
+                        (!requestAddress || userAddress.trim() !== ''); 
         setFormIsValid(isValid);
-    }, [userName, userPhone, userEmail]);
+    }, [userName, userPhone, userEmail, userAddress, requestAddress]);
 
     const total = cartProducts.reduce((acc, item) => acc + item.quantity * item.price, 0);
 
@@ -65,6 +90,7 @@ const OrderConfirmation = () => {
             Name: userName,
             Email: userEmail,
             Phone: userPhone,
+            Address: userAddress, 
             Mem_Order_Time: new Date().getTime(),
             OrderValue: cartProducts.reduce((total, product) => total + (product.quantity * product.price), 0)
         };
@@ -221,6 +247,21 @@ const OrderConfirmation = () => {
                             required
                         />
                     </div>
+
+                    {/* Conditionally show address field */}
+                    {requestAddress && (
+                        <div className={`input-group ${userAddress.trim() === '' ? 'invalid' : ''}`}>
+                            <label htmlFor="userAddress">כתובת למשלוח</label>
+                            <input
+                                id="userAddress"
+                                type="text"
+                                placeholder="כתובת מלאה"
+                                value={userAddress}
+                                onChange={(e) => setUserAddress(e.target.value)}
+                                required
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
 
