@@ -110,6 +110,16 @@ const handleSubmit = async (e) => {
     return;
   }
 
+  if (images.length + selectedFiles.length < 2) {
+    Swal.fire({
+      icon: 'error',
+      title: 'שגיאה',
+      text: 'אנא העלה לפחות שתי תמונות עבור המוצר.',
+    });
+    setLoading(false);
+    return;
+  }
+
   try {
     // Upload new files to Firebase Storage if any
     const newImageUrls = await Promise.all(

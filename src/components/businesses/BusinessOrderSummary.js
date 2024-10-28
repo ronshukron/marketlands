@@ -65,13 +65,13 @@ const BusinessOrderSummary = () => {
           <strong>תאריך סיום:</strong>{' '}
           {orderData.endingTime ? orderData.endingTime.toDate().toLocaleString() : 'N/A'}
         </p>
-        {orderData.imageUrl && (
+        {/* {orderData.imageUrl && (
           <img
             src={orderData.imageUrl}
             alt={orderData.orderName}
             className="order-image"
           />
-        )}
+        )} */}
       </div>
 
       <h2>הזמנות של לקוחות</h2>

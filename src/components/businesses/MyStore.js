@@ -17,6 +17,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import './MyStore.css';
 import defaultBackground from '../../images/Field.jpg';
 import defaultProfile from '../../images/vegetables.jpg';
+import { FaPhoneAlt, FaWhatsapp } from 'react-icons/fa'; 
 
 const MyStore = () => {
   const { currentUser } = useAuth();
@@ -24,14 +25,20 @@ const MyStore = () => {
   const [businessData, setBusinessData] = useState(null);
   const [storeDescription, setStoreDescription] = useState('');
   const [editingDescription, setEditingDescription] = useState(false);
+  const [storeMoreInfo, setStoreMoreInfo] = useState('');
+  const [editingMoreInfo, setEditingMoreInfo] = useState(false);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [phoneNumber, setPhoneNumber] = useState('');
   const navigate = useNavigate();
 
   const [backgroundImageUrl, setBackgroundImageUrl] = useState('');
   const [profileImageUrl, setProfileImageUrl] = useState('');
 
   const isOwner = currentUser && businessData && currentUser.uid === businessId;
+
+  const businessPhone = businessData?.phone || '0500000000';
+  const whatsappLink = `https://wa.me/972${businessPhone.replace(/^0/, '').replace(/-/g, '')}`;
 
   useEffect(() => {
     if (businessId) {
@@ -49,6 +56,8 @@ const MyStore = () => {
         const data = businessDocSnap.data();
         setBusinessData(data);
         setStoreDescription(data.storeDescription || '');
+        setStoreMoreInfo(data.storeMoreInfo || '');
+        setPhoneNumber(data.phone || '');
         setBackgroundImageUrl(data.backgroundImageUrl || defaultBackground);
         setProfileImageUrl(data.profileImageUrl || defaultProfile);
       } else {
@@ -245,6 +254,21 @@ const MyStore = () => {
     }
   };
 
+  const handleMoreInfoEdit = () => {
+    setEditingMoreInfo(true);
+  };
+
+  const handleMoreInfoSave = async () => {
+    try {
+      await updateDoc(doc(db, 'businesses', businessId), {
+        storeMoreInfo,
+      });
+      setEditingMoreInfo(false);
+    } catch (error) {
+      console.error('Error updating store more info:', error);
+    }
+  };
+
   const handleProductClick = (productId) => {
     navigate(`/product/${productId}`);
   };
@@ -363,7 +387,7 @@ const MyStore = () => {
       </div>
 
       <div className="my-store-active-orders-section">
-        <h2>הזמנות פעילות</h2>
+        <h2>מכירות חיות</h2>
         {orders.length > 0 ? (
           <div className="my-store-orders-list">
             {orders.map((order) => (
@@ -380,6 +404,49 @@ const MyStore = () => {
         )}
         {isOwner && (
           <button className="my-store-small-button" onClick={handleCreateOrder}>עבור לאזור הדפי מכירה שלי</button>
+        )}
+      </div>
+
+      <div className="my-store-description-section">
+        <h2>מידע נוסף</h2>
+        {editingMoreInfo && isOwner ? (
+          <div>
+            <textarea
+              value={storeMoreInfo}
+              onChange={(e) => setStoreMoreInfo(e.target.value)}
+              rows={5}
+            ></textarea>
+            <button className="my-store-button" onClick={handleMoreInfoSave}>שמור</button>
+          </div>
+        ) : (
+          <div>
+            <p>{storeMoreInfo || 'עדיין לא הוזן תיאור לחנות.'}</p>
+            {isOwner && (
+              <button className="my-store-small-button" onClick={handleMoreInfoEdit}>ערוך תיאור</button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Contact Us Section */}
+      <div className="my-store-contact-section">
+        <h2>צרו קשר</h2>
+        {phoneNumber ? (
+          <div className="contact-buttons">
+            <div>
+                <a href={`tel:${businessPhone}`} className="contact-button phone-button">
+                    <FaPhoneAlt className="contact-icon" /> {businessPhone}
+                </a>   
+            </div>
+         
+            <div>
+            <a href={whatsappLink} target="_blank" rel="noopener noreferrer" className="contact-button whatsapp-button">
+                <FaWhatsapp className="contact-icon" /> WhatsApp
+            </a>
+            </div>
+          </div>
+        ) : (
+          <p>מספר טלפון לא זמין.</p>
         )}
       </div>
 

@@ -89,18 +89,19 @@ body {
     border-radius: 4px;
   }
   
-  /* Sections */
   .my-store-description-section,
   .my-store-active-orders-section,
-  .my-store-products-section {
+  .my-store-products-section,
+  .my-store-contact-section {
     margin-bottom: 40px;
     padding: 20px;
     background-color: #fff;
     border-radius: 8px;
+    border: 1px solid #e0e0e0; /* Light gray border */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); /* Slight shadow for a lifted effect */
     direction: rtl;
-
   }
-  
+    
   /* Section Headings */
   .my-store-description-section h2,
   .my-store-active-orders-section h2,
@@ -245,7 +246,70 @@ body {
     background-color: #5a6268;
     opacity: 0.9;
   }
+
+/* Contact Section */
+.my-store-contact-section {
+    margin-bottom: 40px;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    direction: rtl;
+  }
   
+  .my-store-contact-section h2 {
+    font-size: 1.8em;
+    color: #343a40;
+    margin-bottom: 15px;
+    font-weight: bold;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 10px;
+  }
+  
+  .contact-buttons {
+    /* display: ; */
+    gap: 20px;
+  }
+  
+  .contact-button {
+    display: flex;
+    /* flex-direction: column; */
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    font-size: 1em;
+    font-weight: bold;
+    text-decoration: none;
+    color: #fff;
+    border-radius: 5px;
+    transition: background-color 0.3s ease;
+    cursor: pointer;
+  }
+  
+  .phone-button {
+    background-color: #28a745;
+    margin-bottom: 20px;
+    justify-content: center;
+  }
+  
+  .phone-button:hover {
+    background-color: #218838;
+  }
+  
+  .whatsapp-button {
+    background-color: #25d366;
+    justify-content: center;
+  }
+  
+  .whatsapp-button:hover {
+    background-color: #1ebc5a;
+  }
+  
+  .contact-icon {
+    font-size: 1.2em;
+  }
+    
 
   @media (max-width: 700px) {
     .my-store-order-item,

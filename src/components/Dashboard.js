@@ -55,10 +55,8 @@ const Dashboard = () => {
                 };
             });
 
-            // Combine orders
+            // Combine orders and sort by date
             const combinedOrders = [...fetchedFarmerOrders, ...fetchedBusinessOrders];
-
-            // Sort orders by date, with the latest date first
             const sortedOrders = combinedOrders.sort((a, b) => {
                 const dateA = a.orderDate ? a.orderDate.getTime() : 0;
                 const dateB = b.orderDate ? b.orderDate.getTime() : 0;
@@ -69,7 +67,6 @@ const Dashboard = () => {
                 ...order,
                 displayDate: order.orderDate ? formatDate(order.orderDate) : 'No date',
             })));
-
             setLoading(false);
         } catch (error) {
             console.error('Error fetching orders:', error);
@@ -79,41 +76,21 @@ const Dashboard = () => {
 
     const parseDate = (dateField) => {
         if (!dateField) return null;
-        if (dateField.toDate) {
-            return dateField.toDate();
-        } else if (typeof dateField === 'string') {
-            return new Date(dateField);
-        } else if (typeof dateField === 'number') {
-            // If the timestamp is in seconds, multiply by 1000
-            return new Date(dateField.toString().length === 10 ? dateField * 1000 : dateField);
-        } else {
-            return null;
-        }
+        if (dateField.toDate) return dateField.toDate();
+        return new Date(dateField);
     };
 
     const formatDate = (date) => {
-        if (!date || isNaN(date.getTime())) {
-            return 'No date';
-        }
-        return format(date, 'dd/MM/yyyy HH:mm');
+        return date && !isNaN(date.getTime()) ? format(date, 'dd/MM/yyyy HH:mm') : 'No date';
     };
 
-    const handleRowClick = (order) => {
-        if (order.orderType === 'farmer') {
-            navigate(`/order-summary/${order.id}`);
-        } else if (order.orderType === 'business') {
-            navigate(`/business-order-summary/${order.id}`);
-        }
+    const handleViewOrder = (order) => {
+        const route = order.orderType === 'farmer' ? `/order-summary/${order.id}` : `/business-order-summary/${order.id}`;
+        navigate(route);
     };
 
-    const handleCopyLink = (e, order) => {
-        e.stopPropagation(); // Prevents the row click event
-        let link = '';
-        if (order.orderType === 'farmer') {
-            link = `${window.location.origin}/order-form/${order.id}`;
-        } else if (order.orderType === 'business') {
-            link = `${window.location.origin}/order-form-business/${order.id}`;
-        }
+    const handleCopyLink = (order) => {
+        const link = `${window.location.origin}/${order.orderType === 'farmer' ? 'order-form' : 'order-form-business'}/${order.id}`;
         navigator.clipboard.writeText(link)
             .then(() => {
                 Swal.fire({
@@ -127,38 +104,24 @@ const Dashboard = () => {
             .catch(err => console.error('Failed to copy link: ', err));
     };
 
-    if (loading) {
-        return <LoadingSpinner />;
-    }
+    if (loading) return <LoadingSpinner />;
 
     return (
         <div className="dashboard-container">
             <h1>לוח הזמנות</h1>
-            <div className="table-container">
-                <table className="orders-table">
-                    <thead>
-                        <tr>
-                            <th>שם הזמנה</th>
-                            <th>תאריך</th>
-                            <th>ספק</th>
-                            <th>עלות כוללת</th>
-                            <th>קישור להזמנה</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {orders.map(order => (
-                            <tr key={order.id} onClick={() => handleRowClick(order)}>
-                                <td>{order.Order_Name || order.orderName}</td>
-                                <td>{order.displayDate}</td>
-                                <td>{order.Producer_Name || order.businessName}</td>
-                                <td>{order.Total_Amount ? `${order.Total_Amount}₪` : 'N/A'}</td>
-                                <td>
-                                    <button onClick={(e) => handleCopyLink(e, order)}>העתק קישור</button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+            <div className="orders-grid">
+                {orders.map(order => (
+                    <div key={order.id} className="order-card">
+                        <h2 className="order-name">{order.Order_Name || order.orderName}</h2>
+                        <p><strong>תאריך:</strong> {order.displayDate}</p>
+                        <p><strong>ספק:</strong> {order.Producer_Name || order.businessName}</p>
+                        <p><strong>עלות כוללת:</strong> {order.Total_Amount ? `${order.Total_Amount}₪` : 'N/A'}</p>
+                        <div className="order-card-actions">
+                            <button className="view-order-btn" onClick={() => handleViewOrder(order)}>צפה בהזמנה</button>
+                            <button className="copy-link-btn" onClick={() => handleCopyLink(order)}>העתק קישור</button>
+                        </div>
+                    </div>
+                ))}
             </div>
         </div>
     );

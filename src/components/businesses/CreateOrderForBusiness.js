@@ -7,6 +7,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Swal from 'sweetalert2';
 import './CreateOrderForBusiness.css';
 import communityToRegion from '../../utils/communityToRegion';
+// Assuming you have a utility file with area definitions
+import areas from '../../utils/areas'; 
 
 const CreateOrderForBusiness = () => {
   const { state } = useLocation();
@@ -30,6 +32,7 @@ const CreateOrderForBusiness = () => {
     { day: 'שישי', active: false, startTime: '', endTime: '' },
     { day: 'שבת', active: false, startTime: '', endTime: '' },
   ]);
+  const [selectedAreas, setSelectedAreas] = useState([]); // New state for selected areas
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -89,6 +92,15 @@ const CreateOrderForBusiness = () => {
         icon: 'error',
         title: 'שגיאה',
         text: 'אנא בחרו משך זמן להזמנה.',
+      });
+      return;
+    }
+
+    if (selectedAreas.length === 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'שגיאה',
+        text: 'אנא בחרו לפחות אזור אחד.',
       });
       return;
     }
@@ -215,6 +227,7 @@ const CreateOrderForBusiness = () => {
         communityName,
         businessKind,
         region,
+        regions: selectedAreas, // Include the selected areas
         imageUrl, // Include the image URL in the order document
         paymentMethod, // Include payment method
         paymentApps: paymentMethod === 'free' ? selectedPaymentApps : [], // Include selected payment apps
@@ -458,6 +471,31 @@ const CreateOrderForBusiness = () => {
           )}
         </>
       )}
+
+      {/* Area Selection */}
+      <div className="form-group">
+        <label>בחרו את האזורים בהם תופיע ההזמנה:</label>
+        <div className="areas-selection">
+          {areas.map((area) => (
+            <label key={area}>
+              <input
+                type="checkbox"
+                value={area}
+                checked={selectedAreas.includes(area)}
+                onChange={(e) => {
+                  const { value, checked } = e.target;
+                  if (checked) {
+                    setSelectedAreas([...selectedAreas, value]);
+                  } else {
+                    setSelectedAreas(selectedAreas.filter((a) => a !== value));
+                  }
+                }}
+              />
+              {area}
+            </label>
+          ))}
+        </div>
+      </div>
 
       <button onClick={handleCreateOrder} disabled={loading}>
         {loading ? 'יוצר הזמנה...' : 'צור הזמנה'}

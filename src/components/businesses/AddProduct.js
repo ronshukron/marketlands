@@ -58,6 +58,16 @@ const AddProduct = () => {
       return;
     }
 
+    if (selectedFiles.length < 2) {
+      Swal.fire({
+        icon: 'error',
+        title: 'שגיאה',
+        text: 'אנא העלה לפחות שתי תמונות עבור המוצר.',
+      });
+      setLoading(false); // Stop loading spinner if there's an error
+      return;
+    }
+
     try {
       // Upload all selected files to Firebase Storage
       const imageUrls = await Promise.all(

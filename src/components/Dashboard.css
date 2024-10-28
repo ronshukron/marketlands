@@ -1,172 +1,79 @@
-body {
-    font-family: 'Arial', sans-serif; /* Modern sans-serif font */
+.dashboard-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: auto;
+  text-align: center;
+}
+
+.orders-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.order-card {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.order-card:hover {
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.order-name {
+  font-size: 1.5em;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.order-card p {
+  margin: 10px 0;
+  color: #666;
+}
+
+.order-card-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 15px;
+}
+
+.view-order-btn, .copy-link-btn {
+  flex: 1;
+  padding: 8px;
+  font-size: 0.9em;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  margin: 0 5px;
+}
+
+.view-order-btn {
+  background-color: #007BFF;
+}
+
+.view-order-btn:hover {
+  background-color: #0056b3;
+}
+
+.copy-link-btn {
+  background-color: #28a745;
+}
+
+.copy-link-btn:hover {
+  background-color: #218838;
+}
+
+@media (max-width: 768px) {
+  .orders-grid {
+      grid-template-columns: 1fr;
   }
-  
-  .navbar {
-    background-color: #ffffff; /* Crisp white background */
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* Subtle shadow for a layered effect */
-    padding: 10px 20px; /* Ample padding for a spacious feel */
+
+  .view-order-btn, .copy-link-btn {
+      padding: 6px;
   }
-  
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  
-  .title {
-    font-size: 24px;
-    font-weight: bold;
-    color: #333;
-  }
-  
-  .hamburger {
-    display: none; /* Hidden by default */
-    cursor: pointer;
-    font-size: 30px; /* Large enough for easy interaction */
-    color: #333; /* Dark gray for contrast */
-    padding: 12px; /* Increased padding for a chunkier icon */
-  }
-  
-  .menu-list {
-    list-style: none;
-    padding: 0;
-    margin: 0 auto; /* Centered horizontally */
-    display: flex;
-    justify-content: center; /* Center items horizontally */
-    align-items: center; /* Align items vertically */
-  }
-  
-  .menu-list li {
-    margin: 0 20px; /* Space between menu items */
-  }
-  
-  .menu-list a, .menu-list button {
-    text-decoration: none;
-    color: #333; /* Dark gray for readability */
-    font-weight: 500; /* Medium font weight for emphasis */
-    font-size: 16px; /* Optimal size for readability */
-    transition: color 0.3s ease; /* Smooth color transition on hover */
-    padding: 10px 20px; /* Increased padding around links and buttons */
-  }
-  
-  .menu-list a:hover, .menu-list button:hover {
-    color: #007BFF; /* Bright blue on hover for visual feedback */
-  }
-  
-  .dashboard-container {
-    padding: 20px;
-    max-width: 1200px;
-    margin: auto;
-    background-color: #fff;
-    border-radius: 8px;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    text-align: center;
-  }
-  
-  .table-container {
-    overflow-x: auto; /* Enable horizontal scrolling */
-  }
-  
-  .orders-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
-  }
-  
-  .orders-table th, .orders-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: right; /* Align text to the left */
-  }
-  
-  .orders-table th {
-    background-color: #f2f2f2;
-    color: #333;
-  }
-  
-  .orders-table tr:nth-child(even) {
-    background-color: #f9f9f9;
-  }
-  
-  .orders-table tr:hover {
-    background-color: #ddd;
-  }
-  
-  .orders-table td button {
-    background-color: #007BFF;
-    color: white;
-    border: none;
-    padding: 5px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  }
-  
-  .orders-table td button:hover {
-    background-color: #0056b3;
-  }
-  
-  @media (max-width: 768px) {
-    .hamburger {
-        display: block; /* Show hamburger icon on smaller screens */
-    }
-  
-    .menu-list {
-        display: none; /* Hide by default on mobile */
-        position: fixed;
-        top: 60px; /* Positioned below the hamburger */
-        left: 0;
-        right: 0;
-        background-color: #f8f9fa; /* Light grey background */
-        flex-direction: column; /* Stack items vertically */
-        width: 100%; /* Full width */
-        z-index: 1000; /* Ensures menu is on top */
-    }
-  
-    .menu-list.open {
-        display: flex; /* Display when menu is open */
-        animation: slideDown 0.3s ease-out forwards; /* Smooth slide down animation */
-    }
-  
-    .menu-list li {
-        width: 100%; /* Full width for each item */
-        padding: 15px 10px; /* Larger tap area */
-        border-bottom: 1px solid #e7e7e7; /* Subtle separator */
-        text-align: center; /* Center align text */
-    }
-  
-    .menu-list a, .menu-list button {
-        display: block; /* Block level for full width access */
-        color: #333; /* Maintain dark gray color for contrast */
-    }
-  
-    .menu-list button {
-        width: 100%; /* Button takes full width */
-        background: transparent; /* No background to blend with the menu */
-    }
-  
-    .dashboard-container {
-      padding: 10px;
-    }
-  
-    .orders-table th, .orders-table td {
-      font-size: 14px; /* Smaller font size for mobile */
-      padding: 6px; /* Smaller padding for mobile */
-    }
-  
-    .orders-table td button {
-      font-size: 12px; /* Smaller button font size for mobile */
-      padding: 4px 8px; /* Smaller button padding for mobile */
-    }
-  }
-  
-  @keyframes slideDown {
-    from {
-        transform: translateY(-100%);
-    }
-    to {
-        transform: translateY(0);
-    }
-  }
-  
+}
