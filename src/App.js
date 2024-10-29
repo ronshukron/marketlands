@@ -38,6 +38,7 @@ import OrderConfirmationFree from './components/businesses/OrderConfirmationFree
 import PaymentInstructions from './components/businesses/PaymentInstructions';
 import MyStore from './components/businesses/MyStore.js';
 import ProductDetail from './components/ProductDetail';
+import OnGoingOrderCoordinators from './components/OnGoingOrderCoordinators.js';
 
 const App = () => {
   return (
@@ -81,6 +82,7 @@ const App = () => {
           <Route path="/payment-instructions" element={<PaymentInstructions />} />
           <Route path="/store/:businessId" element={<MyStore />} />
           <Route path="/product/:productId" element={<ProductDetail />} />
+          <Route path="/ongoing-order-coordinators" element={<OnGoingOrderCoordinators />} />
 
         </Routes>
         <Footer />

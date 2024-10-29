@@ -149,6 +149,28 @@
   cursor: pointer;
 }
 
+.areas-selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.area-checkbox {
+  display: flex;
+  align-items: center;
+  margin-right: 15px;
+}
+
+/* Optional: Style the checkboxes and labels */
+.area-checkbox input[type="checkbox"] {
+  margin-left: 5px;
+}
+
+.form-group input[type="checkbox"] {
+  margin-left: 10px;
+  transform: scale(1.2);
+}
+
 .request-address input[type="checkbox"] {
   margin-left: 10px;
   transform: scale(1.2);

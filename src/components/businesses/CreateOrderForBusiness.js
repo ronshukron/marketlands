@@ -32,7 +32,8 @@ const CreateOrderForBusiness = () => {
     { day: 'שישי', active: false, startTime: '', endTime: '' },
     { day: 'שבת', active: false, startTime: '', endTime: '' },
   ]);
-  const [selectedAreas, setSelectedAreas] = useState([]); // New state for selected areas
+  const [isFarmerOrder, setIsFarmerOrder] = useState(false);
+  const [selectedAreas, setSelectedAreas] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -96,7 +97,7 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
-    if (selectedAreas.length === 0) {
+    if (isFarmerOrder && selectedAreas.length === 0) {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
@@ -227,7 +228,6 @@ const CreateOrderForBusiness = () => {
         communityName,
         businessKind,
         region,
-        regions: selectedAreas, // Include the selected areas
         imageUrl, // Include the image URL in the order document
         paymentMethod, // Include payment method
         paymentApps: paymentMethod === 'free' ? selectedPaymentApps : [], // Include selected payment apps
@@ -236,6 +236,8 @@ const CreateOrderForBusiness = () => {
         requestAddress,
         schedule: orderType === 'recurring' ? schedule : [],
         orderType, // Include order type
+        isFarmerOrder: isFarmerOrder,
+        areas: isFarmerOrder ? selectedAreas : [],
       };
 
       const docRef = await addDoc(collection(db, 'Orders'), orderData);
@@ -472,31 +474,44 @@ const CreateOrderForBusiness = () => {
         </>
       )}
 
-      {/* Area Selection */}
+      {/* Make a Farmer Order Checkbox */}
       <div className="form-group">
-        <label>בחרו את האזורים בהם תופיע ההזמנה:</label>
-        <div className="areas-selection">
-          {areas.map((area) => (
-            <label key={area}>
-              <input
-                type="checkbox"
-                value={area}
-                checked={selectedAreas.includes(area)}
-                onChange={(e) => {
-                  const { value, checked } = e.target;
-                  if (checked) {
-                    setSelectedAreas([...selectedAreas, value]);
-                  } else {
-                    setSelectedAreas(selectedAreas.filter((a) => a !== value));
-                  }
-                }}
-              />
-              {area}
-            </label>
-          ))}
-        </div>
+        <label>
+        יצירת הזמנה לחקלאי
+          <input
+            type="checkbox"
+            checked={isFarmerOrder}
+            onChange={(e) => setIsFarmerOrder(e.target.checked)}
+          />
+        </label>
       </div>
 
+      {/* Areas Selection */}
+      {isFarmerOrder && (
+        <div className="form-group">
+          <label>בחר אזורים:</label>
+          <div className="areas-selection">
+            {['צפון', 'מרכז', 'דרום', 'ירושלים', 'שרון', 'שפלה', 'יהודה ושומרון', 'אחר'].map((area) => (
+              <label key={area} className="area-checkbox">
+                <input
+                  type="checkbox"
+                  value={area}
+                  checked={selectedAreas.includes(area)}
+                  onChange={(e) => {
+                    const { value, checked } = e.target;
+                    if (checked) {
+                      setSelectedAreas((prev) => [...prev, value]);
+                    } else {
+                      setSelectedAreas((prev) => prev.filter((a) => a !== value));
+                    }
+                  }}
+                />
+                {area}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       <button onClick={handleCreateOrder} disabled={loading}>
         {loading ? 'יוצר הזמנה...' : 'צור הזמנה'}
       </button>
