@@ -61,7 +61,7 @@ const OrderFormBusiness = () => {
       const businessData = businessSnap.data();
       setBusinessInfo({
         name: businessData.businessName,
-        location: businessData.location,
+        communityName : businessData.communityName,
         image: businessData.logo || '',
       });
   
@@ -268,7 +268,7 @@ const OrderFormBusiness = () => {
           <img className="business-image" src={businessInfo.image} alt={`Logo of ${businessInfo.name}`} />
         )}
         <div className="business-details">
-          <p><strong>מיקום:</strong> {businessInfo.location}</p>
+          <p><strong>מיקום:</strong> {businessInfo.communityName}</p>
         </div>
       </div>
       <div className="instructions">

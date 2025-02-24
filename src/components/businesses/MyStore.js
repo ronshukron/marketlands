@@ -16,7 +16,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useNavigate, useParams } from 'react-router-dom';
 import './MyStore.css';
 import defaultBackground from '../../images/Field.jpg';
-import defaultProfile from '../../images/vegetables.jpg';
+import defaultProfile from '../../images/freshlybaledfield.jpg';
 import { FaPhoneAlt, FaWhatsapp } from 'react-icons/fa'; 
 
 const MyStore = () => {
