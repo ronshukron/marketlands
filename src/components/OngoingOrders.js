@@ -9,7 +9,7 @@ import {
   getDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
-import './OngoingOrders.css';
+// import './OngoingOrders.css';
 import LoadingSpinner from './LoadingSpinner';
 import { Link } from 'react-router-dom';
 
@@ -225,14 +225,18 @@ const OngoingOrders = () => {
   }
 
   return (
-    <div className="ongoing-orders-container">
-      <h1 className="ongoing-orders-header">הזמנות פעילות באזור שלך</h1>
-      <div className="filter-container">
-        <label htmlFor="region-filter">סנן לפי אזור:</label>
+    <div dir="rtl" className="max-w-7xl mx-auto px-4 py-6">
+      <h1 className="text-2xl font-bold text-center mb-4">הזמנות פעילות באזור שלך</h1>
+      
+      <div className="mb-4 flex justify-center items-center gap-2">
+        <label htmlFor="region-filter" className="text-gray-700 text-sm">
+          סנן לפי אזור:
+        </label>
         <select
           id="region-filter"
           value={selectedRegion}
           onChange={(e) => setSelectedRegion(e.target.value)}
+          className="bg-white border border-gray-300 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="הכל">הכל</option>
           <option value="צפון">צפון</option>
@@ -241,88 +245,80 @@ const OngoingOrders = () => {
           <option value="שפלה">שפלה</option>
         </select>
       </div>
+
       {filteredOrders.length === 0 ? (
-        <p className="no-orders-message">אין הזמנות פעילות באזור שנבחר.</p>
+        <p className="text-center text-gray-600 text-sm">אין הזמנות פעילות באזור שנבחר.</p>
       ) : (
-        <div className="orders-list">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredOrders.map((order) => (
-            <div key={order.id} className="order-item">
-              <Link
-                to={
-                  order.type === 'farmer'
-                    ? `/order-form/${order.id}`
-                    : `/order-form-business/${order.id}`
-                }
-                className="order-link"
-              >
-                {/* Display image */}
-                {order.type === 'farmer' && order.producerData?.Image && (
+            <Link
+              key={order.id}
+              to={order.type === 'farmer' ? `/order-form/${order.id}` : `/order-form-business/${order.id}`}
+              className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300"
+            >
+              <div className="relative pt-[50%]">
+                {((order.type === 'farmer' && order.producerData?.Image) || 
+                  (order.type === 'business' && order.imageUrl)) && (
                   <img
-                    src={order.producerData.Image}
-                    alt={order.Producer_Name}
-                    className="producer-image"
+                    src={order.type === 'farmer' ? order.producerData.Image : order.imageUrl}
+                    alt={order.type === 'farmer' ? order.Producer_Name : order.businessName}
+                    className="absolute top-0 left-0 w-full h-full object-cover"
                   />
                 )}
-                {order.type === 'business' && order.imageUrl && (
-                  <img
-                    src={order.imageUrl}
-                    alt={order.businessName}
-                    className="producer-image"
-                  />
-                )}
+              </div>
 
-                <h3>{order.Order_Name || order.orderName}</h3>
+              <div className="p-2">
+                <h3 className="text-base font-semibold mb-1 text-gray-900">
+                  {order.Order_Name || order.orderName}
+                </h3>
 
-                {/* Display order details */}
-                {order.type === 'farmer' && (
-                  <>
-                    <p>
-                      <strong>ספק:</strong> {order.Producer_Name}
+                {order.type === 'farmer' ? (
+                  <div className="space-y-0 leading-3">
+                    <p className="text-xs text-gray-700">
+                      <span className="font-medium">ספק:</span> {order.Producer_Name}
                     </p>
                     {order.producerData?.Kind && (
-                      <p>
-                        <strong>סוג ספק:</strong> {order.producerData.Kind}
+                      <p className="text-xs text-gray-700">
+                        <span className="font-medium">סוג ספק:</span> {order.producerData.Kind}
                       </p>
                     )}
                     {order.Coordinator_Region && (
-                      <p>
-                        <strong>אזור:</strong> {order.Coordinator_Region}
+                      <p className="text-xs text-gray-700">
+                        <span className="font-medium">אזור:</span> {order.Coordinator_Region}
                       </p>
                     )}
                     {order.Coordinator_Community && (
-                      <p>
-                        <strong>קהילה:</strong> {order.Coordinator_Community}
+                      <p className="text-xs text-gray-700">
+                        <span className="font-medium">קהילה:</span> {order.Coordinator_Community}
                       </p>
                     )}
-                  </>
-                )}
-                {order.type === 'business' && (
-                  <>
-                    <p>
-                      <strong>עסק:</strong> {order.businessName}
+                  </div>
+                ) : (
+                  <div className="space-y-0 leading-3">
+                    <p className="text-xs text-gray-700">
+                      <span className="font-medium">עסק:</span> {order.businessName}
                     </p>
                     {order.businessKind && (
-                      <p>
-                        <strong>סוג עסק:</strong> {order.businessKind}
+                      <p className="text-xs text-gray-700">
+                        <span className="font-medium">סוג עסק:</span> {order.businessKind}
                       </p>
                     )}
                     {order.region && (
-                      <p>
-                        <strong>אזור:</strong> {order.region}
+                      <p className="text-xs text-gray-700">
+                        <span className="font-medium">אזור:</span> {order.region}
                       </p>
                     )}
-                    {order.communityName && (
-                      <p>
-                        <strong>קהילה:</strong> {order.communityName}
-                      </p>
-                    )}
-                  </>
+                  </div>
                 )}
-                <p>
-                  <strong>זמן שנותר:</strong> {calculateTimeRemaining(order)}
-                </p>
-              </Link>
-            </div>
+
+                <div className="mt-1 pt-1 border-t border-gray-200">
+                  <p className="text-xs text-gray-700">
+                    <span className="font-medium">זמן שנותר:</span>{' '}
+                    <span className="text-red-600">{calculateTimeRemaining(order)}</span>
+                  </p>
+                </div>
+              </div>
+            </Link>
           ))}
         </div>
       )}
