@@ -159,10 +159,11 @@ const OngoingOrders = () => {
       setFilteredOrders(orders);
     } else {
       const filtered = orders.filter((order) => {
-        if (order.type === 'farmer') {
-          return order.Coordinator_Region === selectedRegion;
-        } else if (order.type === 'business') {
-          return order.region === selectedRegion;
+        if (order.isFarmerOrder === true) {
+          // Check if the selected region is included in the order's areas array
+          return order.areas?.includes(selectedRegion);
+        } else if (order.isFarmerOrder === false) {
+          return selectedRegion === 'הכל' || order.region === selectedRegion;
         }
         return false;
       });
@@ -305,7 +306,7 @@ const OngoingOrders = () => {
                     )}
                     {order.region && (
                       <p className="text-xs text-gray-700">
-                        <span className="font-medium">אזור:</span> {order.region}
+                        <span className="font-medium">אזור חלוקה:</span> {order.areas?.join(', ')}
                       </p>
                     )}
                   </div>

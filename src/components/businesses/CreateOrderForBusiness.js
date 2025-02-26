@@ -10,6 +10,26 @@ import communityToRegion from '../../utils/communityToRegion';
 // Assuming you have a utility file with area definitions
 import areas from '../../utils/areas'; 
 
+// Add this custom style to the component for better radio and checkbox appearance
+const customInputStyle = `
+  appearance-none h-5 w-5 border border-gray-300 rounded-full 
+  checked:bg-blue-500 checked:border-transparent focus:outline-none 
+  cursor-pointer transition-all duration-200 ease-in-out relative
+  after:content-[''] after:w-2.5 after:h-2.5 after:rounded-full 
+  after:absolute after:top-1/2 after:left-1/2 after:transform 
+  after:-translate-x-1/2 after:-translate-y-1/2 after:bg-white 
+  after:opacity-0 checked:after:opacity-100
+`;
+
+const customCheckboxStyle = `
+  appearance-none h-5 w-5 border border-gray-300 rounded 
+  checked:bg-blue-500 checked:border-transparent focus:outline-none 
+  cursor-pointer transition-all duration-200 ease-in-out relative
+  after:content-[''] after:w-2 after:h-3.5 after:border-white
+  after:border-r-2 after:border-b-2 after:absolute after:rotate-45
+  after:left-[6px] after:top-[2px] after:opacity-0 checked:after:opacity-100
+`;
+
 const CreateOrderForBusiness = () => {
   const { state } = useLocation();
   const { selectedProducts } = state || {};
@@ -34,6 +54,7 @@ const CreateOrderForBusiness = () => {
   ]);
   const [isFarmerOrder, setIsFarmerOrder] = useState(false);
   const [selectedAreas, setSelectedAreas] = useState([]);
+  const [bitPhoneNumber, setBitPhoneNumber] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -142,6 +163,15 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
+    if (paymentMethod === 'free' && selectedPaymentApps.includes('bit') && !bitPhoneNumber.trim()) {
+      Swal.fire({
+        icon: 'error',
+        title: 'שגיאה',
+        text: 'אנא הזינו מספר טלפון לתשלום בביט.',
+      });
+      return;
+    }
+
     // Check if phone number is available if Bit is selected
     let phoneNumber = '';
     if (paymentMethod === 'free' && selectedPaymentApps.includes('bit')) {
@@ -230,9 +260,9 @@ const CreateOrderForBusiness = () => {
         region,
         imageUrl, // Include the image URL in the order document
         paymentMethod, // Include payment method
-        paymentApps: paymentMethod === 'free' ? selectedPaymentApps : [], // Include selected payment apps
-        payboxLink: selectedPaymentApps.includes('paybox') ? payboxLink : '', // Include Paybox link if applicable
-        phoneNumber: selectedPaymentApps.includes('bit') ? phoneNumber : '', // Include phone number if Bit is selected
+        paymentApps: selectedPaymentApps,
+        payboxLink: payboxLink,
+        phoneNumber: bitPhoneNumber, // Add the phone number to the order data
         requestAddress,
         schedule: orderType === 'recurring' ? schedule : [],
         orderType, // Include order type
@@ -273,248 +303,283 @@ const CreateOrderForBusiness = () => {
   };
 
   return (
-    <div className="create-order-for-business-container">
-      <h1>יצירת הזמנה חדשה</h1>
-      <div className="form-group">
-        <label htmlFor="orderName">שם ההזמנה:</label>
-        <input
-          type="text"
-          id="orderName"
-          value={orderName}
-          placeholder="הכנס שם להזמנה"
-          onChange={(e) => setOrderName(e.target.value)}
-        />
-      </div>
-
-      {/* Order Type Selection */}
-      <div className="order-type-selection">
-        <p>בחרו סוג הזמנה:</p>
-        <label>
+    <div dir="rtl" className="max-w-2xl mx-auto px-4 py-6">
+      <h1 className="text-2xl font-bold text-center mb-6">יצירת הזמנה חדשה</h1>
+      
+      {/* Main Form Container */}
+      <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
+        {/* Order Name */}
+        <div className="space-y-2">
+          <label htmlFor="orderName" className="block text-sm font-medium text-gray-700">
+            שם ההזמנה:
+          </label>
           <input
-            type="radio"
-            name="orderType"
-            value="one_time"
-            checked={orderType === 'one_time'}
-            onChange={(e) => setOrderType(e.target.value)}
+            type="text"
+            id="orderName"
+            value={orderName}
+            placeholder="הכנס שם להזמנה"
+            onChange={(e) => setOrderName(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          הזמנה חד פעמית
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="orderType"
-            value="recurring"
-            checked={orderType === 'recurring'}
-            onChange={(e) => setOrderType(e.target.value)}
-          />
-          הזמנה חוזרת אוטומטית
-        </label>
-      </div>
-
-      {/* Duration Selection */}
-      {orderType === 'one_time' && (
-        <>
-          <p className="ending-time-explanation">
-            אנא בחרו את משך הזמן עד סיום ההזמנה:
-          </p>
-          <select
-            className="duration-select"
-            value={selectedDuration}
-            onChange={(e) => setSelectedDuration(e.target.value)}
-          >
-            <option value="" disabled>
-              בחרו משך זמן
-            </option>
-            <option value="3_days">3 ימים</option>
-            <option value="5_days">5 ימים</option>
-            <option value="1_week">שבוע</option>
-            <option value="2_weeks">שבועיים</option>
-            <option value="1_month">חודש</option>
-          </select>
-        </>
-      )}
-
-      {/* Schedule Selection */}
-      {orderType === 'recurring' && (
-        <div className="order-schedule">
-          <h3>בחרו את הימים והשעות שבהם ההזמנה תהיה פעילה:</h3>
-          {schedule.map((daySchedule, index) => (
-            <div key={index} className="day-schedule">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={daySchedule.active}
-                  onChange={(e) =>
-                    handleScheduleChange(index, 'active', e.target.checked)
-                  }
-                />
-                {daySchedule.day}
-              </label>
-              {daySchedule.active && (
-                <div className="time-range">
-                  <input
-                    type="time"
-                    value={daySchedule.startTime}
-                    onChange={(e) =>
-                      handleScheduleChange(index, 'startTime', e.target.value)
-                    }
-                  />
-                  עד
-                  <input
-                    type="time"
-                    value={daySchedule.endTime}
-                    onChange={(e) =>
-                      handleScheduleChange(index, 'endTime', e.target.value)
-                    }
-                  />
-                </div>
-              )}
-            </div>
-          ))}
         </div>
-      )}
 
-      {/* Image upload */}
-      <div className="form-group">
-        <label>העלו תמונה להזמנה:</label>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setImageFile(e.target.files[0])}
-        />
-      </div>
+        {/* Order Type Selection */}
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-700">בחרו סוג הזמנה:</p>
+          <div className="flex gap-6">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="orderType"
+                value="one_time"
+                checked={orderType === 'one_time'}
+                onChange={(e) => setOrderType(e.target.value)}
+                className={customInputStyle}
+              />
+              <span className="text-sm text-gray-700">הזמנה חד פעמית</span>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="orderType"
+                value="recurring"
+                checked={orderType === 'recurring'}
+                onChange={(e) => setOrderType(e.target.value)}
+                className={customInputStyle}
+              />
+              <span className="text-sm text-gray-700">הזמנה חוזרת אוטומטית</span>
+            </label>
+          </div>
+        </div>
 
-      {/* Request Address Option */}
-      <div className="request-address">
-        <label>
+        {/* Duration Selection for One-time Orders */}
+        {orderType === 'one_time' && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-gray-700">
+              בחרו את משך הזמן עד סיום ההזמנה:
+            </p>
+            <select
+              value={selectedDuration}
+              onChange={(e) => setSelectedDuration(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="" disabled>בחרו משך זמן</option>
+              <option value="3_days">3 ימים</option>
+              <option value="5_days">5 ימים</option>
+              <option value="1_week">שבוע</option>
+              <option value="2_weeks">שבועיים</option>
+              <option value="1_month">חודש</option>
+            </select>
+          </div>
+        )}
+
+        {/* Schedule Selection for Recurring Orders */}
+        {orderType === 'recurring' && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-gray-700">בחרו את הימים והשעות שבהם ההזמנה תהיה פעילה:</h3>
+            <div className="space-y-3">
+              {schedule.map((daySchedule, index) => (
+                <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-gray-50 rounded-md">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={daySchedule.active}
+                      onChange={(e) => handleScheduleChange(index, 'active', e.target.checked)}
+                      className={customCheckboxStyle}
+                    />
+                    <span className="text-sm font-medium w-16">{daySchedule.day}</span>
+                  </label>
+                  {daySchedule.active && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <input
+                        type="time"
+                        value={daySchedule.startTime}
+                        onChange={(e) => handleScheduleChange(index, 'startTime', e.target.value)}
+                        className="px-2 py-1 border border-gray-300 rounded"
+                      />
+                      <span className="text-gray-500">עד</span>
+                      <input
+                        type="time"
+                        value={daySchedule.endTime}
+                        onChange={(e) => handleScheduleChange(index, 'endTime', e.target.value)}
+                        className="px-2 py-1 border border-gray-300 rounded"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Image Upload */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">
+            העלו תמונה להזמנה:
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setImageFile(e.target.files[0])}
+            className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+          />
+        </div>
+
+        {/* Request Address Option */}
+        <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
             checked={requestAddress}
             onChange={(e) => setRequestAddress(e.target.checked)}
+            className={customCheckboxStyle}
           />
-          בקש כתובת ממשתמשים בעת ביצוע ההזמנה
+          <span className="text-sm text-gray-700">
+            בקש כתובת ממשתמשים בעת ביצוע ההזמנה
+          </span>
         </label>
-      </div>
 
-      {/* Payment method selection */}
-      <div className="payment-method-selection">
-        <p className="payment-method-explanation">בחרו את אמצעי התשלום להזמנה:</p>
-        <label>
-          <input
-            type="radio"
-            name="paymentMethod"
-            value="commission"
-            checked={paymentMethod === 'commission'}
-            onChange={(e) => setPaymentMethod(e.target.value)}
-          />
-          תשלום דרך האתר (עם עמלה)
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="paymentMethod"
-            value="free"
-            checked={paymentMethod === 'free'}
-            onChange={(e) => setPaymentMethod(e.target.value)}
-          />
-          תשלום דרך אפליקציות חינמיות (ביט או פייבוקס)
-        </label>
-      </div>
-
-      {/* Payment apps selection */}
-      {paymentMethod === 'free' && (
-        <>
-          <p className="payment-apps-explanation">
-            בחרו את אפליקציות התשלום הרצויות:
-          </p>
-          <div className="payment-apps-selection">
-            <label>
+        {/* Payment Method Selection */}
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-700">בחר שיטת תשלום:</p>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <label className="flex items-center gap-3 cursor-pointer">
               <input
-                type="checkbox"
-                name="paymentApps"
-                value="paybox"
-                checked={selectedPaymentApps.includes('paybox')}
-                onChange={handlePaymentAppChange}
+                type="radio"
+                name="paymentMethod"
+                value="commission"
+                checked={paymentMethod === 'commission'}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className={customInputStyle}
               />
-              פייבוקס
+              <span className="text-sm text-gray-700">סליקת אשראי (כולל עמלה)</span>
             </label>
-            <label>
+            <label className="flex items-center gap-3 cursor-pointer">
               <input
-                type="checkbox"
-                name="paymentApps"
-                value="bit"
-                checked={selectedPaymentApps.includes('bit')}
-                onChange={handlePaymentAppChange}
+                type="radio"
+                name="paymentMethod"
+                value="free"
+                checked={paymentMethod === 'free'}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className={customInputStyle}
               />
-              ביט
+              <span className="text-sm text-gray-700">תשלום בעזרת ביט\פייבוקס</span>
             </label>
           </div>
+        </div>
 
-          {/* Paybox link input */}
-          {selectedPaymentApps.includes('paybox') && (
-            <>
-              <p>הזינו את הקישור לפייבוקס:</p>
-              <input
-                type="text"
-                value={payboxLink}
-                placeholder="הכנס קישור לפייבוקס"
-                onChange={(e) => setPayboxLink(e.target.value)}
-              />
-            </>
-          )}
+        {/* Payment Apps Selection */}
+        {paymentMethod === 'free' && (
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-gray-700">בחרו את אפליקציות התשלום הרצויות:</p>
+            <div className="flex gap-6">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="paymentApps"
+                  value="paybox"
+                  checked={selectedPaymentApps.includes('paybox')}
+                  onChange={handlePaymentAppChange}
+                  className={customCheckboxStyle}
+                />
+                <span className="text-sm text-gray-700">פייבוקס</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="paymentApps"
+                  value="bit"
+                  checked={selectedPaymentApps.includes('bit')}
+                  onChange={handlePaymentAppChange}
+                  className={customCheckboxStyle}
+                />
+                <span className="text-sm text-gray-700">ביט</span>
+              </label>
+            </div>
 
-          {/* Bit phone number notice */}
-          {selectedPaymentApps.includes('bit') && (
-            <>
-              <p className="phone-number-notice">
-                שימו לב: מספר הטלפון שלכם יוצג ללקוחות לצורך תשלום דרך ביט.
-              </p>
-            </>
-          )}
-        </>
-      )}
+            {selectedPaymentApps.includes('paybox') && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  הזינו את הקישור לפייבוקס:
+                </label>
+                <input
+                  type="text"
+                  value={payboxLink}
+                  placeholder="הכנס קישור לפייבוקס"
+                  onChange={(e) => setPayboxLink(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
 
-      {/* Make a Farmer Order Checkbox */}
-      <div className="form-group">
-        <label>
-        יצירת הזמנה לחקלאי
+            {selectedPaymentApps.includes('bit') && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  הזינו את מספר הטלפון לתשלום בביט:
+                </label>
+                <input
+                  type="tel"
+                  value={bitPhoneNumber}
+                  placeholder="הכנס מספר טלפון"
+                  onChange={(e) => setBitPhoneNumber(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  dir="ltr"
+                />
+                <p className="text-xs text-gray-500">
+                  * מספר זה יוצג ללקוחות לצורך ביצוע התשלום בביט
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Farmer Order Option */}
+        <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
             checked={isFarmerOrder}
             onChange={(e) => setIsFarmerOrder(e.target.checked)}
+            className={customCheckboxStyle}
           />
+          <span className="text-sm text-gray-700">יצירת הזמנה לחקלאי</span>
         </label>
-      </div>
 
-      {/* Areas Selection */}
-      {isFarmerOrder && (
-        <div className="form-group">
-          <label>בחר אזורים:</label>
-          <div className="areas-selection">
-            {['צפון', 'מרכז', 'דרום', 'ירושלים', 'שרון', 'שפלה', 'יהודה ושומרון', 'אחר'].map((area) => (
-              <label key={area} className="area-checkbox">
-                <input
-                  type="checkbox"
-                  value={area}
-                  checked={selectedAreas.includes(area)}
-                  onChange={(e) => {
-                    const { value, checked } = e.target;
-                    if (checked) {
-                      setSelectedAreas((prev) => [...prev, value]);
-                    } else {
-                      setSelectedAreas((prev) => prev.filter((a) => a !== value));
-                    }
-                  }}
-                />
-                {area}
-              </label>
-            ))}
+        {/* Areas Selection */}
+        {isFarmerOrder && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-gray-700">בחר אזורים:</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {['צפון', 'מרכז', 'דרום', 'ירושלים', 'שרון', 'שפלה', 'יהודה ושומרון', 'אחר'].map((area) => (
+                <label key={area} className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    value={area}
+                    checked={selectedAreas.includes(area)}
+                    onChange={(e) => {
+                      const { value, checked } = e.target;
+                      if (checked) {
+                        setSelectedAreas((prev) => [...prev, value]);
+                      } else {
+                        setSelectedAreas((prev) => prev.filter((a) => a !== value));
+                      }
+                    }}
+                    className={customCheckboxStyle}
+                  />
+                  <span className="text-sm text-gray-700">{area}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-      <button onClick={handleCreateOrder} disabled={loading}>
-        {loading ? 'יוצר הזמנה...' : 'צור הזמנה'}
-      </button>
+        )}
+
+        {/* Submit Button */}
+        <button
+          onClick={handleCreateOrder}
+          disabled={loading}
+          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? 'יוצר הזמנה...' : 'צור הזמנה'}
+        </button>
+      </div>
     </div>
   );
 };

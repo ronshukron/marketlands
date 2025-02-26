@@ -82,23 +82,30 @@ const BusinessDashBoard = () => {
   const handleArchiveOrder = async (orderId) => {
     const result = await Swal.fire({
       title: 'האם אתה בטוח?',
-      text: 'ההזמנה תועבר לארכיון',
+      text: 'ההזמנה תבוטל ותועבר לארכיון',
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'כן, העבר לארכיון!',
+      confirmButtonText: 'כן, בטל והעבר לארכיון!',
       cancelButtonText: 'ביטול',
     });
 
     if (result.isConfirmed) {
       try {
+        // Set ending time to yesterday to mark it as finished
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+
         await updateDoc(doc(db, 'Orders', orderId), {
           archived: true,
-          archivedAt: new Date()
+          archivedAt: new Date(),
+          // Update both possible ending time field names
+          Ending_Time: yesterday,
+          endingTime: yesterday
         });
 
         setOrders((prevOrders) => prevOrders.filter((order) => order.id !== orderId));
 
-        Swal.fire('הועבר לארכיון!', 'ההזמנה הועברה לארכיון בהצלחה.', 'success');
+        Swal.fire('הועבר לארכיון!', 'ההזמנה בוטלה והועברה לארכיון בהצלחה.', 'success');
       } catch (error) {
         console.error('Error archiving order:', error);
         Swal.fire('שגיאה', 'אירעה שגיאה בעת העברת ההזמנה לארכיון.', 'error');

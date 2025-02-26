@@ -87,7 +87,7 @@ const Menu = () => {
 
         {userLoggedIn && (
           <>
-            <li><Link to="/coordinators" onClick={toggleMenu}>רכזי קהילות</Link></li>
+            {/* <li><Link to="/coordinators" onClick={toggleMenu}>רכזי קהילות</Link></li> */}
             <li>
               <button className="logout-button" onClick={handleLogout}>
                 התנתק
