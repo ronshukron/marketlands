@@ -1,6 +1,7 @@
 // src/components/Home.js
 
-import React, { useEffect } from 'react';
+import React from 'react';
+import { Link } from 'react-router-dom';
 import './Home.css';
 
 // Replace these images with your own and ensure they are imported correctly
@@ -12,165 +13,183 @@ import featureImage3 from '../images/sunlightdropedbelowhorizonbehindmountains.j
 import featureImage4 from '../images/freshlybaledfield.jpg';
 
 const Home = () => {
-  // useEffect(() => {
-  //   const handleScroll = () => {
-  //     const nav = document.querySelector('.navigation');
-  //     const body = document.body;
-
-  //     if (window.scrollY > 50) {
-  //       nav.classList.add('scrolled');
-  //       body.classList.add('scrolled');
-  //     } else {
-  //       nav.classList.remove('scrolled');
-  //       body.classList.remove('scrolled');
-  //     }
-  //   };
-
-  //   window.addEventListener('scroll', handleScroll);
-
-  //   // Clean up the event listener
-  //   return () => window.removeEventListener('scroll', handleScroll);
-  // }, []);
-
   return (
-    <div className="landing-page">
-      
-      {/* Navigation */}
-      {/* <nav className="navigation"> */}
-        {/* <img src={logo} alt="Logo" className="logo" /> */}
-        {/* <div className="nav-links">
-          <a href="#features">תכונות</a>
-          <a href="#how-it-works">איך זה עובד</a>
-          <a href="#contact">צור קשר</a>
-        </div>
-      </nav> */}
-
+    <div dir="rtl" className="min-h-screen bg-gray-50">
       {/* Hero Section */}
-      <section
-        className="hero"
-        id="home"
-        style={{ backgroundImage: `url(${heroImage})` }}
-      >
-        <div className="overlay"></div>
-        <div className="hero-content">
-          <h1>הרחב את העסק שלך עם הפלטפורמה שלנו</h1>
-          <p>
-            פתחו דפי מכירה עבור קבוצות רכישה, עקבו אחר הזמנות, ונהלו אותם בקלות,
-            הכל בחינם!
+      <div className="relative h-screen">
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url(${heroImage})` }}
+        >
+          <div className="absolute inset-0 bg-black bg-opacity-50"></div>
+        </div>
+        
+        <div className="relative h-full flex items-center justify-center px-4">
+          <div className="text-center max-w-3xl mx-auto">
+            <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
+              הרחב את העסק שלך עם הפלטפורמה שלנו
+            </h1>
+            <p className="text-xl text-gray-200 mb-8">
+              פתחו דפי מכירה עבור קבוצות רכישה, עקבו אחר הזמנות, ונהלו אותם בקלות, הכל בחינם!
+            </p>
+            <Link
+              to="/business-register"
+              className="inline-block bg-blue-600 hover:bg-blue-700 text-white text-lg font-medium px-8 py-3 rounded-lg transition-colors duration-300"
+            >
+              התחל עכשיו
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Features Grid */}
+      <div className="py-20 px-4 bg-white">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">
+            היתרונות שלנו
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {features.map((feature, index) => (
+              <div 
+                key={index}
+                className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden"
+              >
+                <div className="h-48 overflow-hidden">
+                  <img 
+                    src={feature.image} 
+                    alt={feature.title}
+                    className="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
+                <div className="p-6 text-right">
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                    {feature.title}
+                  </h3>
+                  <p className="text-gray-600">
+                    {feature.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* How It Works Section */}
+      <div className="py-20 px-4 bg-gray-50">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">
+            איך זה עובד?
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {steps.map((step, index) => (
+              <div key={index} className="text-center">
+                <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-2xl font-bold text-white">{index + 1}</span>
+                </div>
+                <h3 className="text-xl font-semibold mb-3">{step.title}</h3>
+                <p className="text-gray-600">{step.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* CTA Section */}
+      <div className="py-20 px-4 bg-blue-600">
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-3xl font-bold text-white mb-6">
+            מוכנים להתחיל?
+          </h2>
+          <p className="text-xl text-blue-100 mb-8">
+            הצטרפו למאות העסקים שכבר משתמשים בפלטפורמה שלנו
           </p>
-          <a href="#features" className="cta-button">
-            התחל עכשיו
-          </a>
+          <Link
+            to="/business-register"
+            className="inline-block bg-white text-blue-600 text-lg font-medium px-8 py-3 rounded-lg hover:bg-blue-50 transition-colors duration-300"
+          >
+            הצטרף עכשיו
+          </Link>
         </div>
-      </section>
-
-      <section className="feature-section" id="features">
-        <div
-          className="feature-image"
-          style={{ backgroundImage: `url(${featureImage4})` }}
-        >
-          <div className="overlay"></div>
-          <div className="feature-content">
-            <h2>קבלת תשלומים</h2>
-            <p>
-              אפשר ללקוחותיך לשלם באמצעות כרטיסי אשראי וביט בצורה מאובטחת. אנו
-              משתמשים בטכנולוגיות ההצפנה המתקדמות ביותר כדי להבטיח שהמידע הכספי
-              שלך ושל לקוחותיך מוגן.
-            </p>
-          </div>
-        </div>
-      </section>
-
-
-      {/* Features Sections */}
-      <section className="feature-section" >
-        <div
-          className="feature-image"
-          style={{ backgroundImage: `url(${featureImage1})` }}
-        >
-          <div className="overlay"></div>
-          <div className="feature-content">
-            <h2>צור דפי רכישה קבוציתיות</h2>
-            <p>
-              הצג את המוצרים שלך בצורה מקצועית ונוחה, עם אפשרות להוסיף תמונות,
-              תיאורים, ומחירים אטרקטיביים. דפי רכישה קבוציתיות שלנו מותאמים למכשירים
-              ניידים ומספקים חוויית משתמש מעולה ללקוחותיך.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="feature-section" id="how-it-works">
-        <div
-          className="feature-image"
-          style={{ backgroundImage: `url(${featureImage2})` }}
-        >
-          <div className="overlay"></div>
-          <div className="feature-content">
-            <h2>עקוב אחר הזמנות</h2>
-            <p>
-              קבל גישה מיידית להזמנות נכנסות, עדכן את המלאי שלך בזמן אמת, ונהל
-              את כל ההזמנות במקום אחד. המערכת שלנו מאפשרת לך לראות סטטיסטיקות
-              מפורטות על המכירות שלך.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="feature-section">
-        <div
-          className="feature-image"
-          style={{ backgroundImage: `url(${featureImage3})` }}
-        >
-          <div className="overlay"></div>
-          <div className="feature-content">
-            <h2>היסטוריה</h2>
-            <p>
-              גש לכל ההזמנות הקודמות שלך, נתח מגמות, וגלה אילו מוצרים הם
-              הפופולריים ביותר. המידע הזה יסייע לך לקבל החלטות עסקיות מושכלות
-              ולשפר את השירות שלך.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Video Section */}
-      <section className="video-section">
-        <div className="video-content">
-          <h2>גלה עוד בסרטון שלנו</h2>
-          <div className="video-container">
-            {/* Replace 'YOUR_VIDEO_ID' with your actual YouTube video ID */}
-            <iframe
-              src="https://www.youtube.com/embed/YOUR_VIDEO_ID"
-              title="YouTube video"
-              frameBorder="0"
-              allowFullScreen
-            ></iframe>
-          </div>
-        </div>
-      </section>
-
-      {/* Call to Action Section */}
-      <section className="cta-section" id="signup">
-        <h2>מוכן להתחיל?</h2>
-        <p>הצטרף לפלטפורמה שלנו והרחב את העסק שלך היום.</p>
-        <a href="/business-register" className="cta-button">
-          הצטרף עכשיו
-        </a>
-      </section>
+      </div>
 
       {/* Footer */}
-      <footer className="footer" id="contact">
-        <img src={logo} alt="Logo" className="footer-logo" />
-        <div className="footer-links">
-          <a href="#features">תכונות</a>
-          <a href="#how-it-works">איך זה עובד</a>
-          <a href="#contact">צור קשר</a>
+      <footer className="bg-gray-900 text-gray-400 py-12">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="text-right">
+              <img src={logo} alt="Logo" className="h-12 mb-4" />
+              <p className="text-sm">
+                הפלטפורמה המובילה לניהול קבוצות רכישה והזמנות מרוכזות
+              </p>
+            </div>
+            <div className="text-right">
+              <h4 className="text-white font-medium mb-4">קישורים מהירים</h4>
+              <ul className="space-y-2">
+                <li><Link to="/" className="hover:text-white transition-colors">דף הבית</Link></li>
+                <li><Link to="/features" className="hover:text-white transition-colors">תכונות</Link></li>
+                <li><Link to="/about" className="hover:text-white transition-colors">אודות</Link></li>
+              </ul>
+            </div>
+            <div className="text-right">
+              <h4 className="text-white font-medium mb-4">משאבים</h4>
+              <ul className="space-y-2">
+                <li><Link to="/help" className="hover:text-white transition-colors">מדריך למשתמש</Link></li>
+                <li><Link to="/faq" className="hover:text-white transition-colors">שאלות נפוצות</Link></li>
+                <li><Link to="/contact" className="hover:text-white transition-colors">צור קשר</Link></li>
+              </ul>
+            </div>
+            <div className="text-right">
+              <h4 className="text-white font-medium mb-4">עקבו אחרינו</h4>
+              <div className="flex gap-4">
+                {/* Add your social media icons/links here */}
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-gray-800 mt-12 pt-8 text-center">
+            <p className="text-sm">© 2024 כל הזכויות שמורות.</p>
+          </div>
         </div>
-        <p>© 2023 כל הזכויות שמורות.</p>
       </footer>
     </div>
   );
 };
+
+// Features data
+const features = [
+  {
+    title: 'דפי רכישה קבוצתית',
+    description: 'צרו דפי מכירה מרשימים עם תמונות, תיאורים ומחירים. מותאם למובייל ונוח לשימוש.',
+    image: featureImage1
+  },
+  {
+    title: 'ניהול הזמנות',
+    description: 'עקבו אחר הזמנות בזמן אמת, נהלו מלאי וקבלו סטטיסטיקות מפורטות על המכירות שלכם.',
+    image: featureImage2
+  },
+  {
+    title: 'תשלומים מאובטחים',
+    description: 'קבלו תשלומים באמצעות כרטיסי אשראי, ביט ופייבוקס בצורה מאובטחת ופשוטה.',
+    image: featureImage4
+  }
+];
+
+// How it works steps
+const steps = [
+  {
+    title: 'הרשמה פשוטה',
+    description: 'הירשמו למערכת בקלות ופתחו את החנות שלכם תוך דקות.'
+  },
+  {
+    title: 'העלאת מוצרים',
+    description: 'הוסיפו את המוצרים שלכם עם תמונות ותיאורים.'
+  },
+  {
+    title: 'התחילו למכור',
+    description: 'שתפו את דף המכירה שלכם והתחילו לקבל הזמנות.'
+  }
+];
 
 export default Home;

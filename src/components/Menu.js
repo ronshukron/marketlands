@@ -99,7 +99,7 @@ const Menu = () => {
         {!userLoggedIn && (
           <>
             <li><Link to="/user-register" onClick={toggleMenu}>הירשמו כמשתמש</Link></li>
-            <li><Link to="/coordinator-register" onClick={toggleMenu}>הירשמו כרכז</Link></li>
+            {/* <li><Link to="/coordinator-register" onClick={toggleMenu}>הירשמו כרכז</Link></li> */}
             <li><Link to="/business-register" onClick={toggleMenu}>הירשמו כעסק</Link></li>
             <li><Link to="/login" onClick={toggleMenu}>התחברו</Link></li>
           </>
