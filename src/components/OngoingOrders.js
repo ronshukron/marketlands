@@ -11,13 +11,15 @@ import {
 import { db } from '../firebase/firebase';
 // import './OngoingOrders.css';
 import LoadingSpinner from './LoadingSpinner';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const OngoingOrders = () => {
   const [orders, setOrders] = useState([]);
   const [filteredOrders, setFilteredOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRegion, setSelectedRegion] = useState('הכל');
+  const [specialOrders, setSpecialOrders] = useState([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchOngoingOrders();
@@ -37,6 +39,8 @@ const OngoingOrders = () => {
       const querySnapshot = await getDocs(q);
 
       const ordersData = [];
+      const specialOrdersData = [];
+      
       for (const docSnap of querySnapshot.docs) {
         const data = docSnap.data();
         const endingTime = data.Ending_Time || data.endingTime;
@@ -73,6 +77,9 @@ const OngoingOrders = () => {
             ...data,
           };
 
+          // Determine if this is a special order from shukron60@gmail.com
+          const isSpecialOrder = data.businessEmail === 'shukron60@gmail.com';
+
           if (order.Producer_ID) {
             // Farmer order
             const producerDocRef = doc(db, 'Producers', order.Producer_ID);
@@ -91,6 +98,7 @@ const OngoingOrders = () => {
             order = {
               ...order,
               type: 'business',
+              isSpecialOrder,
             };
             // Image is in order.imageUrl
           } else {
@@ -98,11 +106,18 @@ const OngoingOrders = () => {
             continue; // Skip this order
           }
 
-          ordersData.push(order);
+          // Sort special orders separately
+          if (isSpecialOrder) {
+            specialOrdersData.push(order);
+          } else {
+            ordersData.push(order);
+          }
         }
       }
 
-      setOrders(ordersData);
+      // Set both regular and special orders
+      setOrders([...ordersData]);
+      setSpecialOrders(specialOrdersData);
     } catch (error) {
       console.error('Error fetching ongoing orders: ', error);
     } finally {
@@ -156,17 +171,27 @@ const OngoingOrders = () => {
 
   const filterOrdersByRegion = () => {
     if (selectedRegion === 'הכל') {
-      setFilteredOrders(orders);
+      setFilteredOrders([...orders, ...specialOrders]);
     } else {
-      const filtered = orders.filter((order) => {
-        if (order.isFarmerOrder === true) {
-          // Check if the selected region is included in the order's areas array
-          return order.areas?.includes(selectedRegion);
-        } else if (order.isFarmerOrder === false) {
-          return selectedRegion === 'הכל' || order.region === selectedRegion;
-        }
-        return false;
-      });
+      const filtered = [
+        ...orders.filter((order) => {
+          if (order.isFarmerOrder === true) {
+            return order.areas?.includes(selectedRegion);
+          } else if (order.isFarmerOrder === false) {
+            return selectedRegion === 'הכל' || order.region === selectedRegion;
+          }
+          return false;
+        }),
+        ...specialOrders.filter((order) => {
+          // Apply the same filtering logic to special orders
+          if (order.isFarmerOrder === true) {
+            return order.areas?.includes(selectedRegion);
+          } else if (order.isFarmerOrder === false) {
+            return selectedRegion === 'הכל' || order.region === selectedRegion;
+          }
+          return false;
+        })
+      ];
       setFilteredOrders(filtered);
     }
   };
@@ -221,13 +246,26 @@ const OngoingOrders = () => {
     }
   };
 
+  // Handle click based on order type
+  const handleOrderClick = (order, e) => {
+    e.preventDefault(); // Prevent default Link behavior
+    
+    if (order.isSpecialOrder) {
+      // Navigate to the new page for special orders
+      navigate(`/external-order/${order.id}`);
+    } else {
+      // Navigate to normal order form
+      navigate(order.type === 'farmer' ? `/order-form/${order.id}` : `/order-form-business/${order.id}`);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner />;
   }
 
   return (
     <div dir="rtl" className="max-w-7xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold text-center mb-4">הזמנות פעילות באזור שלך</h1>
+      <h1 className="text-2xl font-bold text-center mb-4">דפי מכירה פעילים </h1>
       
       <div className="mb-4 flex justify-center items-center gap-2">
         <label htmlFor="region-filter" className="text-gray-700 text-sm">
@@ -252,10 +290,11 @@ const OngoingOrders = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredOrders.map((order) => (
-            <Link
+            <div
               key={order.id}
-              to={order.type === 'farmer' ? `/order-form/${order.id}` : `/order-form-business/${order.id}`}
-              className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300"
+              onClick={(e) => handleOrderClick(order, e)}
+              className={`bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 cursor-pointer
+                ${order.isSpecialOrder ? 'border-2 border-yellow-400' : ''}`}
             >
               <div className="relative pt-[50%]">
                 {((order.type === 'farmer' && order.producerData?.Image) || 
@@ -265,6 +304,13 @@ const OngoingOrders = () => {
                     alt={order.type === 'farmer' ? order.Producer_Name : order.businessName}
                     className="absolute top-0 left-0 w-full h-full object-cover"
                   />
+                )}
+                
+                {/* Badge for special orders */}
+                {order.isSpecialOrder && (
+                  <div className="absolute top-2 right-2 bg-yellow-400 text-yellow-800 text-xs px-2 py-1 rounded-full">
+                    דף מכירה חיצוני
+                  </div>
                 )}
               </div>
 
@@ -317,9 +363,16 @@ const OngoingOrders = () => {
                     <span className="font-medium">זמן שנותר:</span>{' '}
                     <span className="text-red-600">{calculateTimeRemaining(order)}</span>
                   </p>
+                  
+                  {/* Additional info for special orders */}
+                  {order.isSpecialOrder && (
+                    <p className="text-xs text-yellow-600 font-semibold mt-1">
+                      דף מכירה מפרסום חיצוני - לחץ לפרטים
+                    </p>
+                  )}
                 </div>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
