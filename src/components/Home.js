@@ -27,10 +27,10 @@ const Home = () => {
         <div className="relative h-full flex items-center justify-center px-4">
           <div className="text-center max-w-3xl mx-auto">
             <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
-              הרחב את העסק שלך עם הפלטפורמה שלנו
+              מחברים בין חקלאים לסוחרים וקבוצות רכישה
             </h1>
             <p className="text-xl text-gray-200 mb-8">
-              פתחו דפי מכירה עבור קבוצות רכישה, עקבו אחר הזמנות, ונהלו אותם בקלות, הכל בחינם!
+              פתחו דף מכירה עבור סוחרים קבוצות רכישה, עקבו אחר הזמנות, ונהלו אותם בקלות ובחינם
             </p>
             <Link
               to="/business-register"
@@ -104,7 +104,7 @@ const Home = () => {
             מוכנים להתחיל?
           </h2>
           <p className="text-xl text-blue-100 mb-8">
-            הצטרפו למאות העסקים שכבר משתמשים בפלטפורמה שלנו
+            הצטרפו לפיילוט שלנו שיתחיל ביום ראשון בתאריך 16.03.2025
           </p>
           <Link
             to="/business-register"
@@ -160,7 +160,7 @@ const Home = () => {
 // Features data
 const features = [
   {
-    title: 'דפי רכישה קבוצתית',
+    title: 'דפי רכישה',
     description: 'צרו דפי מכירה מרשימים עם תמונות, תיאורים ומחירים. מותאם למובייל ונוח לשימוש.',
     image: featureImage1
   },
