@@ -371,6 +371,12 @@ const OngoingOrders = () => {
                     </p>
                   )}
                 </div>
+
+                {order.minimumOrderAmount > 0 && (
+                  <p className="text-xs text-gray-600">
+                    סכום מינימום להזמנה: ₪{order.minimumOrderAmount}
+                  </p>
+                )}
               </div>
             </div>
           ))}

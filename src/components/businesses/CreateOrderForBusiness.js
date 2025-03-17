@@ -55,6 +55,7 @@ const CreateOrderForBusiness = () => {
   const [isFarmerOrder, setIsFarmerOrder] = useState(false);
   const [selectedAreas, setSelectedAreas] = useState([]);
   const [bitPhoneNumber, setBitPhoneNumber] = useState('');
+  const [minimumOrderAmount, setMinimumOrderAmount] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -268,6 +269,7 @@ const CreateOrderForBusiness = () => {
         orderType, // Include order type
         isFarmerOrder: isFarmerOrder,
         areas: isFarmerOrder ? selectedAreas : [],
+        minimumOrderAmount: minimumOrderAmount ? parseFloat(minimumOrderAmount) : 0,
       };
 
       const docRef = await addDoc(collection(db, 'Orders'), orderData);
@@ -570,6 +572,22 @@ const CreateOrderForBusiness = () => {
             </div>
           </div>
         )}
+
+        {/* Minimum Order Amount */}
+        <div className="form-group">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            סכום מינימום להזמנה (₪)
+          </label>
+          <input
+            type="number"
+            value={minimumOrderAmount}
+            onChange={(e) => setMinimumOrderAmount(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="השאר ריק אם אין סכום מינימום"
+            min="0"
+            step="0.01"
+          />
+        </div>
 
         {/* Submit Button */}
         <button

@@ -24,6 +24,7 @@ const OrderConfirmation = () => {
     const [userAddress, setUserAddress] = useState(''); 
     const [requestAddress, setRequestAddress] = useState(false); 
     const [orderData, setOrderData] = useState({});
+    const [minimumOrderAmount, setMinimumOrderAmount] = useState(0);
 
     useEffect(() => {
         // Fetch order data to get if address is requested
@@ -34,7 +35,8 @@ const OrderConfirmation = () => {
                 if (orderSnap.exists()) {
                     const orderInfo = orderSnap.data();
                     setOrderData(orderInfo);
-                    setRequestAddress(orderInfo.requestAddress || false); // Check if address is requested
+                    setRequestAddress(orderInfo.requestAddress || false);
+                    setMinimumOrderAmount(orderInfo.minimumOrderAmount || 0);
                 } else {
                     console.log("Order does not exist!");
                     navigate('/error');
@@ -66,6 +68,17 @@ const OrderConfirmation = () => {
 
         if (!agreeToTerms) {
             alert('יש לאשר את תנאי השימוש לפני ביצוע ההזמנה');
+            return;
+        }
+
+        // Check minimum order amount
+        if (total < minimumOrderAmount) {
+            Swal.fire({
+                icon: 'error',
+                title: 'סכום מינימום להזמנה',
+                text: `סכום ההזמנה המינימלי הוא ${minimumOrderAmount}₪. סכום ההזמנה הנוכחי הוא ${total}₪`,
+                confirmButtonText: 'הבנתי'
+            });
             return;
         }
 
@@ -150,7 +163,7 @@ const OrderConfirmation = () => {
     };
     
     const handleCancel = () => {
-        navigate(`/order-form/${orderId}`);
+        navigate(`/order-form-business/${orderId}`);
     };
 
     const checkIfOrderEnded = async () => {
@@ -210,6 +223,14 @@ const OrderConfirmation = () => {
                 ))}
             </ul>
             <h3>סה"כ: {total.toFixed(2)}₪</h3>
+            {minimumOrderAmount > 0 && (
+                <p className={`text-sm ${total < minimumOrderAmount ? 'text-red-600' : 'text-green-600'}`}>
+                    {total < minimumOrderAmount 
+                        ? `סכום מינימום להזמנה: ${minimumOrderAmount}₪ (חסרים ${(minimumOrderAmount - total).toFixed(2)}₪)`
+                        : `✓ עברת את סכום המינימום להזמנה (${minimumOrderAmount}₪)`
+                    }
+                </p>
+            )}
             
             <div className="user-details-container">
                 <h3>פרטי תשלום</h3>
