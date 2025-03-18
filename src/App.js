@@ -40,53 +40,59 @@ import MyStore from './components/businesses/MyStore.js';
 import ProductDetail from './components/ProductDetail';
 import OnGoingOrderCoordinators from './components/OnGoingOrderCoordinators.js';
 import ExternalOrderDetail from './components/ExternalOrderDetail';
+import LandingPage from './components/LandingPage';
+import CoordinatorLandingPage from './components/CoordinatorLandingPage';
 
 const App = () => {
   return (
     <Router>
       <ScrollToTop />
       <AuthProvider>
-        <Menu />
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/producers" element={<Producers />} />
-          <Route path="/coordinators" element={<CommunityCoordinators />} />
-          <Route path="/coordinators/:coordinatorId" element={<CommunityCoordinatorDetails />} />
-          <Route path="/producers/:producerId" element={<ProducerDetails />} />
-          <Route path="/create-order" element={<CreateOrder />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/user-register" element={<UserRegister />} />
-          <Route path="/coordinator-register" element={<CoordinatorRegister />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/order-form/:orderId" element={<OrderForm />} />
-          <Route path="/order-summary/:orderId" element={<OrderSummary />} />
-          <Route path="/order-confirmation" element={<OrderConfirmation />} />
-          <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
-          <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/payment-cancel" element={<PaymentCancel />} />
-          <Route path="/payment-cancel/*" element={<PaymentCancel />} />
-          <Route path="/payment-success" element={<PaymentSuccess />} />
-          <Route path="/payment-success/*" element={<PaymentSuccess />} />    
-          <Route path="/terms-of-service" element={<TermsOfService />} />  
-          <Route path="/my-orders" element={<MyOrders />} />
-          <Route path="/ongoing-orders" element={<OngoingOrders />} />
-          <Route path="/business-register" element={<BusinessRegister />} />
-          <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
-          <Route path="/Business-Products" element={<BusinessProducts />} />
-          <Route path="/add-product" element={<AddProduct />} />
-          <Route path="/edit-product/:productId" element={<EditProduct />} />
-          <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
-          <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
-          <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
-          <Route path="/order-confirmation-free" element={<OrderConfirmationFree />} />
-          <Route path="/payment-instructions" element={<PaymentInstructions />} />
-          <Route path="/store/:businessId" element={<MyStore />} />
-          <Route path="/product/:productId" element={<ProductDetail />} />
-          <Route path="/ongoing-order-coordinators" element={<OnGoingOrderCoordinators />} />
-          <Route path="/external-order/:orderId" element={<ExternalOrderDetail />} />
-        </Routes>
-        <Footer />
+        <div className="App">
+          <Menu />
+          <Routes>
+            <Route path="/landing" element={<LandingPage />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/producers" element={<Producers />} />
+            <Route path="/coordinators" element={<CommunityCoordinators />} />
+            <Route path="/coordinators/:coordinatorId" element={<CommunityCoordinatorDetails />} />
+            <Route path="/producers/:producerId" element={<ProducerDetails />} />
+            <Route path="/create-order" element={<CreateOrder />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/user-register" element={<UserRegister />} />
+            <Route path="/coordinator-register" element={<CoordinatorRegister />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/order-form/:orderId" element={<OrderForm />} />
+            <Route path="/order-summary/:orderId" element={<OrderSummary />} />
+            <Route path="/order-confirmation" element={<OrderConfirmation />} />
+            <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
+            <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/payment-cancel" element={<PaymentCancel />} />
+            <Route path="/payment-cancel/*" element={<PaymentCancel />} />
+            <Route path="/payment-success" element={<PaymentSuccess />} />
+            <Route path="/payment-success/*" element={<PaymentSuccess />} />    
+            <Route path="/terms-of-service" element={<TermsOfService />} />  
+            <Route path="/my-orders" element={<MyOrders />} />
+            <Route path="/ongoing-orders" element={<OngoingOrders />} />
+            <Route path="/business-register" element={<BusinessRegister />} />
+            <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
+            <Route path="/Business-Products" element={<BusinessProducts />} />
+            <Route path="/add-product" element={<AddProduct />} />
+            <Route path="/edit-product/:productId" element={<EditProduct />} />
+            <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
+            <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
+            <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
+            <Route path="/order-confirmation-free" element={<OrderConfirmationFree />} />
+            <Route path="/payment-instructions" element={<PaymentInstructions />} />
+            <Route path="/store/:businessId" element={<MyStore />} />
+            <Route path="/product/:productId" element={<ProductDetail />} />
+            <Route path="/ongoing-order-coordinators" element={<OnGoingOrderCoordinators />} />
+            <Route path="/external-order/:orderId" element={<ExternalOrderDetail />} />
+            <Route path="/coordinator-landing" element={<CoordinatorLandingPage />} />
+          </Routes>
+          <Footer />
+        </div>
       </AuthProvider>
     </Router>
   );

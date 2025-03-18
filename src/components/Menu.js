@@ -56,9 +56,11 @@ const Menu = () => {
         </div>
       </div>
       <ul className={`menu-list ${isOpen ? 'open' : ''}`}>
-        <li><Link to="/" onClick={toggleMenu}>בית</Link></li>
+        <li><Link to="/" onClick={toggleMenu}>דף הבית</Link></li>
+        <li><Link to="/landing" onClick={toggleMenu}>הדרכה</Link></li>
         <li><Link to="/contact" onClick={toggleMenu}>צור קשר</Link></li>
-        <li><Link to="/ongoing-orders" onClick={toggleMenu}>הזמנות פעילות</Link></li>
+        <li><Link to="/ongoing-orders" onClick={toggleMenu}>השוק</Link></li>
+        <li><Link to="/coordinator-landing" onClick={toggleMenu}>לרכזי קהילות</Link></li>
 
         {userLoggedIn && userRole === 'coordinator' && (
           <>
