@@ -52,10 +52,15 @@ const CreateOrderForBusiness = () => {
     { day: 'שישי', active: false, startTime: '', endTime: '' },
     { day: 'שבת', active: false, startTime: '', endTime: '' },
   ]);
-  const [isFarmerOrder, setIsFarmerOrder] = useState(false);
+  const [isFarmerOrder, setIsFarmerOrder] = useState(true);
   const [selectedAreas, setSelectedAreas] = useState([]);
   const [bitPhoneNumber, setBitPhoneNumber] = useState('');
   const [minimumOrderAmount, setMinimumOrderAmount] = useState('');
+  const [description, setDescription] = useState('');
+  const [shippingDateStart, setShippingDateStart] = useState('');
+  const [shippingDateEnd, setShippingDateEnd] = useState('');
+  const [dateError, setDateError] = useState('');
+  const [formValid, setFormValid] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -100,7 +105,44 @@ const CreateOrderForBusiness = () => {
     return currentTime;
   };
 
+  const validateDates = () => {
+    // Clear previous errors
+    setDateError('');
+    
+    // Check if both dates are provided
+    if (!shippingDateStart || !shippingDateEnd) {
+      setDateError('יש להזין תאריך התחלה וסיום למשלוח');
+      setFormValid(false);
+      return false;
+    }
+    
+    // Check if end date is after start date
+    const startDate = new Date(shippingDateStart);
+    const endDate = new Date(shippingDateEnd);
+    
+    if (endDate < startDate) {
+      setDateError('תאריך הסיום חייב להיות אחרי תאריך ההתחלה');
+      setFormValid(false);
+      return false;
+    }
+    
+    setFormValid(true);
+    return true;
+  };
+
   const handleCreateOrder = async () => {
+    if (loading) return;
+
+    // Validate dates first
+    if (!validateDates()) {
+      // Scroll to the date error
+      const dateElement = document.getElementById('shippingDateStart');
+      if (dateElement) {
+        dateElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
     if (!orderName.trim()) {
       Swal.fire({
         icon: 'error',
@@ -270,6 +312,11 @@ const CreateOrderForBusiness = () => {
         isFarmerOrder: isFarmerOrder,
         areas: isFarmerOrder ? selectedAreas : [],
         minimumOrderAmount: minimumOrderAmount ? parseFloat(minimumOrderAmount) : 0,
+        description,
+        shippingDateRange: {
+          start: shippingDateStart,
+          end: shippingDateEnd
+        },
       };
 
       const docRef = await addDoc(collection(db, 'Orders'), orderData);
@@ -313,7 +360,7 @@ const CreateOrderForBusiness = () => {
         {/* Order Name */}
         <div className="space-y-2">
           <label htmlFor="orderName" className="block text-sm font-medium text-gray-700">
-            שם ההזמנה:
+            שם ההזמנה <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
@@ -326,7 +373,7 @@ const CreateOrderForBusiness = () => {
         </div>
 
         {/* Order Type Selection */}
-        <div className="space-y-2">
+        {/* <div className="space-y-2">
           <p className="text-sm font-medium text-gray-700">בחרו סוג הזמנה:</p>
           <div className="flex gap-6">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -352,13 +399,13 @@ const CreateOrderForBusiness = () => {
               <span className="text-sm text-gray-700">הזמנה חוזרת אוטומטית</span>
             </label>
           </div>
-        </div>
+        </div> */}
 
         {/* Duration Selection for One-time Orders */}
         {orderType === 'one_time' && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-gray-700">
-              בחרו את משך הזמן עד סיום ההזמנה:
+              בחרו את משך הזמן עד סיום ההזמנה: <span className="text-red-500">*</span>
             </p>
             <select
               value={selectedDuration}
@@ -378,7 +425,9 @@ const CreateOrderForBusiness = () => {
         {/* Schedule Selection for Recurring Orders */}
         {orderType === 'recurring' && (
           <div className="space-y-3">
-            <h3 className="text-sm font-medium text-gray-700">בחרו את הימים והשעות שבהם ההזמנה תהיה פעילה:</h3>
+            <h3 className="text-sm font-medium text-gray-700">
+              בחרו את הימים והשעות שבהם ההזמנה תהיה פעילה: <span className="text-red-500">*</span>
+            </h3>
             <div className="space-y-3">
               {schedule.map((daySchedule, index) => (
                 <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-gray-50 rounded-md">
@@ -472,7 +521,9 @@ const CreateOrderForBusiness = () => {
         {/* Payment Apps Selection */}
         {paymentMethod === 'free' && (
           <div className="space-y-3">
-            <p className="text-sm font-medium text-gray-700">בחרו את אפליקציות התשלום הרצויות:</p>
+            <p className="text-sm font-medium text-gray-700 mt-3">
+              בחרו אמצעי תשלום: <span className="text-red-500">*</span>
+            </p>
             <div className="flex gap-6">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
@@ -501,7 +552,7 @@ const CreateOrderForBusiness = () => {
             {selectedPaymentApps.includes('paybox') && (
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  הזינו את הקישור לפייבוקס:
+                  קישור לדף פייבוקס: <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -516,7 +567,7 @@ const CreateOrderForBusiness = () => {
             {selectedPaymentApps.includes('bit') && (
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  הזינו את מספר הטלפון לתשלום בביט:
+                  הזינו את מספר הטלפון לתשלום בביט: <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="tel"
@@ -535,7 +586,7 @@ const CreateOrderForBusiness = () => {
         )}
 
         {/* Farmer Order Option */}
-        <label className="flex items-center gap-3 cursor-pointer">
+        {/* <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
             checked={isFarmerOrder}
@@ -543,12 +594,14 @@ const CreateOrderForBusiness = () => {
             className={customCheckboxStyle}
           />
           <span className="text-sm text-gray-700">יצירת הזמנה לחקלאי</span>
-        </label>
+        </label> */}
 
         {/* Areas Selection */}
         {isFarmerOrder && (
           <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-700">בחר אזורים:</p>
+            <p className="text-sm font-medium text-gray-700">
+              בחר אזורי חלוקה: <span className="text-red-500">*</span>
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {['צפון', 'מרכז', 'דרום', 'ירושלים', 'שרון', 'שפלה', 'יהודה ושומרון', 'אחר'].map((area) => (
                 <label key={area} className="flex items-center gap-3 cursor-pointer">
@@ -587,6 +640,68 @@ const CreateOrderForBusiness = () => {
             min="0"
             step="0.01"
           />
+        </div>
+
+        {/* Description */}
+        <div className="mb-6">
+          <label className="block text-gray-700 mb-2" htmlFor="description">
+            תיאור ההזמנה (אופציונלי)
+          </label>
+          <textarea
+            id="description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="הוסף תיאור, מידע על איסוף, או כל מידע אחר שהלקוחות צריכים לדעת"
+            rows="4"
+          />
+        </div>
+
+        {/* Shipping Date Range */}
+        <div className="mb-6">
+          <label className="block text-gray-700 mb-2">
+            טווח תאריכים למשלוח/איסוף <span className="text-red-500">*</span>
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1" htmlFor="shippingDateStart">
+                מתאריך
+              </label>
+              <input
+                id="shippingDateStart"
+                type="date"
+                value={shippingDateStart}
+                onChange={(e) => {
+                  setShippingDateStart(e.target.value);
+                  if (shippingDateEnd) validateDates();
+                }}
+                className={`shadow appearance-none border ${dateError ? 'border-red-500' : 'border-gray-300'} rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 ${dateError ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1" htmlFor="shippingDateEnd">
+                עד תאריך
+              </label>
+              <input
+                id="shippingDateEnd"
+                type="date"
+                value={shippingDateEnd}
+                onChange={(e) => {
+                  setShippingDateEnd(e.target.value);
+                  if (shippingDateStart) validateDates();
+                }}
+                className={`shadow appearance-none border ${dateError ? 'border-red-500' : 'border-gray-300'} rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 ${dateError ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
+                required
+              />
+            </div>
+          </div>
+          {dateError && (
+            <p className="text-red-500 text-sm mt-1">{dateError}</p>
+          )}
+          <p className="text-xs text-gray-500 mt-1">
+            טווח התאריכים בו המוצרים יסופקו ללקוחות
+          </p>
         </div>
 
         {/* Submit Button */}

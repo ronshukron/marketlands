@@ -59,8 +59,8 @@ const Menu = () => {
         <li><Link to="/" onClick={toggleMenu}>דף הבית</Link></li>
         <li><Link to="/landing" onClick={toggleMenu}>הדרכה</Link></li>
         <li><Link to="/contact" onClick={toggleMenu}>צור קשר</Link></li>
-        <li><Link to="/ongoing-orders" onClick={toggleMenu}>השוק</Link></li>
-        <li><Link to="/coordinator-landing" onClick={toggleMenu}>לרכזי קהילות</Link></li>
+        {/* <li><Link to="/ongoing-orders" onClick={toggleMenu}>השוק</Link></li> */}
+        {/* <li><Link to="/coordinator-landing" onClick={toggleMenu}>לרכזי קהילות</Link></li> */}
 
         {userLoggedIn && userRole === 'coordinator' && (
           <>
@@ -104,6 +104,8 @@ const Menu = () => {
             {/* <li><Link to="/coordinator-register" onClick={toggleMenu}>הירשמו כרכז</Link></li> */}
             <li><Link to="/business-register" onClick={toggleMenu}>הירשמו כעסק</Link></li>
             <li><Link to="/login" onClick={toggleMenu}>התחברו</Link></li>
+            <li><Link to="/coordinator-landing" onClick={toggleMenu}>לרכזי קהילות</Link></li>
+
           </>
         )}
       </ul>

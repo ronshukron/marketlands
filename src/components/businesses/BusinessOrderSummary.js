@@ -63,6 +63,25 @@ const BusinessOrderSummary = () => {
             </span>
           </div>
         </div>
+        {orderData.description && (
+          <div className="mb-4">
+            <h3 className="font-medium text-gray-700 mb-1">פרטי ההזמנה:</h3>
+            <p className="text-gray-600 bg-gray-50 p-3 rounded whitespace-pre-line">{orderData.description}</p>
+          </div>
+        )}
+        {orderData.shippingDateRange && (
+          <div className="mb-4 flex items-start">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-blue-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <div>
+              <h3 className="font-medium text-gray-700">זמן אספקה:</h3>
+              <p className="text-gray-600">
+                {new Date(orderData.shippingDateRange.start).toLocaleDateString('he-IL')} - {new Date(orderData.shippingDateRange.end).toLocaleDateString('he-IL')}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Total Amount Section */}
