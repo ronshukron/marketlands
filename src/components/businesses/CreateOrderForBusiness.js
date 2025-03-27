@@ -83,7 +83,15 @@ const CreateOrderForBusiness = () => {
   // Function to calculate ending date based on duration
   const calculateEndingDate = (duration) => {
     const currentTime = new Date();
+    console.log(duration);
+    console.log(currentTime);
     switch (duration) {
+      case '1_day':
+        currentTime.setDate(currentTime.getDate() + 1);
+        break;
+      case '2_days':
+        currentTime.setDate(currentTime.getDate() + 2);
+        break;
       case '3_days':
         currentTime.setDate(currentTime.getDate() + 3);
         break;
@@ -243,7 +251,7 @@ const CreateOrderForBusiness = () => {
 
     const endingTime =
       orderType === 'one_time' ? calculateEndingDate(selectedDuration) : null;
-
+    console.log(endingTime);
     if (orderType === 'one_time' && !endingTime) {
       Swal.fire({
         icon: 'error',
@@ -413,6 +421,8 @@ const CreateOrderForBusiness = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="" disabled>בחרו משך זמן</option>
+              <option value="1_day">יום אחד</option>
+              <option value="2_days">יומיים</option>
               <option value="3_days">3 ימים</option>
               <option value="5_days">5 ימים</option>
               <option value="1_week">שבוע</option>
