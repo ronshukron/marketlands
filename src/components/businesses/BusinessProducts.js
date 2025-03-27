@@ -144,6 +144,70 @@ const BusinessProducts = () => {
         </button>
       </div>
 
+      {/* Integrated guidance section - always visible */}
+      <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-lg shadow-sm">
+        <div className="flex">
+          <div className="flex-shrink-0 mr-3">
+            <svg className="h-6 w-6 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-medium text-blue-800 mb-1">כיצד ליצור טופס הזמנה</h3>
+            <div className="space-y-2">
+              <div className="flex items-start">
+                <div className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mr-2 text-xs">1</div>
+                <p className="text-sm text-blue-700"><strong> בחרו מספר מוצרים </strong> - סמנו את כל המוצרים שתרצו לכלול בטופס ההזמנה אחד ולחצו על צור מודעה</p>
+              </div>
+              <div className="flex items-start">
+                <div className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mr-2 text-xs">2</div>
+                <p className="text-sm text-blue-700"><strong>הגדירו את פרטי ההזמנה</strong> - תנו שם לטופס ההזמנה והגדירו את הפרטים הנדרשים</p>
+              </div>
+              {/* <div className="flex items-start">
+                <div className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mr-2 text-xs">3</div>
+                <p className="text-sm text-blue-700"><strong>שתפו את הטופס</strong> - שתפו את הקישור לטופס ההזמנה עם הלקוחות שלכם</p>
+              </div> */}
+              <div className="mt-2 pt-2 border-t border-blue-200">
+                <p className="text-sm text-blue-800 font-semibold flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  חשוב: צרו טופס הזמנה אחד עם כל המוצרים שלכם במקום ליצור טופס נפרד לכל מוצר
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Status section - shows depending on selection state */}
+      {selectedProducts.length > 0 && (
+        <div className="bg-green-50 border-l-4 border-green-400 p-4 mb-6 rounded-lg">
+          <div className="flex">
+            <div className="flex-shrink-0 mr-3">
+              <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-green-800">נבחרו {selectedProducts.length} מוצרים</h3>
+              <div className="mt-1 text-sm text-green-700">
+                <p>בחרתם {selectedProducts.length} מוצרים לטופס ההזמנה. לחצו על כפתור "צור טופס הזמנה" למטה כדי להמשיך.</p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {products
+                    .filter(product => selectedProducts.includes(product.id))
+                    .map(product => (
+                      <span key={product.id} className="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded">
+                        {product.name}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {products.length === 0 ? (
         <div className="text-center py-8 px-4 bg-gray-50 rounded-lg shadow">
           <img
@@ -251,19 +315,34 @@ const BusinessProducts = () => {
           </div>
 
           {/* Floating Create Order Button - Smaller */}
-          {selectedProducts.length > 0 && (
-            <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-10">
-              <button
-                onClick={handleCreateOrder}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg font-medium transition-colors flex items-center gap-2 text-sm"
-              >
-                <span>צור הזמנה</span>
-                <span className="bg-blue-400 px-2 py-0.5 rounded-full text-xs">
-                  {selectedProducts.length}
-                </span>
-              </button>
-            </div>
-          )}
+          <div className="fixed bottom-4 left-0 right-0 flex justify-center z-20">
+            <button
+              onClick={handleCreateOrder}
+              disabled={selectedProducts.length === 0}
+              className={`
+                py-3 px-6 rounded-full shadow-lg flex items-center gap-2 font-medium
+                transition-all duration-300 transform
+                ${selectedProducts.length === 0 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-70'
+                  : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:shadow-xl hover:scale-105'
+                }
+              `}
+            >
+              {selectedProducts.length > 0 ? (
+                <>
+                  <span className="bg-white text-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">
+                    {selectedProducts.length}
+                  </span>
+                  <span>צור טופס הזמנה</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </>
+              ) : (
+                <span>בחרו מוצרים להזמנה</span>
+              )}
+            </button>
+          </div>
         </>
       )}
     </div>
