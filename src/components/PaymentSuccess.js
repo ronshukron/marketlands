@@ -2,11 +2,13 @@ import React, { useEffect } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import './PaymentSuccess.css';
 import OngoingOrders from './OngoingOrders'; // Import OngoingOrders component
+import { useAuth } from '../contexts/authContext';
 
 const PaymentSuccess = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const params = useParams();
+    const { userLoggedIn } = useAuth();
 
     useEffect(() => {
         // Function to parse the URL parameters
@@ -48,18 +50,53 @@ const PaymentSuccess = () => {
     };
 
     return (
-        <div className="payment-success-container">
-            <h1>התשלום בוצע בהצלחה</h1>
-            <p>תודה רבה על הזמנתך. פרטי ההזמנה נשמרו במערכת.</p>
-            <p>ניתן לעקוב אחרי ההזמנה שלכם אם נרשמים לאתר באותו אימייל שאיתו ביצעתם את התשלום</p>
-            <div className="buttons-container">
-                <button onClick={handleRegister} className="register-button">הירשם לאתר</button>
+        <div className="min-h-screen bg-gray-50 py-12 px-4" dir="rtl">
+            <div className="max-w-3xl mx-auto mb-12">
+                <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                    <div className="bg-blue-600 p-6 flex flex-col items-center">
+                        <div className="bg-white rounded-full p-3 mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                        </div>
+                        <h1 className="text-3xl font-bold text-white text-center">התשלום בוצע בהצלחה!</h1>
+                    </div>
+                    
+                    <div className="p-8 text-center">
+                        <p className="text-xl text-gray-700 mb-6">
+                            תודה רבה על הזמנתך. פרטי ההזמנה נשמרו במערכת.
+                        </p>
+
+                        {!userLoggedIn && (
+                            <>
+                                <p className="text-gray-600 mb-8">
+                                    ניתן לעקוב אחרי ההזמנה שלכם אם נרשמים לאתר באותו אימייל שאיתו ביצעתם את התשלום
+                                </p>
+                                <button 
+                                    onClick={handleRegister} 
+                                    className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-8 rounded-lg transition-colors duration-200 shadow-md"
+                                >
+                                    הירשם לאתר
+                                </button>
+                            </>
+                        )}
+                        
+                        <button 
+                            onClick={handleBackToHome} 
+                            className="mt-6 inline-block px-6 py-2 border border-blue-600  rounded-md hover:bg-blue-50 transition-colors duration-200"
+                        >
+                            חזרה לדף הבית
+                        </button>
+                    </div>
+                </div>
             </div>
-            {/* Include OngoingOrders component to display active orders */}
-            <section className="ongoing-orders-section">
-                {/* <h2>הזמנות פעילות</h2> */}
-                <OngoingOrders /> {/* Display ongoing orders */}
-            </section>
+            
+            <div className="max-w-6xl mx-auto">
+                <div className="bg-white rounded-xl shadow-md overflow-hidden p-6 mb-4">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-6">הזמנות פעילות נוספות</h2>
+                    <OngoingOrders />
+                </div>
+            </div>
         </div>
     );
 };

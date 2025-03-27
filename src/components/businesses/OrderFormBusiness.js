@@ -358,23 +358,37 @@ const OrderFormBusiness = () => {
               {product.name} - ₪{product.price}
             </h3>
             
-            {product.images.length > 0 && (
-              <div className="relative">
-                <Slider {...settings}>
-                  {product.images.map((image, idx) => (
-                    <div key={idx}>
-                      <div className="aspect-w-16 aspect-h-12">
-                        <img 
-                          src={image} 
-                          alt={`Image ${idx + 1} for ${product.name}`} 
-                          className="w-full h-48 object-cover"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </Slider>
-              </div>
-            )}
+            <div className="relative h-32">
+              {product.images && product.images.length > 0 ? (
+                product.images.length > 1 ? (
+                  <div className="product-carousel h-32">
+                    <Slider {...settings} className="h-full">
+                      {product.images.map((image, index) => (
+                        <div key={index} className="h-32">
+                          <img
+                            src={image}
+                            alt={`תמונה ${index + 1} של ${product.name}`}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ))}
+                    </Slider>
+                  </div>
+                ) : (
+                  <div className="single-image-container h-32">
+                    <img 
+                      src={product.images[0]} 
+                      alt={product.name}
+                      className="w-full h-full object-cover object-center" 
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                  <span className="text-gray-400 text-sm">אין תמונה</span>
+                </div>
+              )}
+            </div>
             
             <div className="p-4">
               <p className="text-gray-600 text-sm mb-4">{product.description}</p>

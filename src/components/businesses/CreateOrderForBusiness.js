@@ -477,7 +477,7 @@ const CreateOrderForBusiness = () => {
         </div>
 
         {/* Request Address Option */}
-        <label className="flex items-center gap-3 cursor-pointer">
+        {/* <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
             checked={requestAddress}
@@ -487,10 +487,10 @@ const CreateOrderForBusiness = () => {
           <span className="text-sm text-gray-700">
             בקש כתובת ממשתמשים בעת ביצוע ההזמנה
           </span>
-        </label>
+        </label> */}
 
         {/* Payment Method Selection */}
-        <div className="space-y-2">
+        {/* <div className="space-y-2">
           <p className="text-sm font-medium text-gray-700">בחר שיטת תשלום:</p>
           <div className="flex flex-col sm:flex-row gap-4">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -502,7 +502,7 @@ const CreateOrderForBusiness = () => {
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 className={customInputStyle}
               />
-              <span className="text-sm text-gray-700">סליקת אשראי (כולל עמלה)</span>
+              <span className="text-sm text-gray-700">סליקת אשראי (כולל 2% עמלה)</span>
             </label>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -516,7 +516,7 @@ const CreateOrderForBusiness = () => {
               <span className="text-sm text-gray-700">תשלום בעזרת ביט\פייבוקס</span>
             </label>
           </div>
-        </div>
+        </div> */}
 
         {/* Payment Apps Selection */}
         {paymentMethod === 'free' && (

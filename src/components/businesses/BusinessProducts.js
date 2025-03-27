@@ -172,17 +172,29 @@ const BusinessProducts = () => {
                 {/* Smaller Image Section */}
                 <div className="relative h-32">
                   {product.images && product.images.length > 0 ? (
-                    <Slider {...sliderSettings} className="h-full">
-                      {product.images.map((image, index) => (
-                        <div key={index} className="h-32">
-                          <img
-                            src={image}
-                            alt={`תמונה ${index + 1} של ${product.name}`}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      ))}
-                    </Slider>
+                    product.images.length > 1 ? (
+                      <div className="product-carousel h-32">
+                        <Slider {...sliderSettings} className="h-full">
+                          {product.images.map((image, index) => (
+                            <div key={index} className="h-32">
+                              <img
+                                src={image}
+                                alt={`תמונה ${index + 1} של ${product.name}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ))}
+                        </Slider>
+                      </div>
+                    ) : (
+                      <div className="single-image-container h-32">
+                        <img 
+                          src={product.images[0]} 
+                          alt={product.name}
+                          className="w-full h-full object-cover object-center" 
+                        />
+                      </div>
+                    )
                   ) : (
                     <div className="w-full h-full bg-gray-100 flex items-center justify-center">
                       <span className="text-gray-400 text-sm">אין תמונה</span>
