@@ -12,8 +12,8 @@ import featureImage1 from '../images/orchardhillsrollingoverhorizon.jpg';
 import featureImage2 from '../images/rolledhaybalesonfarmland.jpg';
 import featureImage3 from '../images/sunlightdropedbelowhorizonbehindmountains.jpg';
 import featureImage4 from '../images/freshlybaledfield.jpg';
-import farmImg from '../images/farm_fresh.jpg';
-import deliveryImg from '../images/delivery.jpg';
+import farmImg from '../images/freshlybaledfield.jpg';
+import deliveryImg from '../images/sunlightdropedbelowhorizonbehindmountains.jpg';
 import dashboardImg from '../images/dashboard.png';
 import groupBuyingImg from '../images/group_buying.png';
 
@@ -47,12 +47,12 @@ const LandingPage = () => {
                   </Link>
                 </>
               ) : (
-                <Link
+            <Link
                   to="/dashboard"
                   className="bg-white text-green-600 hover:bg-gray-100 px-6 py-3 rounded-lg font-medium shadow-md transition-colors inline-block"
-                >
+            >
                   ללוח מודעות
-                </Link>
+            </Link>
               )}
             </div> */}
           </div>
@@ -111,7 +111,7 @@ const LandingPage = () => {
                     <li>פתרון פשוט ונוח למכירת תוצרת ישירות לסוחרים</li>
                     <li>עמלה נמוכה של 2% בלבד במכירות ישירות</li>
                     <li>במכירות קבוצתיות (רכזי קהילה), 15% יתווספו למחיר שקבעתם לצרכן אשר יחולק בין המערכת והרכז</li>
-                    <li>גם ברכישות קבוצתיות, העמלה נשארת 2% בלבד</li>
+                    <li>גם ברכישות קבוצתיות, העמלה נשארת 2% בלבד עבור החקלאי</li>
                     <li>לוח בקרה לניהול הזמנות ומעקב אחר מכירות</li>
                     <li>קבלת תשלומים מאובטחים ומהירים</li>
                   </ul>
@@ -252,7 +252,7 @@ const LandingPage = () => {
         <div className="bg-white rounded-xl overflow-hidden shadow-md mb-16">
           <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
             <h3 className="text-2xl font-bold text-gray-800">לוח בקרה למעקב</h3>
-          </div>
+      </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
               <div className="order-first md:order-last">
@@ -359,9 +359,9 @@ const LandingPage = () => {
                     <span className="text-gray-700">ניהול הזמנות ומשלוחים</span>
                   </div>
                 </div>
-              </div>
-            </div>
-            
+        </div>
+      </div>
+
             {/* Merchant Tutorials */}
             <div className="bg-white rounded-xl overflow-hidden shadow-md">
               <div className="bg-blue-50 px-6 py-4 border-b border-blue-100">
@@ -397,14 +397,14 @@ const LandingPage = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                     </svg>
                     <span className="text-gray-700">ביצוע הזמנה ותשלום</span>
-                  </div>
+            </div>
                   <div className="flex items-start">
                     <svg className="w-5 h-5 text-blue-500 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                     </svg>
                     <span className="text-gray-700">מעקב אחר הזמנה ותיאום קבלה</span>
-                  </div>
-                </div>
+            </div>
+            </div>
               </div>
             </div>
           </div>
