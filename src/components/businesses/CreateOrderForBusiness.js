@@ -155,7 +155,7 @@ const CreateOrderForBusiness = () => {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
-        text: 'אנא הזינו שם להזמנה.',
+        text: 'אנא הזינו שם מודעה.',
       });
       return;
     }
@@ -164,7 +164,7 @@ const CreateOrderForBusiness = () => {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
-        text: 'אנא בחרו משך זמן להזמנה.',
+        text: 'אנא בחרו משך זמן מודעה.',
       });
       return;
     }
@@ -186,7 +186,7 @@ const CreateOrderForBusiness = () => {
         Swal.fire({
           icon: 'error',
           title: 'שגיאה',
-          text: 'אנא בחרו לפחות יום ושעות פעילות להזמנה.',
+          text: 'אנא בחרו לפחות יום ושעות פעילות המודעה.',
         });
         return;
       }
@@ -331,7 +331,7 @@ const CreateOrderForBusiness = () => {
 
       Swal.fire({
         icon: 'success',
-        title: 'ההזמנה נוצרה בהצלחה!',
+        title: 'המודעה נוצרה בהצלחה!',
         text: 'תוכלו לנהל את ההזמנה בלוח ההזמנות.',
         showConfirmButton: false,
         timer: 2000,
@@ -343,7 +343,7 @@ const CreateOrderForBusiness = () => {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
-        text: 'אירעה שגיאה בעת יצירת ההזמנה. נסו שוב מאוחר יותר.',
+        text: 'אירעה שגיאה בעת יצירת מודעה. נסו שוב מאוחר יותר.',
       });
     } finally {
       setLoading(false);
@@ -361,20 +361,20 @@ const CreateOrderForBusiness = () => {
 
   return (
     <div dir="rtl" className="max-w-2xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold text-center mb-6">יצירת הזמנה חדשה</h1>
+      <h1 className="text-2xl font-bold text-center mb-6"> יצירת מודעת מכירה חדשה</h1>
       
       {/* Main Form Container */}
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
         {/* Order Name */}
         <div className="space-y-2">
           <label htmlFor="orderName" className="block text-sm font-medium text-gray-700">
-            שם ההזמנה <span className="text-red-500">*</span>
+            שם המודעה <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
             id="orderName"
             value={orderName}
-            placeholder="הכנס שם להזמנה"
+            placeholder="תות שדה פרימיום מהחקלאי"
             onChange={(e) => setOrderName(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -413,7 +413,7 @@ const CreateOrderForBusiness = () => {
         {orderType === 'one_time' && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-gray-700">
-              בחרו את משך הזמן עד סיום ההזמנה: <span className="text-red-500">*</span>
+              בחרו את משך הזמן עד סיום המודעה: <span className="text-red-500">*</span>
             </p>
             <select
               value={selectedDuration}
@@ -476,7 +476,7 @@ const CreateOrderForBusiness = () => {
         {/* Image Upload */}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">
-            העלו תמונה להזמנה:
+            העלו תמונה למודעה:
           </label>
           <input
             type="file"
@@ -655,7 +655,7 @@ const CreateOrderForBusiness = () => {
         {/* Description */}
         <div className="mb-6">
           <label className="block text-gray-700 mb-2" htmlFor="description">
-            תיאור ההזמנה (אופציונלי)
+            תיאור מודעה (אופציונלי)
           </label>
           <textarea
             id="description"
@@ -670,7 +670,7 @@ const CreateOrderForBusiness = () => {
         {/* Shipping Date Range */}
         <div className="mb-6">
           <label className="block text-gray-700 mb-2">
-            טווח תאריכים למשלוח/איסוף <span className="text-red-500">*</span>
+            טווח תאריכים למשלוח <span className="text-red-500">*</span>
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -720,7 +720,7 @@ const CreateOrderForBusiness = () => {
           disabled={loading}
           className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'יוצר הזמנה...' : 'צור הזמנה'}
+          {loading ? 'יוצר מודעה...' : 'צור מודעה'}
         </button>
       </div>
     </div>

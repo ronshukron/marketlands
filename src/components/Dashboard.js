@@ -263,9 +263,9 @@ const Dashboard = () => {
     <div dir="rtl" className="max-w-7xl mx-auto px-4 py-8">
       {/* Header Section */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">לוח הזמנות</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">לוח מודעות</h1>
         <p className="text-gray-600">
-          {userRole === 'coordinator' ? 'ניהול הזמנות הקהילה שלך' : 'ניהול ההזמנות של העסק שלך'}
+          {userRole === 'coordinator' ? 'ניהול מודעות הקהילה שלך' : 'ניהול מודעות של העסק שלך'}
         </p>
       </div>
 
@@ -400,7 +400,7 @@ const Dashboard = () => {
                       onClick={() => handleViewOrder(order)}
                       className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
                     >
-                      צפה בהזמנה
+                      צפה במודעה
                     </button>
                     <button
                       onClick={() => handleCopyLink(order)}

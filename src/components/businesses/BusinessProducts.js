@@ -153,15 +153,15 @@ const BusinessProducts = () => {
             </svg>
           </div>
           <div>
-            <h3 className="text-lg font-medium text-blue-800 mb-1">כיצד ליצור טופס הזמנה</h3>
+            <h3 className="text-lg font-medium text-blue-800 mb-1">כיצד ליצור מודעת מכירה</h3>
             <div className="space-y-2">
               <div className="flex items-start">
                 <div className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mr-2 text-xs">1</div>
-                <p className="text-sm text-blue-700"><strong> בחרו מספר מוצרים </strong> - סמנו את כל המוצרים שתרצו לכלול בטופס ההזמנה אחד ולחצו על צור מודעה</p>
+                <p className="text-sm text-blue-700"><strong> בחרו מספר מוצרים </strong> -  סמנו את כל המוצרים שתרצו לכלול במודעת מכירה ולחצו על צור מודעה</p>
               </div>
               <div className="flex items-start">
                 <div className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mr-2 text-xs">2</div>
-                <p className="text-sm text-blue-700"><strong>הגדירו את פרטי ההזמנה</strong> - תנו שם לטופס ההזמנה והגדירו את הפרטים הנדרשים</p>
+                <p className="text-sm text-blue-700"><strong>הגדירו את פרטי ההזמנה</strong> -  בדף הבא תנו שם למודעת מכירה והגדירו את הפרטים הנדרשים</p>
               </div>
               {/* <div className="flex items-start">
                 <div className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mr-2 text-xs">3</div>
@@ -172,7 +172,7 @@ const BusinessProducts = () => {
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
-                  חשוב: צרו טופס הזמנה אחד עם כל המוצרים שלכם במקום ליצור טופס נפרד לכל מוצר
+                  חשוב: צרו מודעת מכירה אחת עם כל המוצרים שלכם במקום ליצור מודעה בנפרד לכל מוצר
                 </p>
               </div>
             </div>
@@ -192,7 +192,7 @@ const BusinessProducts = () => {
             <div>
               <h3 className="text-sm font-medium text-green-800">נבחרו {selectedProducts.length} מוצרים</h3>
               <div className="mt-1 text-sm text-green-700">
-                <p>בחרתם {selectedProducts.length} מוצרים לטופס ההזמנה. לחצו על כפתור "צור טופס הזמנה" למטה כדי להמשיך.</p>
+                <p>בחרתם {selectedProducts.length} מוצרים למודעת מכירה. לחצו על כפתור "צור מודעת מכירה" למטה כדי להמשיך.</p>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {products
                     .filter(product => selectedProducts.includes(product.id))
@@ -333,13 +333,13 @@ const BusinessProducts = () => {
                   <span className="bg-white text-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">
                     {selectedProducts.length}
                   </span>
-                  <span>צור טופס הזמנה</span>
+                  <span>צור מודעת מכירה</span>
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
                 </>
               ) : (
-                <span>בחרו מוצרים להזמנה</span>
+                <span>בחרו מוצרים למודעה</span>
               )}
             </button>
           </div>

@@ -80,9 +80,9 @@ const Menu = () => {
 
         {userLoggedIn && userRole === 'business' && (
           <>
-            <li><Link to="/Business-DashBoard" onClick={toggleMenu}>הדפי מכירות שלי</Link></li>
+            <li><Link to="/Business-DashBoard" onClick={toggleMenu}>מודעות מכירה שלי</Link></li>
             <li><Link to="/Business-Products" onClick={toggleMenu}>המוצרים שלי</Link></li>
-            <li><Link to="/dashboard" onClick={toggleMenu}>לוח הזמנות</Link></li>
+            <li><Link to="/dashboard" onClick={toggleMenu}>לוח מודעות</Link></li>
             <li><Link to={`/store/${businessId}`} onClick={toggleMenu}>החנות שלי</Link></li>
           </>
         )}
