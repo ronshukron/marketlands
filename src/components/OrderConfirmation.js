@@ -38,28 +38,31 @@ const OrderConfirmation = () => {
         }
     }, [userLoggedIn, currentUser]);
 
-    useEffect(() => {
-        // Fetch order data to get if address is requested
-        const fetchOrderData = async () => {
-            try {
-                const orderDocRef = doc(db, "Orders", orderId);
-                const orderSnap = await getDoc(orderDocRef);
-                if (orderSnap.exists()) {
-                    const orderInfo = orderSnap.data();
-                    setOrderData(orderInfo);
-                    setRequestAddress(orderInfo.requestAddress || false);
-                    setMinimumOrderAmount(orderInfo.minimumOrderAmount || 0);
-                } else {
-                    console.log("Order does not exist!");
-                    navigate('/error');
-                }
-            } catch (error) {
-                console.error("Error fetching order data:", error);
-                navigate('/error');
-            }
-        };
-        fetchOrderData();
-    }, [orderId, navigate]);
+    // useEffect(() => {
+    //     // Fetch order data to get if address is requested
+    //     const fetchOrderData = async () => {
+    //         try {
+    //             console.log("orderId", orderId);
+    //             const orderDocRef = doc(db, "Orders", orderId);
+    //             const orderSnap = await getDoc(orderDocRef);
+    //             console.log("orderSnap", orderSnap);
+    //             console.log("orderId", orderId);
+    //             if (orderSnap.exists()) {
+    //                 const orderInfo = orderSnap.data();
+    //                 setOrderData(orderInfo);
+    //                 setRequestAddress(orderInfo.requestAddress || false);
+    //                 setMinimumOrderAmount(orderInfo.minimumOrderAmount || 0);
+    //             } else {
+    //                 console.log("Order does not exist!");
+    //                 navigate('/error');
+    //             }
+    //         } catch (error) {
+    //             console.error("Error fetching order data:", error);
+    //             navigate('/error');
+    //         }
+    //     };
+    //     fetchOrderData();
+    // }, [orderId, navigate]);
 
     useEffect(() => {
         const isValid = userName.trim() !== '' && 

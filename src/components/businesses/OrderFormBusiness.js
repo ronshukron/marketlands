@@ -8,22 +8,21 @@ import Slider from "react-slick";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
+import { useCart } from '../../contexts/CartContext'; // Import useCart
 
 const OrderFormBusiness = () => {
   const { orderId } = useParams();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [businessInfo, setBusinessInfo] = useState({});
-  const [userName, setUserName] = useState('');
-  const [nameValid, setNameValid] = useState(true);
-  const [cartProducts, setCartProducts] = useState([]);
-  const navigate = useNavigate();
-  const isCartEmpty = cartProducts.length === 0;
   const [orderDetails, setOrderDetails] = useState({});
   const [orderEnded, setOrderEnded] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState([]);
   const [minimumOrderAmount, setMinimumOrderAmount] = useState(0);
+  const navigate = useNavigate();
 
+  // Get cart functions from context
+  const { addItem, cartItems, cartTotal } = useCart(); 
 
   useEffect(() => {
     const fetchOrderDetails = async () => {
@@ -124,48 +123,50 @@ const OrderFormBusiness = () => {
     }));
   };
 
-  const removeFromCart = (uid) => {
-    setCartProducts(cartProducts.filter(product => product.uid !== uid));
-  };
-
   const addToCart = (productIndex) => {
-    const productToAdd = products[productIndex];
-    if (productToAdd.selectedOption === "") {
+    const product = products[productIndex];
+    
+    if (product.quantity <= 0) {
       Swal.fire({
-        icon: 'error',
-        title: 'בחר אפשרות למוצר',
-        text: 'אנא בחר אפשרות לפני הוספה לסל הקניות',
-        showConfirmButton: true,
-        confirmButtonText: 'אישור',
-        timer: 3000
+        title: 'אופס!',
+        text: 'אנא בחר כמות גדולה מאפס',
+        icon: 'warning',
+        confirmButtonText: 'אישור'
       });
       return;
     }
-    const newCartProduct = { ...productToAdd, uid: `${productToAdd.name}_${Math.random().toString(36).substr(2, 9)}` };
-    if (productToAdd.quantity <= 0) {
-      Swal.fire({
-        icon: 'error',
-        title: 'הוסיפו כמות גדולה מ-0',
-        showConfirmButton: true,
-        confirmButtonText: 'אישור',
-        timer: 3000
-      });
-    } else {
-      setCartProducts([...cartProducts, newCartProduct]);
-      setProducts(products.map((product, i) => {
-        if (i === productIndex) {
-          return { ...product, quantity: 0 };
-        }
-        return product;
-      }));
-      Swal.fire({
-        icon: 'success',
-        title: 'המוצר נוסף בהצלחה לסל הקניות',
-        showConfirmButton: true,
-        confirmButtonText: 'אישור',
-        timer: 3000
-      });
-    }
+
+    // Create a copy of the product to avoid reference issues
+    const productToAdd = {
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      selectedOption: product.selectedOption,
+      quantity: product.quantity,
+      images: product.images || []
+    };
+
+    // Add to global cart only
+    addItem(
+      productToAdd,
+      orderId,
+      businessInfo.id,
+      minimumOrderAmount
+    );
+
+    // Reset product quantity to 0
+    const updatedProducts = [...products];
+    updatedProducts[productIndex].quantity = 0;
+    setProducts(updatedProducts);
+
+    // Show success message
+    Swal.fire({
+      title: 'נוסף לסל!',
+      text: `${product.name} נוסף לסל הקניות שלך`,
+      icon: 'success',
+      timer: 1500,
+      showConfirmButton: false
+    });
   };
 
   const checkIfOrderEnded = async () => {
@@ -180,7 +181,6 @@ const OrderFormBusiness = () => {
           const currentTime = new Date();
           if (currentTime >= endingTime) {
             setOrderEnded(true);
-            setCartProducts([]); // Clear the cart if necessary
             return true; // Order has ended
           }
         }
@@ -194,73 +194,29 @@ const OrderFormBusiness = () => {
     return false; // Order has not ended
   };
 
-  const handleSubmitOrder = async () => {
-    const total = cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    
-    if (minimumOrderAmount > 0 && total < minimumOrderAmount) {
-        Swal.fire({
-            icon: 'error',
-            title: 'סכום מינימום להזמנה',
-            text: `סכום ההזמנה המינימלי הוא ${minimumOrderAmount}₪. סכום ההזמנה הנוכחי הוא ${total}₪`,
-            confirmButtonText: 'הבנתי'
-        });
-        return;
-    }
-
-    const orderHasEnded = await checkIfOrderEnded();
-    if (orderHasEnded) {
-      Swal.fire({
-        icon: 'error',
-        title: 'ההזמנה הסתיימה',
-        text: 'צר לנו, אבל זמן ההזמנה הזו כבר הסתיימה.',
-        showConfirmButton: true,
-        confirmButtonText: 'אישור',
-        timer: 3000
-      });
-      return;
-    }
-
-    if (cartProducts.length === 0) {
-      Swal.fire({
-        icon: 'error',
-        title: 'הסל שלך ריק',
-        text: 'אנא הוסף מוצרים לסל הקניות לפני המעבר לדף הסיכום',
-        showConfirmButton: true,
-        confirmButtonText: 'אישור',
-        timer: 3000
-      });
-      return;
-    }
-
-        // Fetch the order details to get the payment method
-        const orderDoc = doc(db, "Orders", orderId);
-        const docSnap = await getDoc(orderDoc);
-        if (docSnap.exists()) {
-          const orderData = docSnap.data();
-          if (orderData.paymentMethod === 'free') {
-            // Navigate to the new confirmation page for free payment method
-            navigate('/order-confirmation-free', { state: { cartProducts, orderId } });
-          } else {
-            // Navigate to the regular confirmation page
-            navigate('/order-confirmation', { state: { cartProducts, orderId } });
-          }
-        } else {
-          console.log("Order does not exist!");
-          navigate('/error');
-        }
-
-  };
-
   if (loading) {
     return <LoadingSpinner />;
   }
 
   if (orderEnded) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-10 text-center">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-8">
-          <h1 className="text-2xl font-bold text-red-700 mb-4">ההזמנה הסתיימה</h1>
-          <p className="text-gray-700">צר לנו, אבל זמן ההזמנה הזו כבר הסתיימה.</p>
+      <div className="bg-gray-100 min-h-screen flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full text-center">
+          <div className="text-red-500 text-5xl mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">ההזמנה הסתיימה</h2>
+          <p className="text-gray-600 mb-6">
+            דף ההזמנה הזה כבר אינו פעיל.
+          </p>
+          <button 
+            onClick={() => navigate('/')}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-colors"
+          >
+            חזרה לדף הבית
+          </button>
         </div>
       </div>
     );
@@ -275,271 +231,176 @@ const OrderFormBusiness = () => {
   };
 
   return (
-    <div dir="rtl" className="max-w-6xl mx-auto px-4 py-6 bg-gray-50">
-      {/* Header */}
-      {/* <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
-        <div className="md:flex">
-          {businessInfo.image && (
-            <div className="md:flex-shrink-0">
-              <img 
-                className="h-48 w-full object-cover md:w-48" 
-                src={businessInfo.image} 
-                alt={`Logo of ${businessInfo.name}`} 
-              />
-            </div>
-          )}
-          <div className="p-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              טופס הזמנה עבור {businessInfo.name}
-            </h1>
-            <div className="text-gray-600">
-              <p><span className="font-medium">מיקום:</span> {businessInfo.communityName}</p>
+    <div className="bg-gray-50 min-h-screen pb-16">
+      {/* Business info and product list */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
+        {/* Business info */}
+        {/* <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
+          <div className="md:flex">
+            {businessInfo.image && (
+              <div className="md:flex-shrink-0">
+                <img 
+                  className="h-48 w-full object-cover md:w-48" 
+                  src={businessInfo.image} 
+                  alt={`Logo of ${businessInfo.name}`} 
+                />
+              </div>
+            )}
+            <div className="p-8">
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                טופס הזמנה עבור {businessInfo.name}
+              </h1>
+              <div className="text-gray-600">
+                <p><span className="font-medium">מיקום:</span> {businessInfo.communityName}</p>
+              </div>
             </div>
           </div>
+        </div> */}
+
+        {/* Instructions */}
+        <div className="bg-blue-50 border-r-4 border-blue-400 p-4 rounded-lg mb-8">
+          <h4 className="font-bold text-blue-800 mb-2">הסבר שימוש</h4>
+          <ul className="text-blue-700 text-sm space-y-1">
+            <li>• בחר מוצר, אופציה וכמות</li>
+            <li>• לחץ על הוסף לסל</li>
+            <li>• לחץ עבור לסיכום הזמנה</li>
+          </ul>
         </div>
-      </div> */}
 
-      {/* Instructions */}
-      <div className="bg-blue-50 border-r-4 border-blue-400 p-4 rounded-lg mb-8">
-        <h4 className="font-bold text-blue-800 mb-2">הסבר שימוש</h4>
-        <ul className="text-blue-700 text-sm space-y-1">
-          <li>• בחר מוצר, אופציה וכמות</li>
-          <li>• לחץ על הוסף לסל</li>
-          <li>• לחץ עבור לסיכום הזמנה</li>
-        </ul>
-      </div>
-
-      {/* Order Details Section */}
-      <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
-        <div className="p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">
-            {businessInfo.name}
-          </h2>
-          
-          {/* Description if available */}
-          {orderDetails.description && (
-            <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <h3 className="text-md font-semibold text-gray-700 mb-2">פרטי ההזמנה:</h3>
-              <p className="text-gray-600 whitespace-pre-line">{orderDetails.description}</p>
-            </div>
-          )}
-          
-          {/* Shipping Date Range */}
-          {orderDetails.shippingDateRange && (
-            <div className="flex items-center text-gray-700 mb-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span className="font-medium">זמן אספקה:</span>&nbsp;
-              <span>
-                {new Date(orderDetails.shippingDateRange.start).toLocaleDateString('he-IL')} - {new Date(orderDetails.shippingDateRange.end).toLocaleDateString('he-IL')}
-              </span>
-            </div>
-          )}
-          
-          {/* Minimum Order Amount if set */}
-          {minimumOrderAmount > 0 && (
-            <div className="flex items-center text-gray-700">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="font-medium">סכום מינימום להזמנה:</span>&nbsp;
-              <span>{minimumOrderAmount}₪</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Products */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        {products.map((product, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-            <h3 className="text-lg font-bold text-gray-900 p-4 border-b">
-              {product.name} - ₪{product.price}
-            </h3>
+        {/* Order Details Section */}
+        <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
+          <div className="p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">
+              {businessInfo.name}
+            </h2>
             
-            <div className="relative h-32">
-              {product.images && product.images.length > 0 ? (
-                product.images.length > 1 ? (
-                  <div className="product-carousel h-32">
-                    <Slider {...settings} className="h-full">
-                      {product.images.map((image, index) => (
-                        <div key={index} className="h-32">
-                          <img
-                            src={image}
-                            alt={`תמונה ${index + 1} של ${product.name}`}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      ))}
-                    </Slider>
-                  </div>
+            {/* Description if available */}
+            {orderDetails.description && (
+              <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                <h3 className="text-md font-semibold text-gray-700 mb-2">פרטי ההזמנה:</h3>
+                <p className="text-gray-600 whitespace-pre-line">{orderDetails.description}</p>
+              </div>
+            )}
+            
+            {/* Shipping Date Range */}
+            {orderDetails.shippingDateRange && (
+              <div className="flex items-center text-gray-700 mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="font-medium">זמן אספקה:</span>&nbsp;
+                <span>
+                  {new Date(orderDetails.shippingDateRange.start).toLocaleDateString('he-IL')} - {new Date(orderDetails.shippingDateRange.end).toLocaleDateString('he-IL')}
+                </span>
+              </div>
+            )}
+            
+            {/* Minimum Order Amount if set */}
+            {minimumOrderAmount > 0 && (
+              <div className="flex items-center text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="font-medium">סכום מינימום להזמנה:</span>&nbsp;
+                <span>{minimumOrderAmount}₪</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Products */}
+        <div className="mt-8 space-y-6">
+          {products.map((product, index) => (
+            <div key={product.id} className="bg-white rounded-lg shadow-md overflow-hidden">
+              <h3 className="text-lg font-bold text-gray-900 p-4 border-b">
+                {product.name} - ₪{product.price}
+              </h3>
+              
+              <div className="relative h-32">
+                {product.images && product.images.length > 0 ? (
+                  product.images.length > 1 ? (
+                    <div className="product-carousel h-32">
+                      <Slider {...settings} className="h-full">
+                        {product.images.map((image, index) => (
+                          <div key={index} className="h-32">
+                            <img
+                              src={image}
+                              alt={`תמונה ${index + 1} של ${product.name}`}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </Slider>
+                    </div>
+                  ) : (
+                    <div className="single-image-container h-32">
+                      <img 
+                        src={product.images[0]} 
+                        alt={product.name}
+                        className="w-full h-full object-cover object-center" 
+                      />
+                    </div>
+                  )
                 ) : (
-                  <div className="single-image-container h-32">
-                    <img 
-                      src={product.images[0]} 
-                      alt={product.name}
-                      className="w-full h-full object-cover object-center" 
-                    />
+                  <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                    <span className="text-gray-400 text-sm">אין תמונה</span>
                   </div>
-                )
-              ) : (
-                <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                  <span className="text-gray-400 text-sm">אין תמונה</span>
-                </div>
-              )}
-            </div>
-            
-            <div className="p-4">
-              <p className="text-gray-600 text-sm mb-4">{product.description}</p>
-              
-              {product.options.length > 0 && (
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">בחר אפשרות:</label>
-                  <select
-                    value={product.selectedOption}
-                    onChange={(e) => handleOptionChange(index, e.target.value)}
-                    className="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="" disabled>בחר אפשרות</option>
-                    {product.options.map((option, idx) => (
-                      <option key={idx} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              <div className="flex items-center justify-between mb-4">
-                <label className="block text-sm font-medium text-gray-700">כמות:</label>
-                <div className="flex items-center border border-gray-300 rounded-md overflow-hidden">
-                  <button 
-                    onClick={() => handleQuantityChange(index, false)}
-                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-lg"
-                  >
-                    -
-                  </button>
-                  <span className="px-4 py-1 text-center min-w-[40px]">
-                    {product.quantity || 0}
-                  </span>
-                  <button 
-                    onClick={() => handleQuantityChange(index, true)}
-                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-lg"
-                  >
-                    +
-                  </button>
-                </div>
+                )}
               </div>
               
-              <button 
-                onClick={() => addToCart(index)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md transition-colors duration-200 flex items-center justify-center"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
-                </svg>
-                הוסף לסל
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Submit Button */}
-      {/* <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-20">
-        <div className="max-w-6xl mx-auto">
-          <button 
-            onClick={handleSubmitOrder} 
-            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded-lg shadow-md transition-colors duration-200 flex items-center justify-center"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            עבור לסיכום הזמנה וצפייה בסל הקניות שלך
-          </button>
-        </div>
-      </div> */}
-
-      {/* Floating Cart - Updated */}
-      <div className={`fixed bottom-0 left-0 right-0 md:left-auto md:right-4 md:bottom-4 md:w-72 bg-white rounded-t-lg md:rounded-lg shadow-xl z-10 transition-all duration-300 transform ${isCartEmpty ? 'translate-y-[calc(100%-42px)]' : ''}`}>
-        <div className="p-2 bg-gray-100 rounded-t-lg border-b border-gray-200 flex justify-between items-center cursor-pointer"
-            onClick={() => setCartProducts(isCartEmpty ? [] : cartProducts)}>
-          <h2 className="font-bold text-gray-800 flex items-center text-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
-            </svg>
-            הסל שלי {!isCartEmpty && `(${cartProducts.length})`}
-          </h2>
-          <span className="text-gray-500 transform transition-transform duration-200">
-            {isCartEmpty ? '▲' : '▼'}
-          </span>
-        </div>
-        <div className="max-h-56 overflow-y-auto py-1 px-2">
-          {cartProducts.length > 0 ? (
-            <div className="space-y-1">
-              {cartProducts.map((product) => (
-                <div key={product.uid} className="flex justify-between items-center bg-gray-50 py-1 px-2 rounded text-sm">
-                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                    <span className="bg-blue-100 text-blue-800 rounded-full w-5 h-5 flex items-center justify-center text-xs flex-shrink-0">
-                      {product.quantity}
-                    </span>
-                    <div className="truncate">
-                      <span className="font-medium">{product.name}</span>
-                      {product.selectedOption && <span className="text-xs text-gray-500"> ({product.selectedOption})</span>}
-                    </div>
+              <div className="p-4">
+                <p className="text-gray-600 text-sm mb-4">{product.description}</p>
+                
+                {product.options.length > 0 && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">בחר אפשרות:</label>
+                    <select
+                      value={product.selectedOption}
+                      onChange={(e) => handleOptionChange(index, e.target.value)}
+                      className="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="" disabled>בחר אפשרות</option>
+                      {product.options.map((option, idx) => (
+                        <option key={idx} value={option}>{option}</option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="flex items-center ml-1">
-                    <span className="text-xs text-gray-700 ml-1">
-                      ₪{product.price * product.quantity}
+                )}
+                
+                <div className="flex items-center justify-between mb-4">
+                  <label className="block text-sm font-medium text-gray-700">כמות:</label>
+                  <div className="flex items-center border border-gray-300 rounded-md overflow-hidden">
+                    <button 
+                      onClick={() => handleQuantityChange(index, false)}
+                      className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-lg"
+                    >
+                      -
+                    </button>
+                    <span className="px-4 py-1 text-center min-w-[40px]">
+                      {product.quantity || 0}
                     </span>
                     <button 
-                      className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-gray-100"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeFromCart(product.uid);
-                      }}
-                      title="הסר מוצר"
+                      onClick={() => handleQuantityChange(index, true)}
+                      className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-lg"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
+                      +
                     </button>
                   </div>
                 </div>
-              ))}
+                
+                <button
+                  onClick={() => addToCart(index)}
+                  className="bg-blue-500 hover:bg-blue-600 text-white py-1.5 px-4 rounded-md shadow-sm transition-colors text-sm font-medium flex items-center gap-1"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  הוסף לסל
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="text-center py-3 text-gray-500">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mx-auto mb-1 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-              <p className="text-xs">הסל ריק</p>
-            </div>
-          )}
+          ))}
         </div>
-        {!isCartEmpty && (
-          <div className="p-2 border-t border-gray-200">
-            <div className="flex justify-between text-sm font-medium mb-1 px-1">
-              <span>סה״כ:</span>
-              <span>₪{cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}</span>
-            </div>
-            {minimumOrderAmount > 0 && (
-                <div className="text-sm text-center mb-2">
-                    <span className={cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0) < minimumOrderAmount ? 'text-red-600' : 'text-green-600'}>
-                        {cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0) < minimumOrderAmount 
-                            ? `סכום מינימום להזמנה: ${minimumOrderAmount}₪ (חסרים ${(minimumOrderAmount - cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0)).toFixed(2)}₪)`
-                            : `✓ עברת את סכום המינימום להזמנה (${minimumOrderAmount}₪)`
-                        }
-                    </span>
-                </div>
-            )}
-            <button 
-              className="w-full bg-green-600 hover:bg-green-700 text-white py-1.5 px-4 rounded transition-colors duration-200 text-sm font-medium"
-              onClick={handleSubmitOrder}
-            >
-              לסיכום הזמנה
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
