@@ -8,13 +8,14 @@ import LoadingSpinner from './LoadingSpinner';
 import LoadingSpinnerPayment from './LoadingSpinnerPayment';
 import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
+import { useCart } from '../contexts/CartContext';
 
 const OrderConfirmation = () => {
     const location = useLocation();
-    const { cartProducts: initialCartProducts, orderId } = location.state || { cartProducts: [], orderId: '' };
     const navigate = useNavigate();
+    const { itemsByOrder, cartTotal, clearCart } = useCart();
+    
     const [loading, setLoading] = useState(false);
-    const [cartProducts, setCartProducts] = useState(initialCartProducts);
     const [userName, setUserName] = useState('');
     const [userPhone, setUserPhone] = useState('');
     const [userEmail, setUserEmail] = useState('');
@@ -23,46 +24,20 @@ const OrderConfirmation = () => {
     const [showPopup, setShowPopup] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [userAddress, setUserAddress] = useState(''); 
-    const [requestAddress, setRequestAddress] = useState(false); 
-    const [orderData, setOrderData] = useState({});
-    const [minimumOrderAmount, setMinimumOrderAmount] = useState(0);
+    const [requestAddress, setRequestAddress] = useState(false);
     const { userLoggedIn, currentUser } = useAuth();
 
     useEffect(() => {
         console.log("currentUser", currentUser);
-        
+        const orderIds = Object.keys(itemsByOrder);
+        console.log('orderIds', orderIds);
+
         if (userLoggedIn && currentUser) {
             setUserName(currentUser.name || '');
             setUserEmail(currentUser.email || '');
             setUserPhone(currentUser.phoneNumber || '');
         }
     }, [userLoggedIn, currentUser]);
-
-    // useEffect(() => {
-    //     // Fetch order data to get if address is requested
-    //     const fetchOrderData = async () => {
-    //         try {
-    //             console.log("orderId", orderId);
-    //             const orderDocRef = doc(db, "Orders", orderId);
-    //             const orderSnap = await getDoc(orderDocRef);
-    //             console.log("orderSnap", orderSnap);
-    //             console.log("orderId", orderId);
-    //             if (orderSnap.exists()) {
-    //                 const orderInfo = orderSnap.data();
-    //                 setOrderData(orderInfo);
-    //                 setRequestAddress(orderInfo.requestAddress || false);
-    //                 setMinimumOrderAmount(orderInfo.minimumOrderAmount || 0);
-    //             } else {
-    //                 console.log("Order does not exist!");
-    //                 navigate('/error');
-    //             }
-    //         } catch (error) {
-    //             console.error("Error fetching order data:", error);
-    //             navigate('/error');
-    //         }
-    //     };
-    //     fetchOrderData();
-    // }, [orderId, navigate]);
 
     useEffect(() => {
         const isValid = userName.trim() !== '' && 
@@ -73,7 +48,16 @@ const OrderConfirmation = () => {
         setFormIsValid(isValid);
     }, [userName, userPhone, userEmail, userAddress, requestAddress]);
 
-    const total = cartProducts.reduce((acc, item) => acc + item.quantity * item.price, 0);
+    useEffect(() => {
+        // Check if any order requires an address
+        const needsAddress = Object.values(itemsByOrder).some(orderData => {
+            // Check if we have information about requesting address
+            // You might need to fetch this from the Orders collection
+            return orderData.requestAddress === true;
+        });
+        
+        setRequestAddress(needsAddress);
+    }, [itemsByOrder]);
 
     const handleSubmitOrder = async () => {
         if (!formIsValid) {
@@ -86,74 +70,112 @@ const OrderConfirmation = () => {
             return;
         }
 
-        // Check minimum order amount
-        if (total < minimumOrderAmount) {
+        // Check if any order doesn't meet minimum order amount
+        const invalidOrders = Object.entries(itemsByOrder).filter(([orderId, orderData]) => {
+            return orderData.total < orderData.minimumOrderAmount;
+        });
+
+        if (invalidOrders.length > 0) {
+            const ordersList = invalidOrders.map(([orderId, orderData]) => {
+                const businessName = orderData.items[0]?.businessName || "Unknown Business";
+                return `${businessName}: סכום מינימום ${orderData.minimumOrderAmount}₪, סכום נוכחי ${orderData.total}₪`;
+            }).join('\n');
+
             Swal.fire({
                 icon: 'error',
                 title: 'סכום מינימום להזמנה',
-                text: `סכום ההזמנה המינימלי הוא ${minimumOrderAmount}₪. סכום ההזמנה הנוכחי הוא ${total}₪`,
+                html: `ההזמנות הבאות לא מגיעות לסכום המינימלי הנדרש:<br><br>${ordersList.replace(/\n/g, '<br>')}`,
                 confirmButtonText: 'הבנתי'
             });
             return;
         }
 
-        const orderHasEnded = await checkIfOrderEnded();
-        if (orderHasEnded) {
-            Swal.fire({
-                icon: 'error',
-                title: 'ההזמנה הסתיימה',
-                text: 'צר לנו, אבל זמן ההזמנה הזו כבר הסתיימה.',
-                confirmButtonText: 'אישור',
-            }).then(() => {
-                navigate(`/order-form-business/${orderId}`);
-            });
-            return;
+        // Check if any order has ended
+        for (const [orderId, orderData] of Object.entries(itemsByOrder)) {
+            const orderHasEnded = await checkIfOrderEnded(orderId);
+            if (orderHasEnded) {
+                const businessName = orderData.items[0]?.businessName || "Unknown Business";
+                Swal.fire({
+                    icon: 'error',
+                    title: 'הזמנה הסתיימה',
+                    text: `זמן ההזמנה "${businessName}" כבר הסתיים.`,
+                    confirmButtonText: 'אישור',
+                });
+                return;
+            }
         }
     
         setLoading(true);
-        const tempOrderId = `temp_${new Date().getTime()}`; // Generate a temporary ID
-        const tempOrderRef = doc(collection(db, "pendingOrders"), tempOrderId);
+        const customerOrderId = `temp_${new Date().getTime()}`; // Generate a temporary ID
+        const customerOrderIdOrderRef = doc(collection(db, "customerOrders"), customerOrderId);
         
-        let newMemberData = {
-            Name: userName,
-            Email: userEmail,
-            Phone: userPhone,
-            Address: userAddress, 
-            Mem_Order_Time: new Date().getTime(),
-            OrderValue: cartProducts.reduce((total, product) => total + (product.quantity * product.price), 0)
+        // Create a structured order that groups items by their original order
+        const orderBreakdown = {};
+        
+        // Process each order in the cart
+        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            const orderItems = [];
+            
+            // Process each item in this order
+            orderData.items.forEach(item => {
+                if (item.quantity > 0) {
+                    orderItems.push({
+                        productId: item.id,
+                        productName: item.name,
+                        quantity: item.quantity,
+                        price: item.price,
+                        selectedOption: item.selectedOption || "None"
+                    });
+                }
+            });
+            
+            // Get business name from the first item instead of orderData
+            const businessName = orderData.items[0]?.businessName || "Unknown Business";
+            
+            // Add this order to the breakdown
+            orderBreakdown[orderId] = {
+                businessId: orderData.businessId,
+                businessName: businessName,
+                subTotal: orderData.total,
+                items: orderItems
+            };
+        });
+        
+        // Create the pending order document
+        const customerOrderData = {
+            customerDetails: {
+                name: userName,
+                email: userEmail,
+                phone: userPhone,
+                address: userAddress,
+            },
+            createdAt: new Date().toISOString(),
+            status: 'pending_payment',
+            grandTotal: cartTotal,
+            orderBreakdown: orderBreakdown,
+            // If user is logged in, store their ID
+            userId: currentUser?.uid || null
         };
 
-        cartProducts.forEach(product => {
-            if (product.quantity > 0) {
-                newMemberData[product.uid] = {
-                    Name: product.name,
-                    Quantity: product.quantity,
-                    Price: product.price,
-                    Option: product.selectedOption || "None"
-                };
-            }
-        });
+        // Get all orderIds instead of just the first one
+        const orderIds = Object.keys(itemsByOrder);
+        console.log('orderIds', orderIds);
 
         try {
             // Create temporary order document
-            await setDoc(tempOrderRef, {
-                ...newMemberData,
-                status: 'pending_payment',
-                createdAt: new Date().toISOString(),
-                orderId: orderId // Include the orderId from the Orders collection
-            });
+            await setDoc(customerOrderIdOrderRef, customerOrderData);
     
-            // Call to create Bit payment
+            // Call to create Bit payment - pass all orderIds
             const paymentData = {
-                amount: newMemberData.OrderValue,
+                amount: cartTotal,
                 userName,
                 userPhone,
                 userEmail,
                 successUrl: `${window.location.origin}/payment-success/`,
                 cancelUrl: `${window.location.origin}/payment-cancel/`,
                 description: `תשלום עבור תוצרת חקלאית`,
-                tempOrderId, // Include the temporary order ID
-                orderId // Include the orderId from the Orders collection
+                customerOrderId, // Include the temporary order ID
+                orderIds: orderIds, // Send all orderIds instead of just one
             };
     
             console.log("Sending payment data:", paymentData);
@@ -178,10 +200,10 @@ const OrderConfirmation = () => {
     };
     
     const handleCancel = () => {
-        navigate(`/order-form-business/${orderId}`);
+        navigate(`/`);
     };
 
-    const checkIfOrderEnded = async () => {
+    const checkIfOrderEnded = async (orderId) => {
         try {
             const orderDoc = doc(db, "Orders", orderId);
             const docSnap = await getDoc(orderDoc);
@@ -205,19 +227,18 @@ const OrderConfirmation = () => {
         return false; // Order has not ended
     };
     
-
     if (loading) {
         return <LoadingSpinnerPayment />;
     }
 
-    const handleQuantityChange = (index, increment) => {
-        setCartProducts(cartProducts.map((product, i) => {
-            if (i === index) {
-                return { ...product, quantity: increment ? product.quantity + 1 : Math.max(product.quantity - 1, 0) };
-            }
-            return product;
-        }));
-    };
+    // Flatten all items from all orders for display
+    console.log('itemsByOrder', itemsByOrder);
+    const allCartItems = Object.values(itemsByOrder).flatMap(orderData => 
+        orderData.items.map(item => ({
+            ...item,
+            businessName: orderData.businessName || "Unknown Business"
+        }))
+    );
 
     return (
         <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
@@ -229,51 +250,56 @@ const OrderConfirmation = () => {
                 <div className="p-6">
                     <h2 className="text-xl font-semibold text-gray-800 mb-4">פריטים בהזמנה</h2>
                     
-                    <div className="mb-6 rounded-lg border border-gray-200 overflow-hidden">
-                        <ul className="divide-y divide-gray-200">
-                            {cartProducts.map((item, index) => (
-                                <li key={index} className="p-4 hover:bg-gray-50 transition-colors">
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex-1">
-                                            <h3 className="font-medium text-gray-800">{item.name}</h3>
-                                            <p className="text-sm text-gray-600">
-                                                <span className="font-medium">אופציה:</span> {item.selectedOption || 'ללא'}
-                                            </p>
-                                            <p className="text-sm text-gray-600 mt-1">
-                                                <span className="font-medium">מחיר:</span> {item.price}₪ × {item.quantity} = {item.quantity * item.price}₪
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center space-x-1 rtl:space-x-reverse">
-                                            <button 
-                                                onClick={() => handleQuantityChange(index, false)}
-                                                className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full w-8 h-8 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            >-</button>
-                                            <span className="w-8 text-center">{item.quantity}</span>
-                                            <button 
-                                                onClick={() => handleQuantityChange(index, true)}
-                                                className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full w-8 h-8 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            >+</button>
-                                        </div>
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                    
-                    <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                        <div className="flex justify-between items-center mb-2">
-                            <span className="text-lg font-semibold">סה"כ:</span>
-                            <span className="text-lg font-bold text-blue-600">{total.toFixed(2)}₪</span>
+                    {/* Group items by order for display */}
+                    {Object.entries(itemsByOrder).map(([orderId, orderData]) => (
+                        <div key={orderId} className="mb-6">
+                            <h3 className="font-semibold text-gray-700 mb-2 border-b pb-2">
+                                {orderData.items[0]?.businessName || "Unknown Business"}
+                            </h3>
+                            
+                            <div className="mb-3 rounded-lg border border-gray-200 overflow-hidden">
+                                <ul className="divide-y divide-gray-200">
+                                    {orderData.items.map((item, index) => (
+                                        <li key={index} className="p-4 hover:bg-gray-50 transition-colors">
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex-1">
+                                                    <h3 className="font-medium text-gray-800">{item.name}</h3>
+                                                    <p className="text-sm text-gray-600">
+                                                        <span className="font-medium">אופציה:</span> {item.selectedOption || 'ללא'}
+                                                    </p>
+                                                    <p className="text-sm text-gray-600 mt-1">
+                                                        <span className="font-medium">מחיר:</span> {item.price}₪ × {item.quantity} = {item.quantity * item.price}₪
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            
+                            <div className="bg-gray-50 p-3 rounded-lg mb-3">
+                                <div className="flex justify-between items-center">
+                                    <span className="font-semibold">סה"כ להזמנה זו:</span>
+                                    <span className="font-bold text-blue-600">{orderData.total.toFixed(2)}₪</span>
+                                </div>
+                                
+                                {orderData.minimumOrderAmount > 0 && (
+                                    <p className={`text-sm ${orderData.total < orderData.minimumOrderAmount ? 'text-red-600' : 'text-blue-600'}`}>
+                                        {orderData.total < orderData.minimumOrderAmount 
+                                            ? `סכום מינימום להזמנה: ${orderData.minimumOrderAmount}₪ (חסרים ${(orderData.minimumOrderAmount - orderData.total).toFixed(2)}₪)`
+                                            : `✓ עברת את סכום המינימום להזמנה (${orderData.minimumOrderAmount}₪)`
+                                        }
+                                    </p>
+                                )}
+                            </div>
                         </div>
-                        
-                        {minimumOrderAmount > 0 && (
-                            <p className={`text-sm ${total < minimumOrderAmount ? 'text-red-600' : 'text-blue-600'}`}>
-                                {total < minimumOrderAmount 
-                                    ? `סכום מינימום להזמנה: ${minimumOrderAmount}₪ (חסרים ${(minimumOrderAmount - total).toFixed(2)}₪)`
-                                    : `✓ עברת את סכום המינימום להזמנה (${minimumOrderAmount}₪)`
-                                }
-                            </p>
-                        )}
+                    ))}
+                    
+                    <div className="bg-gray-100 p-4 rounded-lg mb-6 border-t-2 border-blue-500">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-lg font-semibold">סה"כ לתשלום:</span>
+                            <span className="text-lg font-bold text-blue-600">{cartTotal.toFixed(2)}₪</span>
+                        </div>
                     </div>
                     
                     <div className="border-t border-gray-200 pt-6 mb-6">

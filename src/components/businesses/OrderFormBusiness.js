@@ -64,6 +64,7 @@ const OrderFormBusiness = () => {
         name: businessData.businessName,
         communityName : businessData.communityName,
         image: businessData.logo || '',
+        id: businessId
       });
   
       // Fetch only the selected products
@@ -88,6 +89,7 @@ const OrderFormBusiness = () => {
             const productData = doc.data();
             return {
               ...productData,
+              id: doc.id,
               selectedOption: productData.options && productData.options.length > 0 ? productData.options[0] : "",
               quantity: 0,
               uid: `${doc.id}_${Math.random().toString(36).substr(2, 9)}` // Use doc.id for uniqueness
@@ -135,7 +137,7 @@ const OrderFormBusiness = () => {
       });
       return;
     }
-
+    console.log('product', product);
     // Create a copy of the product to avoid reference issues
     const productToAdd = {
       id: product.id,
@@ -143,9 +145,11 @@ const OrderFormBusiness = () => {
       price: product.price,
       selectedOption: product.selectedOption,
       quantity: product.quantity,
-      images: product.images || []
+      images: product.images || [],
+      businessId: product.Owner_ID,
+      businessName: businessInfo.name
     };
-
+    console.log('productToAdd', productToAdd);
     // Add to global cart only
     addItem(
       productToAdd,
