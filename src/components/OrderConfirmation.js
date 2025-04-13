@@ -9,6 +9,7 @@ import LoadingSpinnerPayment from './LoadingSpinnerPayment';
 import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
+import { pickupSpots } from '../data/pickupSpots';
 
 const OrderConfirmation = () => {
     const location = useLocation();
@@ -25,7 +26,11 @@ const OrderConfirmation = () => {
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [userAddress, setUserAddress] = useState(''); 
     const [requestAddress, setRequestAddress] = useState(false);
+    const [selectedPickupSpot, setSelectedPickupSpot] = useState('');
     const { userLoggedIn, currentUser } = useAuth();
+
+    // Get pickup spots from the order
+    const [availablePickupSpots, setAvailablePickupSpots] = useState([]);
 
     useEffect(() => {
         console.log("currentUser", currentUser);
@@ -37,16 +42,47 @@ const OrderConfirmation = () => {
             setUserEmail(currentUser.email || '');
             setUserPhone(currentUser.phoneNumber || '');
         }
-    }, [userLoggedIn, currentUser]);
+
+        // Collect all pickup spots from all orders in the cart
+        const collectPickupSpots = async () => {
+            const orderSpots = new Set();
+            
+            // Fetch pickup spots for each order
+            for (const orderId of orderIds) {
+                try {
+                    const orderDoc = await getDoc(doc(db, "Orders", orderId));
+                    if (orderDoc.exists()) {
+                        const orderData = orderDoc.data();
+                        if (orderData.pickupSpots && orderData.pickupSpots.length > 0) {
+                            orderData.pickupSpots.forEach(spot => orderSpots.add(spot));
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error fetching order pickup spots:", error);
+                }
+            }
+            
+            // Convert Set to Array
+            setAvailablePickupSpots(Array.from(orderSpots));
+            
+            // Set default selection if there's only one pickup spot
+            if (orderSpots.size === 1) {
+                setSelectedPickupSpot(Array.from(orderSpots)[0]);
+            }
+        };
+        
+        collectPickupSpots();
+    }, [userLoggedIn, currentUser, itemsByOrder]);
 
     useEffect(() => {
         const isValid = userName.trim() !== '' && 
                         userPhone.trim() !== '' && 
                         userEmail.trim() !== '' &&
                         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
-                        (!requestAddress || userAddress.trim() !== ''); 
+                        (!requestAddress || userAddress.trim() !== '') &&
+                        (availablePickupSpots.length === 0 || selectedPickupSpot !== ''); 
         setFormIsValid(isValid);
-    }, [userName, userPhone, userEmail, userAddress, requestAddress]);
+    }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots]);
 
     useEffect(() => {
         // Check if any order requires an address
@@ -67,6 +103,16 @@ const OrderConfirmation = () => {
 
         if (!agreeToTerms) {
             alert('יש לאשר את תנאי השימוש לפני ביצוע ההזמנה');
+            return;
+        }
+
+        if (availablePickupSpots.length > 0 && !selectedPickupSpot) {
+            Swal.fire({
+                icon: 'error',
+                title: 'נא לבחור נקודת איסוף',
+                text: 'יש לבחור נקודת איסוף עבור ההזמנה שלך',
+                confirmButtonText: 'הבנתי'
+            });
             return;
         }
 
@@ -143,17 +189,18 @@ const OrderConfirmation = () => {
 
         // Create the pending order document
         const customerOrderData = {
+            orderBreakdown,
             customerDetails: {
                 name: userName,
-                email: userEmail,
                 phone: userPhone,
+                email: userEmail,
                 address: userAddress,
+                pickupSpot: selectedPickupSpot,
             },
             businessIds: businessIds,
             createdAt: new Date().toISOString(),
             status: 'pending_payment',
             grandTotal: cartTotal,
-            orderBreakdown: orderBreakdown,
             // If user is logged in, store their ID
             userId: currentUser?.uid || null
         };
@@ -357,6 +404,29 @@ const OrderConfirmation = () => {
                                     </p>
                                 )}
                             </div>
+                            
+                            {/* Pickup Spot Selection */}
+                            {availablePickupSpots.length > 0 && (
+                                <div className="form-group md:col-span-2">
+                                    <label htmlFor="pickupSpot" className="block text-sm font-medium text-gray-700 mb-1">
+                                        נקודת איסוף <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        id="pickupSpot"
+                                        value={selectedPickupSpot}
+                                        onChange={(e) => setSelectedPickupSpot(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        required
+                                    >
+                                        <option value="" disabled>בחר נקודת איסוף</option>
+                                        {availablePickupSpots.map((spot) => (
+                                            <option key={spot} value={spot}>
+                                                {spot}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             
                             {requestAddress && (
                                 <div className="form-group md:col-span-2">

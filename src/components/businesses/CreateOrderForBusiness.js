@@ -9,6 +9,7 @@ import './CreateOrderForBusiness.css';
 import communityToRegion from '../../utils/communityToRegion';
 // Assuming you have a utility file with area definitions
 import areas from '../../utils/areas'; 
+import { pickupSpots } from '../../data/pickupSpots';
 
 // Add this custom style to the component for better radio and checkbox appearance
 const customInputStyle = `
@@ -62,6 +63,7 @@ const CreateOrderForBusiness = () => {
   const [dateError, setDateError] = useState('');
   const [formValid, setFormValid] = useState(true);
   const navigate = useNavigate();
+  const [selectedPickupSpots, setSelectedPickupSpots] = useState([]);
 
   useEffect(() => {
     if (!selectedProducts || selectedProducts.length === 0) {
@@ -169,7 +171,16 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
-    if (isFarmerOrder && selectedAreas.length === 0) {
+    // if (isFarmerOrder && selectedAreas.length === 0) {
+    //   Swal.fire({
+    //     icon: 'error',
+    //     title: 'שגיאה',
+    //     text: 'אנא בחרו לפחות אזור אחד.',
+    //   });
+    //   return;
+    // }
+
+    if (isFarmerOrder && pickupSpots.length === 0) {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
@@ -325,6 +336,7 @@ const CreateOrderForBusiness = () => {
           start: shippingDateStart,
           end: shippingDateEnd
         },
+        pickupSpots: selectedPickupSpots,
       };
 
       const docRef = await addDoc(collection(db, 'Orders'), orderData);
@@ -595,6 +607,55 @@ const CreateOrderForBusiness = () => {
           </div>
         )}
 
+
+        {/* Pickup Spot Selection */}
+        <div className="mb-6">
+          <label className="block text-gray-700 font-medium mb-2">נקודות איסוף</label>
+          <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+            <div className="flex justify-end gap-2 mb-3 pb-3 border-b border-gray-200">
+              <button
+                type="button"
+                onClick={() => setSelectedPickupSpots(pickupSpots.slice())}
+                className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+              >
+                בחר הכל
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPickupSpots([])}
+                className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded-md shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
+              >
+                נקה הכל
+              </button>
+            </div>
+            
+            <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+              {pickupSpots.map((spot) => (
+                <div key={spot} className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id={`spot-${spot}`}
+                    checked={selectedPickupSpots.includes(spot)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedPickupSpots([...selectedPickupSpots, spot]);
+                      } else {
+                        setSelectedPickupSpots(selectedPickupSpots.filter(s => s !== spot));
+                      }
+                    }}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ml-3"
+                  />
+                  <label htmlFor={`spot-${spot}`} className="text-sm text-gray-800 select-none">
+                    {spot}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+
+
         {/* Farmer Order Option */}
         {/* <label className="flex items-center gap-3 cursor-pointer">
           <input
@@ -607,7 +668,7 @@ const CreateOrderForBusiness = () => {
         </label> */}
 
         {/* Areas Selection */}
-        {isFarmerOrder && (
+        {/* {isFarmerOrder && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-gray-700">
               בחר אזורי חלוקה: <span className="text-red-500">*</span>
@@ -634,7 +695,7 @@ const CreateOrderForBusiness = () => {
               ))}
             </div>
           </div>
-        )}
+        )} */}
 
         {/* Minimum Order Amount */}
         <div className="form-group">
@@ -713,6 +774,7 @@ const CreateOrderForBusiness = () => {
             טווח התאריכים בו המוצרים יסופקו ללקוחות
           </p>
         </div>
+
 
         {/* Submit Button */}
         <button

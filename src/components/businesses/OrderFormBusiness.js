@@ -309,6 +309,20 @@ const OrderFormBusiness = () => {
                 <span>{minimumOrderAmount}₪</span>
               </div>
             )}
+
+            {/* Pickup Spots */}
+            {orderDetails.pickupSpots && orderDetails.pickupSpots.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">נקודות איסוף</h3>
+                <div className="bg-gray-50 p-3 rounded-md">
+                  <ul className="list-disc list-inside text-gray-700">
+                    {orderDetails.pickupSpots.map((spot, index) => (
+                      <li key={index}>{spot}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

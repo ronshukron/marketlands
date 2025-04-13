@@ -7,17 +7,21 @@ import {
   getDocs,
   doc,
   getDoc,
+  where,
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 // import './OngoingOrders.css';
 import LoadingSpinner from './LoadingSpinner';
 import { Link, useNavigate } from 'react-router-dom';
+import { format } from 'date-fns';
+import { he } from 'date-fns/locale';
+import { pickupSpots } from '../data/pickupSpots';
 
 const OngoingOrders = () => {
   const [orders, setOrders] = useState([]);
   const [filteredOrders, setFilteredOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedRegion, setSelectedRegion] = useState('הכל');
+  const [selectedPickupSpot, setSelectedPickupSpot] = useState("הכל");
   const [specialOrders, setSpecialOrders] = useState([]);
   const navigate = useNavigate();
   
@@ -27,10 +31,6 @@ const OngoingOrders = () => {
   useEffect(() => {
     fetchOngoingOrders();
   }, []);
-
-  useEffect(() => {
-    filterOrdersByRegion();
-  }, [selectedRegion, orders]);
 
   const fetchOngoingOrders = async () => {
     setLoading(true);
@@ -172,25 +172,25 @@ const OngoingOrders = () => {
     }
   };
 
-  const filterOrdersByRegion = () => {
-    if (selectedRegion === 'הכל') {
+  const filterOrdersByPickupSpot = () => {
+    if (selectedPickupSpot === "הכל") {
       setFilteredOrders([...orders, ...specialOrders]);
     } else {
       const filtered = [
         ...orders.filter((order) => {
           if (order.isFarmerOrder === true) {
-            return order.areas?.includes(selectedRegion);
+            return order.pickupSpots?.includes(selectedPickupSpot);
           } else if (order.isFarmerOrder === false) {
-            return selectedRegion === 'הכל' || order.region === selectedRegion;
+            return selectedPickupSpot === "הכל" || order.pickupSpots?.includes(selectedPickupSpot);
           }
           return false;
         }),
         ...specialOrders.filter((order) => {
           // Apply the same filtering logic to special orders
           if (order.isFarmerOrder === true) {
-            return order.areas?.includes(selectedRegion);
+            return order.pickupSpots?.includes(selectedPickupSpot);
           } else if (order.isFarmerOrder === false) {
-            return selectedRegion === 'הכל' || order.region === selectedRegion;
+            return selectedPickupSpot === "הכל" || order.pickupSpots?.includes(selectedPickupSpot);
           }
           return false;
         })
@@ -202,7 +202,7 @@ const OngoingOrders = () => {
   // Add search functionality
   useEffect(() => {
     if (searchTerm.trim() === '') {
-      filterOrdersByRegion(); // Default filtering by region
+      filterOrdersByPickupSpot(); // Default filtering by pickup spot
     } else {
       const searchResults = orders.filter(order => {
         const orderName = order.Order_Name || order.orderName || '';
@@ -215,7 +215,7 @@ const OngoingOrders = () => {
       });
       setFilteredOrders(searchResults);
     }
-  }, [searchTerm, selectedRegion, orders]);
+  }, [searchTerm, selectedPickupSpot, orders]);
 
   const calculateTimeRemaining = (order) => {
     let orderType = order.orderType;
@@ -280,8 +280,6 @@ const OngoingOrders = () => {
     }
   };
 
-  const regions = ['הכל', 'צפון', 'מרכז', 'דרום', 'ירושלים', 'שרון', 'שפלה', 'יהודה ושומרון'];
-
   return (
     <div className="bg-white" dir="rtl">
       {/* Enhanced Top Section */}
@@ -313,17 +311,18 @@ const OngoingOrders = () => {
           
           {/* Improved Region Selector */}
           <div className="max-w-xs mx-auto">
-            <label className="block text-blue-100 text-sm font-medium mb-2 text-center">בחר אזור:</label>
+            <label className="block text-blue-100 text-sm font-medium mb-2 text-center">נקודת איסוף:</label>
             <div className="relative">
               <select
-                value={selectedRegion}
-                onChange={(e) => setSelectedRegion(e.target.value)}
+                value={selectedPickupSpot}
+                onChange={(e) => setSelectedPickupSpot(e.target.value)}
                 className="block w-full p-3 pr-10 text-right text-sm text-gray-900 bg-white bg-opacity-95 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-md appearance-none"
                 dir="rtl"
               >
-                {regions.map((region) => (
-                  <option key={region} value={region}>
-                    {region}
+                <option value="הכל">הכל</option>
+                {pickupSpots.map((spot) => (
+                  <option key={spot} value={spot}>
+                    {spot}
                   </option>
                 ))}
               </select>
@@ -418,9 +417,9 @@ const OngoingOrders = () => {
                         <span className="font-medium">סוג עסק:</span> {order.businessKind}
                       </p>
                     )}
-                    {order.region && (
+                    {order.pickupSpots && order.pickupSpots.length > 0 && (
                       <p className="text-xs text-gray-700">
-                        <span className="font-medium">אזור חלוקה:</span> {order.areas?.join(', ')}
+                        <span className="font-medium">נקודות איסוף:</span> {order.pickupSpots.join(', ')}
                       </p>
                     )}
                   </div>
