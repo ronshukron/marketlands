@@ -111,7 +111,7 @@ const OrderConfirmation = () => {
         
         // Create a structured order that groups items by their original order
         const orderBreakdown = {};
-        
+        const businessIds = [];
         // Process each order in the cart
         Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
             const orderItems = [];
@@ -128,7 +128,7 @@ const OrderConfirmation = () => {
                     });
                 }
             });
-            
+            businessIds.push(orderData.businessId);
             // Get business name from the first item instead of orderData
             const businessName = orderData.items[0]?.businessName || "Unknown Business";
             
@@ -140,7 +140,7 @@ const OrderConfirmation = () => {
                 items: orderItems
             };
         });
-        
+
         // Create the pending order document
         const customerOrderData = {
             customerDetails: {
@@ -149,6 +149,7 @@ const OrderConfirmation = () => {
                 phone: userPhone,
                 address: userAddress,
             },
+            businessIds: businessIds,
             createdAt: new Date().toISOString(),
             status: 'pending_payment',
             grandTotal: cartTotal,
