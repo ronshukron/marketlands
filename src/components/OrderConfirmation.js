@@ -488,71 +488,32 @@ const OrderConfirmation = () => {
 
     // Add a function to check and update product stock levels
     const checkAndUpdateStock = async (orderItems) => {
-        // Flatten all items from all orders
-        const allItems = [];
-        Object.entries(orderItems).forEach(([orderId, orderData]) => {
-            orderData.items.forEach(item => {
-                if (item.quantity > 0) {
-                    allItems.push({
-                        productId: item.id,
-                        quantity: item.quantity
-                    });
-                }
-            });
-        });
-        
-        // Use a Firestore transaction to safely check and update stock
         try {
-            const result = await runTransaction(db, async (transaction) => {
-                const insufficientStockItems = [];
-                
-                // Check each product's stock
-                for (const item of allItems) {
-                    const productRef = doc(db, "Products", item.productId);
-                    const productDoc = await transaction.get(productRef);
-                    
-                    if (!productDoc.exists()) {
-                        throw new Error(`Product ${item.productId} not found`);
-                    }
-                    
-                    const productData = productDoc.data();
-                    const currentStock = productData.stockAmount !== undefined ? productData.stockAmount : 0;
-                    
-                    // Check if there's enough stock
-                    if (currentStock < item.quantity) {
-                        insufficientStockItems.push({
-                            productId: item.productId,
-                            name: productData.name || "מוצר לא ידוע",
-                            requested: item.quantity,
-                            available: currentStock
-                        });
-                    }
+            // Call the backend function instead of performing the transaction in the frontend
+            const response = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock', {
+                orderItems
+            }, {
+                headers: {
+                    'Content-Type': 'application/json'
                 }
-                
-                // If any items have insufficient stock, abort the transaction
-                if (insufficientStockItems.length > 0) {
-                    return { success: false, insufficientItems: insufficientStockItems };
-                }
-                
-                // If all stock checks pass, update the stock levels
-                for (const item of allItems) {
-                    const productRef = doc(db, "Products", item.productId);
-                    const productDoc = await transaction.get(productRef);
-                    const currentStock = productDoc.data().stockAmount || 0;
-                    
-                    // Update the stock amount
-                    transaction.update(productRef, {
-                        stockAmount: currentStock - item.quantity
-                    });
-                }
-                
-                return { success: true };
             });
+            console.log('response', response);
             
-            return result;
+            // Return the response data, which should match the structure of the original function
+            return response.data;
         } catch (error) {
-            console.error("Error in stock transaction:", error);
-            return { success: false, error: error.message };
+            console.error("Error checking stock:", error);
+            
+            // If the error response contains data, return it (this preserves the same structure)
+            if (error.response && error.response.data) {
+                return error.response.data;
+            }
+            
+            // Otherwise return a generic error
+            return { 
+                success: false, 
+                error: error.message || "Failed to check stock availability" 
+            };
         }
     };
 
