@@ -21,6 +21,7 @@ const AddProduct = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [stockAmount, setStockAmount] = useState(0);
 
 
   const handleAddOption = () => {
@@ -62,6 +63,29 @@ const AddProduct = () => {
     setIsDragging(false);
     const droppedFiles = Array.from(e.dataTransfer.files);
     setSelectedFiles([...selectedFiles, ...droppedFiles]);
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    
+    if (name === 'stockAmount') {
+      const numValue = parseInt(value, 10);
+      setStockAmount(isNaN(numValue) ? 0 : numValue);
+    } else {
+      if (name === 'productName') {
+        setProductName(value);
+      } else if (name === 'price') {
+        setPrice(value);
+      } else if (name === 'description') {
+        setDescription(value);
+      } else if (name === 'options') {
+        setOptions(value.split(',').map(option => option.trim()));
+      } else if (name === 'currentOption') {
+        setCurrentOption(value);
+      } else if (name === 'stockAmount') {
+        setStockAmount(parseInt(value, 10));
+      }
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -114,6 +138,7 @@ const AddProduct = () => {
         description: description,
         options: productOptions,
         images: imageUrls,
+        stockAmount: stockAmount,
         Owner_ID: currentUser.uid,
         Owner_Email: currentUser.email,
         createdAt: new Date(),
@@ -159,25 +184,57 @@ const AddProduct = () => {
             <input
               type="text"
               value={productName}
-              onChange={(e) => setProductName(e.target.value)}
+              onChange={handleInputChange}
+              name="productName"
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="הזן את שם המוצר"
             />
           </div>
 
-          {/* Price */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">מחיר (₪) *</label>
-            <input
-              type="number"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              step="0.01"
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="הזן את מחיר המוצר"
-            />
+          {/* Price and Stock Amount in the same row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {/* Price field */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="price">
+                מחיר <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  id="price"
+                  name="price"
+                  className="block w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="הכנס מחיר"
+                  value={price}
+                  onChange={handleInputChange}
+                  required
+                  min="0"
+                  step="0.01"
+                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <span className="text-gray-500">₪</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Stock Amount field */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="stockAmount">
+                כמות במלאי
+              </label>
+              <input
+                type="number"
+                id="stockAmount"
+                name="stockAmount"
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="כמות זמינה במלאי"
+                value={stockAmount}
+                onChange={handleInputChange}
+                min="0"
+                step="1"
+              />
+            </div>
           </div>
 
           {/* Description */}
@@ -185,7 +242,8 @@ const AddProduct = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">תיאור המוצר</label>
             <textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={handleInputChange}
+              name="description"
               rows="4"
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="הוסף תיאור מפורט של המוצר"
@@ -221,7 +279,8 @@ const AddProduct = () => {
                 type="text"
                 value={currentOption}
                 placeholder="הכנס אופציה חדשה"
-                onChange={(e) => setCurrentOption(e.target.value)}
+                onChange={handleInputChange}
+                name="currentOption"
                 className="flex-grow px-3 py-2 border border-gray-300 rounded-r-none rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
               <button

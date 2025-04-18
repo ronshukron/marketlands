@@ -24,6 +24,7 @@ const BusinessOrderSummary = () => {
 
           // Fetch all customer orders referenced by this order form
           const customerOrderIds = fetchedOrderData.customerOrderIds || [];
+          console.log('customerOrderIds', customerOrderIds);
           const fetchedCustomerOrders = await Promise.all(
             customerOrderIds.map(async (customerOrderId) => {
               const customerOrderDocRef = doc(db, 'customerOrders', customerOrderId);
@@ -31,18 +32,18 @@ const BusinessOrderSummary = () => {
               
               if (customerOrderSnap.exists()) {
                 return { id: customerOrderId, ...customerOrderSnap.data() };
-              } else {
+      } else {
                 console.warn(`Customer order ${customerOrderId} not found`);
                 return null;
               }
             })
           );
-          
+          console.log('fetchedCustomerOrders', fetchedCustomerOrders);
           // Filter out null values and orders that are not completed
           const validCustomerOrders = fetchedCustomerOrders.filter(order => 
             order !== null && order.paymentStatus === 'completed'
           );
-          
+          console.log('validCustomerOrders', validCustomerOrders);
           setCustomerOrders(validCustomerOrders);
           
           // Generate pickup spot summary
@@ -322,7 +323,7 @@ const BusinessOrderSummary = () => {
 
             const customerSubTotal = calculateBusinessSubTotal(businessOrderDetails);
 
-            return (
+          return (
               <div key={customerOrder.id} className="bg-white rounded-lg shadow-md p-5 border border-gray-100">
                 {/* Customer Header - Enhanced with Card Style */}
                 <div className="flex flex-wrap justify-between items-center mb-4 pb-3 border-b border-gray-100">
@@ -406,17 +407,17 @@ const BusinessOrderSummary = () => {
                           <span className="text-gray-500 text-xs">₪{item.price?.toFixed(2)} × {item.quantity}</span>
                           <span className="font-medium">₪{(item.quantity * item.price).toFixed(2)}</span>
                         </div>
-                      </li>
-                    ))}
-                  </ul>
+                    </li>
+                  ))}
+              </ul>
                   <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between">
                     <span className="font-medium">סה"כ לתשלום</span>
                     <span className="font-bold">₪{customerSubTotal.toFixed(2)}</span>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+            </div>
+          );
+        })}
         </div>
       </div>
     </div>

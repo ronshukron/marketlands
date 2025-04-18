@@ -82,8 +82,8 @@ const Menu = () => {
           <div className="flex justify-between items-center">
             {/* Logo and brand */}
             <div className="flex items-center">
-              <Link to="/" className="flex items-center">
-                <span className="text-blue-700 font-bold text-xl">Basta Basket</span>
+              <Link to="/" className="flex items-center gap-2">
+                <span className="logo-text font-rubik">בסטה בסקט</span>
               </Link>
             </div>
 
@@ -91,9 +91,6 @@ const Menu = () => {
             <nav className="hidden md:flex space-x-6 space-x-reverse">
               <Link to="/" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                 דף הבית
-              </Link>
-              <Link to="/landing" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/landing') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
-                הדרכה
               </Link>
               <Link to="/contact" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/contact') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                 צור קשר
@@ -133,6 +130,9 @@ const Menu = () => {
                   <Link to="/dashboard" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/dashboard') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                     לוח מודעות
                   </Link>
+                  <Link to="/landing" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/landing') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
+                    הדרכה
+                  </Link>
                   {businessId && (
                     <Link to={`/store/${businessId}`} className={`text-sm font-medium transition-colors py-1 px-1 ${isActive(`/store/${businessId}`) ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                       החנות שלי
@@ -150,40 +150,42 @@ const Menu = () => {
 
             {/* Right side items - cart, auth, mobile menu */}
             <div className="flex items-center space-x-3 space-x-reverse">
-              {/* Cart Button */}
-              <button
+              {/* Cart button with market basket icon */}
+              <button 
+                type="button" 
                 onClick={toggleCart}
-                className="p-2 text-gray-600 hover:text-blue-600 relative"
-                aria-label="עגלת קניות"
+                className="relative inline-flex items-center p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
                 {totalItems > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                    {totalItems > 99 ? '99+' : totalItems}
+                  <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center">
+                    {totalItems}
                   </span>
                 )}
               </button>
 
-              {/* Auth buttons */}
-              {userLoggedIn ? (
-                <button
-                  onClick={handleLogout}
-                  className="bg-red-100 text-red-700 hover:bg-red-200 text-sm font-medium py-2 px-3 rounded-md transition-colors"
-                >
-                  התנתק
-                </button>
-              ) : (
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <Link to="/login" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded-md transition-colors">
-                    התחברות
-                  </Link>
-                  <Link to="/user-register" className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2 px-3 rounded-md transition-colors">
-                    הרשמה
-                  </Link>
-                </div>
-              )}
+              {/* Auth buttons - hidden on mobile */}
+              <div className="hidden md:block">
+                {userLoggedIn ? (
+                  <button
+                    onClick={handleLogout}
+                    className="bg-red-100 text-red-700 hover:bg-red-200 text-sm font-medium py-2 px-3 rounded-md transition-colors"
+                  >
+                    התנתק
+                  </button>
+                ) : (
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <Link to="/login" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded-md transition-colors">
+                      התחברות
+                    </Link>
+                    <Link to="/user-register" className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2 px-3 rounded-md transition-colors">
+                      הרשמה
+                    </Link>
+                  </div>
+                )}
+              </div>
 
               {/* Mobile menu button */}
               <button
@@ -267,7 +269,7 @@ const Menu = () => {
                 </>
               )}
               
-              {!userLoggedIn && (
+              {/* {!userLoggedIn && (
                 <>
                   <Link to="/user-register" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/user-register') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                     הירשמו כמשתמש
@@ -279,17 +281,58 @@ const Menu = () => {
                     לרכזי קהילות
                   </Link>
                 </>
-              )}
+              )} */}
               
-              {userLoggedIn && (
+              {/* {userLoggedIn && (
                 <button 
                   onClick={handleLogout}
                   className="block w-full text-right px-3 py-2 rounded-md text-base font-medium text-red-700 hover:bg-red-50 hover:text-red-800"
                 >
                   התנתק
                 </button>
-              )}
+              )} */}
             </div>
+
+            {/* Mobile menu authentication section */}
+            {!userLoggedIn ? (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="grid grid-cols-2 gap-2 px-3 mb-2">
+                  <Link 
+                    to="/login" 
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded-md transition-colors text-center"
+                  >
+                    התחברות
+                  </Link>
+                  <Link 
+                    to="/user-register" 
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2 px-3 rounded-md transition-colors text-center"
+                  >
+                    הרשמה
+                  </Link>
+                </div>
+                {/* <Link 
+                  to="/business-register" 
+                  className="block px-3 py-2 mt-2 text-center text-blue-600 hover:text-blue-800 text-sm"
+                >
+                  הירשמו כעסק
+                </Link>
+                <Link 
+                  to="/coordinator-landing" 
+                  className="block px-3 py-2 text-center text-blue-600 hover:text-blue-800 text-sm"
+                >
+                  לרכזי קהילות
+                </Link> */}
+              </div>
+            ) : (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <button 
+                  onClick={handleLogout}
+                  className="w-full bg-red-100 text-red-700 hover:bg-red-200 text-sm font-medium py-2 px-3 rounded-md transition-colors mx-3"
+                >
+                  התנתק
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>

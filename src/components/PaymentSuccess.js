@@ -1,53 +1,102 @@
-import React, { useEffect } from 'react';
-import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { db } from '../firebase/firebase';
 import './PaymentSuccess.css';
+import LoadingSpinner from './LoadingSpinner';
 import OngoingOrders from './OngoingOrders'; // Import OngoingOrders component
 import { useAuth } from '../contexts/authContext';
 
 const PaymentSuccess = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const params = useParams();
+    const [loading, setLoading] = useState(true);
+    const [orderDetails, setOrderDetails] = useState(null);
+    const [error, setError] = useState(null);
     const { userLoggedIn } = useAuth();
 
     useEffect(() => {
-        // Function to parse the URL parameters
-        const parseParams = (paramString) => {
-            const pairs = paramString.split('&');
-            const result = {};
-            pairs.forEach(pair => {
-                const [key, value] = pair.split('=');
-                if (key) {
-                    result[key] = decodeURIComponent(value || '');
-                }
-            });
-            return result;
-        };
-
-        // Parse parameters from either location.search or params.rest
-        const queryParams = location.search
-            ? parseParams(location.search.slice(1))
-            : parseParams(params.rest || '');
-
-        const response = queryParams.response;
-        const cField1 = queryParams.cField1;
-        const cField2 = queryParams.cField2;
-
+        // Parse query parameters
+        const queryParams = new URLSearchParams(location.search);
+        const response = queryParams.get('response');
+        const customerOrderId = queryParams.get('cField1');
+        const orderIdsParam = queryParams.get('cField2');
+        
         console.log('Payment response:', response);
-        console.log('Custom Field 1:', cField1);
-        console.log('Custom Field 2:', cField2);
-
-        // You can perform any necessary actions with these parameters here
-    }, [location, params]);
+        console.log('Customer Order ID:', customerOrderId);
+        console.log('Order IDs:', orderIdsParam);
+        
+        const updateOrderStatus = async () => {
+            if (response === 'success' && customerOrderId) {
+                try {
+                    // Parse the orderIds from the URL parameter
+                    // The parameter might be in format: [%22orderId1%22,%22orderId2%22]
+                    let orderIds = [];
+                    try {
+                        orderIds = JSON.parse(decodeURIComponent(orderIdsParam).replace(/%22/g, '"'));
+                    } catch (e) {
+                        console.error('Error parsing orderIds:', e);
+                    }
+                    
+                    // Get the customer order
+                    const customerOrderRef = doc(db, "customerOrders", customerOrderId);
+                    const customerOrderSnap = await getDoc(customerOrderRef);
+                    
+                    if (customerOrderSnap.exists()) {
+                        const orderData = customerOrderSnap.data();
+                        
+                        // Update the customer order status
+                        await updateDoc(customerOrderRef, {
+                            status: 'completed',
+                            paymentStatus: 'completed'
+                        });
+                        
+                        setOrderDetails(orderData);
+                    } else {
+                        throw new Error('Order not found');
+                    }
+                    
+                    setLoading(false);
+                } catch (error) {
+                    console.error('Error updating order status:', error);
+                    setError('חלה שגיאה בעדכון סטטוס ההזמנה. אנא צור קשר עם שירות הלקוחות.');
+                    setLoading(false);
+                }
+            } else {
+                setError('סטטוס התשלום אינו תקין. אנא צור קשר עם שירות הלקוחות.');
+                setLoading(false);
+            }
+        };
+        
+        updateOrderStatus();
+    }, [location]);
 
     const handleBackToHome = () => {
         navigate('/');
+    };
+
+    const handleViewOrder = () => {
+        navigate('/my-orders');
     };
 
     const handleRegister = () => {
         // Break out of iframe and navigate to registration page
         window.top.location.href = '/user-register';
     };
+
+    if (loading) {
+        return <LoadingSpinner />;
+    }
+
+    if (error) {
+        return (
+            <div className="payment-success-container">
+                <h1>שגיאה בעיבוד התשלום</h1>
+                <p>{error}</p>
+                <button onClick={handleBackToHome} className="back-home-button">חזור לדף הבית</button>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gray-50 py-12 px-4" dir="rtl">
@@ -64,7 +113,7 @@ const PaymentSuccess = () => {
                     
                     <div className="p-8 text-center">
                         <p className="text-xl text-gray-700 mb-6">
-                            תודה רבה על הזמנתך. פרטי ההזמנה נשמרו במערכת.
+                            תודה על הזמנתך. פרטי ההזמנה נשמרו במערכת ויישלחו אליך גם בדוא"ל.
                         </p>
 
                         {!userLoggedIn && (
@@ -81,12 +130,26 @@ const PaymentSuccess = () => {
                             </>
                         )}
                         
-                        <button 
-                            onClick={handleBackToHome} 
-                            className="mt-6 inline-block px-6 py-2 border border-blue-600  rounded-md hover:bg-blue-50 transition-colors duration-200"
-                        >
-                            חזרה לדף הבית
-                        </button>
+                        {orderDetails && (
+                            <div className="order-summary">
+                                <h2>פרטי ההזמנה</h2>
+                                <p><strong>שם:</strong> {orderDetails.customerDetails?.name}</p>
+                                <p><strong>סכום:</strong> ₪{orderDetails.grandTotal}</p>
+                                {orderDetails.customerDetails?.pickupSpot && (
+                                    <p><strong>נקודת איסוף:</strong> {orderDetails.customerDetails.pickupSpot}</p>
+                                )}
+                            </div>
+                        )}
+                        
+                        <div className="button-group">
+                            <button onClick={handleViewOrder} className="view-order-button">צפה בהזמנות שלי</button>
+                            <button 
+                                onClick={handleBackToHome} 
+                                className="mt-6 inline-block px-6 py-2 border border-blue-600  rounded-md hover:bg-blue-50 transition-colors duration-200"
+                            >
+                                חזרה לדף הבית
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

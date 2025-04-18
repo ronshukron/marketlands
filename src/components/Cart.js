@@ -36,7 +36,12 @@ const Cart = ({ isOpen, onClose }) => {
       >
         {/* Header with improved close button */}
         <div className="flex justify-between items-center p-3 border-b border-gray-100">
-          <h2 className="text-base font-medium text-gray-800">סל הקניות</h2>
+          <h2 className="text-base font-medium text-gray-800 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            סל הקניות
+          </h2>
           <button
             onClick={onClose}
             className="w-9 h-9 flex items-center justify-center rounded-full text-white-600 hover:bg-gray-100 transition-colors"
@@ -50,81 +55,90 @@ const Cart = ({ isOpen, onClose }) => {
 
         {/* Cart Items - More compact and elegant */}
         <div className="flex-grow overflow-y-auto">
-          {cartItems.length === 0 ? (
-            <div className="text-center text-gray-500 py-8 px-4">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto mb-2 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-              <p className="text-sm">הסל שלך ריק</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {cartItems.map((item) => (
-                <div key={item.uid} className="flex items-center py-3 px-3 hover:bg-gray-50 transition-colors">
-                  {/* Smaller product image */}
-                  <div className="flex-shrink-0 ml-3">
-                    {item.images && item.images.length > 0 ? (
-                      <img 
-                        src={item.images[0]} 
-                        alt={item.name} 
-                        className="w-12 h-12 object-cover rounded-md border border-gray-100 shadow-sm" 
-                      />
-                    ) : (
-                      <div className="w-12 h-12 bg-gray-100 rounded-md flex items-center justify-center">
-                        <span className="text-gray-400 text-xs">אין תמונה</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Product details - More compact layout */}
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-medium text-gray-800 truncate">{item.name}</h4>
-                    {item.selectedOption && (
-                      <p className="text-xs text-gray-500 mt-0.5 truncate">
-                        {item.selectedOption}
-                      </p>
-                    )}
-                    <p className="text-xs font-medium text-blue-600 mt-1">₪{item.price.toFixed(2)}</p>
-                  </div>
-                  
-                  {/* Improved quantity controls with more visible icons */}
-                  <div className="flex items-center space-x-1 space-x-reverse mr-2">
-                    <button 
-                      onClick={() => updateQuantity(item.uid, item.quantity - 1)} 
-                      className="text-white-100 hover:bg-gray-100 transition-colors w-9 h-7 rounded-full flex items-center justify-center border border-gray-200"
-                      aria-label="הפחת כמות"
+          <div className="flex flex-col items-center justify-center p-8 text-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-blue-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">העגלה שלך</h2>
+            <p className="text-gray-600 mb-8">כאן תוכל לראות את כל המוצרים שהוספת לעגלה</p>
+            
+            {/* Cart Items */}
+            {cartItems.length === 0 ? (
+              <div className="text-center text-gray-500 py-8 px-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto mb-2 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                <p className="text-sm">הסל שלך ריק</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {cartItems.map((item) => (
+                  <div key={item.uid} className="flex items-center py-3 px-3 hover:bg-gray-50 transition-colors">
+                    {/* Smaller product image */}
+                    <div className="flex-shrink-0 ml-3">
+                      {item.images && item.images.length > 0 ? (
+                        <img 
+                          src={item.images[0]} 
+                          alt={item.name} 
+                          className="w-12 h-12 object-cover rounded-md border border-gray-100 shadow-sm" 
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gray-100 rounded-md flex items-center justify-center">
+                          <span className="text-gray-400 text-xs">אין תמונה</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Product details - More compact layout */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-medium text-gray-800 truncate">{item.name}</h4>
+                      {item.selectedOption && (
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">
+                          {item.selectedOption}
+                        </p>
+                      )}
+                      <p className="text-xs font-medium text-blue-600 mt-1">₪{item.price.toFixed(2)}</p>
+                    </div>
+                    
+                    {/* Improved quantity controls with more visible icons */}
+                    <div className="flex items-center space-x-1 space-x-reverse mr-2">
+                      <button 
+                        onClick={() => updateQuantity(item.uid, item.quantity - 1)} 
+                        className="text-white-100 hover:bg-gray-100 transition-colors w-9 h-7 rounded-full flex items-center justify-center border border-gray-200"
+                        aria-label="הפחת כמות"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="5 0 10 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                      <span className="text-xs font-medium text-gray-700 w-5 text-center">{item.quantity}</span>
+                      <button 
+                        onClick={() => updateQuantity(item.uid, item.quantity + 1)} 
+                        className="text-white-600 hover:bg-gray-100 transition-colors w-9 h-7 rounded-full flex items-center justify-center border border-gray-200"
+                        aria-label="הוסף כמות"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="5 0 10 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    {/* Improved delete button with more visible icon */}
+                    <button
+                      onClick={() => removeItem(item.uid)}
+                      className="flex-shrink-0 w-12 h-10 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors ml-1 mr-4"
+                      title="הסר פריט"
+                      aria-label="הסר פריט"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="5 0 10 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="5 0 10 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                       </svg>
                     </button>
-                    <span className="text-xs font-medium text-gray-700 w-5 text-center">{item.quantity}</span>
-                    <button 
-                      onClick={() => updateQuantity(item.uid, item.quantity + 1)} 
-                      className="text-white-600 hover:bg-gray-100 transition-colors w-9 h-7 rounded-full flex items-center justify-center border border-gray-200"
-                      aria-label="הוסף כמות"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="5 0 10 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                      </svg>
-                    </button>
                   </div>
-                  
-                  {/* Improved delete button with more visible icon */}
-                  <button
-                    onClick={() => removeItem(item.uid)}
-                    className="flex-shrink-0 w-12 h-10 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors ml-1 mr-4"
-                    title="הסר פריט"
-                    aria-label="הסר פריט"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="5 0 10 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer - Cleaner and more elegant */}

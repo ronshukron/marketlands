@@ -92,7 +92,8 @@ const OrderFormBusiness = () => {
               id: doc.id,
               selectedOption: productData.options && productData.options.length > 0 ? productData.options[0] : "",
               quantity: 0,
-              uid: `${doc.id}_${Math.random().toString(36).substr(2, 9)}` // Use doc.id for uniqueness
+              uid: `${doc.id}_${Math.random().toString(36).substr(2, 9)}`, // Use doc.id for uniqueness
+              stockAmount: productData.stockAmount || 0 // Get the stock amount or default to 0
             };
           });
 
@@ -137,6 +138,18 @@ const OrderFormBusiness = () => {
       });
       return;
     }
+
+    // Check if requested quantity exceeds available stock
+    if (product.stockAmount !== undefined && product.quantity > product.stockAmount) {
+      Swal.fire({
+        title: 'מלאי לא מספיק',
+        text: `יש רק ${product.stockAmount} יחידות במלאי מתוך ${product.quantity} שביקשת`,
+        icon: 'warning',
+        confirmButtonText: 'אישור'
+      });
+      return;
+    }
+    
     console.log('product', product);
     // Create a copy of the product to avoid reference issues
     const productToAdd = {
@@ -147,7 +160,8 @@ const OrderFormBusiness = () => {
       quantity: product.quantity,
       images: product.images || [],
       businessId: product.Owner_ID,
-      businessName: businessInfo.name
+      businessName: businessInfo.name,
+      stockAmount: product.stockAmount // Include the stock amount in the cart item
     };
     console.log('productToAdd', productToAdd);
     // Add to global cart only
@@ -235,191 +249,171 @@ const OrderFormBusiness = () => {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen pb-16">
-      {/* Business info and product list */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-        {/* Business info */}
-        {/* <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
-          <div className="md:flex">
-            {businessInfo.image && (
-              <div className="md:flex-shrink-0">
-                <img 
-                  className="h-48 w-full object-cover md:w-48" 
-                  src={businessInfo.image} 
-                  alt={`Logo of ${businessInfo.name}`} 
-                />
-              </div>
-            )}
-            <div className="p-8">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                טופס הזמנה עבור {businessInfo.name}
-              </h1>
-              <div className="text-gray-600">
-                <p><span className="font-medium">מיקום:</span> {businessInfo.communityName}</p>
-              </div>
-            </div>
-          </div>
-        </div> */}
-
-        {/* Instructions */}
-        <div className="bg-blue-50 border-r-4 border-blue-400 p-4 rounded-lg mb-8">
-          <h4 className="font-bold text-blue-800 mb-2">הסבר שימוש</h4>
-          <ul className="text-blue-700 text-sm space-y-1">
-            <li>• בחר מוצר, אופציה וכמות</li>
-            <li>• לחץ על הוסף לסל</li>
-            <li>• לחץ עבור לסיכום הזמנה</li>
-          </ul>
-        </div>
-
-        {/* Order Details Section */}
-        <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
-          <div className="p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              {businessInfo.name}
-            </h2>
-            
-            {/* Description if available */}
-            {orderDetails.description && (
-              <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                <h3 className="text-md font-semibold text-gray-700 mb-2">פרטי ההזמנה:</h3>
-                <p className="text-gray-600 whitespace-pre-line">{orderDetails.description}</p>
-              </div>
-            )}
-            
-            {/* Shipping Date Range */}
-            {orderDetails.shippingDateRange && (
-              <div className="flex items-center text-gray-700 mb-3">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="font-medium">זמן אספקה:</span>&nbsp;
-                <span>
-                  {new Date(orderDetails.shippingDateRange.start).toLocaleDateString('he-IL')} - {new Date(orderDetails.shippingDateRange.end).toLocaleDateString('he-IL')}
-                </span>
-              </div>
-            )}
-            
-            {/* Minimum Order Amount if set */}
-            {minimumOrderAmount > 0 && (
-              <div className="flex items-center text-gray-700">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="font-medium">סכום מינימום להזמנה:</span>&nbsp;
-                <span>{minimumOrderAmount}₪</span>
-              </div>
-            )}
-
-            {/* Pickup Spots */}
-            {orderDetails.pickupSpots && orderDetails.pickupSpots.length > 0 && (
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">נקודות איסוף</h3>
-                <div className="bg-gray-50 p-3 rounded-md">
-                  <ul className="list-disc list-inside text-gray-700">
-                    {orderDetails.pickupSpots.map((spot, index) => (
-                      <li key={index}>{spot}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Products */}
-        <div className="mt-8 space-y-6">
-          {products.map((product, index) => (
-            <div key={product.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-              <h3 className="text-lg font-bold text-gray-900 p-4 border-b">
-                {product.name} - ₪{product.price}
-              </h3>
+    <div className="min-h-screen bg-gray-50" dir="rtl">
+      {loading ? (
+        <LoadingSpinner />
+      ) : (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Order header section */}
+          <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">
+                {businessInfo.name}
+              </h2>
               
-              <div className="relative h-32">
-                {product.images && product.images.length > 0 ? (
-                  product.images.length > 1 ? (
-                    <div className="product-carousel h-32">
-                      <Slider {...settings} className="h-full">
-                        {product.images.map((image, index) => (
-                          <div key={index} className="h-32">
-                            <img
-                              src={image}
-                              alt={`תמונה ${index + 1} של ${product.name}`}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        ))}
-                      </Slider>
-                    </div>
-                  ) : (
-                    <div className="single-image-container h-32">
-                      <img 
-                        src={product.images[0]} 
-                        alt={product.name}
-                        className="w-full h-full object-cover object-center" 
-                      />
-                    </div>
-                  )
-                ) : (
-                  <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                    <span className="text-gray-400 text-sm">אין תמונה</span>
+              {/* Description if available */}
+              {orderDetails.description && (
+                <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                  <h3 className="text-md font-semibold text-gray-700 mb-2">פרטי ההזמנה:</h3>
+                  <p className="text-gray-600 whitespace-pre-line">{orderDetails.description}</p>
+                </div>
+              )}
+              
+              {/* Order details in a grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Shipping Date Range */}
+                {orderDetails.shippingDateRange && (
+                  <div className="flex items-center text-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span className="font-medium">זמן אספקה:</span>&nbsp;
+                    <span>
+                      {new Date(orderDetails.shippingDateRange.start).toLocaleDateString('he-IL')} - {new Date(orderDetails.shippingDateRange.end).toLocaleDateString('he-IL')}
+                    </span>
+                  </div>
+                )}
+                
+                {/* Minimum Order Amount if set */}
+                {minimumOrderAmount > 0 && (
+                  <div className="flex items-center text-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="font-medium">סכום מינימום להזמנה:</span>&nbsp;
+                    <span>{minimumOrderAmount}₪</span>
                   </div>
                 )}
               </div>
-              
-              <div className="p-4">
-                <p className="text-gray-600 text-sm mb-4">{product.description}</p>
+            </div>
+          </div>
+
+          {/* Products Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {products.map((product, index) => (
+              <div key={product.id} className={`bg-white rounded-lg shadow-sm overflow-hidden ${product.stockAmount <= 0 ? 'opacity-60 grayscale' : ''}`}>
+                <div className="flex border-b">
+                  {/* Product Image Section - Smaller Fixed Height */}
+                  <div className="relative h-32 w-32 flex-shrink-0 border-l">
+                    {product.images && product.images.length > 0 ? (
+                      product.images.length > 1 ? (
+                        <div className="h-full">
+                          <Slider {...settings} className="h-full">
+                            {product.images.map((image, index) => (
+                              <div key={index} className="h-32">
+                                <img
+                                  src={image}
+                                  alt={`תמונה ${index + 1} של ${product.name}`}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                            ))}
+                          </Slider>
+                        </div>
+                      ) : (
+                        <div className="h-full">
+                          <img 
+                            src={product.images[0]} 
+                            alt={product.name}
+                            className="w-full h-full object-contain" 
+                          />
+                        </div>
+                      )
+                    ) : (
+                      <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                        <span className="text-gray-400 text-sm">אין תמונה</span>
+                      </div>
+                    )}
+                    
+                    {/* Add stock badge */}
+                    {product.stockAmount <= 0 && (
+                      <div className="absolute top-0 right-0 bg-red-500 text-white text-xs px-2 py-1 rounded-bl-md">
+                        אזל במלאי
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Product Info */}
+                  <div className="flex-1 p-3">
+                    <h3 className="text-base font-bold text-gray-900 mb-1">
+                      {product.name}
+                    </h3>
+                    <p className="text-sm text-gray-500 mb-1">₪{product.price}</p>
+                    <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
+                    
+                    {/* Display stock amount */}
+                    <p className={`text-xs mt-1 ${product.stockAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {product.stockAmount > 0 ? `במלאי: ${product.stockAmount}` : 'אזל המלאי'}
+                    </p>
+                  </div>
+                </div>
                 
-                {product.options.length > 0 && (
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">בחר אפשרות:</label>
+                {/* Disable inputs if out of stock */}
+                <div className="p-3 space-y-2">
+                  {/* Options Select */}
+                  {product.options.length > 0 && (
                     <select
                       value={product.selectedOption}
                       onChange={(e) => handleOptionChange(index, e.target.value)}
-                      className="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className={`block w-full px-2 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 ${product.stockAmount <= 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      disabled={product.stockAmount <= 0}
                     >
                       <option value="" disabled>בחר אפשרות</option>
                       {product.options.map((option, idx) => (
                         <option key={idx} value={option}>{option}</option>
                       ))}
                     </select>
-                  </div>
-                )}
-                
-                <div className="flex items-center justify-between mb-4">
-                  <label className="block text-sm font-medium text-gray-700">כמות:</label>
-                  <div className="flex items-center border border-gray-300 rounded-md overflow-hidden">
-                    <button 
-                      onClick={() => handleQuantityChange(index, false)}
-                      className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-lg"
+                  )}
+                  
+                  {/* Quantity and Add to Cart */}
+                  <div className="flex items-center gap-2">
+                    <div className={`flex items-center border border-gray-300 rounded-md overflow-hidden ${product.stockAmount <= 0 ? 'opacity-50' : ''}`}>
+                      <button 
+                        onClick={() => handleQuantityChange(index, false)}
+                        className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700"
+                        disabled={product.stockAmount <= 0}
+                      >
+                        -
+                      </button>
+                      <span className="px-3 py-1 text-sm text-center min-w-[40px]">
+                        {product.quantity || 0}
+                      </span>
+                      <button 
+                        onClick={() => handleQuantityChange(index, true)}
+                        className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700"
+                        disabled={product.stockAmount <= 0 || (product.stockAmount !== undefined && product.quantity >= product.stockAmount)}
+                      >
+                        +
+                      </button>
+                    </div>
+                    
+                    <button
+                      onClick={() => addToCart(index)}
+                      disabled={product.stockAmount <= 0}
+                      className={`flex-1 ${product.stockAmount > 0 ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-400 cursor-not-allowed'} text-white py-1.5 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-1`}
                     >
-                      -
-                    </button>
-                    <span className="px-4 py-1 text-center min-w-[40px]">
-                      {product.quantity || 0}
-                    </span>
-                    <button 
-                      onClick={() => handleQuantityChange(index, true)}
-                      className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-lg"
-                    >
-                      +
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      הוסף לסל
                     </button>
                   </div>
                 </div>
-                
-                <button
-                  onClick={() => addToCart(index)}
-                  className="bg-blue-500 hover:bg-blue-600 text-white py-1.5 px-4 rounded-md shadow-sm transition-colors text-sm font-medium flex items-center gap-1"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  הוסף לסל
-                </button>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

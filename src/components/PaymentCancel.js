@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './PaymentSuccess.css';
 
-const PaymentSuccess = () => {
+const PaymentCancel = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -18,7 +18,6 @@ const PaymentSuccess = () => {
         console.log('Custom Field 2:', cField2);
         
         // You can perform any necessary actions with these parameters here
-        // without affecting the render of the component
     }, [location]);
 
     const handleBackToHome = () => {
@@ -27,11 +26,11 @@ const PaymentSuccess = () => {
 
     return (
         <div className="payment-success-container">
-            <h1>התשלום בוצע בהצלחה</h1>
-            <p>תודה רבה על הזמנתך. פרטי ההזמנה נשמרו במערכת.</p>
+            <h1>התשלום בוטל</h1>
+            <p>נראה שהתשלום שלך בוטל או לא הושלם. ההזמנה שלך לא נשמרה.</p>
             <button onClick={handleBackToHome} className="back-home-button">חזור לדף הבית</button>
         </div>
     );
 };
 
-export default PaymentSuccess;
+export default PaymentCancel;

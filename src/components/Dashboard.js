@@ -309,18 +309,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Create New Order Button */}
-      <div className="mb-8">
-        <button
-          onClick={() => navigate('/create-order')}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-md shadow-sm transition-colors font-medium flex items-center"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          צור הזמנה חדשה
-        </button>
-      </div>
+
 
       {/* Orders Section */}
       <div className="bg-white rounded-lg shadow overflow-hidden">

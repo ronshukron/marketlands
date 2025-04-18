@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
-import { doc, updateDoc, getDoc, setDoc, collection } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, collection, addDoc, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
 import { db } from '../firebase/firebase';
 import './OrderConfirmation.css';
 import LoadingSpinner from './LoadingSpinner';
@@ -199,7 +199,7 @@ const OrderConfirmation = () => {
             },
             businessIds: businessIds,
             createdAt: new Date().toISOString(),
-            status: 'pending_payment',
+            paymentStatus: 'pending_payment',
             grandTotal: cartTotal,
             // If user is logged in, store their ID
             userId: currentUser?.uid || null
@@ -287,6 +287,274 @@ const OrderConfirmation = () => {
             businessName: orderData.businessName || "Unknown Business"
         }))
     );
+
+    // Add this function to handle free orders
+    const handleFreeOrder = async () => {
+        try {
+            setLoading(true);
+            
+            // Check and update stock levels first
+            const stockResult = await checkAndUpdateStock(itemsByOrder);
+            
+            if (!stockResult.success) {
+                if (stockResult.insufficientItems) {
+                    // Show error for insufficient stock
+                    const itemsList = stockResult.insufficientItems.map(item => 
+                        `${item.name}: ביקשת ${item.requested}, זמין ${item.available}`
+                    ).join('\n');
+                    
+                    Swal.fire({
+                        title: 'מלאי לא מספיק',
+                        html: `חלק מהפריטים אינם זמינים בכמות המבוקשת:<br><br>${itemsList.replace(/\n/g, '<br>')}`,
+                        icon: 'error',
+                        confirmButtonText: 'הבנתי'
+                    });
+                    return;
+                } else {
+                    // Generic error
+                    throw new Error(stockResult.error || "שגיאה בבדיקת המלאי");
+                }
+            }
+            
+            // Continue with order processing...
+            const orderIds = Object.keys(itemsByOrder);
+            const customerOrderId = `temp_${new Date().getTime()}`;
+            
+            const orderBreakdown = {};
+            const businessIds = [];
+            // Process each order in the cart
+            Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+                const orderItems = [];
+                
+                // Process each item in this order
+                orderData.items.forEach(item => {
+                    if (item.quantity > 0) {
+                        orderItems.push({
+                            productId: item.id,
+                            productName: item.name,
+                            quantity: item.quantity,
+                            price: item.price,
+                            selectedOption: item.selectedOption || "None"
+                        });
+                    }
+                });
+                businessIds.push(orderData.businessId);  
+                // Get business name from the first item instead of orderData
+                const businessName = orderData.items[0]?.businessName || "Unknown Business";
+                
+                // Add this order to the breakdown
+                orderBreakdown[orderId] = {
+                    businessId: orderData.businessId,
+                    businessName: businessName,
+                    subTotal: orderData.total,
+                    items: orderItems
+                };              
+            });
+
+            // Create the pending order document
+            const customerOrderData = {
+                orderBreakdown,
+                customerDetails: {
+                    name: userName,
+                    phone: userPhone,
+                    email: userEmail,
+                    address: userAddress,
+                    pickupSpot: selectedPickupSpot,
+                },
+                businessIds: businessIds,
+                createdAt: new Date().toISOString(),
+                paymentStatus: 'completed',
+                paymentMethod: 'free',
+                grandTotal: cartTotal,
+                // If user is logged in, store their ID
+                userId: currentUser?.uid || null
+            };
+            
+            // Create a customer order document
+            const customerOrderRef = await addDoc(collection(db, "customerOrders"), customerOrderData);
+            console.log('customerOrderRef', customerOrderRef);
+            
+            // Update the original order with customer order reference - FIX HERE
+            const updatePromises = orderIds.map(async (orderId) => {
+                try {
+                    // First check if the document exists
+                    const orderDocSnap = await getDoc(doc(db, "Orders", orderId));
+                    
+                    if (orderDocSnap.exists()) {
+                        // Document exists, now update it
+                        await updateDoc(doc(db, "Orders", orderId), {
+                            customerOrderIds: arrayUnion(customerOrderRef.id) // Use the actual document ID
+                        });
+                        console.log(`Successfully updated order ${orderId}`);
+                    } else {
+                        console.error(`Order ${orderId} does not exist`);
+                    }
+                } catch (error) {
+                    console.error(`Error updating order ${orderId}:`, error);
+                }
+            });
+
+            // Wait for all updates to complete
+            await Promise.all(updatePromises);
+
+            // Clear cart after successful submission
+            clearCart();
+            
+            // Show success message and redirect
+            Swal.fire({
+                title: 'ההזמנה התקבלה!',
+                text: 'ההזמנה שלך התקבלה בהצלחה',
+                icon: 'success',
+                confirmButtonText: 'אישור'
+            }).then(() => {
+                navigate('/', { 
+                    state: { 
+                        orderNumber: customerOrderRef.id,
+                        orderDetails: {
+                            customerName: userName,
+                            totalAmount: 0,
+                            items: Object.values(itemsByOrder).reduce((total, order) => 
+                                total + order.items.length, 0)
+                        }
+                    } 
+                });
+            });
+        } catch (error) {
+            console.error("Error creating free order:", error);
+            Swal.fire({
+                title: 'שגיאה!',
+                text: 'אירעה שגיאה בעת יצירת ההזמנה. אנא נסה שוב.',
+                icon: 'error',
+                confirmButtonText: 'אישור'
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // In the checkout section, add condition to check for free order
+    const proceedToCheckout = async () => {
+        if (!formIsValid) {
+            setShowPopup(true);
+            return;
+        }
+
+        try {
+            setLoading(true);
+            
+            // Check stock before proceeding to payment
+            const stockResult = await checkAndUpdateStock(itemsByOrder);
+            
+            if (!stockResult.success) {
+                if (stockResult.insufficientItems) {
+                    // Show error for insufficient stock
+                    const itemsList = stockResult.insufficientItems.map(item => 
+                        `${item.name}: ביקשת ${item.requested}, זמין ${item.available}`
+                    ).join('\n');
+                    
+                    Swal.fire({
+                        title: 'מלאי לא מספיק',
+                        html: `חלק מהפריטים אינם זמינים בכמות המבוקשת:<br><br>${itemsList.replace(/\n/g, '<br>')}`,
+                        icon: 'error',
+                        confirmButtonText: 'הבנתי'
+                    });
+                    return;
+                } else {
+                    // Generic error
+                    throw new Error(stockResult.error || "שגיאה בבדיקת המלאי");
+                }
+            }
+            
+            // Check if the order is free (total = 0)
+            if (cartTotal === 0) {
+                handleFreeOrder();
+                return;
+            }
+
+            // Continue with payment processing
+            handleSubmitOrder();
+        } catch (error) {
+            console.error("Error proceeding to checkout:", error);
+            Swal.fire({
+                title: 'שגיאה!',
+                text: 'אירעה שגיאה בעת עיבוד ההזמנה. אנא נסה שוב.',
+                icon: 'error',
+                confirmButtonText: 'אישור'
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Add a function to check and update product stock levels
+    const checkAndUpdateStock = async (orderItems) => {
+        // Flatten all items from all orders
+        const allItems = [];
+        Object.entries(orderItems).forEach(([orderId, orderData]) => {
+            orderData.items.forEach(item => {
+                if (item.quantity > 0) {
+                    allItems.push({
+                        productId: item.id,
+                        quantity: item.quantity
+                    });
+                }
+            });
+        });
+        
+        // Use a Firestore transaction to safely check and update stock
+        try {
+            const result = await runTransaction(db, async (transaction) => {
+                const insufficientStockItems = [];
+                
+                // Check each product's stock
+                for (const item of allItems) {
+                    const productRef = doc(db, "Products", item.productId);
+                    const productDoc = await transaction.get(productRef);
+                    
+                    if (!productDoc.exists()) {
+                        throw new Error(`Product ${item.productId} not found`);
+                    }
+                    
+                    const productData = productDoc.data();
+                    const currentStock = productData.stockAmount !== undefined ? productData.stockAmount : 0;
+                    
+                    // Check if there's enough stock
+                    if (currentStock < item.quantity) {
+                        insufficientStockItems.push({
+                            productId: item.productId,
+                            name: productData.name || "מוצר לא ידוע",
+                            requested: item.quantity,
+                            available: currentStock
+                        });
+                    }
+                }
+                
+                // If any items have insufficient stock, abort the transaction
+                if (insufficientStockItems.length > 0) {
+                    return { success: false, insufficientItems: insufficientStockItems };
+                }
+                
+                // If all stock checks pass, update the stock levels
+                for (const item of allItems) {
+                    const productRef = doc(db, "Products", item.productId);
+                    const productDoc = await transaction.get(productRef);
+                    const currentStock = productDoc.data().stockAmount || 0;
+                    
+                    // Update the stock amount
+                    transaction.update(productRef, {
+                        stockAmount: currentStock - item.quantity
+                    });
+                }
+                
+                return { success: true };
+            });
+            
+            return result;
+        } catch (error) {
+            console.error("Error in stock transaction:", error);
+            return { success: false, error: error.message };
+        }
+    };
 
     return (
         <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
@@ -461,7 +729,7 @@ const OrderConfirmation = () => {
                         
                         <div className="flex space-x-4 rtl:space-x-reverse">
                             <button
-                                onClick={handleSubmitOrder}
+                                onClick={proceedToCheckout}
                                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                             >
                                 לתשלום

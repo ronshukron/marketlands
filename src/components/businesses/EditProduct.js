@@ -20,26 +20,57 @@ const EditProduct = () => {
   const [images, setImages] = useState([]); // Store existing images
   const [selectedFiles, setSelectedFiles] = useState([]); // Store new image files
   const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    price: '',
+    category: '',
+    options: [],
+    tags: [],
+    stockAmount: 0,
+  });
 
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const productDoc = await getDoc(doc(db, 'Products', productId));
-        if (productDoc.exists()) {
-          const productData = productDoc.data();
-          setProductName(productData.name);
-          setPrice(productData.price);
-          setDescription(productData.description);
-          setOptions(productData.options || []);
-          setImages(productData.images || []); // Set existing images from Firestore
+        setLoading(true);
+        const docRef = doc(db, "Products", productId);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setProductName(data.name);
+          setPrice(data.price);
+          setDescription(data.description);
+          setOptions(data.options || []);
+
+          setFormData({
+            name: data.name || '',
+            description: data.description || '',
+            price: data.price ? data.price.toString() : '',
+            category: data.category || '',
+            options: data.options || [],
+            tags: data.tags || [],
+            stockAmount: data.stockAmount || 0,
+          });
+          
+          // Set existing images if available
+          if (data.images) {
+            setImages(data.images);
+          }
+        } else {
+          console.log("No such document!");
+          navigate('/dashboard');
         }
       } catch (error) {
-        console.error('Error fetching product:', error);
+        console.error("Error fetching product:", error);
+      } finally {
+        setLoading(false);
       }
     };
-
+    
     fetchProduct();
-  }, [productId]);
+  }, [productId, navigate]);
 
   const handleAddOption = () => {
     if (currentOption.trim() !== '') {
@@ -179,6 +210,7 @@ const handleSubmit = async (e) => {
       description,
       options,
       images: updatedImages, // Update the Firestore with the new images array
+      stockAmount: formData.stockAmount, // Include stock amount
     });
 
     Swal.fire({
@@ -240,6 +272,28 @@ const handleSubmit = async (e) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="מחיר (₪)"
             />
+          </div>
+          
+          {/* After the price field */}
+          <div className="mb-4">
+            <label htmlFor="stockAmount" className="block text-sm font-medium text-gray-700 mb-1">
+              כמות במלאי
+            </label>
+            <input
+              type="number"
+              id="stockAmount"
+              min="0"
+              value={formData.stockAmount}
+              onChange={(e) => 
+                setFormData({
+                  ...formData,
+                  stockAmount: parseInt(e.target.value) || 0
+                })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="הזן את כמות המלאי"
+            />
+            <p className="mt-1 text-xs text-gray-500">0 משמעותו מוצר אזל מהמלאי</p>
           </div>
           
           {/* Description */}
