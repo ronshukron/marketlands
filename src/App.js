@@ -43,6 +43,9 @@ import OnGoingOrderCoordinators from './components/OnGoingOrderCoordinators.js';
 import ExternalOrderDetail from './components/ExternalOrderDetail';
 import LandingPage from './components/LandingPage';
 import CoordinatorLandingPage from './components/CoordinatorLandingPage';
+import AccessibilityStatement from './components/AccessibilityStatement';
+import AccessibilityButton from './components/AccessibilityButton';
+import './components/Accessibility.css';
 
 const App = () => {
   return (
@@ -93,9 +96,11 @@ const App = () => {
                 <Route path="/ongoing-order-coordinators" element={<OnGoingOrderCoordinators />} />
                 <Route path="/external-order/:orderId" element={<ExternalOrderDetail />} />
                 <Route path="/coordinator-landing" element={<CoordinatorLandingPage />} />
+                <Route path="/accessibility" element={<AccessibilityStatement />} />
               </Routes>
             </main>
             <Footer />
+            <AccessibilityButton />
           </div>
         </Router>
       </CartProvider>

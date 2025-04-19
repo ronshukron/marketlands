@@ -1,0 +1,14 @@
+/* High contrast mode */
+.high-contrast {
+  filter: contrast(200%);
+}
+
+/* Grayscale mode */
+.grayscale {
+  filter: grayscale(100%);
+}
+
+/* When both filters are applied */
+.high-contrast.grayscale {
+  filter: contrast(150%) grayscale(100%);
+} 

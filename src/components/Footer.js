@@ -17,6 +17,8 @@ const Footer = () => {
                         <li><Link to="/">בית</Link></li>
                         <li><Link to="/contact">צור קשר</Link></li>
                         <li><Link to="/terms-of-service">תקנון</Link></li>
+                        {/* <li><Link to="/privacy-policy">מדיניות פרטיות</Link></li> */}
+                        <li><Link to="/accessibility">הצהרת נגישות</Link></li>
                     </ul>
                 </div>
                 <div className="footer-section social">
