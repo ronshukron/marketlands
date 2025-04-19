@@ -25,12 +25,39 @@ const OrderConfirmation = () => {
     const [showPopup, setShowPopup] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [userAddress, setUserAddress] = useState(''); 
-    const [requestAddress, setRequestAddress] = useState(false);
+    const [requestAddress, setRequestAddress] = useState(false); 
     const [selectedPickupSpot, setSelectedPickupSpot] = useState('');
     const { userLoggedIn, currentUser } = useAuth();
 
     // Get pickup spots from the order
     const [availablePickupSpots, setAvailablePickupSpots] = useState([]);
+
+    // Move the updateOrdersWithReference function to component level so it can be used everywhere
+    const updateOrdersWithReference = async (orderIds, customerOrderDocId) => {
+        try {
+            // Create an array of promises for each order update
+            const updatePromises = orderIds.map(async (orderId) => {
+                try {
+                    // Get a reference to the Order document
+                    const orderRef = doc(db, "Orders", orderId);
+                    
+                    // Update the customerOrderIds array in the Orders document
+                    await updateDoc(orderRef, {
+                        customerOrderIds: arrayUnion(customerOrderDocId)
+                    });
+                    
+                    console.log(`Successfully updated order ${orderId} with customer order reference ${customerOrderDocId}`);
+                } catch (orderError) {
+                    console.error(`Error updating order ${orderId}:`, orderError);
+                }
+            });
+            
+            // Wait for all updates to complete
+            await Promise.all(updatePromises);
+        } catch (error) {
+            console.error("Error updating orders with customer order reference:", error);
+        }
+    };
 
     useEffect(() => {
         console.log("currentUser", currentUser);
@@ -187,8 +214,14 @@ const OrderConfirmation = () => {
             };
         });
 
-        // Create the pending order document
-        const customerOrderData = {
+        // Store the customerOrderId for later use with the user document
+        let generatedCustomerOrderId;
+
+        // Create a pending order in Firestore
+        // const customerOrderRef = doc(collection(db, 'customerOrders'));
+        // generatedCustomerOrderId = customerOrderRef.id;
+
+        await setDoc(customerOrderIdOrderRef, {
             orderBreakdown,
             customerDetails: {
                 name: userName,
@@ -203,16 +236,28 @@ const OrderConfirmation = () => {
             grandTotal: cartTotal,
             // If user is logged in, store their ID
             userId: currentUser?.uid || null
-        };
+        });
+
+        // Update the original orders with the actual document ID
+        await updateOrdersWithReference(Object.keys(itemsByOrder), customerOrderId);
+
+        // Add the order to the user's document
+        if (currentUser && currentUser.uid) {
+            try {
+                const userDocRef = doc(db, "users", currentUser.uid);
+                await updateDoc(userDocRef, {
+                    orders: arrayUnion(customerOrderId)
+                });
+            } catch (error) {
+                console.error("Error updating user document:", error);
+            }
+        }
 
         // Get all orderIds instead of just the first one
         const orderIds = Object.keys(itemsByOrder);
         console.log('orderIds', orderIds);
 
         try {
-            // Create temporary order document
-            await setDoc(customerOrderIdOrderRef, customerOrderData);
-    
             // Call to create Bit payment - pass all orderIds
             const paymentData = {
                 amount: cartTotal,
@@ -274,7 +319,7 @@ const OrderConfirmation = () => {
         }
         return false; // Order has not ended
     };
-    
+
     if (loading) {
         return <LoadingSpinnerPayment />;
     }
@@ -374,28 +419,26 @@ const OrderConfirmation = () => {
             const customerOrderRef = await addDoc(collection(db, "customerOrders"), customerOrderData);
             console.log('customerOrderRef', customerOrderRef);
             
-            // Update the original order with customer order reference - FIX HERE
-            const updatePromises = orderIds.map(async (orderId) => {
-                try {
-                    // First check if the document exists
-                    const orderDocSnap = await getDoc(doc(db, "Orders", orderId));
-                    
-                    if (orderDocSnap.exists()) {
-                        // Document exists, now update it
-                        await updateDoc(doc(db, "Orders", orderId), {
-                            customerOrderIds: arrayUnion(customerOrderRef.id) // Use the actual document ID
-                        });
-                        console.log(`Successfully updated order ${orderId}`);
-                    } else {
-                        console.error(`Order ${orderId} does not exist`);
-                    }
-                } catch (error) {
-                    console.error(`Error updating order ${orderId}:`, error);
-                }
-            });
+            // Now call the function that's defined at component level
+            await updateOrdersWithReference(orderIds, customerOrderRef.id);
 
-            // Wait for all updates to complete
-            await Promise.all(updatePromises);
+            // Also add the order to the user's document if user is logged in
+            if (currentUser && currentUser.uid) {
+                try {
+                    // Get a reference to the user document
+                    const userDocRef = doc(db, "users", currentUser.uid);
+                    
+                    // Update the user document
+                    await updateDoc(userDocRef, {
+                        // Add the order ID to the orders array field
+                        orders: arrayUnion(customerOrderRef.id)
+                    });
+                    
+                    console.log(`Added order ${customerOrderRef.id} to user ${currentUser.uid}'s orders list`);
+                } catch (error) {
+                    console.error("Error updating user document with order reference:", error);
+                }
+            }
 
             // Clear cart after successful submission
             clearCart();
@@ -548,10 +591,10 @@ const OrderConfirmation = () => {
                                                         <span className="font-medium">מחיר:</span> {item.price}₪ × {item.quantity} = {item.quantity * item.price}₪
                                                     </p>
                                                 </div>
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ul>
+                        </div>
+                    </li>
+                ))}
+            </ul>
                             </div>
                             
                             <div className="bg-gray-50 p-3 rounded-lg mb-3">
@@ -587,53 +630,53 @@ const OrderConfirmation = () => {
                                 <label htmlFor="userName" className="block text-sm font-medium text-gray-700 mb-1">
                                     שם מלא <span className="text-red-500">*</span>
                                 </label>
-                                <input 
-                                    id="userName"
-                                    type="text" 
-                                    placeholder="שם מלא" 
-                                    value={userName} 
-                                    onChange={(e) => setUserName(e.target.value)} 
-                                    required
+                        <input 
+                            id="userName"
+                            type="text" 
+                            placeholder="שם מלא" 
+                            value={userName} 
+                            onChange={(e) => setUserName(e.target.value)} 
+                            required
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                />
-                            </div>
+                        />
+                    </div>
                             
                             <div className="form-group">
                                 <label htmlFor="userPhone" className="block text-sm font-medium text-gray-700 mb-1">
                                     מספר טלפון <span className="text-red-500">*</span>
                                 </label>
-                                <input 
-                                    id="userPhone"
-                                    type="tel" 
-                                    placeholder="מספר טלפון" 
-                                    value={userPhone} 
-                                    onChange={(e) => setUserPhone(e.target.value)} 
-                                    required
+                        <input 
+                            id="userPhone"
+                            type="tel" 
+                            placeholder="מספר טלפון" 
+                            value={userPhone} 
+                            onChange={(e) => setUserPhone(e.target.value)} 
+                            required
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                />
-                            </div>
+                        />
+                    </div>
                             
                             <div className="form-group md:col-span-2">
                                 <label htmlFor="userEmail" className="block text-sm font-medium text-gray-700 mb-1">
                                     כתובת אימייל <span className="text-red-500">*</span>
                                 </label>
-                                <input 
-                                    id="userEmail"
-                                    type="email" 
-                                    placeholder="כתובת אימייל" 
-                                    value={userEmail} 
-                                    onChange={(e) => setUserEmail(e.target.value)} 
-                                    required
+                        <input 
+                            id="userEmail"
+                            type="email" 
+                            placeholder="כתובת אימייל" 
+                            value={userEmail} 
+                            onChange={(e) => setUserEmail(e.target.value)} 
+                            required
                                     readOnly={userLoggedIn}
                                     className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${userLoggedIn ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                />
+                        />
                                 {userLoggedIn && (
                                     <p className="mt-1 text-sm text-gray-500">
                                         כתובת האימייל מקושרת לחשבון שלך ואינה ניתנת לשינוי
                                     </p>
                                 )}
-                            </div>
-                            
+                    </div>
+
                             {/* Pickup Spot Selection */}
                             {availablePickupSpots.length > 0 && (
                                 <div className="form-group md:col-span-2">
@@ -657,37 +700,37 @@ const OrderConfirmation = () => {
                                 </div>
                             )}
                             
-                            {requestAddress && (
+                    {requestAddress && (
                                 <div className="form-group md:col-span-2">
                                     <label htmlFor="userAddress" className="block text-sm font-medium text-gray-700 mb-1">
                                         כתובת למשלוח <span className="text-red-500">*</span>
                                     </label>
-                                    <input
-                                        id="userAddress"
-                                        type="text"
-                                        placeholder="כתובת מלאה"
-                                        value={userAddress}
-                                        onChange={(e) => setUserAddress(e.target.value)}
-                                        required
+                            <input
+                                id="userAddress"
+                                type="text"
+                                placeholder="כתובת מלאה"
+                                value={userAddress}
+                                onChange={(e) => setUserAddress(e.target.value)}
+                                required
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    />
-                                </div>
-                            )}
+                            />
                         </div>
-                        
+                    )}
+            </div>
+
                         <div className="flex items-center mb-6">
                             <input
-                                type="checkbox" 
-                                id="agreeToTerms" 
-                                checked={agreeToTerms}
-                                onChange={(e) => setAgreeToTerms(e.target.checked)}
+                    type="checkbox" 
+                    id="agreeToTerms" 
+                    checked={agreeToTerms}
+                    onChange={(e) => setAgreeToTerms(e.target.checked)}
                                 className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ml-2"
-                            />
+                />
                             <label htmlFor="agreeToTerms" className="text-sm text-gray-700">
                                 קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank" className="text-blue-600 hover:underline">תנאי השימוש</Link>
                             </label>
-                        </div>
-                        
+            </div>
+
                         <div className="flex space-x-4 rtl:space-x-reverse">
                             <button
                                 onClick={proceedToCheckout}
@@ -701,7 +744,7 @@ const OrderConfirmation = () => {
                             >
                                 ביטול
                             </button>
-                        </div>
+                </div>
                     </div>
                 </div>
             </div>
