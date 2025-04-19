@@ -42,16 +42,16 @@ const Home = () => {
             {!userLoggedIn && (
               <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
                 <Link
-                  to="/business-register"
+                  to="/login"
                   className="bg-white text-blue-700 hover:bg-blue-50 px-8 py-3 rounded-lg font-medium shadow-md transition-all duration-200 transform hover:scale-105"
                 >
-                  הצטרפו כספק
+                  התחברות
                 </Link>
                 <Link
                   to="/user-register"
                   className="bg-transparent text-white hover:bg-blue-600 border-2 border-white px-8 py-3 rounded-lg font-medium shadow-md transition-all duration-200 transform hover:scale-105"
                 >
-                  הרשמה כלקוח
+                  הרשמה
                 </Link>
               </div>
             )}

@@ -62,3 +62,19 @@
   .auth-form-switch a:hover {
     text-decoration: underline;
   }
+  
+  .form-group {
+    width: 100%;
+    margin-bottom: 16px;
+  }
+  
+  .input-error {
+    border: 1px solid #ff4d4f !important;
+  }
+  
+  .error-message {
+    color: #ff4d4f;
+    font-size: 0.8rem;
+    margin-top: 4px;
+    text-align: right;
+  }

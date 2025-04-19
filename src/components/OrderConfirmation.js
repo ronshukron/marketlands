@@ -231,7 +231,7 @@ const OrderConfirmation = () => {
                 pickupSpot: selectedPickupSpot,
             },
             businessIds: businessIds,
-            createdAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(),
             paymentStatus: 'pending_payment',
             grandTotal: cartTotal,
             // If user is logged in, store their ID
