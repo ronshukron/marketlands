@@ -35,11 +35,11 @@ const Home = () => {
               ברוכים הבאים לשוק
             </h1>
             <p className="mt-3 max-w-2xl mx-auto text-lg md:text-xl text-blue-50 leading-relaxed">
-              כאן תוכלו למצוא את כל המכירות הפעילות מהחקלאים והספקים שלנו
+              כאן תוכלו למצוא את כל המכירות הפעילות מהחקלאים שלנו
             </p>
             
             {/* Improved buttons */}
-            {!userLoggedIn && (
+            {/* {!userLoggedIn && (
               <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
                 <Link
                   to="/login"
@@ -54,7 +54,7 @@ const Home = () => {
                   הרשמה
                 </Link>
               </div>
-            )}
+            )} */}
           </div>
         </div>
         

@@ -300,13 +300,13 @@ const OngoingOrders = () => {
         <div className="px-6 py-10 relative z-10">
           {/* Improved title section */}
           <div className="mb-8">
-            <h1 className="text-3xl md:text-5xl font-bold mb-4 text-center tracking-tight">
-              דפי מכירה פעילים
+            <h1 className="text-3xl md:text-5xl font-bold mb-2 text-center tracking-tight">
+              מודעות מכירה
             </h1>
             <div className="h-1 w-24 bg-yellow-400 mx-auto rounded-full mb-4"></div>
-            <p className="text-blue-100 text-center max-w-3xl mx-auto text-lg">
+            {/* <p className="text-blue-100 text-center max-w-3xl mx-auto text-lg">
               מצאו את כל המכירות הפעילות כרגע
-            </p>
+            </p> */}
           </div>
           
           {/* Improved Region Selector */}
@@ -410,11 +410,11 @@ const OngoingOrders = () => {
                 ) : (
                   <div className="space-y-0 leading-3">
                     <p className="text-xs text-gray-700">
-                      <span className="font-medium">עסק:</span> {order.businessName}
+                      <span className="font-medium">חקלאי:</span> {order.businessName}
                     </p>
                     {order.businessKind && (
                       <p className="text-xs text-gray-700">
-                        <span className="font-medium">סוג עסק:</span> {order.businessKind}
+                        <span className="font-medium">סוג חקלאי:</span> {order.businessKind}
                       </p>
                     )}
                     {order.pickupSpots && order.pickupSpots.length > 0 && (

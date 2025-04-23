@@ -30,8 +30,23 @@ export const CartProvider = ({ children }) => {
    * @param {number} minimumOrderAmount - The minimum amount required for the order.
    */
   const addItem = (item, orderId, businessId, minimumOrderAmount) => {
-    setCartItems((prevItems) => {
-      // Create a new item object with additional cart-specific details.
+    setCartItems(prevItems => {
+      // Check if item already exists in cart
+      const existingItemIndex = prevItems.findIndex(
+        cartItem => cartItem.id === item.id && cartItem.orderId === orderId
+      );
+
+      if (existingItemIndex >= 0) {
+        // If item exists, update its quantity
+        const updatedItems = [...prevItems];
+        updatedItems[existingItemIndex] = {
+          ...updatedItems[existingItemIndex],
+          quantity: updatedItems[existingItemIndex].quantity + item.quantity
+        };
+        return updatedItems;
+      }
+
+      // If item doesn't exist, add it to cart
       const newItemWithDetails = {
         ...item, // Spread existing item properties
         orderId, // Associate with the specific order
@@ -55,8 +70,7 @@ export const CartProvider = ({ children }) => {
         }
       }));
 
-      // Add the newly created unique item to the cart items array.
-      // No merging or quantity updates happen here; each add creates a new entry.
+      // Return the updated list of cart items.
       return [...prevItems, newItemWithDetails];
     });
   };

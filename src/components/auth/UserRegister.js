@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { doCreateUserWithEmailAndPassword } from '../../firebase/auth';
+import { doCreateUserWithEmailAndPassword, doSignInWithGoogle } from '../../firebase/auth';
 import { pickupSpots } from '../../data/pickupSpots';
 import './AuthForms.css';
 
@@ -13,6 +13,7 @@ const UserRegister = () => {
   const [filteredSpots, setFilteredSpots] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [error, setError] = useState('');
+  const [isSigningUp, setIsSigningUp] = useState(false);
   
   // Field-specific validation states
   const [emailError, setEmailError] = useState('');
@@ -69,7 +70,7 @@ const UserRegister = () => {
       setEmailError('אימייל הוא שדה חובה');
       return false;
     } else if (!emailRegex.test(email)) {
-      setEmailError('כתובת אימייל לא תקינה');
+      setEmailError('אנא הזן כתובת אימייל תקינה');
       return false;
     }
     setEmailError('');
@@ -89,11 +90,11 @@ const UserRegister = () => {
   };
 
   const validateName = (name) => {
-    if (!name.trim()) {
-      setNameError('שם מלא הוא שדה חובה');
+    if (!name) {
+      setNameError('שם הוא שדה חובה');
       return false;
-    } else if (name.trim().length < 2) {
-      setNameError('שם מלא חייב להכיל לפחות 2 תווים');
+    } else if (name.length < 2) {
+      setNameError('השם חייב להכיל לפחות 2 תווים');
       return false;
     }
     setNameError('');
@@ -101,10 +102,9 @@ const UserRegister = () => {
   };
 
   const validatePhone = (phone) => {
-    // Israeli phone number validation (flexible)
     const phoneRegex = /^0\d{8,9}$/;
     if (!phone) {
-      setPhoneError('מספר טלפון הוא שדה חובה');
+      setPhoneError('טלפון הוא שדה חובה');
       return false;
     } else if (!phoneRegex.test(phone.replace(/[-\s]/g, ''))) {
       setPhoneError('מספר טלפון לא תקין');
@@ -126,25 +126,27 @@ const UserRegister = () => {
     return true;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    // Validate all fields
+  const validateForm = () => {
     const isEmailValid = validateEmail(email);
     const isPasswordValid = validatePassword(password);
     const isNameValid = validateName(name);
     const isPhoneValid = validatePhone(phone);
     const isCommunityValid = validateCommunity(community);
     
-    // If any validation fails, stop the submission
-    if (!isEmailValid || !isPasswordValid || !isNameValid || !isPhoneValid || !isCommunityValid) {
+    return isEmailValid && isPasswordValid && isNameValid && isPhoneValid && isCommunityValid;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm() || isSigningUp) {
       return;
     }
     
-    // Reset general error
-    setError('');
-    
     try {
+      setIsSigningUp(true);
+      setError('');
+      
       const userData = { 
         email, 
         name, 
@@ -152,16 +154,40 @@ const UserRegister = () => {
         community,
         role: 'user' 
       };
+      
       await doCreateUserWithEmailAndPassword(email, password, userData, 'users');
       navigate('/');
     } catch (error) {
-      setError(error.message);
+      console.error("Registration failed:", error);
+      setError(error.message || 'אירעה שגיאה בעת ההרשמה');
+    } finally {
+      setIsSigningUp(false);
+    }
+  };
+
+  // Handle Google Sign-in
+  const handleGoogleSignIn = async (e) => {
+    e.preventDefault();
+    if (isSigningUp) return;
+    
+    try {
+      setIsSigningUp(true);
+      setError('');
+      
+      await doSignInWithGoogle();
+      navigate('/');
+    } catch (error) {
+      console.error("Google sign-in failed:", error);
+      setError(error.message || 'אירעה שגיאה בעת ההרשמה עם Google');
+    } finally {
+      setIsSigningUp(false);
     }
   };
 
   return (
     <div className="auth-form-container">
       <h2 className="auth-form-title">הירשמו לאתר</h2>
+      
       <form className="auth-form" onSubmit={handleSubmit}>
         <div className="form-group">
           <input 
@@ -252,10 +278,34 @@ const UserRegister = () => {
           )}
         </div>
         
-        <button type="submit">הירשם</button>
+        <button 
+          type="submit" 
+          disabled={isSigningUp}
+          className={isSigningUp ? 'button-disabled' : ''}
+        >
+          {isSigningUp ? 'מבצע רישום...' : 'הירשם'}
+        </button>
       </form>
       
       {error && <p className="auth-form-error">{error}</p>}
+      
+      <div className="auth-divider">
+        <span>או</span>
+      </div>
+      
+      <button 
+        onClick={handleGoogleSignIn}
+        disabled={isSigningUp}
+        className="google-auth-button"
+      >
+        <svg className="google-icon" viewBox="0 0 48 48">
+          <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path>
+          <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path>
+          <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path>
+          <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path>
+        </svg>
+        המשך עם Google
+      </button>
       
       <p className="auth-form-switch">
         יש לכם כבר משתמש? <Link to="/login">התחברו</Link>

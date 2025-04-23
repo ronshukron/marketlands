@@ -32,21 +32,22 @@ const Menu = () => {
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
+      if (isOpen && menuRef.current && !menuRef.current.contains(event.target)) {
         setIsOpen(false);
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isOpen]);
 
   // Close mobile menu when route changes
   useEffect(() => {
     setIsOpen(false);
   }, [location.pathname]);
 
-  const toggleMenu = () => {
+  const toggleMenu = (event) => {
+    event.stopPropagation();
     setIsOpen(!isOpen);
   };
 
@@ -95,6 +96,9 @@ const Menu = () => {
               <Link to="/contact" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/contact') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                 צור קשר
               </Link>
+              {/* <Link to="/business-register" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/business-register') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                    הירשמו כעסק
+              </Link> */}
               
               {userLoggedIn && userRole === 'coordinator' && (
                 <>
@@ -141,11 +145,11 @@ const Menu = () => {
                 </>
               )}
               
-              {!userLoggedIn && (
+              {/* {!userLoggedIn && (
                 <Link to="/coordinator-landing" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/coordinator-landing') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                   לרכזי קהילות
                 </Link>
-              )}
+              )} */}
             </nav>
 
             {/* Right side items - cart, auth, mobile menu */}
@@ -209,7 +213,6 @@ const Menu = () => {
 
           {/* Mobile menu */}
           <div
-            ref={menuRef}
             className={`md:hidden transition-all duration-300 ease-in-out ${
               isOpen 
                 ? 'max-h-[80vh] opacity-100 mt-3 pb-3 overflow-y-auto' 

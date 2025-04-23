@@ -352,9 +352,9 @@ const OrderFormBusiness = () => {
                     <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
                     
                     {/* Display stock amount */}
-                    <p className={`text-xs mt-1 ${product.stockAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {/* <p className={`text-xs mt-1 ${product.stockAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {product.stockAmount > 0 ? `במלאי: ${product.stockAmount}` : 'אזל המלאי'}
-                    </p>
+                    </p> */}
                   </div>
                 </div>
                 
