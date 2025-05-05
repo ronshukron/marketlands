@@ -301,7 +301,7 @@ const OngoingOrders = () => {
           {/* Improved title section */}
           <div className="mb-8">
             <h1 className="text-3xl md:text-5xl font-bold mb-2 text-center tracking-tight">
-              מודעות מכירה
+              החקלאים שלנו
             </h1>
             <div className="h-1 w-24 bg-yellow-400 mx-auto rounded-full mb-4"></div>
             {/* <p className="text-blue-100 text-center max-w-3xl mx-auto text-lg">
@@ -412,7 +412,7 @@ const OngoingOrders = () => {
                     <p className="text-xs text-gray-700">
                       <span className="font-medium">חקלאי:</span> {order.businessName}
                     </p>
-                    {order.businessKind && (
+                    {/* {order.businessKind && (
                       <p className="text-xs text-gray-700">
                         <span className="font-medium">סוג חקלאי:</span> {order.businessKind}
                       </p>
@@ -420,6 +420,11 @@ const OngoingOrders = () => {
                     {order.pickupSpots && order.pickupSpots.length > 0 && (
                       <p className="text-xs text-gray-700">
                         <span className="font-medium">נקודות איסוף:</span> {order.pickupSpots.join(', ')}
+                      </p>
+                    )} */}
+                    {order.items && order.items.length > 0 && (
+                      <p className="text-xs text-gray-700">
+                        <span className="font-medium">טווח מחירים:</span> {Math.min(...order.items.map(item => item.price))}₪ - {Math.max(...order.items.map(item => item.price))}₪
                       </p>
                     )}
                   </div>

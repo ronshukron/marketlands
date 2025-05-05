@@ -32,10 +32,10 @@ const Home = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center relative z-10">
             <h1 className="text-4xl md:text-6xl font-bold mb-6 text-white drop-shadow-md">
-              ברוכים הבאים לשוק
+            ברוכים הבאים לשוק
             </h1>
             <p className="mt-3 max-w-2xl mx-auto text-lg md:text-xl text-blue-50 leading-relaxed">
-              כאן תוכלו למצוא את כל המכירות הפעילות מהחקלאים שלנו
+            מחברים בין קהילות לחקלאים מקומיים
             </p>
             
             {/* Improved buttons */}
