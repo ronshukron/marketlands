@@ -45,6 +45,8 @@ import LandingPage from './components/LandingPage';
 import CoordinatorLandingPage from './components/CoordinatorLandingPage';
 import AccessibilityStatement from './components/AccessibilityStatement';
 import AccessibilityButton from './components/AccessibilityButton';
+import WeeklyOrderSummary from './components/admin/WeeklyOrderSummary'
+import PrivateRoute from './components/PrivateRoute';
 import './components/Accessibility.css';
 
 const App = () => {
@@ -97,6 +99,7 @@ const App = () => {
                 <Route path="/external-order/:orderId" element={<ExternalOrderDetail />} />
                 <Route path="/coordinator-landing" element={<CoordinatorLandingPage />} />
                 <Route path="/accessibility" element={<AccessibilityStatement />} />
+                <Route path="/admin/weekly-summary" element={<WeeklyOrderSummary />} />
               </Routes>
             </main>
             <Footer />
