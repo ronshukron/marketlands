@@ -40,7 +40,7 @@ const WeeklyOrderSummary = () => {
       // Calculate date range for the past week
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 10);
+      startDate.setDate(startDate.getDate() - 12);
       
       setDateRange({
         start: format(startDate, 'dd/MM/yyyy'),

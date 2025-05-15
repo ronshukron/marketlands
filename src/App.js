@@ -49,6 +49,7 @@ import WeeklyOrderSummary from './components/admin/WeeklyOrderSummary'
 import PrivateRoute from './components/PrivateRoute';
 import './components/Accessibility.css';
 import AdminRefundRequests from './components/admin/AdminRefundRequests';
+import DeliveryManagement from './components/admin/DeliveryManagement';
 
 const App = () => {
   return (
@@ -102,6 +103,7 @@ const App = () => {
                 <Route path="/accessibility" element={<AccessibilityStatement />} />
                 <Route path="/admin/weekly-summary" element={<WeeklyOrderSummary />} />
                 <Route path="/admin/refunds" element={<AdminRefundRequests />} />
+                <Route path="/admin/delivery" element={<DeliveryManagement />} />
               </Routes>
             </main>
             <Footer />
