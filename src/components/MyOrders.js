@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase/firebase';
 import { useAuth } from '../contexts/authContext';
 import LoadingSpinner from './LoadingSpinner';
@@ -15,6 +15,7 @@ const MyOrders = () => {
     const [currentOrderId, setCurrentOrderId] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [refundSuccess, setRefundSuccess] = useState(false);
+    const [refundStatuses, setRefundStatuses] = useState({});
 
     useEffect(() => {
         const fetchOrders = async () => {
@@ -74,6 +75,10 @@ const MyOrders = () => {
                         });
 
                     setOrders(validOrders);
+                    
+                    // Fetch refund statuses for all orders
+                    fetchRefundStatuses(validOrders.map(order => order.id));
+                    
                 } else {
                     setError("לא נמצאו נתוני משתמש.");
                 }
@@ -87,6 +92,32 @@ const MyOrders = () => {
 
         fetchOrders();
     }, [currentUser]);
+    
+    // New function to fetch refund statuses
+    const fetchRefundStatuses = async (orderIds) => {
+        try {
+            // Create a map to store refund statuses by order ID
+            const statusMap = {};
+            
+            // Query refunds collection for any refunds related to these orders
+            const refundsRef = collection(db, 'refunds');
+            const q = query(refundsRef, where('userId', '==', currentUser.uid));
+            const refundsSnapshot = await getDocs(q);
+            
+            refundsSnapshot.forEach(doc => {
+                const refundData = doc.data();
+                statusMap[refundData.orderId] = {
+                    status: refundData.status,
+                    id: doc.id,
+                    createdAt: refundData.createdAt
+                };
+            });
+            
+            setRefundStatuses(statusMap);
+        } catch (error) {
+            console.error("Error fetching refund statuses:", error);
+        }
+    };
 
     // Helper function to format date
     const formatDate = (timestamp) => {
@@ -120,6 +151,38 @@ const MyOrders = () => {
             default:
                 return 'bg-gray-100 text-gray-800';
         }
+    };
+
+    // Helper function to get refund status badge
+    const getRefundStatusBadge = (orderId) => {
+        const refund = refundStatuses[orderId];
+        if (!refund) return null;
+        
+        let badgeClass = '';
+        let statusText = '';
+        
+        switch (refund.status) {
+            case 'pending':
+                badgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+                statusText = 'בקשת זיכוי בטיפול';
+                break;
+            case 'completed':
+                badgeClass = 'bg-green-100 text-green-800 border border-green-200';
+                statusText = 'זיכוי אושר';
+                break;
+            case 'rejected':
+                badgeClass = 'bg-red-100 text-red-800 border border-red-200';
+                statusText = 'זיכוי נדחה';
+                break;
+            default:
+                return null;
+        }
+        
+        return (
+            <div className={`text-xs font-medium px-2.5 py-1 rounded-full ${badgeClass} mt-2`}>
+                {statusText}
+            </div>
+        );
     };
 
     const handleRefundRequest = async (e) => {
@@ -207,9 +270,12 @@ const MyOrders = () => {
                                         תאריך: {formatDate(order.createdAt)}
                                     </p>
                                 </div>
-                                <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusBadge(order.paymentStatus || order.status)}`}>
-                                    {order.paymentStatus || order.status || 'לא ידוע'}
-                                </span>
+                                <div className="flex flex-col items-end">
+                                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusBadge(order.paymentStatus || order.status)}`}>
+                                        {order.paymentStatus || order.status || 'לא ידוע'}
+                                    </span>
+                                    {getRefundStatusBadge(order.id)}
+                                </div>
                             </div>
 
                             <div className="p-4 sm:p-6">
@@ -255,12 +321,20 @@ const MyOrders = () => {
                                     </Link>
                                 </div> */}
                                 <div className="mt-4 text-right">
-                                    <button
-                                        onClick={() => openRefundModal(order.id)}
-                                        className="text-sm bg-red-50 hover:bg-red-100 text-red-600 py-1 px-3 rounded-md transition-colors"
-                                    >
-                                        בקשת זיכוי
-                                    </button>
+                                    {!refundStatuses[order.id] ? (
+                                        <button
+                                            onClick={() => openRefundModal(order.id)}
+                                            className="text-sm bg-red-50 hover:bg-red-100 text-red-600 py-1 px-3 rounded-md transition-colors"
+                                        >
+                                            בקשת זיכוי
+                                        </button>
+                                    ) : (
+                                        <div className="text-sm text-gray-500">
+                                            {refundStatuses[order.id].status === 'completed' ? 
+                                                'הזיכוי אושר' : 
+                                                'בקשת זיכוי הוגשה'}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
