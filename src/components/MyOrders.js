@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase/firebase';
+import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../firebase/firebase';
 import { useAuth } from '../contexts/authContext';
 import LoadingSpinner from './LoadingSpinner';
 import { Link } from 'react-router-dom';
@@ -10,6 +10,11 @@ const MyOrders = () => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+    const [refundReason, setRefundReason] = useState('');
+    const [currentOrderId, setCurrentOrderId] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [refundSuccess, setRefundSuccess] = useState(false);
 
     useEffect(() => {
         const fetchOrders = async () => {
@@ -117,6 +122,64 @@ const MyOrders = () => {
         }
     };
 
+    const handleRefundRequest = async (e) => {
+        e.preventDefault();
+        
+        if (!refundReason.trim()) {
+            alert('אנא הזן סיבה לבקשת ההחזר');
+            return;
+        }
+        
+        setIsSubmitting(true);
+        
+        try {
+            // Get the current order details
+            const orderToRefund = orders.find(order => order.id === currentOrderId);
+            
+            // Get user details from Firestore
+            const userDocRef = doc(db, "users", auth.currentUser.uid);
+            const userDocSnap = await getDoc(userDocRef);
+            const userData = userDocSnap.exists() ? userDocSnap.data() : {};
+            
+            // Create a new document in the refunds collection
+            await addDoc(collection(db, 'refunds'), {
+                orderId: currentOrderId,
+                userId: auth.currentUser.uid,
+                userEmail: auth.currentUser.email,
+                userName: userData.name || auth.currentUser.displayName || '',
+                userPhone: userData.phone || '',
+                // Use fallback values for amount - check all possible field names
+                orderAmount: orderToRefund.totalAmount || orderToRefund.grandTotal || 0,
+                orderDate: orderToRefund.createdAt || serverTimestamp(),
+                reason: refundReason,
+                status: 'pending', // pending, approved, rejected
+                createdAt: serverTimestamp(),
+                businessId: orderToRefund.businessId || '',
+                businessName: orderToRefund.businessName || 'Unknown Business',
+                items: orderToRefund.items || orderToRefund.orderItems || [],
+                orderBreakdown: orderToRefund.orderBreakdown || {}
+            });
+
+            setRefundSuccess(true);
+            setTimeout(() => {
+                setIsRefundModalOpen(false);
+                setRefundReason('');
+                setCurrentOrderId(null);
+                setRefundSuccess(false);
+            }, 2000);
+        } catch (error) {
+            console.error('Error submitting refund request:', error);
+            alert('אירעה שגיאה בהגשת בקשת ההחזר. אנא נסה שוב מאוחר יותר.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const openRefundModal = (orderId) => {
+        setCurrentOrderId(orderId);
+        setIsRefundModalOpen(true);
+    };
+
     if (loading) {
         return <LoadingSpinner />;
     }
@@ -191,9 +254,72 @@ const MyOrders = () => {
                                         פרטים נוספים
                                     </Link>
                                 </div> */}
+                                <div className="mt-4 text-right">
+                                    <button
+                                        onClick={() => openRefundModal(order.id)}
+                                        className="text-sm bg-red-50 hover:bg-red-100 text-red-600 py-1 px-3 rounded-md transition-colors"
+                                    >
+                                        בקשת זיכוי
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Refund Request Modal */}
+            {isRefundModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6" dir="rtl">
+                        <h3 className="text-xl font-bold mb-4">בקשת זיכוי</h3>
+                        
+                        {refundSuccess ? (
+                            <div className="text-center py-8">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-green-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <p className="text-lg font-medium">בקשת ההחזר נשלחה בהצלחה!</p>
+                                <p className="text-gray-500 mt-2">נאשר את בקשתך בהקדם האפשרי.</p>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleRefundRequest}>
+                                <div className="mb-4">
+                                    <label htmlFor="refundReason" className="block text-sm font-medium text-gray-700 mb-1">
+                                        הזיכוי מאושר אוטמטית נשמח להסבר כדי להשתפר בעתיד :)
+                                    </label>
+                                    <textarea
+                                        id="refundReason"
+                                        value={refundReason}
+                                        onChange={(e) => setRefundReason(e.target.value)}
+                                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        rows="4"
+                                        placeholder="אנא הסבירו כאן על איזה מוצר תרצו לקבל זיכוי"
+                                        required
+                                    ></textarea>
+                                </div>
+                                
+                                <div className="flex justify-between mt-6">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsRefundModalOpen(false)}
+                                        className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                                    >
+                                        ביטול
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmitting}
+                                        className={`px-4 py-2 bg-red-600 text-white rounded-md transition-colors ${
+                                            isSubmitting ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
+                                        }`}
+                                    >
+                                        {isSubmitting ? 'שולח בקשה...' : 'שלח בקשת החזר'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
                 </div>
             )}
         </div>

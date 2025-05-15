@@ -48,6 +48,7 @@ import AccessibilityButton from './components/AccessibilityButton';
 import WeeklyOrderSummary from './components/admin/WeeklyOrderSummary'
 import PrivateRoute from './components/PrivateRoute';
 import './components/Accessibility.css';
+import AdminRefundRequests from './components/admin/AdminRefundRequests';
 
 const App = () => {
   return (
@@ -100,6 +101,7 @@ const App = () => {
                 <Route path="/coordinator-landing" element={<CoordinatorLandingPage />} />
                 <Route path="/accessibility" element={<AccessibilityStatement />} />
                 <Route path="/admin/weekly-summary" element={<WeeklyOrderSummary />} />
+                <Route path="/admin/refunds" element={<AdminRefundRequests />} />
               </Routes>
             </main>
             <Footer />
