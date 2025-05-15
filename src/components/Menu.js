@@ -134,9 +134,9 @@ const Menu = () => {
                   <Link to="/dashboard" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/dashboard') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                     לוח מודעות
                   </Link>
-                  <Link to="/landing" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/landing') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
+                  {/* <Link to="/landing" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/landing') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                     הדרכה
-                  </Link>
+                  </Link> */}
                   {businessId && (
                     <Link to={`/store/${businessId}`} className={`text-sm font-medium transition-colors py-1 px-1 ${isActive(`/store/${businessId}`) ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                       החנות שלי
@@ -223,9 +223,9 @@ const Menu = () => {
               <Link to="/" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                 דף הבית
               </Link>
-              <Link to="/landing" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/landing') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+              {/* <Link to="/landing" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/landing') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                 הדרכה
-              </Link>
+              </Link> */}
               <Link to="/contact" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/contact') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                 צור קשר
               </Link>
