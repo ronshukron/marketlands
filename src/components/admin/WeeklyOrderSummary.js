@@ -167,63 +167,178 @@ const WeeklyOrderSummary = () => {
   };
   
   // PDF generation function for a specific pickup spot
-  const generatePdf = async (pickupSpot) => {
-    if (pdfRefs.current[pickupSpot]) {
-      const element = pdfRefs.current[pickupSpot];
+  const generatePDF = async (pickupSpot, orders) => {
+    try {
+      // Create a new document
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        putOnlyUsedFonts: true
+      });
       
-      try {
-        // Create a temporary clone of the element to modify for PDF
-        const tempDiv = element.cloneNode(true);
-        document.body.appendChild(tempDiv);
+      // Group items by customer
+      const customerItems = {};
+      
+      orders.forEach(order => {
+        const customerName = order.customerDetails?.name || 'לקוח לא ידוע';
         
-        // Apply print-specific styles
-        tempDiv.style.width = '210mm'; // A4 width
-        tempDiv.style.padding = '10mm';
-        tempDiv.style.position = 'absolute';
-        tempDiv.style.left = '-9999px';
-        
-        // Generate PDF
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        
-        // Use html2canvas to capture the content
-        const canvas = await html2canvas(tempDiv, {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          windowWidth: tempDiv.scrollWidth,
-          windowHeight: tempDiv.scrollHeight
-        });
-        
-        // Remove the temporary element
-        document.body.removeChild(tempDiv);
-        
-        // Convert to image
-        const imgData = canvas.toDataURL('image/png');
-        
-        // Calculate dimensions
-        const imgWidth = 210; // A4 width in mm (210mm)
-        const pageHeight = 297; // A4 height in mm (297mm)
-        const imgHeight = canvas.height * imgWidth / canvas.width;
-        let heightLeft = imgHeight;
-        let position = 0;
-        
-        // Add first page
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-        
-        // Add subsequent pages if needed
-        while (heightLeft > 0) {
-          position = heightLeft - imgHeight; // Top position for next page
-          pdf.addPage();
-          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-          heightLeft -= pageHeight;
+        if (!customerItems[customerName]) {
+          customerItems[customerName] = [];
         }
         
-        pdf.save(`הזמנות_${pickupSpot}_${dateRange.start}-${dateRange.end}.pdf`);
-      } catch (error) {
-        console.error("Error generating PDF:", error);
-        alert("אירעה שגיאה בייצוא ה-PDF. נסה שוב מאוחר יותר.");
+        // Extract items from order
+        if (order.orderBreakdown) {
+          Object.values(order.orderBreakdown).forEach(businessOrder => {
+            (businessOrder.items || []).forEach(item => {
+              customerItems[customerName].push({
+                productName: item.productName,
+                quantity: item.quantity,
+                option: item.selectedOption,
+                businessName: businessOrder.businessName
+              });
+            });
+          });
+        }
+      });
+      
+      // Character count pagination approach - smaller limit to avoid issues
+      const CHARS_PER_PAGE = 1300; // Lower limit to ensure each page has reasonable content
+      let currentPage = 1;
+      let currentChars = 0;
+      let pagesContent = [[]]; // Array of pages, each containing rows
+      
+      // Process each customer and their items
+      Object.entries(customerItems).forEach(([customerName, items]) => {
+        // Format all items in a single line
+        const itemsText = items.map(item => {
+          let text = `${item.quantity}× ${item.productName}`;
+          if (item.option && item.option !== 'ללא אופציות' && item.option !== 'None') {
+            text += ` (${item.option})`;
+          }
+          return text;
+        }).join(', ');
+        
+        // Calculate total characters in this row
+        const rowChars = customerName.length + itemsText.length;
+        
+        // Always start a new page if this is a very long row
+        if (rowChars > CHARS_PER_PAGE) {
+          // If this isn't the first item on the page and it's a very long item,
+          // start a new page for it
+          if (pagesContent[currentPage - 1].length > 0) {
+            currentPage++;
+            currentChars = 0;
+            pagesContent.push([]);
+          }
+        }
+        // If adding this row would exceed the page limit, start a new page
+        else if (currentChars + rowChars > CHARS_PER_PAGE && pagesContent[currentPage - 1].length > 0) {
+          currentPage++;
+          currentChars = 0;
+          pagesContent.push([]);
+        }
+        
+        // Add row to current page
+        pagesContent[currentPage - 1].push({
+          type: 'row',
+          name: customerName,
+          items: itemsText,
+          chars: rowChars
+        });
+        
+        currentChars += rowChars;
+      });
+      
+      // Generate HTML for each page
+      const renderPage = (pageContent) => {
+        const element = document.createElement('div');
+        element.style.width = '595px'; // A4 width in pixels at 72 dpi
+        element.style.fontFamily = 'Arial, sans-serif';
+        element.style.direction = 'rtl';
+        element.style.textAlign = 'right';
+        element.style.padding = '10px 20px 30px 20px';
+        element.style.boxSizing = 'border-box';
+        
+        // Create HTML content
+        let htmlContent = `
+          <div style="text-align: center; margin-bottom: 5px;">
+            <h1 style="font-size: 14px; color: #2563EB; margin: 0;">נקודת איסוף: ${pickupSpot}</h1>
+            <p style="font-size: 10px; margin: 2px 0 0 0;">עמוד ${pageContent.pageNum} מתוך ${pageContent.totalPages}</p>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 5px;">
+            <thead>
+              <tr style="background-color: #f3f4f6; border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 3px; text-align: right; font-size: 14px; font-weight: bold;">שם</th>
+                <th style="padding: 3px; text-align: right; font-size: 14px; font-weight: bold;">פריטים</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+        
+        // Add each row for this page
+        pageContent.rows.forEach(row => {
+          if (row.type === 'row') {
+            htmlContent += `
+              <tr style="border-bottom: 1px solid #e5e7eb;">
+                <td style="padding: 3px; font-size: 16px; font-weight: bold; vertical-align: top; width: 22%;">${row.name}</td>
+                <td style="padding: 3px; font-size: 14px;">${row.items}</td>
+              </tr>
+            `;
+          }
+        });
+        
+        htmlContent += `
+            </tbody>
+          </table>
+        `;
+        
+        element.innerHTML = htmlContent;
+        return element;
+      };
+      
+      // Add page numbers to content
+      const totalPages = pagesContent.length;
+      const numberedPages = pagesContent.map((content, i) => ({
+        rows: content,
+        pageNum: i + 1,
+        totalPages
+      }));
+      
+      // Generate all pages and add to PDF
+      for (let i = 0; i < numberedPages.length; i++) {
+        const pageElement = renderPage(numberedPages[i]);
+        document.body.appendChild(pageElement);
+        
+        // Render to canvas
+        const canvas = await html2canvas(pageElement, {
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          windowWidth: 595,
+        });
+        
+        // Add new page if not first page
+        if (i > 0) {
+          pdf.addPage();
+        }
+        
+        // Add the image to the page - FIX HERE
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const imgWidth = 210; // A4 width in mm
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
+        
+        // Clean up
+        document.body.removeChild(pageElement);
       }
+      
+      // Save the PDF
+      pdf.save(`נקודת_איסוף_${pickupSpot.replace(/\s+/g, '_')}.pdf`);
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('אירעה שגיאה ביצירת ה-PDF');
     }
   };
   
@@ -236,7 +351,7 @@ const WeeklyOrderSummary = () => {
             נקודת איסוף: {pickupSpot} ({orders.length} הזמנות)
           </h3>
           <button
-            onClick={() => generatePdf(pickupSpot)}
+            onClick={() => generatePDF(pickupSpot, orders)}
             className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg flex items-center"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -357,13 +472,80 @@ const WeeklyOrderSummary = () => {
         </div>
       ) : (
         <>
-          {/* Pickup Spot Sections */}
-          <div className="mb-12">
-            <h2 className="text-2xl font-semibold mb-4">הזמנות לפי נקודות איסוף</h2>
+          {/* Pickup Spot Breakdown */}
+          <div className="mt-10">
+            <h2 className="text-xl font-semibold mb-6 text-blue-800">סיכום לפי נקודות איסוף</h2>
             
-            {Object.entries(ordersByPickupSpot).map(([pickupSpot, orders]) => 
-              renderPickupSpotSection(pickupSpot, orders)
-            )}
+            {Object.entries(ordersByPickupSpot).map(([pickupSpot, spotOrders]) => (
+              <div 
+                key={pickupSpot} 
+                className="mb-8 bg-white p-6 rounded-lg shadow"
+                ref={el => pdfRefs.current[pickupSpot] = el}
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    נקודת איסוף: {pickupSpot}
+                  </h3>
+                  <button
+                    onClick={() => generatePDF(pickupSpot, spotOrders)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm flex items-center"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    הורד PDF
+                  </button>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">לקוח</th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">פריטים</th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">סה"כ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {spotOrders.map((order, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-6 py-4">
+                            <div className="text-sm font-medium text-gray-900">
+                              {order.customerDetails?.name || 'לא צוין'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {order.customerDetails?.phone || 'אין טלפון'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-900">
+                              <ul className="list-disc list-inside">
+                                {order.orderBreakdown && Object.values(order.orderBreakdown).map((businessOrder, bidx) => (
+                                  <React.Fragment key={bidx}>
+                                    {(businessOrder.items || []).map((item, iidx) => (
+                                      <li key={`${bidx}-${iidx}`} className="mb-1">
+                                        <span className="font-medium">{item.quantity} × {item.productName}</span>
+                                        {item.selectedOption && item.selectedOption !== "ללא אופציות" && item.selectedOption !== "None" && (
+                                          <span className="text-gray-500"> ({item.selectedOption})</span>
+                                        )}
+                                        <span className="text-xs text-gray-500"> - {businessOrder.businessName}</span>
+                                      </li>
+                                    ))}
+                                  </React.Fragment>
+                                ))}
+                              </ul>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ₪{order.grandTotal?.toFixed(2) || '0.00'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
           
           {/* Business Summary Table */}
