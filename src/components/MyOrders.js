@@ -196,32 +196,38 @@ const MyOrders = () => {
         setIsSubmitting(true);
         
         try {
-            // Get the current order details
-            const orderToRefund = orders.find(order => order.id === currentOrderId);
-            
             // Get user details from Firestore
             const userDocRef = doc(db, "users", auth.currentUser.uid);
             const userDocSnap = await getDoc(userDocRef);
             const userData = userDocSnap.exists() ? userDocSnap.data() : {};
             
-            // Create a new document in the refunds collection
-            await addDoc(collection(db, 'refunds'), {
-                orderId: currentOrderId,
+            let refundData = {
                 userId: auth.currentUser.uid,
                 userEmail: auth.currentUser.email,
                 userName: userData.name || auth.currentUser.displayName || '',
                 userPhone: userData.phone || '',
-                // Use fallback values for amount - check all possible field names
-                orderAmount: orderToRefund.totalAmount || orderToRefund.grandTotal || 0,
-                orderDate: orderToRefund.createdAt || serverTimestamp(),
                 reason: refundReason,
                 status: 'pending', // pending, approved, rejected
                 createdAt: serverTimestamp(),
-                businessId: orderToRefund.businessId || '',
-                businessName: orderToRefund.businessName || 'Unknown Business',
-                items: orderToRefund.items || orderToRefund.orderItems || [],
-                orderBreakdown: orderToRefund.orderBreakdown || {}
-            });
+                isExternalOrder: currentOrderId ? false : true
+            };
+            
+            // If we have an order ID, include order details
+            if (currentOrderId) {
+                const orderToRefund = orders.find(order => order.id === currentOrderId);
+                refundData = {
+                    ...refundData,
+                    orderId: currentOrderId,
+                    orderAmount: orderToRefund.totalAmount || orderToRefund.grandTotal || 0,
+                    orderDate: orderToRefund.createdAt || serverTimestamp(),
+                    businessId: orderToRefund.businessId || '',
+                    businessName: orderToRefund.businessName || 'Unknown Business',
+                    items: orderToRefund.items || orderToRefund.orderItems || [],
+                    orderBreakdown: orderToRefund.orderBreakdown || {}
+                };
+            }
+
+            await addDoc(collection(db, 'refunds'), refundData);
 
             setRefundSuccess(true);
             setTimeout(() => {
@@ -238,7 +244,7 @@ const MyOrders = () => {
         }
     };
 
-    const openRefundModal = (orderId) => {
+    const openRefundModal = (orderId = null) => {
         setCurrentOrderId(orderId);
         setIsRefundModalOpen(true);
     };
@@ -256,7 +262,35 @@ const MyOrders = () => {
             <h1 className="text-3xl font-bold text-gray-800 mb-8 text-center">ההזמנות שלי</h1>
 
             {orders.length === 0 ? (
-                <p className="text-center text-gray-600 mt-10">עדיין לא ביצעת הזמנות.</p>
+                <div className="text-center py-8">
+                    <div className="bg-yellow-50 border border-yellow-100 rounded-lg p-6 mb-6">
+                        <p className="text-lg text-gray-700 mb-4">לא נמצאו הזמנות קודמות בחשבון שלך</p>
+                        
+                        {/* Explanation for users */}
+                        {/* <p className="text-sm text-gray-600 mb-5">
+                            אם ביצעת הזמנה ללא התחברות לחשבון שלך, או שאתה רוצה לבקש החזר כספי,
+                            <br />אנא השתמש בכפתור למטה להגשת בקשה להחזר או לעזרה בזיהוי ההזמנה שלך.
+                        </p> */}
+                        
+                        {/* Refund request button using existing modal */}
+                        {/* <button 
+                            onClick={() => openRefundModal(null)}
+                            className="inline-flex items-center justify-center px-5 py-3 bg-red-600 hover:bg-red-700 text-white font-medium rounded-md transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                            </svg>
+                            בקשת החזר כספי / איתור הזמנה
+                        </button> */}
+                        
+                        {/* Link to continue shopping */}
+                        {/* <div className="mt-6">
+                            <Link to="/menu" className="text-blue-600 hover:text-blue-800 font-medium">
+                                המשך לקניות
+                            </Link>
+                        </div>*/}
+                    </div> 
+                </div>
             ) : (
                 <div className="space-y-6">
                     {orders.map((order) => (
@@ -341,6 +375,23 @@ const MyOrders = () => {
                     ))}
                 </div>
             )}
+
+            {/* Add this at the end of the orders section (when orders exist) */}
+            <div className="mt-8 border-t border-gray-200 pt-6 text-center">
+                <p className="text-sm text-gray-600 mb-4">
+                    אם ביצעת הזמנות נוספות ללא התחברות או דרך מספר טלפון/אימייל אחר, באפשרותך לבקש החזר כספי עבורן:
+                </p>
+                
+                <button 
+                    onClick={() => openRefundModal(null)}
+                    className="inline-flex items-center justify-center px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 font-medium rounded-md transition-colors"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                    בקשת החזר כספי להזמנה אחרת
+                </button>
+            </div>
 
             {/* Refund Request Modal */}
             {isRefundModalOpen && (
