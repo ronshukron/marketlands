@@ -32,6 +32,9 @@ const OrderConfirmation = () => {
     // Get pickup spots from the order
     const [availablePickupSpots, setAvailablePickupSpots] = useState([]);
 
+    // Add a new state to track which pickup spots are available for each business order
+    const [businessPickupSpots, setBusinessPickupSpots] = useState({});
+
     // Move the updateOrdersWithReference function to component level so it can be used everywhere
     const updateOrdersWithReference = async (orderIds, customerOrderDocId) => {
         try {
@@ -73,14 +76,18 @@ const OrderConfirmation = () => {
         // Collect all pickup spots from all orders in the cart
         const collectPickupSpots = async () => {
             const orderSpots = new Set();
+            const businessSpots = {};
             
             // Fetch pickup spots for each order
             for (const orderId of orderIds) {
                 try {
-                    const orderDoc = await getDoc(doc(db, "Orders", orderId));
-                    if (orderDoc.exists()) {
-                        const orderData = orderDoc.data();
+                    const orderDocRef = await getDoc(doc(db, "Orders", orderId));
+                    if (orderDocRef.exists()) {
+                        const orderData = orderDocRef.data();
+                        
+                        // Save pickup spots for this business order
                         if (orderData.pickupSpots && orderData.pickupSpots.length > 0) {
+                            businessSpots[orderId] = orderData.pickupSpots;
                             orderData.pickupSpots.forEach(spot => orderSpots.add(spot));
                         }
                     }
@@ -88,6 +95,9 @@ const OrderConfirmation = () => {
                     console.error("Error fetching order pickup spots:", error);
                 }
             }
+            
+            // Save the mapping of business orders to their available pickup spots
+            setBusinessPickupSpots(businessSpots);
             
             // Convert Set to Array
             setAvailablePickupSpots(Array.from(orderSpots));
@@ -121,6 +131,60 @@ const OrderConfirmation = () => {
         
         setRequestAddress(needsAddress);
     }, [itemsByOrder]);
+
+    // Add this useEffect here, with the other useEffect hooks
+    useEffect(() => {
+        if (selectedPickupSpot && Object.keys(businessPickupSpots).length > 0) {
+            validatePickupSpotCompatibility();
+        }
+    }, [selectedPickupSpot, businessPickupSpots]);
+
+    // Then define the validatePickupSpotCompatibility function
+    const validatePickupSpotCompatibility = () => {
+        if (!selectedPickupSpot) return true; // No selection made yet
+        
+        const incompatibleItems = [];
+        
+        // Check each order to see if it can ship to the selected pickup spot
+        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            const businessSpots = businessPickupSpots[orderId] || [];
+            
+            // If this business doesn't ship to the selected spot
+            if (!businessSpots.includes(selectedPickupSpot)) {
+                // Add items from this business to the incompatible list
+                orderData.items.forEach(item => {
+                    // Debugging to see actual item structure
+                    console.log("Item being checked:", item);
+                    
+                    incompatibleItems.push({
+                        name: item.name || item.productName || item.title || "Unknown Item",
+                        businessName: item.businessName || "Unknown Business"
+                    });
+                });
+            }
+        });
+        
+        // If we found incompatible items, show an error
+        if (incompatibleItems.length > 0) {
+            // Debug the list before displaying
+            console.log("Incompatible items:", incompatibleItems);
+            
+            const itemsList = incompatibleItems.map(item => 
+                `${item.name} (${item.businessName})`
+            ).join('\n');
+            
+            Swal.fire({
+                // title: 'פריטים לא זמינים לנקודת האיסוף שבחרת',
+                html: `הפריטים הבאים אינם זמינים לנקודת האיסוף "${selectedPickupSpot}":<br><br>${itemsList.replace(/\n/g, '<br>')}`,
+                icon: 'error',
+                confirmButtonText: 'הבנתי',
+                footer: 'עליך להסיר פריטים אלה מהעגלה או לבחור נקודת איסוף אחרת'
+            });
+            return false;
+        }
+        
+        return true;
+    };
 
     const handleSubmitOrder = async () => {
         if (!formIsValid) {
@@ -475,10 +539,39 @@ const OrderConfirmation = () => {
         }
     };
 
-    // In the checkout section, add condition to check for free order
+    // Update the proceedToCheckout function to check for terms and pickup spot
     const proceedToCheckout = async () => {
+        // First check agreement to terms
+        if (!agreeToTerms) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'אישור תנאי שימוש',
+                text: 'יש לאשר את תנאי השימוש לפני ביצוע ההזמנה',
+                confirmButtonText: 'הבנתי'
+            });
+            return;
+        }
+
+        // Then check for pickup spot selection if needed
+        if (availablePickupSpots.length > 0 && !selectedPickupSpot) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'נא לבחור נקודת איסוף',
+                text: 'יש לבחור נקודת איסוף עבור ההזמנה שלך',
+                confirmButtonText: 'הבנתי'
+            });
+            return;
+        }
+
+        // Check general form validity (name, phone, email, etc.)
         if (!formIsValid) {
+            // Show general form validation popup
             setShowPopup(true);
+            return;
+        }
+        
+        // Check if all items can be shipped to the selected pickup spot
+        if (!validatePickupSpotCompatibility()) {
             return;
         }
 

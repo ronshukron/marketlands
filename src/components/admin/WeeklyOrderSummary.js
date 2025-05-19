@@ -40,7 +40,7 @@ const WeeklyOrderSummary = () => {
       // Calculate date range for the past week
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 12);
+      startDate.setDate(startDate.getDate() - 5);
       
       setDateRange({
         start: format(startDate, 'dd/MM/yyyy'),
@@ -177,41 +177,49 @@ const WeeklyOrderSummary = () => {
         putOnlyUsedFonts: true
       });
       
-      // Group items by customer
-      const customerItems = {};
+      // Group items by customer, aggregating items if a customer has multiple orders
+      const customerItems = {}; // Stores { normalizedName: { displayName: 'Name', items: [...] } }
       
       orders.forEach(order => {
-        const customerName = order.customerDetails?.name || 'לקוח לא ידוע';
-        
-        if (!customerItems[customerName]) {
-          customerItems[customerName] = [];
+        const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
+        // Normalize the customer name (e.g., trim whitespace) to ensure consistent grouping
+        const normalizedCustomerName = rawCustomerName.trim(); 
+
+        if (!customerItems[normalizedCustomerName]) {
+          customerItems[normalizedCustomerName] = {
+            displayName: rawCustomerName, // Use the first encountered name for display
+            items: []
+          };
         }
         
-        // Extract items from order
+        // Add items from this order to the customer's aggregated list
         if (order.orderBreakdown) {
           Object.values(order.orderBreakdown).forEach(businessOrder => {
             (businessOrder.items || []).forEach(item => {
-              customerItems[customerName].push({
+              customerItems[normalizedCustomerName].items.push({
                 productName: item.productName,
                 quantity: item.quantity,
                 option: item.selectedOption,
-                businessName: businessOrder.businessName
+                businessName: businessOrder.businessName // Preserving for potential future use
               });
             });
           });
         }
       });
       
-      // Character count pagination approach - smaller limit to avoid issues
-      const CHARS_PER_PAGE = 1300; // Lower limit to ensure each page has reasonable content
+      // Character count pagination approach
+      const CHARS_PER_PAGE = 1300; 
       let currentPage = 1;
       let currentChars = 0;
       let pagesContent = [[]]; // Array of pages, each containing rows
       
-      // Process each customer and their items
-      Object.entries(customerItems).forEach(([customerName, items]) => {
-        // Format all items in a single line
-        const itemsText = items.map(item => {
+      // Process each customer and their aggregated items
+      Object.entries(customerItems).forEach(([normalizedName, customerData]) => {
+        const displayNameForPdf = customerData.displayName; // Use the stored display name
+        const aggregatedItemsList = customerData.items;
+
+        // Format all aggregated items in a single line
+        const itemsText = aggregatedItemsList.map(item => {
           let text = `${item.quantity}× ${item.productName}`;
           if (item.option && item.option !== 'ללא אופציות' && item.option !== 'None') {
             text += ` (${item.option})`;
@@ -220,7 +228,7 @@ const WeeklyOrderSummary = () => {
         }).join(', ');
         
         // Calculate total characters in this row
-        const rowChars = customerName.length + itemsText.length;
+        const rowChars = displayNameForPdf.length + itemsText.length;
         
         // Always start a new page if this is a very long row
         if (rowChars > CHARS_PER_PAGE) {
@@ -242,7 +250,7 @@ const WeeklyOrderSummary = () => {
         // Add row to current page
         pagesContent[currentPage - 1].push({
           type: 'row',
-          name: customerName,
+          name: displayNameForPdf, // Use the display name for the PDF
           items: itemsText,
           chars: rowChars
         });
