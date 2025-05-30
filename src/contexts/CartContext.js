@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useMemo } from 'react';
+import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -19,6 +19,57 @@ export const CartProvider = ({ children }) => {
   // It's an object where keys are orderIds and values are objects containing
   // businessId, minimumOrderAmount, and lastUpdated timestamp for that order.
   const [orderInfoMap, setOrderInfoMap] = useState({});
+
+  // Flag to track whether we've loaded from localStorage yet
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+
+  // Load cart data from localStorage on component mount
+  useEffect(() => {
+    try {
+      const savedCartItems = localStorage.getItem('cartItems');
+      const savedOrderInfoMap = localStorage.getItem('orderInfoMap');
+      
+      if (savedCartItems) {
+        const parsedCartItems = JSON.parse(savedCartItems);
+        setCartItems(parsedCartItems);
+      }
+      
+      if (savedOrderInfoMap) {
+        const parsedOrderInfoMap = JSON.parse(savedOrderInfoMap);
+        setOrderInfoMap(parsedOrderInfoMap);
+      }
+    } catch (error) {
+      console.error('Error loading cart from localStorage:', error);
+      // If there's an error, clear the localStorage to prevent future issues
+      localStorage.removeItem('cartItems');
+      localStorage.removeItem('orderInfoMap');
+    }
+    
+    // Mark that we've completed the initial load
+    setHasLoadedFromStorage(true);
+  }, []);
+
+  // Save cart data to localStorage whenever cartItems changes (but only after initial load)
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return; // Don't save during initial load
+    
+    try {
+      localStorage.setItem('cartItems', JSON.stringify(cartItems));
+    } catch (error) {
+      console.error('Error saving cart items to localStorage:', error);
+    }
+  }, [cartItems, hasLoadedFromStorage]);
+
+  // Save order info to localStorage whenever orderInfoMap changes (but only after initial load)
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return; // Don't save during initial load
+    
+    try {
+      localStorage.setItem('orderInfoMap', JSON.stringify(orderInfoMap));
+    } catch (error) {
+      console.error('Error saving order info to localStorage:', error);
+    }
+  }, [orderInfoMap, hasLoadedFromStorage]);
 
   /**
    * Adds an item to the cart.
@@ -131,10 +182,14 @@ export const CartProvider = ({ children }) => {
 
   /**
    * Clears all items from the cart and resets the order information map.
+   * Also clears the data from localStorage.
    */
   const clearCart = () => {
     setCartItems([]); // Reset items to an empty array
     setOrderInfoMap({}); // Reset order info to an empty object
+    // Clear localStorage as well
+    localStorage.removeItem('cartItems');
+    localStorage.removeItem('orderInfoMap');
   };
 
   /**

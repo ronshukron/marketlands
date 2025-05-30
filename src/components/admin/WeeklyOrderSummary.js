@@ -40,7 +40,7 @@ const WeeklyOrderSummary = () => {
       // Calculate date range for the past week
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 5);
+      startDate.setDate(startDate.getDate() - 4);
       
       setDateRange({
         start: format(startDate, 'dd/MM/yyyy'),
@@ -288,9 +288,9 @@ const WeeklyOrderSummary = () => {
         pageContent.rows.forEach(row => {
           if (row.type === 'row') {
             htmlContent += `
-              <tr style="border-bottom: 1px solid #e5e7eb;">
-                <td style="padding: 3px; font-size: 16px; font-weight: bold; vertical-align: top; width: 22%;">${row.name}</td>
-                <td style="padding: 3px; font-size: 14px;">${row.items}</td>
+              <tr style="border-bottom: 2px solid #666666;">
+                <td style="padding: 4px 3px; font-size: 16px; font-weight: bold; vertical-align: top; width: 22%;">${row.name}</td>
+                <td style="padding: 4px 3px; font-size: 14px;">${row.items}</td>
               </tr>
             `;
           }
