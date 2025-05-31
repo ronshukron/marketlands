@@ -1,11 +1,31 @@
-// A list of pickup locations that can be managed manually
-const pickupSpots = [
-  "ניצנים",
-  "מרכז שפירא",
-  "קיבוץ גת",
-  "כוכב מיכאל",
-  "אור הנר",
-];
+// A list of pickup locations with their delivery options
+const pickupSpotsData = {
+  "ניצנים": {
+    name: "ניצנים",
+    options: ["pickup"],
+    deliveryFee: 20, // Fee for home delivery if applicable
+  },
+  "מרכז שפירא": {
+    name: "מרכז שפירא",
+    options: ["boxCollection"], // Only regular pickup available
+  },
+  "קיבוץ גת": {
+    name: "קיבוץ גת",
+    options: ["pickup"], // Pickup and box collection available
+  },
+  "כוכב מיכאל": {
+    name: "כוכב מיכאל",
+    options: ["pickup"],
+    deliveryFee: 25,
+  },
+  "אור הנר": {
+    name: "אור הנר",
+    options: ["pickup"],
+  },
+};
+
+// For backwards compatibility and simple listing
+const pickupSpots = Object.keys(pickupSpotsData);
 
 // Optional - group pickup spots by region if that's helpful for organization
 const pickupSpotsByRegion = {
@@ -15,4 +35,4 @@ const pickupSpotsByRegion = {
   "אשקלון אשדוד": ["ניצנים", "מרכז שפירא", "קיבוץ גת", "כוכב מיכאל", "אור הנר"],
 };
 
-export { pickupSpots, pickupSpotsByRegion }; 
+export { pickupSpots, pickupSpotsByRegion, pickupSpotsData }; 

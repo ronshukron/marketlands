@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from '../firebase/firebase';
+import { useCart } from '../contexts/CartContext';
 import './PaymentSuccess.css';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -10,45 +11,13 @@ const PaymentSuccess = () => {
     const location = useLocation();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const { clearCart } = useCart();
 
-    // useEffect(() => {
-    //     // Parse query parameters
-    //     const queryParams = new URLSearchParams(location.search);
-    //     const response = queryParams.get('response');
-    //     const customerOrderId = queryParams.get('cField1');
-    //     const orderIdsParam = queryParams.get('cField2');
-        
-    //     const updateOrderStatus = async () => {
-    //         if (response === 'success' && customerOrderId) {
-    //             try {
-    //                 // Get the customer order
-    //                 const customerOrderRef = doc(db, "customerOrders", customerOrderId);
-    //                 const customerOrderSnap = await getDoc(customerOrderRef);
-                    
-    //                 if (customerOrderSnap.exists()) {
-    //                     // Update the customer order status
-    //                     await updateDoc(customerOrderRef, {
-    //                         status: 'completed',
-    //                         paymentStatus: 'completed'
-    //                     });
-    //                 } else {
-    //                     throw new Error('Order not found');
-    //                 }
-                    
-    //                 setLoading(false);
-    //             } catch (error) {
-    //                 console.error('Error updating order status:', error);
-    //                 setError('חלה שגיאה בעדכון סטטוס ההזמנה. אנא צור קשר עם שירות הלקוחות.');
-    //                 setLoading(false);
-    //             }
-    //         } else {
-    //             setError('סטטוס התשלום אינו תקין. אנא צור קשר עם שירות הלקוחות.');
-    //             setLoading(false);
-    //         }
-    //     };
-        
-    //     updateOrderStatus();
-    // }, [location]);
+    useEffect(() => {
+        // Clear the cart when component mounts
+        clearCart();
+        setLoading(false);
+    }, [clearCart]);
 
     const handleBackToHome = () => {
         navigate('/');

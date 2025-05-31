@@ -9,7 +9,7 @@ import LoadingSpinnerPayment from './LoadingSpinnerPayment';
 import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
-import { pickupSpots } from '../data/pickupSpots';
+import { pickupSpots, pickupSpotsData } from '../data/pickupSpots';
 
 const OrderConfirmation = () => {
     const location = useLocation();
@@ -26,7 +26,9 @@ const OrderConfirmation = () => {
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [userAddress, setUserAddress] = useState(''); 
     const [requestAddress, setRequestAddress] = useState(false); 
-    const [selectedPickupSpot, setSelectedPickupSpot] = useState('');
+    const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
+        return localStorage.getItem('selectedPickupSpot') || '';
+    });
     const { userLoggedIn, currentUser } = useAuth();
 
     // Get pickup spots from the order
@@ -34,6 +36,48 @@ const OrderConfirmation = () => {
 
     // Add a new state to track which pickup spots are available for each business order
     const [businessPickupSpots, setBusinessPickupSpots] = useState({});
+    
+    // Get the selected pickup spot's data
+    const selectedSpotData = selectedPickupSpot ? pickupSpotsData[selectedPickupSpot] : null;
+
+    const [deliveryOption, setDeliveryOption] = useState(() => {
+        // If selectedSpotData exists and only has boxCollection option, default to it
+        if (selectedSpotData && 
+            selectedSpotData.options.length === 1 && 
+            selectedSpotData.options[0] === 'boxCollection') {
+            return 'boxCollection';
+        }
+        // Otherwise default to pickup
+        return 'pickup';
+    });
+
+    // Add this useEffect to update deliveryOption when pickup spot changes
+    useEffect(() => {
+        if (selectedSpotData && 
+            selectedSpotData.options.length === 1 && 
+            selectedSpotData.options[0] === 'boxCollection') {
+            setDeliveryOption('boxCollection');
+        } else {
+            setDeliveryOption('pickup');
+        }
+    }, [selectedPickupSpot, selectedSpotData]);
+
+
+    // Add this near your other state declarations
+    const [totalWithDelivery, setTotalWithDelivery] = useState(cartTotal);
+
+    // Add this useEffect to update the total when delivery option changes
+    useEffect(() => {
+        let newTotal = cartTotal;
+        if (selectedSpotData) {
+            if (deliveryOption === 'homeDelivery') {
+                newTotal += selectedSpotData.deliveryFee || 0;
+            } else if (deliveryOption === 'boxCollection') {
+                newTotal += 15; // Fixed fee for box collection
+            }
+        }
+        setTotalWithDelivery(newTotal);
+    }, [deliveryOption, selectedSpotData, cartTotal]);
 
     // Move the updateOrdersWithReference function to component level so it can be used everywhere
     const updateOrdersWithReference = async (orderIds, customerOrderDocId) => {
@@ -141,7 +185,8 @@ const OrderConfirmation = () => {
 
     // Then define the validatePickupSpotCompatibility function
     const validatePickupSpotCompatibility = () => {
-        if (!selectedPickupSpot) return true; // No selection made yet
+        // If no selection made yet or if "הכל" is selected, skip validation
+        if (!selectedPickupSpot || selectedPickupSpot === "הכל") return true;
         
         const incompatibleItems = [];
         
@@ -153,9 +198,6 @@ const OrderConfirmation = () => {
             if (!businessSpots.includes(selectedPickupSpot)) {
                 // Add items from this business to the incompatible list
                 orderData.items.forEach(item => {
-                    // Debugging to see actual item structure
-                    console.log("Item being checked:", item);
-                    
                     incompatibleItems.push({
                         name: item.name || item.productName || item.title || "Unknown Item",
                         businessName: item.businessName || "Unknown Business"
@@ -166,9 +208,6 @@ const OrderConfirmation = () => {
         
         // If we found incompatible items, show an error
         if (incompatibleItems.length > 0) {
-            // Debug the list before displaying
-            console.log("Incompatible items:", incompatibleItems);
-            
             const itemsList = incompatibleItems.map(item => 
                 `${item.name} (${item.businessName})`
             ).join('\n');
@@ -293,11 +332,18 @@ const OrderConfirmation = () => {
                 email: userEmail,
                 address: userAddress,
                 pickupSpot: selectedPickupSpot,
+                deliveryOption,
+                deliveryDetails: {
+                    type: deliveryOption,
+                    boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
+                    deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 
+                                 deliveryOption === 'boxCollection' ? 15 : 0,
+                }
             },
             businessIds: businessIds,
                 createdAt: new Date().toISOString(),
             paymentStatus: 'pending_payment',
-            grandTotal: cartTotal,
+            grandTotal: totalWithDelivery,
             // If user is logged in, store their ID
             userId: currentUser?.uid || null
         });
@@ -324,7 +370,7 @@ const OrderConfirmation = () => {
         try {
             // Call to create Bit payment - pass all orderIds
             const paymentData = {
-                amount: cartTotal,
+                amount: totalWithDelivery,
                 userName,
                 userPhone,
                 userEmail,
@@ -469,6 +515,12 @@ const OrderConfirmation = () => {
                     email: userEmail,
                     address: userAddress,
                     pickupSpot: selectedPickupSpot,
+                    deliveryOption,
+                    deliveryDetails: {
+                        type: deliveryOption,
+                        boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
+                        deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 0,
+                    }
                 },
                 businessIds: businessIds,
                 createdAt: new Date().toISOString(),
@@ -783,13 +835,117 @@ const OrderConfirmation = () => {
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                         required
                                     >
-                                        <option value="" disabled>בחר נקודת איסוף</option>
-                                        {availablePickupSpots.map((spot) => (
+                                        <option value="">בחר נקודת איסוף</option>
+                                        {pickupSpots.map((spot) => (
                                             <option key={spot} value={spot}>
                                                 {spot}
                                             </option>
                                         ))}
                                     </select>
+                                </div>
+                            )}
+                            
+                            {selectedSpotData && selectedSpotData.options.length >= 1 && selectedSpotData.options.includes('boxCollection') && (
+                                <div className="form-group md:col-span-2 bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+                                    <h3 className="text-lg font-medium text-gray-900 mb-4">
+                                        אפשרויות איסוף
+                                    </h3>
+                                    <div className="space-y-6">
+                                        {selectedSpotData.options.includes('pickup') && (
+                                            <div className="relative flex items-start p-4 rounded-lg border border-transparent hover:border-gray-200 transition-colors">
+                                                <div className="flex items-center h-5">
+                                                    <input
+                                                        type="radio"
+                                                        id="pickup"
+                                                        name="deliveryOption"
+                                                        value="pickup"
+                                                        checked={deliveryOption === 'pickup'}
+                                                        onChange={(e) => setDeliveryOption(e.target.value)}
+                                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                                    />
+                                                </div>
+                                                <div className="mr-3 flex-grow">
+                                                    <label htmlFor="pickup" className="font-medium text-gray-900">איסוף עצמי</label>
+                                                    <p className="text-gray-500 text-sm">איסוף מנקודת האיסוף {selectedPickupSpot}</p>
+                                                </div>
+                                                <div className="text-green-600 font-medium">חינם</div>
+                                            </div>
+                                        )}
+                                        
+                                        {selectedSpotData.options.includes('homeDelivery') && (
+                                            <div className="relative flex items-start p-4 rounded-lg border border-transparent hover:border-gray-200 transition-colors">
+                                                <div className="flex items-center h-5">
+                                                    <input
+                                                        type="radio"
+                                                        id="homeDelivery"
+                                                        name="deliveryOption"
+                                                        value="homeDelivery"
+                                                        checked={deliveryOption === 'homeDelivery'}
+                                                        onChange={(e) => setDeliveryOption(e.target.value)}
+                                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                                    />
+                                                </div>
+                                                <div className="mr-3 flex-grow">
+                                                    <label htmlFor="homeDelivery" className="font-medium text-gray-900">משלוח עד הבית</label>
+                                                    <p className="text-gray-500 text-sm">משלוח לכתובת שתבחרו באזור {selectedPickupSpot}</p>
+                                                </div>
+                                                <div className="text-gray-900 font-medium">{selectedSpotData.deliveryFee} ₪</div>
+                                            </div>
+                                        )}
+                                        
+                                        {selectedSpotData.options.includes('boxCollection') && (
+                                            <div className="relative flex flex-col p-4 rounded-lg border border-transparent hover:border-gray-200 transition-colors">
+                                                <div className="flex items-start">
+                                                    <div className="flex items-center h-5">
+                                                        <input
+                                                            type="radio"
+                                                            id="boxCollection"
+                                                            name="deliveryOption"
+                                                            value="boxCollection"
+                                                            checked={deliveryOption === 'boxCollection'}
+                                                            onChange={(e) => setDeliveryOption(e.target.value)}
+                                                            className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                                        />
+                                                    </div>
+                                                    <div className="mr-3 flex-grow">
+                                                        <label htmlFor="boxCollection" className="font-medium text-gray-900">איסוף מארגז שמור</label>
+                                                        <p className="text-gray-500 text-sm">ההזמנה תחכה לך בארגז שמור בנקודת האיסוף</p>
+                                                    </div>
+                                                    <div className="text-gray-900 font-medium">15 ₪</div>
+                                                </div>
+                                                
+                                                {/* {deliveryOption === 'boxCollection' && (
+                                                    <div className="mt-3 mr-7">
+                                                        <input
+                                                            type="text"
+                                                            value={boxCollectionName}
+                                                            onChange={(e) => setBoxCollectionName(e.target.value)}
+                                                            placeholder="שם על הארגז"
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-right"
+                                                            required
+                                                        />
+                                                    </div>
+                                                )} */}
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {deliveryOption !== 'pickup' && (
+                                        <div className="mt-4 pt-4 border-t border-gray-200">
+                                            <div className="flex justify-between text-sm">
+                                                <span className="text-gray-600">סכום ההזמנה:</span>
+                                                <span className="font-medium">{cartTotal} ₪</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm mt-2">
+                                                <span className="text-gray-600">דמי משלוח:</span>
+                                                <span className="font-medium">{totalWithDelivery - cartTotal} ₪</span>
+                                            </div>
+                                            <div className="flex justify-between text-lg font-medium mt-2 pt-2 border-t border-gray-200">
+                                                <span>סה"כ לתשלום:</span>
+                                                <span>{totalWithDelivery} ₪</span>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             
@@ -802,7 +958,7 @@ const OrderConfirmation = () => {
                                 id="userAddress"
                                 type="text"
                                 placeholder="כתובת מלאה"
-                                value={userAddress}
+                                value={userAddress} 
                                 onChange={(e) => setUserAddress(e.target.value)}
                                 required
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
