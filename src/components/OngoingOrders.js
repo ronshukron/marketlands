@@ -1,6 +1,6 @@
 // src/components/OngoingOrders.js
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   collection,
   query,
@@ -19,14 +19,25 @@ import { pickupSpots } from '../data/pickupSpots';
 
 const OngoingOrders = () => {
   const [orders, setOrders] = useState([]);
-  const [filteredOrders, setFilteredOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPickupSpot, setSelectedPickupSpot] = useState("הכל");
   const [specialOrders, setSpecialOrders] = useState([]);
+  const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
+    // Load from localStorage on first render
+    return localStorage.getItem('selectedPickupSpot') || '';
+  });
   const navigate = useNavigate();
   
   // Add search functionality
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Save to localStorage whenever selectedPickupSpot changes
+  useEffect(() => {
+    if (selectedPickupSpot) {
+      localStorage.setItem('selectedPickupSpot', selectedPickupSpot);
+    } else {
+      localStorage.removeItem('selectedPickupSpot');
+    }
+  }, [selectedPickupSpot]);
 
   useEffect(() => {
     fetchOngoingOrders();
@@ -174,7 +185,7 @@ const OngoingOrders = () => {
 
   const filterOrdersByPickupSpot = () => {
     if (selectedPickupSpot === "הכל") {
-      setFilteredOrders([...orders, ...specialOrders]);
+    console.log("selectedPickupSpot is all")
     } else {
       const filtered = [
         ...orders.filter((order) => {
@@ -195,7 +206,7 @@ const OngoingOrders = () => {
           return false;
         })
       ];
-      setFilteredOrders(filtered);
+      
     }
   };
 
@@ -213,7 +224,7 @@ const OngoingOrders = () => {
                businessName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                kind.toLowerCase().includes(searchTerm.toLowerCase());
       });
-      setFilteredOrders(searchResults);
+      
     }
   }, [searchTerm, selectedPickupSpot, orders]);
 
@@ -279,6 +290,20 @@ const OngoingOrders = () => {
       navigate(order.type === 'farmer' ? `/order-form/${order.id}` : `/order-form-business/${order.id}`);
     }
   };
+
+  // Add filtering logic when fetching or displaying orders
+  const filteredOrders = useMemo(() => {
+    // If no pickup spot is selected (empty string) OR "הכל" (All) is selected, return all orders.
+    if (!selectedPickupSpot || selectedPickupSpot === "הכל") {
+      return orders; 
+    }
+    
+    // Otherwise, filter orders based on the specific pickup spot
+    return orders.filter(order => {
+      // Assuming orders have a pickupSpots array or pickupSpots field
+      return order.pickupSpots && order.pickupSpots.includes(selectedPickupSpot);
+    });
+  }, [orders, selectedPickupSpot]);
 
   return (
     <div className="bg-white" dir="rtl">

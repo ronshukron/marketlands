@@ -50,66 +50,69 @@ import PrivateRoute from './components/PrivateRoute';
 import './components/Accessibility.css';
 import AdminRefundRequests from './components/admin/AdminRefundRequests';
 import DeliveryManagement from './components/admin/DeliveryManagement';
+import { PickupSpotProvider } from './contexts/PickupSpotContext';
 
 const App = () => {
   return (
     <AuthProvider>
       <CartProvider>
-        <Router>
-          <ScrollToTop />
-          <div className="App min-h-screen flex flex-col">
-            <Menu />
-            <main className="flex-grow">
-              <Routes>
-                <Route path="/landing" element={<LandingPage />} />
-                <Route path="/" element={<Home />} />
-                <Route path="/producers" element={<Producers />} />
-                <Route path="/coordinators" element={<CommunityCoordinators />} />
-                <Route path="/coordinators/:coordinatorId" element={<CommunityCoordinatorDetails />} />
-                <Route path="/producers/:producerId" element={<ProducerDetails />} />
-                <Route path="/create-order" element={<CreateOrder />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/user-register" element={<UserRegister />} />
-                <Route path="/coordinator-register" element={<CoordinatorRegister />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/order-form/:orderId" element={<OrderForm />} />
-                <Route path="/order-summary/:orderId" element={<OrderSummary />} />
-                <Route path="/order-confirmation" element={<OrderConfirmation />} />
-                <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
-                <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
-                <Route path="/contact" element={<Contact />} />
-                <Route path="/payment-cancel" element={<PaymentCancel />} />
-                <Route path="/payment-cancel/*" element={<PaymentCancel />} />
-                <Route path="/payment-success" element={<PaymentSuccess />} />
-                <Route path="/payment-success/*" element={<PaymentSuccess />} />    
-                <Route path="/terms-of-service" element={<TermsOfService />} />  
-                <Route path="/my-orders" element={<MyOrders />} />
-                <Route path="/ongoing-orders" element={<OngoingOrders />} />
-                <Route path="/business-register" element={<BusinessRegister />} />
-                <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
-                <Route path="/Business-Products" element={<BusinessProducts />} />
-                <Route path="/add-product" element={<AddProduct />} />
-                <Route path="/edit-product/:productId" element={<EditProduct />} />
-                <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
-                <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
-                <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
-                <Route path="/order-confirmation-free" element={<OrderConfirmationFree />} />
-                <Route path="/payment-instructions" element={<PaymentInstructions />} />
-                <Route path="/store/:businessId" element={<MyStore />} />
-                <Route path="/product/:productId" element={<ProductDetail />} />
-                <Route path="/ongoing-order-coordinators" element={<OnGoingOrderCoordinators />} />
-                <Route path="/external-order/:orderId" element={<ExternalOrderDetail />} />
-                <Route path="/coordinator-landing" element={<CoordinatorLandingPage />} />
-                <Route path="/accessibility" element={<AccessibilityStatement />} />
-                <Route path="/admin/weekly-summary" element={<WeeklyOrderSummary />} />
-                <Route path="/admin/refunds" element={<AdminRefundRequests />} />
-                <Route path="/admin/delivery" element={<DeliveryManagement />} />
-              </Routes>
-            </main>
-            <Footer />
-            <AccessibilityButton />
-          </div>
-        </Router>
+        <PickupSpotProvider>
+          <Router>
+            <ScrollToTop />
+            <div className="App min-h-screen flex flex-col">
+              <Menu />
+              <main className="flex-grow">
+                <Routes>
+                  <Route path="/landing" element={<LandingPage />} />
+                  <Route path="/" element={<Home />} />
+                  <Route path="/producers" element={<Producers />} />
+                  <Route path="/coordinators" element={<CommunityCoordinators />} />
+                  <Route path="/coordinators/:coordinatorId" element={<CommunityCoordinatorDetails />} />
+                  <Route path="/producers/:producerId" element={<ProducerDetails />} />
+                  <Route path="/create-order" element={<CreateOrder />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/user-register" element={<UserRegister />} />
+                  <Route path="/coordinator-register" element={<CoordinatorRegister />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/order-form/:orderId" element={<OrderForm />} />
+                  <Route path="/order-summary/:orderId" element={<OrderSummary />} />
+                  <Route path="/order-confirmation" element={<OrderConfirmation />} />
+                  <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
+                  <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
+                  <Route path="/contact" element={<Contact />} />
+                  <Route path="/payment-cancel" element={<PaymentCancel />} />
+                  <Route path="/payment-cancel/*" element={<PaymentCancel />} />
+                  <Route path="/payment-success" element={<PaymentSuccess />} />
+                  <Route path="/payment-success/*" element={<PaymentSuccess />} />    
+                  <Route path="/terms-of-service" element={<TermsOfService />} />  
+                  <Route path="/my-orders" element={<MyOrders />} />
+                  <Route path="/ongoing-orders" element={<OngoingOrders />} />
+                  <Route path="/business-register" element={<BusinessRegister />} />
+                  <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
+                  <Route path="/Business-Products" element={<BusinessProducts />} />
+                  <Route path="/add-product" element={<AddProduct />} />
+                  <Route path="/edit-product/:productId" element={<EditProduct />} />
+                  <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
+                  <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
+                  <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
+                  <Route path="/order-confirmation-free" element={<OrderConfirmationFree />} />
+                  <Route path="/payment-instructions" element={<PaymentInstructions />} />
+                  <Route path="/store/:businessId" element={<MyStore />} />
+                  <Route path="/product/:productId" element={<ProductDetail />} />
+                  <Route path="/ongoing-order-coordinators" element={<OnGoingOrderCoordinators />} />
+                  <Route path="/external-order/:orderId" element={<ExternalOrderDetail />} />
+                  <Route path="/coordinator-landing" element={<CoordinatorLandingPage />} />
+                  <Route path="/accessibility" element={<AccessibilityStatement />} />
+                  <Route path="/admin/weekly-summary" element={<WeeklyOrderSummary />} />
+                  <Route path="/admin/refunds" element={<AdminRefundRequests />} />
+                  <Route path="/admin/delivery" element={<DeliveryManagement />} />
+                </Routes>
+              </main>
+              <Footer />
+              <AccessibilityButton />
+            </div>
+          </Router>
+        </PickupSpotProvider>
       </CartProvider>
     </AuthProvider>
   );

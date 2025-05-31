@@ -3,6 +3,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/authContext';
+import { usePickupSpot } from '../contexts/PickupSpotContext';
+import { pickupSpots } from '../data/pickupSpots';
 import './Home.css';
 import OngoingOrders from './OngoingOrders';
 
