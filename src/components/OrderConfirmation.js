@@ -26,6 +26,7 @@ const OrderConfirmation = () => {
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [userAddress, setUserAddress] = useState(''); 
     const [requestAddress, setRequestAddress] = useState(false); 
+    const [userDirections, setUserDirections] = useState('');
     const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
         return localStorage.getItem('selectedPickupSpot') || '';
     });
@@ -41,6 +42,10 @@ const OrderConfirmation = () => {
     const selectedSpotData = selectedPickupSpot ? pickupSpotsData[selectedPickupSpot] : null;
 
     const [deliveryOption, setDeliveryOption] = useState(() => {
+        // If selectedSpotData exists and has homeDelivery option, default to it
+        if (selectedSpotData && selectedSpotData.options.includes('homeDelivery')) {
+            return 'homeDelivery';
+        }
         // If selectedSpotData exists and only has boxCollection option, default to it
         if (selectedSpotData && 
             selectedSpotData.options.length === 1 && 
@@ -53,7 +58,10 @@ const OrderConfirmation = () => {
 
     // Add this useEffect to update deliveryOption when pickup spot changes
     useEffect(() => {
-        if (selectedSpotData && 
+        // Prioritize homeDelivery if available
+        if (selectedSpotData && selectedSpotData.options.includes('homeDelivery')) {
+            setDeliveryOption('homeDelivery');
+        } else if (selectedSpotData && 
             selectedSpotData.options.length === 1 && 
             selectedSpotData.options[0] === 'boxCollection') {
             setDeliveryOption('boxCollection');
@@ -70,10 +78,10 @@ const OrderConfirmation = () => {
     useEffect(() => {
         let newTotal = cartTotal;
         if (selectedSpotData) {
-            if (deliveryOption === 'homeDelivery') {
+            if (deliveryOption === 'boxCollection') {
                 newTotal += selectedSpotData.deliveryFee || 0;
-            } else if (deliveryOption === 'boxCollection') {
-                newTotal += 15; // Fixed fee for box collection
+            } else if (deliveryOption === 'homeDelivery') {
+                newTotal += 25; // Fixed fee for box collection
             }
         }
         setTotalWithDelivery(newTotal);
@@ -161,9 +169,10 @@ const OrderConfirmation = () => {
                         userEmail.trim() !== '' &&
                         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
                         (!requestAddress || userAddress.trim() !== '') &&
+                        (deliveryOption !== 'homeDelivery' || userAddress.trim() !== '') &&
                         (availablePickupSpots.length === 0 || selectedPickupSpot !== ''); 
         setFormIsValid(isValid);
-    }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots]);
+    }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots, deliveryOption]);
 
     useEffect(() => {
         // Check if any order requires an address
@@ -331,13 +340,14 @@ const OrderConfirmation = () => {
                 phone: userPhone,
                 email: userEmail,
                 address: userAddress,
+                directions: userDirections,
                 pickupSpot: selectedPickupSpot,
                 deliveryOption,
                 deliveryDetails: {
                     type: deliveryOption,
                     boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
                     deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 
-                                 deliveryOption === 'boxCollection' ? 15 : 0,
+                                 deliveryOption === 'boxCollection' ? 25 : 0,
                 }
             },
             businessIds: businessIds,
@@ -514,6 +524,7 @@ const OrderConfirmation = () => {
                     phone: userPhone,
                     email: userEmail,
                     address: userAddress,
+                    directions: userDirections,
                     pickupSpot: selectedPickupSpot,
                     deliveryOption,
                     deliveryDetails: {
@@ -845,7 +856,7 @@ const OrderConfirmation = () => {
                                 </div>
                             )}
                             
-                            {selectedSpotData && selectedSpotData.options.length >= 1 && selectedSpotData.options.includes('boxCollection') && (
+                            {selectedSpotData && selectedSpotData.options.length >= 1 && selectedSpotData.options.includes('homeDelivery') && (
                                 <div className="form-group md:col-span-2 bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                                     <h3 className="text-lg font-medium text-gray-900 mb-4">
                                         אפשרויות איסוף
@@ -911,7 +922,7 @@ const OrderConfirmation = () => {
                                                         <label htmlFor="boxCollection" className="font-medium text-gray-900">איסוף מארגז שמור</label>
                                                         <p className="text-gray-500 text-sm">ההזמנה תחכה לך בארגז שמור בנקודת האיסוף</p>
                                                     </div>
-                                                    <div className="text-gray-900 font-medium">15 ₪</div>
+                                                    <div className="text-gray-900 font-medium">25 ₪</div>
                                                 </div>
                                                 
                                                 {/* {deliveryOption === 'boxCollection' && (
@@ -965,7 +976,40 @@ const OrderConfirmation = () => {
                             />
                         </div>
                     )}
-            </div>
+
+                    {/* Add address and directions fields when homeDelivery is selected */}
+                    {deliveryOption === 'homeDelivery' && (
+                        <>
+                            <div className="form-group md:col-span-2">
+                                <label htmlFor="homeDeliveryAddress" className="block text-sm font-medium text-gray-700 mb-1">
+                                    כתובת למשלוח <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    id="homeDeliveryAddress"
+                                    type="text"
+                                    placeholder="כתובת מלאה למשלוח"
+                                    value={userAddress} 
+                                    onChange={(e) => setUserAddress(e.target.value)}
+                                    required
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                            <div className="form-group md:col-span-2">
+                                <label htmlFor="deliveryDirections" className="block text-sm font-medium text-gray-700 mb-1">
+                                    הנחיות למשלוח (אופציונלי)
+                                </label>
+                                <textarea
+                                    id="deliveryDirections"
+                                    placeholder="הנחיות נוספות למשלוח - למשל: קומה, דירה, הנחיות חניה וכו'"
+                                    value={userDirections}
+                                    onChange={(e) => setUserDirections(e.target.value)}
+                                    rows={3}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                        </>
+                    )}
+                </div>
 
                         <div className="flex items-center mb-6">
                             <input

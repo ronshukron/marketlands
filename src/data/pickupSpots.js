@@ -7,7 +7,8 @@ const pickupSpotsData = {
   },
   "מרכז שפירא": {
     name: "מרכז שפירא",
-    options: ["boxCollection"], // Only regular pickup available
+    options: ["homeDelivery"], // Only regular pickup available
+    deliveryFee: 25,
   },
   "קיבוץ גת": {
     name: "קיבוץ גת",
@@ -22,6 +23,16 @@ const pickupSpotsData = {
     name: "אור הנר",
     options: ["pickup"],
   },
+  "נגבה": {
+    name: "נגבה",
+    options: ["pickup"],
+    deliveryFee: 30,
+  },
+  "תלמי יפה": {
+    name: "תלמי יפה",
+    options: ["pickup"],
+    deliveryFee: 30,
+  },
 };
 
 // For backwards compatibility and simple listing
@@ -32,7 +43,7 @@ const pickupSpotsByRegion = {
   "צפון": ["מרכז המושב צפון", "בית העם צפון", "תחנת הדלק צפון"],
   "מרכז": ["מרכז המושב מרכז", "בית העם מרכז", "תחנת הדלק מרכז"],
   "דרום": ["מרכז המושב דרום", "בית העם דרום", "תחנת הדלק דרום"],
-  "אשקלון אשדוד": ["ניצנים", "מרכז שפירא", "קיבוץ גת", "כוכב מיכאל", "אור הנר"],
+  "אשקלון אשדוד": ["ניצנים", "מרכז שפירא", "קיבוץ גת", "כוכב מיכאל", "אור הנר", "נגבה"],
 };
 
 export { pickupSpots, pickupSpotsByRegion, pickupSpotsData }; 

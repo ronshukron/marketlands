@@ -148,12 +148,14 @@ const Cart = ({ isOpen, onClose }) => {
               <span className="text-sm font-medium text-gray-800">סה"כ לתשלום:</span>
               <span className="text-sm font-semibold text-blue-600">₪{cartTotal.toFixed(2)}</span>
             </div>
-            <button
-              onClick={handleCheckout}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-md text-sm font-medium transition-colors shadow-sm"
-            >
-              לסיכום הזמנה
-            </button>
+            <div className="mt-6 pb-20 md:pb-6">
+              <button
+                onClick={handleCheckout}
+                className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+              >
+                לתשלום ({cartTotal.toFixed(2)} ₪)
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -37,7 +37,7 @@ const Home = () => {
             ברוכים הבאים לשוק
             </h1>
             <p className="mt-3 max-w-2xl mx-auto text-lg md:text-xl text-blue-50 leading-relaxed">
-            מחברים בין קהילות לחקלאים מקומיים
+            תומכים בחקלאי העוטף\דרום במקום אחד
             </p>
             
             {/* Improved buttons */}
