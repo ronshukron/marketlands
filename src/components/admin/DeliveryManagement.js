@@ -29,7 +29,7 @@ const DeliveryManagement = () => {
       // Calculate date range for the past week
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 5);
+      startDate.setDate(startDate.getDate() - 4);
       
       // Set date range for display
       setDateRange({

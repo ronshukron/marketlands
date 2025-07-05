@@ -28,8 +28,23 @@ const pickupSpotsData = {
     options: ["pickup"],
     deliveryFee: 30,
   },
-  "תלמי יפה": {
-    name: "תלמי יפה",
+  "נחלה": {
+    name: "נחלה",
+    options: ["pickup"],
+    deliveryFee: 30,
+  },
+  "יד מרדכי": {
+    name: "יד מרדכי",
+    options: ["pickup"],
+    deliveryFee: 30,
+  },
+  "שדה יואב": {
+    name: "שדה יואב",
+    options: ["pickup"],
+    deliveryFee: 30,
+  },
+  "כפר מנחם": {
+    name: "כפר מנחם",
     options: ["pickup"],
     deliveryFee: 30,
   },
