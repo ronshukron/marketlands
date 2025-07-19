@@ -209,6 +209,15 @@ export const CartProvider = ({ children }) => {
     });
   };
 
+  /**
+   * Removes an entire order from the cart.
+   * This is an alias for clearOrderItems for better semantic clarity.
+   * @param {string} orderId - The identifier of the order to remove.
+   */
+  const removeOrderFromCart = (orderId) => {
+    clearOrderItems(orderId);
+  };
+
   // Calculate the total monetary value of all items in the cart.
   // useMemo ensures this calculation is only re-run when cartItems changes.
   const cartTotal = useMemo(() => {
@@ -265,6 +274,7 @@ export const CartProvider = ({ children }) => {
     updateQuantity,
     clearCart,
     clearOrderItems,
+    removeOrderFromCart, // Add this line
     cartTotal,
     totalItems,
     itemsByOrder,

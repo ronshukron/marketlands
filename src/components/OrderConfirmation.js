@@ -14,7 +14,7 @@ import { pickupSpots, pickupSpotsData } from '../data/pickupSpots';
 const OrderConfirmation = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { itemsByOrder, cartTotal, clearCart } = useCart();
+    const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart } = useCart();
     
     const [loading, setLoading] = useState(false);
     const [userName, setUserName] = useState('');
@@ -234,6 +234,73 @@ const OrderConfirmation = () => {
         return true;
     };
 
+    // Add this useEffect after the existing useEffects (around line 150)
+    useEffect(() => {
+        const checkExpiredOrders = async () => {
+
+            console.log('wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww');
+            if (Object.keys(itemsByOrder).length === 0) return;
+            
+            const expiredItems = [];
+            const expiredOrderIds = [];
+            
+            // Check each order in the cart
+            for (const [orderId, orderData] of Object.entries(itemsByOrder)) {
+                const orderHasEnded = await checkIfOrderEnded(orderId);
+                console.log('orderHasEnded', orderHasEnded);
+                if (orderHasEnded) {
+                    expiredOrderIds.push(orderId);
+                    // Add all items from this expired order to the expired items list
+                    const businessName = orderData.items[0]?.businessName || "Unknown Business";
+                    orderData.items.forEach(item => {
+                        expiredItems.push({
+                            ...item,
+                            businessName: businessName,
+                            orderId: orderId
+                        });
+                    });
+                }
+            }
+            
+            // If we found expired items, show warning and remove them
+            if (expiredItems.length > 0) {
+                const itemsList = expiredItems.map(item => 
+                    `• ${item.name} (${item.businessName})`
+                ).join('<br>');
+                
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'פריטים מהזמנות שהסתיימו',
+                    html: `הפריטים הבאים בעגלה שלך מגיעים מהזמנות שכבר הסתיימו:<br><br>${itemsList}<br><br>פריטים אלה יוסרו מהעגלה שלך.`,
+                    confirmButtonText: 'הבנתי',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false
+                }).then(() => {
+                    // Remove only the expired orders from cart
+                    expiredOrderIds.forEach(orderId => {
+                        removeOrderFromCart(orderId);
+                    });
+                    
+                    // Check if cart is now empty
+                    const remainingOrders = Object.keys(itemsByOrder).filter(id => !expiredOrderIds.includes(id));
+                    if (remainingOrders.length === 0) {
+                        // Redirect to home if cart is empty
+                        navigate('/', { 
+                            state: { 
+                                message: 'כל הפריטים בעגלה היו מהזמנות שהסתיימו והוסרו' 
+                            } 
+                        });
+                    }
+                });
+            }
+        };
+        
+        checkExpiredOrders();
+    }, [itemsByOrder, navigate, removeOrderFromCart]); // Dependencies
+
+
+
+
     const handleSubmitOrder = async () => {
         if (!formIsValid) {
             setShowPopup(true);
@@ -423,8 +490,8 @@ const OrderConfirmation = () => {
     
             if (docSnap.exists()) {
                 const orderData = docSnap.data();
-                if (orderData.Ending_Time) {
-                    const endingTime = orderData.Ending_Time.toDate();
+                if (orderData.endingTime) {
+                    const endingTime = orderData.endingTime.toDate();
                     const currentTime = new Date();
                     if (currentTime >= endingTime) {
                         return true; // Order has ended
@@ -715,6 +782,7 @@ const OrderConfirmation = () => {
             };
         }
     };
+
 
     return (
         <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
