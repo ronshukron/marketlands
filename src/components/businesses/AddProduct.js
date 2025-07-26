@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import './AddProduct.css';
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
+import axios from 'axios'; // Add this import at the top
 
 
 const AddProduct = () => {
@@ -131,7 +132,21 @@ const AddProduct = () => {
       // If no options are provided, add a default option
       const productOptions = options.length > 0 ? options : ["ללא אופציות"];
 
-      // Create the product in Firestore
+
+            // Call the backend function to create the product with catalog number
+      // Prod Environment
+      const response = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/returnCatalogNumber', {
+        // Test Environment  
+        // const response = await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/returnCatalogNumber', {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+  
+        if (response.data.success) {
+          setLoading(false);}
+
+      // Prepare the product data for the backend
       const productData = {
         name: productName,
         price: parseFloat(price),
@@ -142,6 +157,7 @@ const AddProduct = () => {
         Owner_ID: currentUser.uid,
         Owner_Email: currentUser.email,
         createdAt: new Date(),
+        catalogNumber: response.data.catalogNumber,
       };
 
       await addDoc(collection(db, 'Products'), productData);

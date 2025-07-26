@@ -457,14 +457,35 @@ const OrderConfirmation = () => {
                 customerOrderId, // Include the temporary order ID
                 orderIds: orderIds, // Send all orderIds instead of just one
             };
+
+            // Add product data for each item in the cart
+            let productIndex = 0;
+            Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+                orderData.items.forEach(item => {
+                    if (item.quantity > 0) {
+                        paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
+                        paymentData[`productData[${productIndex}][quantity]`] = item.quantity;
+                        paymentData[`productData[${productIndex}][price]`] = item.quantity * item.price;
+                        paymentData[`productData[${productIndex}][itemDescription]`] = item.name || item.productName || 'Unknown Item';
+                        paymentData[`productData[${productIndex}][vatType]`] = 3;
+                        productIndex++;
+                    }
+                });
+            });
     
             console.log("Sending payment data:", paymentData);
-    
+            // Prod Environment
             const paymentResponse = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/createBitPayment', paymentData, {
                 headers: {
                     'Content-Type': 'application/json'
                 }
             });
+                // Test Environment
+            // const paymentResponse = await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/createBitPayment', paymentData, {
+            //     headers: {
+            //         'Content-Type': 'application/json'
+            //     }
+            // });
     
             if (paymentResponse.data.paymentLink) {
                 window.location.href = paymentResponse.data.paymentLink;
@@ -756,7 +777,10 @@ const OrderConfirmation = () => {
     const checkAndUpdateStock = async (orderItems) => {
         try {
             // Call the backend function instead of performing the transaction in the frontend
+            // Prod Environment
             const response = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock', {
+            // Test Environment
+            // const response = await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock', {
                 orderItems
             }, {
                 headers: {

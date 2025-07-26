@@ -161,7 +161,8 @@ const OrderFormBusiness = () => {
       images: product.images || [],
       businessId: product.Owner_ID,
       businessName: businessInfo.name,
-      stockAmount: product.stockAmount // Include the stock amount in the cart item
+      stockAmount: product.stockAmount,
+      catalogNumber: product.catalogNumber 
     };
     console.log('productToAdd', productToAdd);
     // Add to global cart only
