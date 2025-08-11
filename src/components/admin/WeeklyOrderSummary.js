@@ -8,6 +8,19 @@ import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
+// Helper to identify the "basic products" vendor
+const BASIC_VENDOR_NAME_SUBSTRINGS = ['basic', 'basic products', 'מוצרים בסיסיים', 'בסיס',"הבסקט של בסטה"];
+const BASIC_VENDOR_IDS = []; // optionally add known businessId(s) here for exact matching
+const BASIC_CRATE_LABEL = 'ארגז עם שמי';
+const isBasicVendor = (businessOrder) => {
+  const name = businessOrder?.businessName;
+  const id = businessOrder?.businessId;
+  if (id && BASIC_VENDOR_IDS.includes(id)) return true;
+  if (!name) return false;
+  const lower = String(name).toLowerCase();
+  return BASIC_VENDOR_NAME_SUBSTRINGS.some(sub => lower.includes(sub.toLowerCase()));
+};
+
 const WeeklyOrderSummary = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -177,8 +190,38 @@ const WeeklyOrderSummary = () => {
         putOnlyUsedFonts: true
       });
       
+      // First: compute per-customer totals for the basic vendor to know crate eligibility
+      const customerBasicTotals = {}; // { normalizedName: { displayName, totalPrice, totalQty } }
+      orders.forEach(order => {
+        const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
+        const normalizedCustomerName = rawCustomerName.trim();
+        if (!customerBasicTotals[normalizedCustomerName]) {
+          customerBasicTotals[normalizedCustomerName] = {
+            displayName: rawCustomerName,
+            totalPrice: 0,
+            totalQty: 0
+          };
+        }
+        if (order.orderBreakdown) {
+          Object.values(order.orderBreakdown).forEach(businessOrder => {
+            if (isBasicVendor(businessOrder)) {
+              (businessOrder.items || []).forEach(item => {
+                const qty = Number(item.quantity) || 0;
+                const price = Number(item.price) || 0;
+                customerBasicTotals[normalizedCustomerName].totalQty += qty;
+                customerBasicTotals[normalizedCustomerName].totalPrice += price * qty;
+              });
+            }
+          });
+        }
+      });
+      const isCustomerEligibleForCrate = (normalizedName) => {
+        const t = customerBasicTotals[normalizedName];
+        return !!t && (t.totalPrice > 50 || t.totalQty > 7);
+      };
+      
       // Group items by customer, aggregating items if a customer has multiple orders
-      const customerItems = {}; // Stores { normalizedName: { displayName: 'Name', items: [...] } }
+      const customerItems = {}; // Stores { normalizedName: { displayName: 'Name', items: [...], needsCrate: boolean } }
       
       orders.forEach(order => {
         const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
@@ -188,22 +231,37 @@ const WeeklyOrderSummary = () => {
         if (!customerItems[normalizedCustomerName]) {
           customerItems[normalizedCustomerName] = {
             displayName: rawCustomerName, // Use the first encountered name for display
-            items: []
+            items: [],
+            needsCrate: false
           };
         }
         
         // Add items from this order to the customer's aggregated list
         if (order.orderBreakdown) {
           Object.values(order.orderBreakdown).forEach(businessOrder => {
+            const isBasic = isBasicVendor(businessOrder);
+            const eligible = isCustomerEligibleForCrate(normalizedCustomerName);
             (businessOrder.items || []).forEach(item => {
-              customerItems[normalizedCustomerName].items.push({
-                productName: item.productName,
-                quantity: item.quantity,
-                option: item.selectedOption,
-                businessName: businessOrder.businessName // Preserving for potential future use
-              });
+              if (isBasic && eligible) {
+                // Do not list individual basic items; mark to add crate once
+                customerItems[normalizedCustomerName].needsCrate = true;
+              } else {
+                customerItems[normalizedCustomerName].items.push({
+                  productName: item.productName,
+                  quantity: item.quantity,
+                  option: item.selectedOption,
+                  businessName: businessOrder.businessName // Preserving for potential future use
+                });
+              }
             });
           });
+        }
+      });
+      
+      // If a customer needs a crate, add a single crate line once
+      Object.values(customerItems).forEach(cust => {
+        if (cust.needsCrate) {
+          cust.items.push({ isCrate: true, label: BASIC_CRATE_LABEL });
         }
       });
       
@@ -220,6 +278,9 @@ const WeeklyOrderSummary = () => {
 
         // Format all aggregated items in a single line
         const itemsText = aggregatedItemsList.map(item => {
+          if (item.isCrate) {
+            return BASIC_CRATE_LABEL;
+          }
           let text = `${item.quantity}× ${item.productName}`;
           if (item.option && item.option !== 'ללא אופציות' && item.option !== 'None') {
             text += ` (${item.option})`;

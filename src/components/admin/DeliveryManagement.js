@@ -6,11 +6,24 @@ import LoadingSpinner from '../LoadingSpinner';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2']; // Replace with your actual admin UID
 
+// Basic vendor config
+const BASIC_VENDOR_NAME_SUBSTRINGS = ['basic', 'basic products', 'מוצרים בסיסיים', 'בסיס',"הבסקט של בסטה"];
+const BASIC_VENDOR_IDS = []; // optionally add exact IDs
+const isBasicVendor = (businessOrder) => {
+  const name = businessOrder?.businessName;
+  const id = businessOrder?.businessId;
+  if (id && BASIC_VENDOR_IDS.includes(id)) return true;
+  if (!name) return false;
+  const lower = String(name).toLowerCase();
+  return BASIC_VENDOR_NAME_SUBSTRINGS.some(sub => lower.includes(sub.toLowerCase()));
+};
+
 const DeliveryManagement = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pickupSpotItems, setPickupSpotItems] = useState({});
+  const [cratesByPickupSpot, setCratesByPickupSpot] = useState({});
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
   useEffect(() => {
@@ -44,39 +57,82 @@ const DeliveryManagement = () => {
       const ordersRef = collection(db, 'customerOrders');
       const ordersSnapshot = await getDocs(ordersRef);
 
-      // Aggregate items by pickup spot
-      const spotMap = {};
-
+      // Collect valid orders within range and completed
+      const validOrders = [];
       ordersSnapshot.forEach(docSnap => {
         const order = docSnap.data();
         if (!order || order.paymentStatus !== 'completed') return;
-        
-        // Check if order is within the last 7 days
         const createdAt = order.createdAt;
         let createdDate;
-        
         if (typeof createdAt === 'string') {
           createdDate = new Date(createdAt);
         } else if (createdAt && createdAt.toDate) {
           createdDate = createdAt.toDate();
         } else {
-          // Skip if no valid date
           return;
         }
-        
-        // Check if within date range
         const createdDateISO = createdDate.toISOString();
-        if (createdDateISO < startDateISO || createdDateISO > endDateISO) {
-          return; // Skip orders outside the date range
-        }
+        if (createdDateISO < startDateISO || createdDateISO > endDateISO) return;
+        validOrders.push(order);
+      });
 
+      // First pass: compute basic vendor totals per pickup spot per customer
+      const basicTotalsBySpotCustomer = {}; // { [spot]: { [normalizedName]: { displayName, totalQty, totalPrice } } }
+      validOrders.forEach(order => {
         const pickupSpot = order.customerDetails?.pickupSpot || 'לא צוין';
-        if (!spotMap[pickupSpot]) spotMap[pickupSpot] = {};
-
-        // Aggregate items from orderBreakdown
+        const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
+        const normalizedCustomerName = rawCustomerName.trim();
+        if (!basicTotalsBySpotCustomer[pickupSpot]) basicTotalsBySpotCustomer[pickupSpot] = {};
+        if (!basicTotalsBySpotCustomer[pickupSpot][normalizedCustomerName]) {
+          basicTotalsBySpotCustomer[pickupSpot][normalizedCustomerName] = {
+            displayName: rawCustomerName,
+            totalQty: 0,
+            totalPrice: 0
+          };
+        }
         if (order.orderBreakdown) {
           Object.values(order.orderBreakdown).forEach(businessOrder => {
+            if (!isBasicVendor(businessOrder)) return;
             (businessOrder.items || []).forEach(item => {
+              const qty = Number(item.quantity) || 0;
+              const price = Number(item.price) || 0;
+              basicTotalsBySpotCustomer[pickupSpot][normalizedCustomerName].totalQty += qty;
+              basicTotalsBySpotCustomer[pickupSpot][normalizedCustomerName].totalPrice += price * qty;
+            });
+          });
+        }
+      });
+
+      // Determine eligibility per customer per pickup spot
+      const eligibleCustomersBySpot = {}; // { [spot]: Set(normalizedName) }
+      const cratesMap = {}; // { [spot]: Array<{ name, totalQty, totalPrice }> }
+      Object.entries(basicTotalsBySpotCustomer).forEach(([spot, byCustomer]) => {
+        eligibleCustomersBySpot[spot] = new Set();
+        cratesMap[spot] = [];
+        Object.entries(byCustomer).forEach(([normalizedName, totals]) => {
+          if (totals.totalPrice > 50 || totals.totalQty > 7) {
+            eligibleCustomersBySpot[spot].add(normalizedName);
+            cratesMap[spot].push({ name: totals.displayName, totalQty: totals.totalQty, totalPrice: totals.totalPrice });
+          }
+        });
+      });
+
+      // Second pass: aggregate items by pickup spot, deducting basic items for eligible customers
+      const spotMap = {}; // { [spot]: { [key]: { productName, selectedOption, quantity, businessName } } }
+      validOrders.forEach(order => {
+        const pickupSpot = order.customerDetails?.pickupSpot || 'לא צוין';
+        const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
+        const normalizedCustomerName = rawCustomerName.trim();
+        if (!spotMap[pickupSpot]) spotMap[pickupSpot] = {};
+        const isEligible = eligibleCustomersBySpot[pickupSpot]?.has(normalizedCustomerName);
+        if (order.orderBreakdown) {
+          Object.values(order.orderBreakdown).forEach(businessOrder => {
+            const isBasic = isBasicVendor(businessOrder);
+            (businessOrder.items || []).forEach(item => {
+              if (isBasic && isEligible) {
+                // Skip adding these items; they go into the crate
+                return;
+              }
               const key = `${item.productId}_${item.selectedOption || ''}`;
               if (!spotMap[pickupSpot][key]) {
                 spotMap[pickupSpot][key] = {
@@ -86,13 +142,14 @@ const DeliveryManagement = () => {
                   businessName: businessOrder.businessName || 'לא צוין'
                 };
               }
-              spotMap[pickupSpot][key].quantity += item.quantity;
+              spotMap[pickupSpot][key].quantity += Number(item.quantity) || 0;
             });
           });
         }
       });
 
       setPickupSpotItems(spotMap);
+      setCratesByPickupSpot(cratesMap);
     } catch (err) {
       setError("אירעה שגיאה בטעינת נתוני המשלוחים");
       console.error(err);
@@ -133,6 +190,26 @@ const DeliveryManagement = () => {
             <h2 className="text-xl font-semibold mb-4 text-blue-800">
               נקודת איסוף: {pickupSpot}
             </h2>
+
+            {/* Crates section */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-800">ארגזים להכנה</h3>
+                <span className="text-sm text-gray-600">סה"כ: {cratesByPickupSpot[pickupSpot]?.length || 0}</span>
+              </div>
+              {(cratesByPickupSpot[pickupSpot] && cratesByPickupSpot[pickupSpot].length > 0) ? (
+                <ul className="mt-2 list-disc list-inside text-sm text-gray-800">
+                  {cratesByPickupSpot[pickupSpot].map((c, idx) => (
+                    <li key={idx}>
+                      {c.name} — {c.totalQty} פריטים בסיסיים, ₪{c.totalPrice.toFixed(2)}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-sm text-gray-500">אין צורך בארגזים לנקודה זו.</p>
+              )}
+            </div>
+
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
