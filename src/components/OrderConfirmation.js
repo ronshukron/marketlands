@@ -10,11 +10,16 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
 import { pickupSpots, pickupSpotsData } from '../data/pickupSpots';
+// Catalog numbers for shipping line items
+const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
+const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
+// Shipping product id in Firestore
+const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
 
 const OrderConfirmation = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart } = useCart();
+    const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems } = useCart();
     
     const [loading, setLoading] = useState(false);
     const [userName, setUserName] = useState('');
@@ -78,14 +83,59 @@ const OrderConfirmation = () => {
     useEffect(() => {
         let newTotal = cartTotal;
         if (selectedSpotData) {
-            if (deliveryOption === 'boxCollection') {
-                newTotal += selectedSpotData.deliveryFee || 0;
-            } else if (deliveryOption === 'homeDelivery') {
-                newTotal += 25; // Fixed fee for box collection
-            }
+            // boxCollection is free now; do not add any fee
+            // homeDelivery shipping is a product in cart
         }
         setTotalWithDelivery(newTotal);
     }, [deliveryOption, selectedSpotData, cartTotal]);
+
+    // Ensure shipping product is in cart when homeDelivery is selected; remove otherwise
+    useEffect(() => {
+        const syncShippingItem = async () => {
+            try {
+                const shippingItemsInCart = cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID);
+                const hasShippingInCart = shippingItemsInCart.length > 0;
+                if (deliveryOption === 'homeDelivery') {
+                    if (!hasShippingInCart) {
+                        // Attach shipping to the first existing order in cart
+                        const orderIds = Object.keys(itemsByOrder);
+                        if (orderIds.length === 0) return; // nothing to attach to
+                        const targetOrderId = orderIds[0];
+                        const targetOrderMeta = itemsByOrder[targetOrderId];
+                        // Fetch shipping product
+                        const shipDocRef = doc(db, 'Products', SHIPPING_PRODUCT_ID);
+                        const shipSnap = await getDoc(shipDocRef);
+                        if (shipSnap.exists()) {
+                            const shipData = shipSnap.data();
+                            const productToAdd = {
+                                id: SHIPPING_PRODUCT_ID,
+                                name: shipData.name || 'משלוח עד הבית',
+                                price: Number(shipData.price) || 0,
+                                selectedOption: shipData.options && shipData.options.length > 0 ? shipData.options[0] : '',
+                                quantity: 1,
+                                images: shipData.images || [],
+                                businessId: targetOrderMeta.businessId,
+                                businessName: itemsByOrder[targetOrderId]?.items?.[0]?.businessName || 'Shipping',
+                                stockAmount: shipData.stockAmount || 999999,
+                                catalogNumber: shipData.catalogNumber,
+                                vatType: shipData.vatType ?? 1,
+                                isShipping: true
+                            };
+                            addItem(productToAdd, targetOrderId, targetOrderMeta.businessId, targetOrderMeta.minimumOrderAmount || 0);
+                        }
+                    }
+                } else {
+                    // Remove all shipping items if present
+                    if (hasShippingInCart) {
+                        shippingItemsInCart.forEach(si => removeItem(si.uid));
+                    }
+                }
+            } catch (e) {
+                console.error('Error syncing shipping item:', e);
+            }
+        };
+        syncShippingItem();
+    }, [deliveryOption, itemsByOrder, cartItems, addItem, removeItem]);
 
     // Move the updateOrdersWithReference function to component level so it can be used everywhere
     const updateOrdersWithReference = async (orderIds, customerOrderDocId) => {
@@ -413,8 +463,7 @@ const OrderConfirmation = () => {
                 deliveryDetails: {
                     type: deliveryOption,
                     boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                    deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 
-                                 deliveryOption === 'boxCollection' ? 25 : 0,
+                    deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 0,
                 }
             },
             businessIds: businessIds,
@@ -467,7 +516,7 @@ const OrderConfirmation = () => {
                         paymentData[`productData[${productIndex}][quantity]`] = item.quantity;
                         paymentData[`productData[${productIndex}][price]`] = item.quantity * item.price;
                         paymentData[`productData[${productIndex}][itemDescription]`] = item.name || item.productName || 'Unknown Item';
-                        paymentData[`productData[${productIndex}][vatType]`] = 3;
+                        paymentData[`productData[${productIndex}][vatType]`] = item.vatType ?? 3;
                         productIndex++;
                     }
                 });
@@ -547,7 +596,14 @@ const OrderConfirmation = () => {
             setLoading(true);
             
             // Check and update stock levels first
-            const stockResult = await checkAndUpdateStock(itemsByOrder);
+            const filteredForStock = Object.entries(itemsByOrder).reduce((acc, [oid, data]) => {
+                acc[oid] = {
+                    ...data,
+                    items: data.items.filter(i => i.id !== SHIPPING_PRODUCT_ID && !i.isShipping)
+                };
+                return acc;
+            }, {});
+            const stockResult = await checkAndUpdateStock(filteredForStock);
             
             if (!stockResult.success) {
                 if (stockResult.insufficientItems) {
@@ -625,7 +681,7 @@ const OrderConfirmation = () => {
                 createdAt: new Date().toISOString(),
                 paymentStatus: 'completed',
                 paymentMethod: 'free',
-                grandTotal: cartTotal,
+                grandTotal: totalWithDelivery,
                 // If user is logged in, store their ID
                 userId: currentUser?.uid || null
             };
@@ -730,7 +786,14 @@ const OrderConfirmation = () => {
             setLoading(true);
             
             // Check stock before proceeding to payment
-            const stockResult = await checkAndUpdateStock(itemsByOrder);
+            const filteredForStock = Object.entries(itemsByOrder).reduce((acc, [oid, data]) => {
+                acc[oid] = {
+                    ...data,
+                    items: data.items.filter(i => i.id !== SHIPPING_PRODUCT_ID && !i.isShipping)
+                };
+                return acc;
+            }, {});
+            const stockResult = await checkAndUpdateStock(filteredForStock);
             
             if (!stockResult.success) {
                 if (stockResult.insufficientItems) {
@@ -752,8 +815,8 @@ const OrderConfirmation = () => {
                 }
             }
             
-            // Check if the order is free (total = 0)
-            if (cartTotal === 0) {
+            // Check if the entire payable amount is 0 (considering shipping as well)
+            if (totalWithDelivery === 0) {
                 handleFreeOrder();
                 return;
             }
@@ -866,7 +929,7 @@ const OrderConfirmation = () => {
                     <div className="bg-gray-100 p-4 rounded-lg mb-6 border-t-2 border-blue-500">
                         <div className="flex justify-between items-center mb-2">
                             <span className="text-lg font-semibold">סה"כ לתשלום:</span>
-                            <span className="text-lg font-bold text-blue-600">{cartTotal.toFixed(2)}₪</span>
+                            <span className="text-lg font-bold text-blue-600">{totalWithDelivery.toFixed(2)}₪</span>
                         </div>
                     </div>
                     
@@ -1014,7 +1077,7 @@ const OrderConfirmation = () => {
                                                         <label htmlFor="boxCollection" className="font-medium text-gray-900">איסוף מארגז שמור</label>
                                                         <p className="text-gray-500 text-sm">ההזמנה תחכה לך בארגז שמור בנקודת האיסוף</p>
                                                     </div>
-                                                    <div className="text-gray-900 font-medium">25 ₪</div>
+                                                    <div className="text-green-600 font-medium">חינם</div>
                                                 </div>
                                                 
                                                 {/* {deliveryOption === 'boxCollection' && (
@@ -1039,10 +1102,12 @@ const OrderConfirmation = () => {
                                                 <span className="text-gray-600">סכום ההזמנה:</span>
                                                 <span className="font-medium">{cartTotal} ₪</span>
                                             </div>
-                                            <div className="flex justify-between text-sm mt-2">
-                                                <span className="text-gray-600">דמי משלוח:</span>
-                                                <span className="font-medium">{totalWithDelivery - cartTotal} ₪</span>
-                                            </div>
+                                            {deliveryOption !== 'pickup' && (
+                                                <div className="flex justify-between text-sm mt-2">
+                                                    <span className="text-gray-600">דמי משלוח:</span>
+                                                    <span className="font-medium">{deliveryOption === 'homeDelivery' ? (cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID).reduce((sum, i) => sum + (i.price * i.quantity), 0)) : 0} ₪</span>
+                                                </div>
+                                            )}
                                             <div className="flex justify-between text-lg font-medium mt-2 pt-2 border-t border-gray-200">
                                                 <span>סה"כ לתשלום:</span>
                                                 <span>{totalWithDelivery} ₪</span>

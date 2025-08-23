@@ -162,7 +162,8 @@ const OrderFormBusiness = () => {
       businessId: product.Owner_ID,
       businessName: businessInfo.name,
       stockAmount: product.stockAmount,
-      catalogNumber: product.catalogNumber 
+      catalogNumber: product.catalogNumber,
+      vatType: product.vatType ?? 3
     };
     console.log('productToAdd', productToAdd);
     // Add to global cart only

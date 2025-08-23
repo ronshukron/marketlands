@@ -23,6 +23,7 @@ const AddProduct = () => {
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [stockAmount, setStockAmount] = useState(0);
+  const [vatType, setVatType] = useState(3);
 
 
   const handleAddOption = () => {
@@ -158,6 +159,7 @@ const AddProduct = () => {
         Owner_Email: currentUser.email,
         createdAt: new Date(),
         catalogNumber: response.data.catalogNumber,
+        vatType: Number(vatType),
       };
 
       await addDoc(collection(db, 'Products'), productData);
@@ -251,6 +253,23 @@ const AddProduct = () => {
                 step="1"
               />
             </div>
+          </div>
+
+          {/* VAT Type */}
+          <div>
+            <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="vatType">
+              סוג מע"מ
+            </label>
+            <select
+              id="vatType"
+              name="vatType"
+              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              value={vatType}
+              onChange={(e) => setVatType(parseInt(e.target.value, 10))}
+            >
+              <option value={3}>פטור ממע"מ (פירות/ירקות לא מעובדים)</option>
+              <option value={1}>חייב במע"מ (למשל דבש/משלוח/מוצרים מעובדים)</option>
+            </select>
           </div>
 
           {/* Description */}
