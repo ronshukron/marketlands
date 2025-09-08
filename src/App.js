@@ -50,6 +50,7 @@ import PrivateRoute from './components/PrivateRoute';
 import './components/Accessibility.css';
 import AdminRefundRequests from './components/admin/AdminRefundRequests';
 import DeliveryManagement from './components/admin/DeliveryManagement';
+import DeliveryManagement80 from './components/admin/DeliveryManagement80';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
 
 const App = () => {
@@ -106,6 +107,7 @@ const App = () => {
                   <Route path="/admin/weekly-summary" element={<WeeklyOrderSummary />} />
                   <Route path="/admin/refunds" element={<AdminRefundRequests />} />
                   <Route path="/admin/delivery" element={<DeliveryManagement />} />
+                  <Route path="/admin/delivery-80" element={<DeliveryManagement80 />} />
                 </Routes>
               </main>
               <Footer />
