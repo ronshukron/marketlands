@@ -1,10 +1,13 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
+import { useSaleMode } from '../contexts/SaleModeContext';
+import ModeToggle from './shared/ModeToggle';
 import Swal from 'sweetalert2';
 
 const Cart = ({ isOpen, onClose }) => {
   const { cartItems, removeItem, updateQuantity, cartTotal } = useCart();
+  const { saleMode } = useSaleMode();
   const navigate = useNavigate();
 
   const handleCheckout = () => {
@@ -13,8 +16,9 @@ const Cart = ({ isOpen, onClose }) => {
       return;
     }
 
-    // Navigate to order confirmation page
-    navigate('/order-confirmation', {
+    // Navigate based on mode
+    const path = saleMode === 'independent' ? '/order-confirmation-independent' : '/order-confirmation';
+    navigate(path, {
       state: {
         cartProducts: cartItems,
       },
@@ -51,6 +55,11 @@ const Cart = ({ isOpen, onClose }) => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="px-3 py-2 border-b border-gray-100">
+          <ModeToggle />
         </div>
 
         {/* Cart Items - More compact and elegant */}

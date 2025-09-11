@@ -10,6 +10,8 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
 import { pickupSpots, pickupSpotsData } from '../data/pickupSpots';
+import { useSaleMode } from '../contexts/SaleModeContext';
+import { Navigate } from 'react-router-dom';
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
 const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
@@ -20,7 +22,8 @@ const OrderConfirmation = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems } = useCart();
-    
+    const { saleMode } = useSaleMode();
+
     const [loading, setLoading] = useState(false);
     const [userName, setUserName] = useState('');
     const [userPhone, setUserPhone] = useState('');
@@ -75,21 +78,19 @@ const OrderConfirmation = () => {
         }
     }, [selectedPickupSpot, selectedSpotData]);
 
-
-    // Add this near your other state declarations
+    // Total including delivery
     const [totalWithDelivery, setTotalWithDelivery] = useState(cartTotal);
 
-    // Add this useEffect to update the total when delivery option changes
+    // Update total when delivery option or selection changes
     useEffect(() => {
         let newTotal = cartTotal;
         if (selectedSpotData) {
-            // boxCollection is free now; do not add any fee
-            // homeDelivery shipping is a product in cart
+            // boxCollection is free now; homeDelivery shipping is a product in cart
         }
         setTotalWithDelivery(newTotal);
     }, [deliveryOption, selectedSpotData, cartTotal]);
 
-    // Ensure shipping product is in cart when homeDelivery is selected; remove otherwise
+    // Ensure shipping product presence when needed
     useEffect(() => {
         const syncShippingItem = async () => {
             try {
@@ -576,6 +577,10 @@ const OrderConfirmation = () => {
         }
         return false; // Order has not ended
     };
+
+    if (saleMode === 'independent') {
+        return <Navigate to="/order-confirmation-independent" replace />;
+    }
 
     if (loading) {
         return <LoadingSpinnerPayment />;

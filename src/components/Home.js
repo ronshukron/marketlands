@@ -7,6 +7,9 @@ import { usePickupSpot } from '../contexts/PickupSpotContext';
 import { pickupSpots } from '../data/pickupSpots';
 import './Home.css';
 import OngoingOrders from './OngoingOrders';
+import IndependentFarmers from './IndependentFarmers';
+import ModeToggle from './shared/ModeToggle';
+import { useSaleMode } from '../contexts/SaleModeContext';
 
 // Replace these images with your own and ensure they are imported correctly
 import logo from '../images/Field.jpg'; // Use your actual logo image
@@ -18,6 +21,7 @@ import featureImage4 from '../images/freshlybaledfield.jpg';
 
 const Home = () => {
   const { userLoggedIn } = useAuth();
+  const { saleMode } = useSaleMode();
   console.log("User logged in status:", userLoggedIn); // Debug log
 
   return (
@@ -39,7 +43,9 @@ const Home = () => {
             <p className="mt-3 max-w-2xl mx-auto text-lg md:text-xl text-blue-50 leading-relaxed">
             תומכים בחקלאי העוטף\דרום במקום אחד
             </p>
-            
+            <div className="mt-6 flex justify-center">
+              <ModeToggle />
+            </div>
             {/* Improved buttons */}
             {/* {!userLoggedIn && (
               <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
@@ -87,7 +93,11 @@ const Home = () => {
               בחרו מתוך מגוון דפי המכירה הפעילים כעת
             </p> */}
           </div>
-          <OngoingOrders />
+          {saleMode === 'weekly' ? (
+            <OngoingOrders />
+          ) : (
+            <IndependentFarmers />
+          )}
         </div>
       </div>
     </div>

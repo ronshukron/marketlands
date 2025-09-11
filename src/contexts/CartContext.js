@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
+import { useSaleMode } from './SaleModeContext';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -8,17 +9,20 @@ const CartContext = createContext();
 // It simplifies the usage from `useContext(CartContext)` to just `useCart()`.
 export const useCart = () => useContext(CartContext);
 
+const STORAGE_KEY_CART = 'cartItemsByMode';
+const STORAGE_KEY_INFO = 'orderInfoByMode';
+
+const emptyByMode = () => ({ weekly: [], independent: [] });
+const emptyInfoByMode = () => ({ weekly: {}, independent: {} });
+
 // CartProvider component wraps parts of the application that need access to cart state.
 // It manages the cart's state and provides it down the component tree via CartContext.
 export const CartProvider = ({ children }) => {
-  // State variable to store the array of items currently in the cart.
-  // Each item is an object with details like id, name, price, quantity, orderId, businessId, and a unique uid.
-  const [cartItems, setCartItems] = useState([]);
+  const { saleMode } = useSaleMode();
 
-  // State variable to store metadata about each distinct order present in the cart.
-  // It's an object where keys are orderIds and values are objects containing
-  // businessId, minimumOrderAmount, and lastUpdated timestamp for that order.
-  const [orderInfoMap, setOrderInfoMap] = useState({});
+  // Per-mode cart items and order info
+  const [cartItemsByMode, setCartItemsByMode] = useState(emptyByMode());
+  const [orderInfoByMode, setOrderInfoByMode] = useState(emptyInfoByMode());
 
   // Flag to track whether we've loaded from localStorage yet
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
@@ -26,262 +30,222 @@ export const CartProvider = ({ children }) => {
   // Load cart data from localStorage on component mount
   useEffect(() => {
     try {
-      const savedCartItems = localStorage.getItem('cartItems');
-      const savedOrderInfoMap = localStorage.getItem('orderInfoMap');
-      
-      if (savedCartItems) {
-        const parsedCartItems = JSON.parse(savedCartItems);
-        setCartItems(parsedCartItems);
-      }
-      
-      if (savedOrderInfoMap) {
-        const parsedOrderInfoMap = JSON.parse(savedOrderInfoMap);
-        setOrderInfoMap(parsedOrderInfoMap);
+      const savedByMode = localStorage.getItem(STORAGE_KEY_CART);
+      const savedInfoByMode = localStorage.getItem(STORAGE_KEY_INFO);
+
+      if (savedByMode && savedInfoByMode) {
+        const parsedCartByMode = JSON.parse(savedByMode);
+        const parsedInfoByMode = JSON.parse(savedInfoByMode);
+        setCartItemsByMode({ weekly: parsedCartByMode.weekly || [], independent: parsedCartByMode.independent || [] });
+        setOrderInfoByMode({ weekly: parsedInfoByMode.weekly || {}, independent: parsedInfoByMode.independent || {} });
+      } else {
+        // Migrate legacy storage if present
+        const legacyItems = localStorage.getItem('cartItems');
+        const legacyInfo = localStorage.getItem('orderInfoMap');
+        const weeklyItems = legacyItems ? JSON.parse(legacyItems) : [];
+        const weeklyInfo = legacyInfo ? JSON.parse(legacyInfo) : {};
+        setCartItemsByMode({ weekly: weeklyItems, independent: [] });
+        setOrderInfoByMode({ weekly: weeklyInfo, independent: {} });
+        // Clear legacy keys after migration
+        localStorage.removeItem('cartItems');
+        localStorage.removeItem('orderInfoMap');
       }
     } catch (error) {
       console.error('Error loading cart from localStorage:', error);
-      // If there's an error, clear the localStorage to prevent future issues
-      localStorage.removeItem('cartItems');
-      localStorage.removeItem('orderInfoMap');
+      localStorage.removeItem(STORAGE_KEY_CART);
+      localStorage.removeItem(STORAGE_KEY_INFO);
+      setCartItemsByMode(emptyByMode());
+      setOrderInfoByMode(emptyInfoByMode());
     }
-    
+
     // Mark that we've completed the initial load
     setHasLoadedFromStorage(true);
   }, []);
 
-  // Save cart data to localStorage whenever cartItems changes (but only after initial load)
+  // Save per-mode cart to localStorage when changes occur (post-initial-load)
   useEffect(() => {
-    if (!hasLoadedFromStorage) return; // Don't save during initial load
-    
+    if (!hasLoadedFromStorage) return;
     try {
-      localStorage.setItem('cartItems', JSON.stringify(cartItems));
+      localStorage.setItem(STORAGE_KEY_CART, JSON.stringify(cartItemsByMode));
     } catch (error) {
       console.error('Error saving cart items to localStorage:', error);
     }
-  }, [cartItems, hasLoadedFromStorage]);
+  }, [cartItemsByMode, hasLoadedFromStorage]);
 
-  // Save order info to localStorage whenever orderInfoMap changes (but only after initial load)
+  // Save per-mode order info to localStorage
   useEffect(() => {
-    if (!hasLoadedFromStorage) return; // Don't save during initial load
-    
+    if (!hasLoadedFromStorage) return;
     try {
-      localStorage.setItem('orderInfoMap', JSON.stringify(orderInfoMap));
+      localStorage.setItem(STORAGE_KEY_INFO, JSON.stringify(orderInfoByMode));
     } catch (error) {
       console.error('Error saving order info to localStorage:', error);
     }
-  }, [orderInfoMap, hasLoadedFromStorage]);
+  }, [orderInfoByMode, hasLoadedFromStorage]);
+
+  // Active mode views
+  const cartItems = useMemo(() => cartItemsByMode[saleMode] || [], [cartItemsByMode, saleMode]);
+  const orderInfoMap = useMemo(() => orderInfoByMode[saleMode] || {}, [orderInfoByMode, saleMode]);
 
   /**
-   * Adds an item to the cart.
-   * Ensures each added item instance is unique using a generated uid.
-   * Updates the orderInfoMap with details for the item's order.
-   * @param {object} item - The item object to add (should include id, price, etc.).
-   * @param {string} orderId - The identifier for the order this item belongs to.
-   * @param {string} businessId - The identifier for the business associated with the order.
-   * @param {number} minimumOrderAmount - The minimum amount required for the order.
+   * Adds an item to the cart (active mode only).
    */
   const addItem = (item, orderId, businessId, minimumOrderAmount) => {
-    setCartItems(prevItems => {
-      // Check if item already exists in cart
-      const existingItemIndex = prevItems.findIndex(
+    setCartItemsByMode(prev => {
+      const current = prev[saleMode] || [];
+      const existingItemIndex = current.findIndex(
         cartItem => cartItem.id === item.id && cartItem.orderId === orderId
       );
 
+      let updatedCurrent;
       if (existingItemIndex >= 0) {
-        // If item exists, update its quantity
-        const updatedItems = [...prevItems];
-        updatedItems[existingItemIndex] = {
-          ...updatedItems[existingItemIndex],
-          quantity: updatedItems[existingItemIndex].quantity + item.quantity
+        updatedCurrent = [...current];
+        updatedCurrent[existingItemIndex] = {
+          ...updatedCurrent[existingItemIndex],
+          quantity: updatedCurrent[existingItemIndex].quantity + item.quantity
         };
-        return updatedItems;
+      } else {
+        const newItemWithDetails = {
+          ...item,
+          orderId,
+          businessId,
+          uid: `${orderId}_${item.id}_${item.selectedOption || 'default'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        };
+        updatedCurrent = [...current, newItemWithDetails];
       }
 
-      // If item doesn't exist, add it to cart
-      const newItemWithDetails = {
-        ...item, // Spread existing item properties
-        orderId, // Associate with the specific order
-        businessId, // Associate with the specific business
-        // Generate a unique identifier (uid) for this specific cart item instance.
-        // This allows multiple identical items (e.g., two separate servings of the same dish)
-        // to exist as distinct entries in the cart. It combines orderId, item id, selected option,
-        // timestamp, and a random string for uniqueness.
-        uid: `${orderId}_${item.id}_${item.selectedOption || 'default'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      };
+      return { ...prev, [saleMode]: updatedCurrent };
+    });
 
-      // Update the orderInfoMap state.
-      // Use the functional form of setState to ensure we're working with the latest state.
-      setOrderInfoMap(prev => ({
-        ...prev, // Keep existing order info
-        // Add or update the info for the current orderId.
+    setOrderInfoByMode(prev => ({
+      ...prev,
+      [saleMode]: {
+        ...prev[saleMode],
         [orderId]: {
           businessId,
           minimumOrderAmount,
-          lastUpdated: new Date().toISOString() // Track when this order was last touched
+          lastUpdated: new Date().toISOString()
         }
-      }));
-
-      // Return the updated list of cart items.
-      return [...prevItems, newItemWithDetails];
-    });
+      }
+    }));
   };
 
   /**
-   * Removes an item from the cart based on its unique identifier (uid).
-   * Also cleans up the orderInfoMap if removing the item results in an order having no items left.
-   * @param {string} uid - The unique identifier of the cart item to remove.
+   * Removes an item from the cart by uid (active mode only).
    */
   const removeItem = (uid) => {
-    setCartItems((prevItems) => {
-      // Filter out the item with the matching uid.
-      const newItems = prevItems.filter((item) => item.uid !== uid);
+    setCartItemsByMode(prev => {
+      const current = prev[saleMode] || [];
+      const newItems = current.filter(item => item.uid !== uid);
 
-      // After removing the item, check if its corresponding order still has any items left.
-      const remainingOrderIds = new Set(newItems.map(item => item.orderId)); // Get unique orderIds remaining
-      const currentOrderIds = new Set(Object.keys(orderInfoMap)); // Get orderIds currently tracked
-
-      // Determine which orderIds were present before but are not anymore.
+      // Clean order info if needed
+      const remainingOrderIds = new Set(newItems.map(item => item.orderId));
+      const currentOrderIds = new Set(Object.keys(orderInfoByMode[saleMode] || {}));
       const orderIdsToRemove = [...currentOrderIds].filter(id => !remainingOrderIds.has(id));
 
-      // If there are orders with no items left, remove them from the orderInfoMap.
       if (orderIdsToRemove.length > 0) {
-        // Create a copy of the current orderInfoMap to modify.
-        const updatedOrderInfoMap = {...orderInfoMap};
-        // Delete the entries for orders that are now empty.
-        orderIdsToRemove.forEach(id => {
-          delete updatedOrderInfoMap[id];
+        setOrderInfoByMode(prevInfo => {
+          const updatedForMode = { ...(prevInfo[saleMode] || {}) };
+          orderIdsToRemove.forEach(id => { delete updatedForMode[id]; });
+          return { ...prevInfo, [saleMode]: updatedForMode };
         });
-        // Update the orderInfoMap state.
-        setOrderInfoMap(updatedOrderInfoMap);
       }
 
-      // Return the updated list of cart items.
-      return newItems;
+      return { ...prev, [saleMode]: newItems };
     });
   };
 
   /**
-   * Updates the quantity of a specific item in the cart.
-   * If the quantity is reduced to 0 or less, the item is removed from the cart.
-   * @param {string} uid - The unique identifier of the cart item to update.
-   * @param {number} quantity - The new quantity for the item.
+   * Updates quantity for an item (active mode only).
    */
   const updateQuantity = (uid, quantity) => {
-    setCartItems((prevItems) =>
-      // Map over the items: update the target item's quantity (ensuring it's not negative).
-      prevItems.map((item) =>
-        item.uid === uid ? { ...item, quantity: Math.max(0, quantity) } : item
-      )
-      // Filter out any items whose quantity was set to 0 or less.
-      .filter(item => item.quantity > 0)
-    );
-    // Note: This function doesn't currently update orderInfoMap if an item removal
-    // leads to an empty order. This might be desired or an area for enhancement
-    // depending on requirements (removeItem handles this cleanup).
-  };
-
-  /**
-   * Clears all items from the cart and resets the order information map.
-   * Also clears the data from localStorage.
-   */
-  const clearCart = () => {
-    setCartItems([]); // Reset items to an empty array
-    setOrderInfoMap({}); // Reset order info to an empty object
-    // Clear localStorage as well
-    localStorage.removeItem('cartItems');
-    localStorage.removeItem('orderInfoMap');
-  };
-
-  /**
-   * Clears all items associated with a specific orderId from the cart.
-   * Also removes the corresponding entry from the orderInfoMap.
-   * @param {string} orderId - The identifier of the order to clear.
-   */
-  const clearOrderItems = (orderId) => {
-    // Filter out items belonging to the specified orderId.
-    setCartItems(prevItems => prevItems.filter(item => item.orderId !== orderId));
-
-    // Remove this order's information from the orderInfoMap.
-    setOrderInfoMap(prev => {
-      const updated = {...prev}; // Create a copy
-      delete updated[orderId]; // Delete the entry for the cleared order
-      return updated; // Return the updated map
+    setCartItemsByMode(prev => {
+      const current = prev[saleMode] || [];
+      const updated = current
+        .map(item => item.uid === uid ? { ...item, quantity: Math.max(0, quantity) } : item)
+        .filter(item => item.quantity > 0);
+      return { ...prev, [saleMode]: updated };
     });
   };
 
   /**
-   * Removes an entire order from the cart.
-   * This is an alias for clearOrderItems for better semantic clarity.
-   * @param {string} orderId - The identifier of the order to remove.
+   * Clears all items in the active mode.
+   */
+  const clearCart = () => {
+    setCartItemsByMode(prev => ({ ...prev, [saleMode]: [] }));
+    setOrderInfoByMode(prev => ({ ...prev, [saleMode]: {} }));
+  };
+
+  /**
+   * Clears a specific order in the active mode.
+   */
+  const clearOrderItems = (orderId) => {
+    setCartItemsByMode(prev => {
+      const current = prev[saleMode] || [];
+      const filtered = current.filter(item => item.orderId !== orderId);
+      return { ...prev, [saleMode]: filtered };
+    });
+
+    setOrderInfoByMode(prev => {
+      const updated = { ...(prev[saleMode] || {}) };
+      delete updated[orderId];
+      return { ...prev, [saleMode]: updated };
+    });
+  };
+
+  /**
+   * Removes an entire order (alias for clearOrderItems) in active mode.
    */
   const removeOrderFromCart = (orderId) => {
     clearOrderItems(orderId);
   };
 
-  // Calculate the total monetary value of all items in the cart.
-  // useMemo ensures this calculation is only re-run when cartItems changes.
+  // Derived totals for the active mode
   const cartTotal = useMemo(() => {
-    // Sum the price * quantity for each item.
     return cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  }, [cartItems]); // Dependency array: recalculate only if cartItems changes
+  }, [cartItems]);
 
-  // Calculate the total number of individual items in the cart (sum of quantities).
-  // useMemo ensures this calculation is only re-run when cartItems changes.
   const totalItems = useMemo(() => {
-    // Sum the quantity for each item.
     return cartItems.reduce((sum, item) => sum + item.quantity, 0);
-  }, [cartItems]); // Dependency array: recalculate only if cartItems changes
+  }, [cartItems]);
 
-  // Group cart items by their orderId. Also calculates the total for each order.
-  // This is useful for displaying the cart separated by orders or for processing checkouts per order.
-  // useMemo ensures this complex grouping and calculation only happens when cartItems or orderInfoMap changes.
   const itemsByOrder = useMemo(() => {
-    const grouped = {}; // Initialize an empty object to store grouped items
-
-    // Iterate over each item in the cart.
+    const grouped = {};
     cartItems.forEach(item => {
-      // If this orderId hasn't been seen yet, initialize its entry in the grouped object.
       if (!grouped[item.orderId]) {
         grouped[item.orderId] = {
-          items: [], // Array to hold items for this order
-          businessId: item.businessId, // Store the businessId associated with this order
-          // Retrieve the minimum order amount from the orderInfoMap, defaulting to 0 if not found.
-          minimumOrderAmount: orderInfoMap[item.orderId]?.minimumOrderAmount || 0
+          items: [],
+          businessId: item.businessId,
+          minimumOrderAmount: (orderInfoMap[item.orderId]?.minimumOrderAmount) || 0
         };
       }
-      // Add the current item to the items array for its corresponding orderId.
       grouped[item.orderId].items.push(item);
     });
 
-    // Calculate the total price for each individual order group.
     Object.keys(grouped).forEach(orderId => {
-      grouped[orderId].total = grouped[orderId].items.reduce(
-        (sum, item) => sum + item.price * item.quantity, 0 // Sum price * quantity for items in this group
-      );
+      grouped[orderId].total = grouped[orderId].items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     });
 
-    // Return the final object containing items grouped by orderId, along with order totals and metadata.
     return grouped;
-  }, [cartItems, orderInfoMap]); // Dependencies: recalculate if items or order info change
+  }, [cartItems, orderInfoMap]);
 
-  // The value object provided to consumers of the CartContext.
-  // It includes the cart state (cartItems, orderInfoMap) and the functions to modify it,
-  // as well as the memoized derived values (cartTotal, totalItems, itemsByOrder).
   const value = {
+    // Active mode views
     cartItems,
+    cartTotal,
+    totalItems,
+    itemsByOrder,
+    orderInfoMap,
+    // Mutations (active mode)
     addItem,
     removeItem,
     updateQuantity,
     clearCart,
     clearOrderItems,
-    removeOrderFromCart, // Add this line
-    cartTotal,
-    totalItems,
-    itemsByOrder,
-    orderInfoMap // Expose the order info map directly as well
+    removeOrderFromCart,
+    // Raw per-mode (if ever needed by advanced screens)
+    cartItemsByMode,
+    orderInfoByMode
   };
 
-  // Render the CartContext.Provider, passing the 'value' object down
-  // to all descendant components wrapped by CartProvider.
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }; 
