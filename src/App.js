@@ -52,13 +52,19 @@ import AdminRefundRequests from './components/admin/AdminRefundRequests';
 import DeliveryManagement from './components/admin/DeliveryManagement';
 import DeliveryManagement80 from './components/admin/DeliveryManagement80';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
+import { SaleModeProvider } from './contexts/SaleModeContext';
+import CreateIndependentOrderForm from './components/independent/CreateIndependentOrderForm';
+import IndependentOrderForm from './components/independent/IndependentOrderForm';
+import VolunteerPickupSpot from './components/independent/VolunteerPickupSpot';
+import IndependentOrderConfirmation from './components/independent/IndependentOrderConfirmation';
 
 const App = () => {
   return (
     <AuthProvider>
       <CartProvider>
         <PickupSpotProvider>
-          <Router>
+          <SaleModeProvider>
+            <Router>
             <ScrollToTop />
             <div className="App min-h-screen flex flex-col">
               <Menu />
@@ -108,16 +114,21 @@ const App = () => {
                   <Route path="/admin/refunds" element={<AdminRefundRequests />} />
                   <Route path="/admin/delivery" element={<DeliveryManagement />} />
                   <Route path="/admin/delivery-80" element={<DeliveryManagement80 />} />
+                  <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
+                  <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
+                  <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />
+                  <Route path="/order-confirmation-independent" element={<IndependentOrderConfirmation />} />
                 </Routes>
               </main>
               <Footer />
               <AccessibilityButton />
             </div>
           </Router>
-        </PickupSpotProvider>
-      </CartProvider>
-    </AuthProvider>
-  );
+        </SaleModeProvider>
+      </PickupSpotProvider>
+    </CartProvider>
+  </AuthProvider>
+);
 };
 
 export default App;
