@@ -21,6 +21,8 @@ const IndependentOrderForm = () => {
   const [businessInfo, setBusinessInfo] = useState({});
   const [products, setProducts] = useState([]);
   const [orderEnded, setOrderEnded] = useState(false);
+  const [hasVolunteer, setHasVolunteer] = useState(false);
+  const [checkingVolunteer, setCheckingVolunteer] = useState(true);
 
   // Local, ephemeral cart
   const [cartItems, setCartItems] = useState([]);
@@ -88,6 +90,9 @@ const IndependentOrderForm = () => {
           }
         }
         setProducts(fetchedProducts);
+
+        // Check for volunteers
+        await checkVolunteers(orderId);
       } catch (e) {
         console.error('Error loading independent order:', e);
         navigate('/error');
@@ -97,6 +102,24 @@ const IndependentOrderForm = () => {
     };
     fetchOrder();
   }, [orderFromNav, orderId, navigate]);
+
+  const checkVolunteers = async (orderId) => {
+    try {
+      setCheckingVolunteer(true);
+      // Check volunteers collection for this orderId
+      const volunteersQuery = query(
+        collection(db, 'volunteers'),
+        where('orderId', '==', orderId)
+      );
+      const volunteersSnap = await getDocs(volunteersQuery);
+      setHasVolunteer(!volunteersSnap.empty);
+    } catch (error) {
+      console.error('Error checking volunteers:', error);
+      setHasVolunteer(false);
+    } finally {
+      setCheckingVolunteer(false);
+    }
+  };
 
   const handleQuantityChange = (index, increment) => {
     setProducts(products.map((product, i) => {
@@ -117,6 +140,17 @@ const IndependentOrderForm = () => {
   };
 
   const addToLocalCart = (productIndex) => {
+    // Check if volunteer exists before allowing cart actions
+    if (!hasVolunteer) {
+      Swal.fire({ 
+        title: 'אין מתנדב זמין', 
+        text: 'נדרש מתנדב לנקודת איסוף לפני שניתן להוסיף פריטים לסל', 
+        icon: 'warning', 
+        confirmButtonText: 'הבנתי' 
+      });
+      return;
+    }
+
     const product = products[productIndex];
 
     if (product.quantity <= 0) {
@@ -263,8 +297,48 @@ const IndependentOrderForm = () => {
               </div>
             </div>
 
-            <div className="flex gap-3 mt-2">
-              <Link to={`/independent/volunteer/${orderId}`} className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded">התנדב לארח נקודת איסוף</Link>
+            {/* Volunteer Status Section */}
+            <div className="mt-4">
+              {checkingVolunteer ? (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  בודק זמינות מתנדבים...
+                </div>
+              ) : hasVolunteer ? (
+                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                  <div className="flex items-center gap-2 text-green-800">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="font-semibold">יש מתנדב לנקודת איסוף!</span>
+                  </div>
+                  <p className="text-green-700 text-sm mt-1">תוכל כעת להוסיף פריטים לסל ולהתקדם בהזמנה.</p>
+                </div>
+              ) : (
+                <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                  <div className="flex items-center gap-2 text-orange-800 mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    <span className="font-semibold">ממתין למתנדב לנקודת איסוף</span>
+                  </div>
+                  <p className="text-orange-700 text-sm mb-3">
+                    כדי שניתן יהיה להזמין, נדרש מתנדב מהקהילה שלך שיארח נקודת איסוף. לא ניתן להוסיף פריטים לסל עד שיימצא מתנדב.
+                  </p>
+                  <Link 
+                    to={`/independent/volunteer/${orderId}`} 
+                    className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md text-sm font-medium transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                    </svg>
+                    התנדב לארח נקודת איסוף
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -330,11 +404,19 @@ const IndependentOrderForm = () => {
                     <button onClick={() => handleQuantityChange(index, true)} className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700" disabled={product.stockAmount <= 0 || (product.stockAmount !== undefined && product.quantity >= product.stockAmount)}>+</button>
                   </div>
 
-                  <button onClick={() => addToLocalCart(index)} disabled={product.stockAmount <= 0} className={`flex-1 ${product.stockAmount > 0 ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-400 cursor-not-allowed'} text-white py-1.5 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-1`}>
+                  <button 
+                    onClick={() => addToLocalCart(index)} 
+                    disabled={product.stockAmount <= 0 || !hasVolunteer} 
+                    className={`flex-1 ${
+                      product.stockAmount > 0 && hasVolunteer 
+                        ? 'bg-blue-500 hover:bg-blue-600' 
+                        : 'bg-gray-400 cursor-not-allowed'
+                    } text-white py-1.5 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-1`}
+                  >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
-                    הוסף לסל
+                    {!hasVolunteer ? 'ממתין למתנדב' : product.stockAmount <= 0 ? 'אזל במלאי' : 'הוסף לסל'}
                   </button>
                 </div>
               </div>

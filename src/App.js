@@ -56,6 +56,7 @@ import { SaleModeProvider } from './contexts/SaleModeContext';
 import CreateIndependentOrderForm from './components/independent/CreateIndependentOrderForm';
 import IndependentOrderForm from './components/independent/IndependentOrderForm';
 import VolunteerPickupSpot from './components/independent/VolunteerPickupSpot';
+import VolunteerShareSuccess from './components/independent/VolunteerShareSuccess';
 import IndependentOrderConfirmation from './components/independent/IndependentOrderConfirmation';
 
 const App = () => {
@@ -117,6 +118,7 @@ const App = () => {
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
                   <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
                   <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />
+                  <Route path="/volunteer-share-success" element={<VolunteerShareSuccess />} />
                   <Route path="/order-confirmation-independent" element={<IndependentOrderConfirmation />} />
                 </Routes>
               </main>

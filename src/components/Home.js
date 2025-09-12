@@ -41,7 +41,7 @@ const Home = () => {
             ברוכים הבאים לשוק
             </h1>
             <p className="mt-3 max-w-2xl mx-auto text-lg md:text-xl text-blue-50 leading-relaxed">
-            תומכים בחקלאי העוטף\דרום במקום אחד
+            מחברים בין קהילות לחקלאים מקומיים
             </p>
             <div className="mt-6 flex justify-center">
               <ModeToggle />

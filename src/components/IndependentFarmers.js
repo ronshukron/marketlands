@@ -38,10 +38,14 @@ const IndependentFarmers = () => {
             const bizSnap = await getDoc(bizRef);
             business = bizSnap.exists() ? bizSnap.data() : null;
           }
-          // check volunteers subcollection existence (at least 1 doc)
+          // check volunteers in main collection for this orderId
           let hasVolunteer = false;
           try {
-            const volQ = query(collection(db, 'IndependentOrders', d.id, 'volunteers'), limit(1));
+            const volQ = query(
+              collection(db, 'volunteers'), 
+              where('orderId', '==', d.id), 
+              limit(1)
+            );
             const volSnap = await getDocs(volQ);
             hasVolunteer = !volSnap.empty;
           } catch (e) {

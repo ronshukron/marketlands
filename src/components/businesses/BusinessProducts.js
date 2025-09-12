@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/authContext';
-import { collection, query, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db, storage } from '../../firebase/firebase';
 import { ref, deleteObject } from 'firebase/storage';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +18,7 @@ const BusinessProducts = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedProducts, setSelectedProducts] = useState([]); // Track selected products
+  const [isIndependent, setIsIndependent] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -41,6 +42,22 @@ const BusinessProducts = () => {
     };
 
     fetchProducts();
+  }, [currentUser]);
+
+  useEffect(() => {
+    const fetchIsIndependent = async () => {
+      if (!currentUser) return;
+      try {
+        const businessRef = doc(db, 'businesses', currentUser.uid);
+        const snap = await getDoc(businessRef);
+        if (snap.exists()) {
+          setIsIndependent(Boolean(snap.data().isIndependent));
+        }
+      } catch (e) {
+        console.error('Error fetching isIndependent:', e);
+      }
+    };
+    fetchIsIndependent();
   }, [currentUser]);
 
   const handleAddProduct = () => {
@@ -78,6 +95,10 @@ const BusinessProducts = () => {
         title: 'שגיאה',
         text: 'אנא בחרו לפחות מוצר אחד לפני יצירת הזמנה.',
       });
+      return;
+    }
+    if (isIndependent) {
+      navigate(`/independent/create`, { state: { selectedProducts } });
       return;
     }
     navigate(`/create-order-for-business`, { state: { selectedProducts } });

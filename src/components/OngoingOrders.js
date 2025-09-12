@@ -326,7 +326,7 @@ const OngoingOrders = () => {
           {/* Improved title section */}
           <div className="mb-8">
             <h1 className="text-3xl md:text-5xl font-bold mb-2 text-center tracking-tight">
-              החקלאים שלנו
+               מכירה שבועית
             </h1>
             <div className="h-1 w-24 bg-yellow-400 mx-auto rounded-full mb-4"></div>
             {/* <p className="text-blue-100 text-center max-w-3xl mx-auto text-lg">
