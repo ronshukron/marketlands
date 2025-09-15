@@ -127,9 +127,9 @@ const CreateIndependentOrderForm = () => {
         // Independent-specific
         mode: 'independent',
         paymentRoute: 'threshold',
-        status: 'collecting',
+        status: 'open',
         minCommunityTotal: Number(minCommunityTotal || 0),
-        thresholdDeadline: new Date(thresholdDeadline).toISOString(),
+        endingTime: new Date(thresholdDeadline),
         volunteerIncentive,
         volunteerWhatsappMessage,
         createdAt: serverTimestamp(),

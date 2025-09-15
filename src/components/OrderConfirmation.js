@@ -524,17 +524,17 @@ const OrderConfirmation = () => {
     
             console.log("Sending payment data:", paymentData);
             // Prod Environment
-            const paymentResponse = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/createBitPayment', paymentData, {
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-                // Test Environment
-            // const paymentResponse = await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/createBitPayment', paymentData, {
+            // const paymentResponse = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/createBitPayment', paymentData, {
             //     headers: {
             //         'Content-Type': 'application/json'
             //     }
             // });
+                // Test Environment
+            const paymentResponse = await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/createBitPayment', paymentData, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
     
             if (paymentResponse.data.paymentLink) {
                 window.location.href = paymentResponse.data.paymentLink;
@@ -841,9 +841,9 @@ const OrderConfirmation = () => {
         try {
             // Call the backend function instead of performing the transaction in the frontend
             // Prod Environment
-            const response = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock', {
+            // const response = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock', {
             // Test Environment
-            // const response = await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock', {
+            const response = await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock', {
                 orderItems
             }, {
                 headers: {

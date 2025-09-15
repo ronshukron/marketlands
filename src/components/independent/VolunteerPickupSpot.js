@@ -1,11 +1,12 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, addDoc, collection } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import { pickupSpots } from '../../data/pickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
+import axios from 'axios';
 
 const VolunteerPickupSpot = () => {
   const { orderId } = useParams();
@@ -155,22 +156,26 @@ const VolunteerPickupSpot = () => {
       const volunteersRef = collection(db, 'volunteers');
       const volunteerDoc = await addDoc(volunteersRef, volunteerData);
 
-      // Update the independent order with volunteer information
-      const orderRef = doc(db, 'IndependentOrders', orderId);
-      await updateDoc(orderRef, {
-        hasVolunteer: true,
-        volunteerId: volunteerDoc.id, // Reference to the volunteer document
-        volunteerInfo: {
-          id: volunteerDoc.id,
-          fullName: form.fullName.trim(),
-          phone: form.phone.trim(),
-          community: form.community.trim(),
-          address: form.address.trim(),
-          locationInstructions: form.locationInstructions.trim(),
-          volunteeredAt: new Date().toISOString()
-        },
-        updatedAt: new Date().toISOString()
-      });
+      // Call backend function to update the independent order
+      try {
+        // Prod Environment
+        await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/updateIndependentOrderVolunteer', {
+          orderId,
+          volunteerId: volunteerDoc.id,
+          volunteerInfo: {
+            id: volunteerDoc.id,
+            fullName: form.fullName.trim(),
+            phone: form.phone.trim(),
+            community: form.community.trim(),
+            address: form.address.trim(),
+            locationInstructions: form.locationInstructions.trim(),
+            volunteeredAt: new Date().toISOString()
+          }
+        });
+      } catch (error) {
+        // If backend update fails, delete the volunteer doc to maintain consistency
+        throw new Error('Failed to update order with volunteer info');
+      }
 
       // Show success message and navigate to WhatsApp share
       Swal.fire({
@@ -302,7 +307,7 @@ ${form.locationInstructions ? `🗺️ הנחיות נוספות: ${form.locatio
                 name="community" 
                 type="text"
                 placeholder="שם הקהילה או היישוב (חפש או בחר מהרשימה)" 
-                value={form.community} 
+                value={form.community === 'הכל' ? '' : form.community} 
                 onChange={handleCommunityChange} 
                 onFocus={() => setShowSuggestions(true)}
                 required 

@@ -115,7 +115,7 @@ const IndependentFarmers = () => {
           {filteredOrders.map((order) => {
             const minCommunityTotal = Number(order.minCommunityTotal || 0);
             const currentTotal = 0; // TODO: aggregate
-            const thresholdDeadline = order.thresholdDeadline;
+            const thresholdDeadline = order.endingTime?.toDate ? order.endingTime.toDate() : order.endingTime;
             return (
               <div key={order.id} onClick={() => handleClickOrder(order)} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 cursor-pointer border-2 border-green-200 hover:border-green-400">
                 <div className="relative pt-[50%]">

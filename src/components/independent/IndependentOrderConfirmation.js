@@ -4,6 +4,10 @@ import { useAuth } from '../../contexts/authContext';
 import { pickupSpots, pickupSpotsData } from '../../data/pickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
+import { checkAndUpdateIndependentStock } from '../../utils/independentStock';
+import { createSuspendedPayment, generateCustomerOrderId } from '../../services/independentPaymentService';
+import { db } from '../../firebase/firebase';
+import { doc, setDoc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 
 const IndependentOrderConfirmation = () => {
   const navigate = useNavigate();
@@ -39,7 +43,7 @@ const IndependentOrderConfirmation = () => {
     const isValid = userName.trim() !== '' && 
                     userPhone.trim() !== '' && 
                     userEmail.trim() !== '' &&
-                    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
+                    /^[^\s@]+@[^^\s@]+\.[^\s@]+$/.test(userEmail) &&
                     selectedPickupSpot !== '' &&
                     agreeToTerms;
     setFormIsValid(isValid);
@@ -63,8 +67,83 @@ const IndependentOrderConfirmation = () => {
 
     setLoading(true);
     try {
-      // TODO: Call createCommunityThresholdPayment with proper payload
-      const paymentPayload = {
+      // 1) Stock check (similar to weekly)
+      const groupedForStock = {
+        [orderId]: {
+          items: items.filter((i) => !i.isShipping)
+        }
+      };
+
+      console.log('groupedForStock', groupedForStock); // debugging
+
+      const stockResult = await checkAndUpdateIndependentStock(groupedForStock);
+      console.log('stockResult', stockResult); // debugging
+
+      if (!stockResult.success) {
+        if (stockResult.insufficientItems && stockResult.insufficientItems.length > 0) {
+          const itemsList = stockResult.insufficientItems
+            .map(item => `${item.name}: ביקשת ${item.requested}, זמין ${item.available}`)
+            .join('\n');
+          Swal.fire({
+            title: 'מלאי לא מספיק',
+            html: `חלק מהפריטים אינם זמינים בכמות המבוקשת:<br><br>${itemsList.replace(/\n/g, '<br>')}`,
+            icon: 'error',
+            confirmButtonText: 'הבנתי'
+          });
+          return;
+        } else {
+          throw new Error(stockResult.error || 'שגיאה בבדיקת המלאי');
+        }
+      }
+
+      // 2) Create Indepe(nt)CustomerOrders doc before payment
+      const customerOrderId = generateCustomerOrderId();
+      const customerOrderRef = doc(db, 'IndepentCustomerOrders', customerOrderId);
+      const orderBreakdown = {}; // Optional: fill if mapping to legacy Orders is needed
+      const customerOrderDoc = {
+        independentOrderId: orderId,
+        paymentStatus: 'pending_payment',
+        customerDetails: {
+          name: userName,
+          phone: userPhone,
+          email: userEmail,
+          address: userAddress,
+          directions: userDirections,
+          pickupSpot: selectedPickupSpot
+        },
+        items: items.map((it) => ({
+          productId: it.id,
+          productName: it.name,
+          quantity: it.quantity,
+          price: Number(it.price),
+          selectedOption: it.selectedOption || ''
+        })),
+        orderBreakdown,
+        grandTotal: Number(total),
+        userId: currentUser?.uid || null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await setDoc(customerOrderRef, customerOrderDoc, { merge: true });
+      console.log('customerOrderDoc', customerOrderDoc); // debugging
+
+      // 3) Update user's orders array in the current user's document
+      if (currentUser) {
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, {
+          [`orders.${orderId}`]: arrayUnion({
+            orderId: customerOrderId,
+            orderName: orderName || orderId,
+            total: Number(total),
+            paymentStatus: 'pending_payment',
+            createdAt: serverTimestamp()
+          })
+        });
+        console.log('User orders updated successfully');
+      }
+
+      // 4) Create suspended (J5) payment via backend
+      const paymentResponse = await createSuspendedPayment({
         orderId,
         items,
         total,
@@ -76,26 +155,19 @@ const IndependentOrderConfirmation = () => {
           directions: userDirections,
           pickupSpot: selectedPickupSpot
         },
-        selectedPickupSpot
-      };
-
-      console.log('Submitting independent payment', paymentPayload);
-      
-      // Placeholder for actual payment call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      Swal.fire({
-        icon: 'success',
-        title: 'תשלום נשלח',
-        text: 'בקרוב יופעל תשלום קהילתי. תקבל עדכון כשהסף יושג.',
-        confirmButtonText: 'הבנתי'
-      }).then(() => {
-        navigate('/', { 
-          state: { 
-            message: 'ההזמנה הקהילתי שלך נרשמה בהצלחה' 
-          } 
-        });
+        pickupSpot: selectedPickupSpot,
+        description: `הזמנה קהילתית - ${orderName || orderId}`,
+        customerOrderId
       });
+      console.log('paymentResponse', paymentResponse); // debugging
+      if (paymentResponse?.status === 1 && paymentResponse?.data?.url) {
+        // Redirect user to hosted payment page
+        window.location.href = paymentResponse.data.url;
+        return;
+      }
+
+      // If response not in expected format
+      Swal.fire('שגיאה', 'לא ניתן היה ליצור תשלום. נסו שוב מאוחר יותר.', 'error');
     } catch (e) {
       console.error(e);
       Swal.fire('שגיאה', 'אירעה שגיאה בעת יצירת התשלום. נסו שוב מאוחר יותר.', 'error');
@@ -125,7 +197,7 @@ const IndependentOrderConfirmation = () => {
         </div>
         
         <div className="p-6">
-          {isEmpty ? (
+      {isEmpty ? (
             <p className="text-gray-600">אין פריטים.</p>
           ) : (
             <>
@@ -145,10 +217,10 @@ const IndependentOrderConfirmation = () => {
                         </div>
                         <div className="font-medium text-gray-900">
                           ₪{(item.price * item.quantity).toFixed(2)}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                </div>
+                    </li>
+                  ))}
+                </ul>
                   <div className="border-t border-gray-200 mt-4 pt-4">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-semibold">סה"כ:</span>
@@ -194,7 +266,7 @@ const IndependentOrderConfirmation = () => {
                   </div>
                   
                   <div className="form-group md:col-span-2">
-                    <label htmlFor="userEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="userEmail" className="block text sm font-medium text-gray-700 mb-1">
                       כתובת אימייל <span className="text-red-500">*</span>
                     </label>
                     <input 
@@ -267,7 +339,7 @@ const IndependentOrderConfirmation = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     />
                   </div>
-                </div>
+          </div>
 
                 {/* Terms Agreement */}
                 <div className="flex items-center mb-6">
@@ -281,7 +353,7 @@ const IndependentOrderConfirmation = () => {
                   <label htmlFor="agreeToTerms" className="text-sm text-gray-700">
                     קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank" className="text-green-600 hover:underline">תנאי השימוש</Link>
                   </label>
-                </div>
+          </div>
 
                 {/* Action Buttons */}
                 <div className="flex space-x-4 rtl:space-x-reverse">
@@ -297,11 +369,11 @@ const IndependentOrderConfirmation = () => {
                     className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-4 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                   >
                     חזרה
-                  </button>
-                </div>
-              </div>
+            </button>
+          </div>
+        </div>
             </>
-          )}
+      )}
         </div>
       </div>
     </div>

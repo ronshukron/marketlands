@@ -46,7 +46,7 @@
   - `paymentRoute: 'threshold'`
   - `minCommunityTotal: number`
   - `thresholdDeadline: timestamp|string`
-  - `status: 'draft' | 'collecting' | 'confirmed' | 'cancelled'`
+  - `status: 'draft' | 'open' | 'confirmed' | 'cancelled'`
   - `pickupSpots: string[]`
   - `volunteerIncentive: string`
   - `volunteerWhatsappMessage: string`
