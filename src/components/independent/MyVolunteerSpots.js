@@ -1,0 +1,104 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { collection, getDocs, query, where, doc, getDoc, orderBy } from 'firebase/firestore';
+import { db } from '../../firebase/firebase';
+import { useAuth } from '../../contexts/authContext';
+import LoadingSpinner from '../LoadingSpinner';
+
+const MyVolunteerSpots = () => {
+  const { currentUser, userLoggedIn } = useAuth();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [volunteers, setVolunteers] = useState([]);
+
+  useEffect(() => {
+    if (!userLoggedIn) {
+      navigate('/login', { state: { redirectTo: '/my-volunteer-spots' } });
+      return;
+    }
+  }, [userLoggedIn, navigate]);
+
+  useEffect(() => {
+    const load = async () => {
+      if (!currentUser?.uid) return;
+      setLoading(true);
+      try {
+        const q = query(
+          collection(db, 'volunteers'),
+          where('userId', '==', currentUser.uid),
+          orderBy('volunteeredAt', 'desc')
+        );
+        const snap = await getDocs(q);
+        const items = [];
+        for (const d of snap.docs) {
+          const v = { id: d.id, ...d.data() };
+          let order = null;
+          try {
+            if (v.orderId) {
+              const oref = doc(db, 'IndependentOrders', v.orderId);
+              const osnap = await getDoc(oref);
+              if (osnap.exists()) {
+                order = { id: osnap.id, ...osnap.data() };
+              }
+            }
+          } catch (e) {}
+          items.push({ volunteer: v, order });
+        }
+        setVolunteers(items);
+      } catch (e) {
+        console.error('Error loading volunteer spots', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [currentUser]);
+
+  if (!userLoggedIn) return null;
+  if (loading) return <LoadingSpinner />;
+
+  return (
+    <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
+      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="bg-blue-600 text-white px-6 py-4">
+          <h1 className="text-2xl font-bold">נקודות האיסוף שלי</h1>
+        </div>
+        <div className="p-6 space-y-4">
+          {volunteers.length === 0 ? (
+            <div className="text-center text-gray-600">אין לך נקודות איסוף שיצרת</div>
+          ) : (
+            volunteers.map(({ volunteer, order }) => (
+              <div key={volunteer.id} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-semibold text-gray-900">{order?.orderName || `הזמנה ${volunteer.orderId}`}</div>
+                    <div className="text-sm text-gray-700 mt-1">קהילה: {volunteer.community}</div>
+                    <div className="text-sm text-gray-700">כתובת: {volunteer.address}</div>
+                    {volunteer.locationInstructions && (
+                      <div className="text-xs text-gray-500 mt-1">הנחיות: {volunteer.locationInstructions}</div>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {new Date(volunteer.volunteeredAt).toLocaleString('he-IL')}
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  {order && (
+                    <button onClick={() => navigate(`/independent/order/${order.id}`, { state: { order } })} className="px-3 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">
+                      לצפייה במודעה
+                    </button>
+                  )}
+                  <button onClick={() => navigate('/volunteer-share-success', { state: { orderId: order?.id || volunteer.orderId, orderName: order?.orderName, volunteerInfo: volunteer } })} className="px-3 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700">
+                    שיתוף וואטסאפ
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MyVolunteerSpots; 

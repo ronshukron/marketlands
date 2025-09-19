@@ -7,12 +7,13 @@ import { pickupSpots } from '../../data/pickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import { functionsEndpoint } from '../../utils/functionsClient';
 
 const VolunteerPickupSpot = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentUser } = useAuth();
+  const { currentUser, userLoggedIn } = useAuth();
   const order = useMemo(() => location.state?.order || null, [location.state]);
   
   const [form, setForm] = useState({
@@ -30,6 +31,13 @@ const VolunteerPickupSpot = () => {
   const [filteredSpots, setFilteredSpots] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestionRef = useRef(null);
+
+  // Require login to volunteer
+  useEffect(() => {
+    if (!userLoggedIn) {
+      navigate('/login', { state: { redirectTo: `/independent/volunteer/${orderId}` } });
+    }
+  }, [userLoggedIn, navigate, orderId]);
 
   // Load community from localStorage on component mount
   useEffect(() => {
@@ -138,6 +146,12 @@ const VolunteerPickupSpot = () => {
       return;
     }
 
+    if (!currentUser?.uid) {
+      Swal.fire('התחברות נדרשת', 'יש להתחבר לפני התנדבות לנקודת איסוף', 'info');
+      navigate('/login', { state: { redirectTo: `/independent/volunteer/${orderId}` } });
+      return;
+    }
+
     setSaving(true);
     try {
       // Create volunteer document in main volunteers collection
@@ -158,8 +172,8 @@ const VolunteerPickupSpot = () => {
 
       // Call backend function to update the independent order
       try {
-        // Prod Environment
-        await axios.post('http://127.0.0.1:5001/auth-development-323c3/us-central1/updateIndependentOrderVolunteer', {
+        const url = functionsEndpoint('updateIndependentOrderVolunteer');
+        await axios.post(url, {
           orderId,
           volunteerId: volunteerDoc.id,
           volunteerInfo: {
@@ -173,7 +187,6 @@ const VolunteerPickupSpot = () => {
           }
         });
       } catch (error) {
-        // If backend update fails, delete the volunteer doc to maintain consistency
         throw new Error('Failed to update order with volunteer info');
       }
 

@@ -118,9 +118,14 @@ const Menu = () => {
               )}
               
               {userLoggedIn && userRole === 'user' && (
-                <Link to="/my-orders" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/my-orders') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
-                  ההזמנות שלי
-                </Link>
+                <>
+                  <Link to="/my-orders" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/my-orders') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
+                    ההזמנות שלי
+                  </Link>
+                  <Link to="/my-volunteer-spots" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/my-volunteer-spots') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
+                    נקודות האיסוף שלי
+                  </Link>
+                </>
               )}
               
               {userLoggedIn && userRole === 'business' && (
@@ -248,9 +253,14 @@ const Menu = () => {
               )}
               
               {userLoggedIn && userRole === 'user' && (
-                <Link to="/my-orders" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-orders') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                  ההזמנות שלי
-                </Link>
+                <>
+                  <Link to="/my-orders" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-orders') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                    ההזמנות שלי
+                  </Link>
+                  <Link to="/my-volunteer-spots" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-volunteer-spots') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                    נקודות האיסוף שלי
+                  </Link>
+                </>
               )}
               
               {userLoggedIn && userRole === 'business' && (

@@ -31,14 +31,19 @@
   - Farmer dashboard basics (progress, volunteers list)
   - Error/empty/edge states hardening and i18n copy polish
   - Accessibility sweep and keyboard navigation checks across new pages
+  - Communities identity: create `communities` collection and integrate with user registration (search, create-if-missing via backend)
+  - Require login to volunteer; gate `VolunteerPickupSpot` with auth and move order updates to backend function
+  - New page: `MyVolunteerSpots` listing user’s volunteered pickup spots
 
 ### 1) Foundations
 - Keep existing global cart for weekly only. No split cart by mode. [done]
 - `SaleModeContext` and `ModeToggle` wired into `App`. [done]
+- Communities identity: `communities` collection; searchable dropdown; backend create-if-missing [planned]
 
 ### 2) UI toggles and routing
 - `Home.js` uses segmented toggle; headings align with active mode. [done]
 - `App.js` registers routes for independent module and independent confirmation. [done]
+- Add route `/my-volunteer-spots` for user volunteer dashboard [planned]
 
 ### 3) Independent checkout (ephemeral cart)
 - `IndependentOrderForm.js`:
@@ -57,31 +62,38 @@
   - Gate ordering by volunteer presence. [done]
 - `VolunteerPickupSpot.js`:
   - Persist volunteer in main `volunteers` collection (fields: `orderId`, `fullName`, `phone`, `community`, `address`, `locationInstructions`, `userId`, `volunteeredAt`). [done]
-  - Update order (`IndependentOrders/{orderId}`) with `hasVolunteer`, `volunteerId`, `volunteerInfo`. [done]
+  - Update order via backend function; require authenticated user to volunteer. [planned]
 - `VolunteerShareSuccess.js`:
   - Show volunteer info, message preview, WhatsApp share and copy actions (mobile-optimized). [done]
 
 ### 5) Discovery and status
 - `IndependentFarmers.js` lists `IndependentOrders` and hydrates volunteer status by querying `volunteers` for matching `orderId`. [done]
 - Optional: Add toggle to show only orders with a pickup volunteer. [pending]
+- New: `MyVolunteerSpots.js` lists user’s volunteered spots and related orders. [planned]
 
 ### 6) Data model (frontend usage)
 - `IndependentOrders/{orderId}`
   - `mode: 'independent'`, `paymentRoute: 'threshold'`
-  - `minCommunityTotal`, `thresholdDeadline`, `status`, `pickupSpots`, `volunteerIncentive`, `volunteerWhatsappMessage`
+  - `minCommunityTotal`, `endingTime`, `status`, `pickupSpots`, `volunteerIncentive`, `volunteerWhatsappMessage`
   - `orderName`, `imageUrl`, `selectedProducts`, `description`, `shippingDateRange`
   - `hasVolunteer: boolean`, `volunteerId: string`, `volunteerInfo: {...}` [added]
 - `volunteers/{volunteerId}`
   - `orderId`, `fullName`, `phone`, `community`, `address`, `locationInstructions`, `userId`, `volunteeredAt`
+- `communities/{communityId}` [new]
+  - `name`, `region`, `aliases[]`, `createdAt`, `createdBy`
 
 ### 7) Security rules (to apply in Firebase Console)
 - Firestore
-  - `IndependentOrders` (read: public; create/update: business owner; delete: deny). [exists]
+  - `IndependentOrders` (read: public; create/update/delete: server only via functions). [tighten]
   - `volunteers` (main collection):
     - `read: if true`
     - `create: if true` (allow broad community participation)
     - `update: if isAuthenticated() && resource.data.userId == request.auth.uid`
     - `delete: if false`
+  - `communities`:
+    - `read: if true`
+    - `create: if isAuthenticated()` (create-if-missing via backend preferred)
+    - `update, delete: if false`
 - Storage
   - Use `businesses/{businessId}/independent-orders/...` for uploads to align with existing `businesses` rule. [done]
 
@@ -92,11 +104,5 @@
 - Volunteer flow enables ordering only when a volunteer exists. [done]
 - Discovery clearly indicates volunteer status. [done]
 - Mobile UX: floating cart, share buttons, and segmented toggle are touch-friendly and readable. [done]
-
-### Open items / Next actions
-- Implement backend call for `createCommunityThresholdPayment` and handle redirects/responses
-- Aggregate `currentTotal` and expose per community for threshold bar
-- Add optional discovery filter for “Only with pickup volunteer”
-- Add Farmer Dashboard scaffolding for monitoring
-- Improve error states (order ended, stock mismatches, missing state) and toast UX
-- QA pass across devices; finalize copy; instrument analytics where needed 
+- Communities are created or linked during registration; typos protected by search-first UI. [planned]
+- Volunteering requires login; order updates occur only via backend. [planned] 

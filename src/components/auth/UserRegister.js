@@ -1,7 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { doCreateUserWithEmailAndPassword, doSignInWithGoogle } from '../../firebase/auth';
-import { pickupSpots } from '../../data/pickupSpots';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../firebase/firebase';
+import { createCommunityIfMissing } from '../../services/communityService';
+import communityToRegion from '../../utils/communityToRegion';
+import LoadingSpinner from '../LoadingSpinner';
 import './AuthForms.css';
 
 const UserRegister = () => {
@@ -10,7 +14,7 @@ const UserRegister = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [community, setCommunity] = useState('');
-  const [filteredSpots, setFilteredSpots] = useState([]);
+  const [communitySuggestions, setCommunitySuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [error, setError] = useState('');
   const [isSigningUp, setIsSigningUp] = useState(false);
@@ -39,15 +43,21 @@ const UserRegister = () => {
     };
   }, []);
 
-  // Effect for filtering spots based on input
+  // Effect for filtering communities from local list based on input
   useEffect(() => {
-    if (community) {
-      const filtered = pickupSpots.filter(spot => 
-        spot.toLowerCase().includes(community.toLowerCase())
-      );
-      setFilteredSpots(filtered);
+    if (community.trim()) {
+      // Filter from local community list
+      const filtered = Object.keys(communityToRegion)
+        .filter(name => name.toLowerCase().includes(community.toLowerCase()))
+        .slice(0, 20) // Limit to 20 suggestions
+        .map(name => ({ name, region: communityToRegion[name] }));
+      setCommunitySuggestions(filtered);
     } else {
-      setFilteredSpots([]);
+      // Show top 20 communities when empty
+      const top20 = Object.keys(communityToRegion)
+        .slice(0, 20)
+        .map(name => ({ name, region: communityToRegion[name] }));
+      setCommunitySuggestions(top20);
     }
   }, [community]);
 
@@ -57,10 +67,35 @@ const UserRegister = () => {
     setShowSuggestions(true);
   };
 
-  const handleSelectCommunity = (spot) => {
-    setCommunity(spot);
+  const handleSelectCommunity = (item) => {
+    setCommunity(item.name);
     setCommunityError('');
     setShowSuggestions(false);
+  };
+
+  // Check if community exists in database
+  const checkCommunityExists = async (communityName) => {
+    const q = query(
+      collection(db, 'communities'), 
+      where('name', '==', communityName.trim())
+    );
+    const snap = await getDocs(q);
+    return !snap.empty ? snap.docs[0] : null;
+  };
+
+  // Create community in background (non-blocking)
+  const createCommunityInBackground = async (communityName) => {
+    try {
+      const existingCommunity = await checkCommunityExists(communityName);
+      if (!existingCommunity) {
+        const region = communityToRegion[communityName] || 'אחר';
+        await createCommunityIfMissing({ name: communityName, region });
+        console.log('Community created in background:', communityName);
+      }
+    } catch (error) {
+      console.error('Failed to create community in background:', error);
+      // Don't show error to user since this is background operation
+    }
   };
 
   // Validation functions
@@ -114,12 +149,9 @@ const UserRegister = () => {
     return true;
   };
 
-  const validateCommunity = (community) => {
-    if (!community) {
+  const validateCommunity = (value) => {
+    if (!value || !value.trim()) {
       setCommunityError('קהילה היא שדה חובה');
-      return false;
-    } else if (!pickupSpots.includes(community)) {
-      setCommunityError('נא לבחור קהילה מהרשימה');
       return false;
     }
     setCommunityError('');
@@ -146,17 +178,26 @@ const UserRegister = () => {
     try {
       setIsSigningUp(true);
       setError('');
+
+      const communityName = community.trim();
       
+      // Create user first (this handles authentication)
       const userData = { 
         email, 
         name, 
         phone, 
-        community,
+        communityName,
         role: 'user' 
       };
       
       await doCreateUserWithEmailAndPassword(email, password, userData, 'users');
+      
+      // Navigate immediately for better UX
       navigate('/');
+      
+      // Create community in background (non-blocking)
+      createCommunityInBackground(communityName);
+      
     } catch (error) {
       console.error("Registration failed:", error);
       setError(error.message || 'אירעה שגיאה בעת ההרשמה');
@@ -183,6 +224,11 @@ const UserRegister = () => {
       setIsSigningUp(false);
     }
   };
+
+  // Show loading spinner during registration
+  if (isSigningUp) {
+    return <LoadingSpinner />;
+  }
 
   return (
     <div className="auth-form-container">
@@ -260,18 +306,18 @@ const UserRegister = () => {
           />
           {communityError && <p className="error-message">{communityError}</p>}
           
-          {showSuggestions && filteredSpots.length > 0 && (
+          {showSuggestions && communitySuggestions.length > 0 && (
             <div 
               ref={suggestionRef}
               className="absolute z-10 bg-white border border-gray-300 rounded mt-1 w-full max-h-40 overflow-y-auto"
             >
-              {filteredSpots.map((spot, index) => (
+              {communitySuggestions.map((item, index) => (
                 <div 
                   key={index} 
                   className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
-                  onClick={() => handleSelectCommunity(spot)}
+                  onClick={() => handleSelectCommunity(item)}
                 >
-                  {spot}
+                  {item.name} ({item.region})
                 </div>
               ))}
             </div>

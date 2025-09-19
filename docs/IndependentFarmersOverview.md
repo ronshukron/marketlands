@@ -4,6 +4,7 @@
 - **Empower independent farmers** to self-manage product listings and order forms.
 - **Community threshold checkout**: orders are confirmed only if a community reaches a minimum total by a deadline.
 - **Simple UX**: weekly sales use the existing global cart; independent orders use an ephemeral per-order cart and direct checkout.
+- **Communities as a first-class identity**: users select a community; unlisted communities can be created (via backend) to avoid typos.
 
 ### Personas
 - **User (buyer)**: browses weekly or independent, orders to a pickup spot in their community.
@@ -18,6 +19,7 @@
   - Independent: `IndependentFarmers` list; navigate to individual order forms.
 - **Volunteer pickup spot**
   - If no pickup spot is set for the user’s community, show a “Volunteer host” CTA.
+  - Requires login to volunteer; backend function updates the independent order with volunteer info.
   - Collect volunteer info, persist spot, and present a pre-filled WhatsApp message to share.
 - **Independent order flow (no global cart)**
   - User opens an independent order form.
@@ -29,6 +31,17 @@
 - **Threshold outcome**
   - Backend confirms or cancels after deadline based on community totals. Frontend displays progress (amount vs minimum, countdown).
 
+### Communities identity
+- `communities/{communityId}`: `name`, `region`, `aliases[]`, `createdAt`, `createdBy`.
+- Registration uses a searchable dropdown over `communities`; if no match, creation happens via backend (to prevent typos and enforce rules).
+- Users store `communityId` and denormalized `communityName`.
+
+### My Volunteer Spots (new)
+- Route: `/my-volunteer-spots`.
+- Lists volunteer spots created by the logged-in user (from `volunteers`), hydrates related `IndependentOrders`.
+- Actions: copy share message, view order; optional edit of instructions via backend.
+
 ### Out of scope (frontend)
 - Refund/void handling and final threshold decision logic (handled in backend).
-- Admin tooling beyond farmer dashboard basics. 
+- Admin tooling beyond farmer dashboard basics.
+- Community moderation workflows (merge, rename) handled offline/admin tools. 
