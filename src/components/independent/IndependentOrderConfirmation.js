@@ -43,7 +43,7 @@ const IndependentOrderConfirmation = () => {
     const isValid = userName.trim() !== '' && 
                     userPhone.trim() !== '' && 
                     userEmail.trim() !== '' &&
-                    /^[^\s@]+@[^^\s@]+\.[^\s@]+$/.test(userEmail) &&
+                    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
                     selectedPickupSpot !== '' &&
                     agreeToTerms;
     setFormIsValid(isValid);
@@ -74,10 +74,7 @@ const IndependentOrderConfirmation = () => {
         }
       };
 
-      console.log('groupedForStock', groupedForStock); // debugging
-
       const stockResult = await checkAndUpdateIndependentStock(groupedForStock);
-      console.log('stockResult', stockResult); // debugging
 
       if (!stockResult.success) {
         if (stockResult.insufficientItems && stockResult.insufficientItems.length > 0) {
@@ -116,7 +113,9 @@ const IndependentOrderConfirmation = () => {
           productName: it.name,
           quantity: it.quantity,
           price: Number(it.price),
-          selectedOption: it.selectedOption || ''
+          selectedOption: it.selectedOption || '',
+          catalogNumber: it.catalogNumber || '',
+          vatType: it.vatType ?? 3
         })),
         orderBreakdown,
         grandTotal: Number(total),
@@ -125,7 +124,17 @@ const IndependentOrderConfirmation = () => {
         updatedAt: serverTimestamp()
       };
       await setDoc(customerOrderRef, customerOrderDoc, { merge: true });
-      console.log('customerOrderDoc', customerOrderDoc); // debugging
+
+      // 2b) Update IndependentOrders doc with reference to this customer order (per community)
+      try {
+        const indepOrderRef = doc(db, 'IndependentOrders', orderId);
+        await updateDoc(indepOrderRef, {
+          [`customerOrderIdsByCommunity.${selectedPickupSpot}`]: arrayUnion(customerOrderId)
+        });
+      } catch (e) {
+        // Non-fatal: log and proceed
+        console.error('Failed to update IndependentOrders with customer order id', e);
+      }
 
       // 3) Update user's orders array in the current user's document
       if (currentUser) {
@@ -139,10 +148,24 @@ const IndependentOrderConfirmation = () => {
             createdAt: serverTimestamp()
           })
         });
-        console.log('User orders updated successfully');
       }
 
-      // 4) Create suspended (J5) payment via backend
+      // 4) Create suspended (J5) payment via backend (include productData for VAT/cat. numbers)
+      const productData = [];
+      let productIndex = 0;
+      items.forEach((it) => {
+        if (!it.isShipping && it.quantity > 0) {
+          productData.push({
+            catalogNumber: it.catalogNumber || '',
+            quantity: it.quantity,
+            price: Number(it.price) * it.quantity,
+            itemDescription: it.name || 'פריט',
+            vatType: it.vatType ?? 3
+          });
+          productIndex++;
+        }
+      });
+
       const paymentResponse = await createSuspendedPayment({
         orderId,
         items,
@@ -156,17 +179,16 @@ const IndependentOrderConfirmation = () => {
           pickupSpot: selectedPickupSpot
         },
         pickupSpot: selectedPickupSpot,
+        productData,
         description: `הזמנה קהילתית - ${orderName || orderId}`,
         customerOrderId
       });
-      console.log('paymentResponse', paymentResponse); // debugging
+
       if (paymentResponse?.status === 1 && paymentResponse?.data?.url) {
-        // Redirect user to hosted payment page
         window.location.href = paymentResponse.data.url;
         return;
       }
 
-      // If response not in expected format
       Swal.fire('שגיאה', 'לא ניתן היה ליצור תשלום. נסו שוב מאוחר יותר.', 'error');
     } catch (e) {
       console.error(e);
@@ -350,7 +372,7 @@ const IndependentOrderConfirmation = () => {
                     onChange={(e) => setAgreeToTerms(e.target.checked)}
                     className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded ml-2"
                   />
-                  <label htmlFor="agreeToTerms" className="text-sm text-gray-700">
+                  <label htmlFor="agreeToTerms" className="text-sm text.gray-700">
                     קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank" className="text-green-600 hover:underline">תנאי השימוש</Link>
                   </label>
           </div>
@@ -362,7 +384,7 @@ const IndependentOrderConfirmation = () => {
                     disabled={!formIsValid}
                     className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                   >
-                    הירשם להזמנה קהילתית
+                    לתשלום
                   </button>
                   <button
                     onClick={() => navigate(-1)}

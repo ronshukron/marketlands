@@ -23,9 +23,22 @@ const IndependentOrderForm = () => {
   const [orderEnded, setOrderEnded] = useState(false);
   const [hasVolunteer, setHasVolunteer] = useState(false);
   const [checkingVolunteer, setCheckingVolunteer] = useState(true);
-
-  // Local, ephemeral cart
+  // ... existing code ...
   const [cartItems, setCartItems] = useState([]);
+  
+  // Selected pickup spot (persisted in localStorage)
+  const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
+    const saved = localStorage.getItem('selectedPickupSpot') || '';
+    return saved === 'הכל' ? '' : saved;
+  });
+
+  useEffect(() => {
+    if (selectedPickupSpot) {
+      localStorage.setItem('selectedPickupSpot', selectedPickupSpot);
+    } else {
+      localStorage.removeItem('selectedPickupSpot');
+    }
+  }, [selectedPickupSpot]);
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -91,8 +104,8 @@ const IndependentOrderForm = () => {
         }
         setProducts(fetchedProducts);
 
-        // Check for volunteers
-        await checkVolunteers(orderId);
+        // Check volunteers per selected community
+        await checkVolunteers(orderId, selectedPickupSpot);
       } catch (e) {
         console.error('Error loading independent order:', e);
         navigate('/error');
@@ -103,13 +116,17 @@ const IndependentOrderForm = () => {
     fetchOrder();
   }, [orderFromNav, orderId, navigate]);
 
-  const checkVolunteers = async (orderId) => {
+  const checkVolunteers = async (orderId, community) => {
     try {
       setCheckingVolunteer(true);
-      // Check volunteers collection for this orderId
+      if (!community) {
+        setHasVolunteer(false);
+        return;
+      }
       const volunteersQuery = query(
         collection(db, 'volunteers'),
-        where('orderId', '==', orderId)
+        where('orderId', '==', orderId),
+        where('community', '==', community)
       );
       const volunteersSnap = await getDocs(volunteersQuery);
       setHasVolunteer(!volunteersSnap.empty);
@@ -120,6 +137,12 @@ const IndependentOrderForm = () => {
       setCheckingVolunteer(false);
     }
   };
+
+  useEffect(() => {
+    // Re-check volunteers when community selection changes
+    checkVolunteers(orderId, selectedPickupSpot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPickupSpot]);
 
   const handleQuantityChange = (index, increment) => {
     setProducts(products.map((product, i) => {
@@ -140,11 +163,15 @@ const IndependentOrderForm = () => {
   };
 
   const addToLocalCart = (productIndex) => {
-    // Check if volunteer exists before allowing cart actions
+    // Require community selection and volunteer for that community
+    if (!selectedPickupSpot) {
+      Swal.fire({ title: 'בחר נקודת איסוף', text: 'אנא בחר קהילה מהרשימה לפני הוספה לסל', icon: 'info', confirmButtonText: 'הבנתי' });
+      return;
+    }
     if (!hasVolunteer) {
       Swal.fire({ 
-        title: 'אין מתנדב זמין', 
-        text: 'נדרש מתנדב לנקודת איסוף לפני שניתן להוסיף פריטים לסל', 
+        title: 'אין מתנדב בקהילה שנבחרה', 
+        text: 'נדרש מתנדב לנקודת איסוף בקהילה שבחרת לפני שניתן להוסיף פריטים לסל', 
         icon: 'warning', 
         confirmButtonText: 'הבנתי' 
       });
@@ -219,6 +246,14 @@ const IndependentOrderForm = () => {
       Swal.fire({ icon: 'warning', title: 'העגלה ריקה', text: 'בחר פריטים לפני המעבר לתשלום' });
       return;
     }
+    if (!selectedPickupSpot) {
+      Swal.fire({ icon: 'info', title: 'בחר נקודת איסוף', text: 'אנא בחר קהילה לפני המעבר לתשלום' });
+      return;
+    }
+    if (!hasVolunteer) {
+      Swal.fire({ icon: 'warning', title: 'אין מתנדב בקהילה שנבחרה', text: 'לא ניתן להתקדם לתשלום ללא מתנדב בקהילה שבחרת' });
+      return;
+    }
     navigate('/order-confirmation-independent', {
       state: {
         orderId,
@@ -275,6 +310,23 @@ const IndependentOrderForm = () => {
               </div>
             )}
 
+            {/* Pickup spot selector for this order */}
+            <div className="mb-4 max-w-xs">
+              <label className="block text-sm font-medium text-gray-700 mb-1">נקודת איסוף לקהילה</label>
+              <select
+                value={selectedPickupSpot}
+                onChange={(e) => setSelectedPickupSpot(e.target.value)}
+                className="block w-full p-2 pr-8 text-right text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                dir="rtl"
+              >
+                <option value="">בחר נקודת איסוף</option>
+                {order?.pickupSpots?.map((spot) => (
+                  <option key={spot} value={spot}>{spot}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">הזמנה נפתחת רק אם יש מתנדב בקהילה שנבחרה</p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {order?.shippingDateRange && (
                 <div className="flex items-center text-gray-700">
@@ -307,13 +359,23 @@ const IndependentOrderForm = () => {
                   </svg>
                   בודק זמינות מתנדבים...
                 </div>
+              ) : !selectedPickupSpot ? (
+                <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                  <div className="flex items-center gap-2 text-orange-800 mb-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    <span className="font-semibold">בחר קהילה כדי לבדוק זמינות מתנדב</span>
+                  </div>
+                  <p className="text-orange-700 text-sm">בחר נקודת איסוף מהרשימה למעלה.</p>
+                </div>
               ) : hasVolunteer ? (
                 <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                   <div className="flex items-center gap-2 text-green-800">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <span className="font-semibold">יש מתנדב לנקודת איסוף!</span>
+                    <span className="font-semibold">יש מתנדב לנקודת איסוף ב{selectedPickupSpot}!</span>
                   </div>
                   <p className="text-green-700 text-sm mt-1">תוכל כעת להוסיף פריטים לסל ולהתקדם בהזמנה.</p>
                 </div>
@@ -323,11 +385,9 @@ const IndependentOrderForm = () => {
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                     </svg>
-                    <span className="font-semibold">ממתין למתנדב לנקודת איסוף</span>
+                    <span className="font-semibold">ממתין למתנדב בקהילה {selectedPickupSpot}</span>
                   </div>
-                  <p className="text-orange-700 text-sm mb-3">
-                    כדי שניתן יהיה להזמין, נדרש מתנדב מהקהילה שלך שיארח נקודת איסוף. לא ניתן להוסיף פריטים לסל עד שיימצא מתנדב.
-                  </p>
+                  <p className="text-orange-700 text-sm mb-3">כדי שניתן יהיה להזמין, נדרש מתנדב לנקודת איסוף בקהילה זו.</p>
                   <Link 
                     to={`/independent/volunteer/${orderId}`} 
                     className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md text-sm font-medium transition-colors"
@@ -406,9 +466,9 @@ const IndependentOrderForm = () => {
 
                   <button 
                     onClick={() => addToLocalCart(index)} 
-                    disabled={product.stockAmount <= 0 || !hasVolunteer} 
+                    disabled={product.stockAmount <= 0 || !hasVolunteer || !selectedPickupSpot} 
                     className={`flex-1 ${
-                      product.stockAmount > 0 && hasVolunteer 
+                      product.stockAmount > 0 && hasVolunteer && selectedPickupSpot 
                         ? 'bg-blue-500 hover:bg-blue-600' 
                         : 'bg-gray-400 cursor-not-allowed'
                     } text-white py-1.5 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-1`}
@@ -416,7 +476,7 @@ const IndependentOrderForm = () => {
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
-                    {!hasVolunteer ? 'ממתין למתנדב' : product.stockAmount <= 0 ? 'אזל במלאי' : 'הוסף לסל'}
+                    {!selectedPickupSpot ? 'בחר קהילה' : !hasVolunteer ? 'ממתין למתנדב' : product.stockAmount <= 0 ? 'אזל במלאי' : 'הוסף לסל'}
                   </button>
                 </div>
               </div>

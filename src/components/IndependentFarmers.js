@@ -5,14 +5,25 @@ import LoadingSpinner from './LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
 import { pickupSpots } from '../data/pickupSpots';
 import ThresholdProgressBar from './independent/components/ThresholdProgressBar';
+import { useAuth } from '../contexts/authContext';
 
 const IndependentFarmers = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { userLoggedIn, currentUser } = useAuth();
   const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
     return localStorage.getItem('selectedPickupSpot') || '';
   });
   const navigate = useNavigate();
+
+  // Default to user's community if logged in and no explicit selection
+  useEffect(() => {
+    if (!selectedPickupSpot) {
+      const userCommunity = (currentUser?.communityName || '').trim();
+      const initial = userLoggedIn && userCommunity && userCommunity !== 'הכל' ? userCommunity : 'הכל';
+      setSelectedPickupSpot(initial);
+    }
+  }, [userLoggedIn, currentUser, selectedPickupSpot]);
 
   useEffect(() => {
     if (selectedPickupSpot) {
@@ -29,8 +40,20 @@ const IndependentFarmers = () => {
         const q = query(collection(db, 'IndependentOrders'));
         const qs = await getDocs(q);
         const items = [];
+        const currentTime = new Date();
+        
         for (const d of qs.docs) {
           const data = d.data();
+          
+          // Filter out orders that have passed their endingTime
+          const endingTime = data.endingTime;
+          if (endingTime) {
+            const endDate = endingTime.toDate ? endingTime.toDate() : new Date(endingTime);
+            if (endDate <= currentTime) {
+              continue; // Skip expired orders
+            }
+          }
+          
           // hydrate business
           let business = null;
           if (data.businessId) {
@@ -38,7 +61,7 @@ const IndependentFarmers = () => {
             const bizSnap = await getDoc(bizRef);
             business = bizSnap.exists() ? bizSnap.data() : null;
           }
-          // check volunteers in main collection for this orderId
+          // check volunteers in main collection for this orderId (any community)
           let hasVolunteer = false;
           try {
             const volQ = query(
@@ -62,6 +85,38 @@ const IndependentFarmers = () => {
     };
     fetchIndependentOrders();
   }, []);
+
+  // Refresh per-order volunteer status for the selected pickup spot
+  useEffect(() => {
+    const updateVolunteerBySpot = async () => {
+      if (!selectedPickupSpot || selectedPickupSpot === 'הכל') {
+        // Clear spot-specific flag
+        setOrders(prev => prev.map(o => ({ ...o, hasVolunteerBySpot: undefined })));
+        return;
+      }
+      try {
+        const updated = [];
+        for (const o of orders) {
+          try {
+            const volQ = query(
+              collection(db, 'volunteers'),
+              where('orderId', '==', o.id),
+              where('community', '==', selectedPickupSpot),
+              limit(1)
+            );
+            const volSnap = await getDocs(volQ);
+            updated.push({ ...o, hasVolunteerBySpot: !volSnap.empty });
+          } catch {
+            updated.push({ ...o, hasVolunteerBySpot: false });
+          }
+        }
+        setOrders(updated);
+      } catch (e) {
+        console.error('Error updating volunteer status by spot', e);
+      }
+    };
+    updateVolunteerBySpot();
+  }, [selectedPickupSpot, orders.length]);
 
   const handleClickOrder = (order) => {
     navigate(`/independent/order/${order.id}`, { state: { order } });
@@ -116,14 +171,17 @@ const IndependentFarmers = () => {
             const minCommunityTotal = Number(order.minCommunityTotal || 0);
             const currentTotal = 0; // TODO: aggregate
             const thresholdDeadline = order.endingTime?.toDate ? order.endingTime.toDate() : order.endingTime;
+            const showHasVolunteer = (selectedPickupSpot && selectedPickupSpot !== 'הכל')
+              ? order.hasVolunteerBySpot === true
+              : order.hasVolunteer === true;
             return (
-              <div key={order.id} onClick={() => handleClickOrder(order)} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 cursor-pointer border-2 border-green-200 hover:border-green-400">
+              <div key={order.id} onClick={() => handleClickOrder(order)} className="bg-white rounded-lg shadow.md overflow-hidden hover:shadow-lg transition-shadow duration-300 cursor-pointer border-2 border-green-200 hover:border-green-400">
                 <div className="relative pt-[50%]">
                   {order.imageUrl && (
                     <img src={order.imageUrl} alt={order.orderName} className="absolute top-0 left-0 w-full h-full object-cover" />
                   )}
-                  <div className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-full ${order.hasVolunteer ? 'bg-green-600 text-white' : 'bg-yellow-400 text-gray-900'}`}>
-                    {order.hasVolunteer ? 'יש נקודת איסוף' : 'דרוש מתנדב לנקודת איסוף'}
+                  <div className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-full ${showHasVolunteer ? 'bg-green-600 text-white' : 'bg-yellow-400 text-gray-900'}`}>
+                    {showHasVolunteer ? 'יש נקודת איסוף' : 'דרוש מתנדב לנקודת איסוף'}
                   </div>
                 </div>
                 <div className="p-4">

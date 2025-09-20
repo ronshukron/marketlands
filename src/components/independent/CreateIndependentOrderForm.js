@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, addDoc, serverTimestamp, getDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDoc, doc, updateDoc, getDocs, query, where, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
@@ -28,7 +28,8 @@ const CreateIndependentOrderForm = () => {
 
   // Independent-specific fields
   const [minCommunityTotal, setMinCommunityTotal] = useState('');
-  const [thresholdDeadline, setThresholdDeadline] = useState('');
+  const [thresholdDeadlineDate, setThresholdDeadlineDate] = useState('');
+  const [thresholdDeadlineTime, setThresholdDeadlineTime] = useState('');
   const [volunteerIncentive, setVolunteerIncentive] = useState('');
   const [volunteerWhatsappMessage, setVolunteerWhatsappMessage] = useState('');
 
@@ -75,8 +76,8 @@ const CreateIndependentOrderForm = () => {
       return;
     }
 
-    if (!thresholdDeadline) {
-      Swal.fire({ icon: 'error', title: 'שגיאה', text: 'אנא הזינו דדליין לסף הקהילה.' });
+    if (!thresholdDeadlineDate || !thresholdDeadlineTime) {
+      Swal.fire({ icon: 'error', title: 'שגיאה', text: 'אנא הזינו תאריך ושעה לדדליין הסף הקהילתי.' });
       return;
     }
 
@@ -111,6 +112,9 @@ const CreateIndependentOrderForm = () => {
         uploadedImageUrl = await getDownloadURL(snapshot.ref);
       }
 
+      // Combine date and time for deadline
+      const combinedDeadline = new Date(`${thresholdDeadlineDate}T${thresholdDeadlineTime}`);
+
       const payload = {
         businessEmail: currentUser?.email || '',
         businessId: currentUser?.uid || '',
@@ -129,13 +133,34 @@ const CreateIndependentOrderForm = () => {
         paymentRoute: 'threshold',
         status: 'open',
         minCommunityTotal: Number(minCommunityTotal || 0),
-        endingTime: new Date(thresholdDeadline),
+        endingTime: combinedDeadline,
         volunteerIncentive,
         volunteerWhatsappMessage,
         createdAt: serverTimestamp(),
       };
 
       const docRef = await addDoc(collection(db, 'IndependentOrders'), payload);
+
+      // Append this orderId to selected community docs in 'communities'
+      try {
+        if (Array.isArray(selectedPickupSpots) && selectedPickupSpots.length > 0) {
+          await Promise.all(selectedPickupSpots.map(async (spotName) => {
+            try {
+              const q = query(collection(db, 'communities'), where('name', '==', spotName));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                await Promise.all(snap.docs.map((cDoc) => updateDoc(cDoc.ref, {
+                  independentOrderIds: arrayUnion(docRef.id)
+                })));
+              }
+            } catch (e) {
+              console.error('Failed updating community with order id', spotName, e);
+            }
+          }));
+        }
+      } catch (e) {
+        console.error('Batch update of communities failed', e);
+      }
 
       Swal.fire({ icon: 'success', title: 'המודעה נוצרה בהצלחה!', showConfirmButton: false, timer: 1500 });
 
@@ -226,7 +251,7 @@ const CreateIndependentOrderForm = () => {
         {/* Pickup Spot Selection */}
         <div className="mb-2">
           <label className="block text-gray-700 font-medium mb-2">נקודות איסוף</label>
-          <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+          <div className="bg.white border border-gray-300 rounded-lg shadow-sm p-4">
             <div className="flex justify-end gap-2 mb-3 pb-3 border-b border-gray-200">
               <button type="button" onClick={() => setSelectedPickupSpots(pickupSpots.slice())} className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700">בחר הכל</button>
               <button type="button" onClick={() => setSelectedPickupSpots([])} className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded-md shadow-sm hover:bg-gray-300">נקה הכל</button>
@@ -259,16 +284,25 @@ const CreateIndependentOrderForm = () => {
           </div>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">דדליין לסף הקהילה <span className="text-red-500">*</span></label>
-            <input type="datetime-local" value={thresholdDeadline} onChange={(e) => setThresholdDeadline(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">תאריך</label>
+                <input type="date" value={thresholdDeadlineDate} onChange={(e) => setThresholdDeadlineDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">שעה</label>
+                <input type="time" value={thresholdDeadlineTime} onChange={(e) => setThresholdDeadlineTime(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline.none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
           </div>
         </div>
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">תמריץ למתנדבים (אופציונלי)</label>
-          <input type="text" value={volunteerIncentive} onChange={(e) => setVolunteerIncentive(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="text" value={volunteerIncentive} onChange={(e) => setVolunteerIncentive(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline.none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">טקסט וואטסאפ לשיתוף (אופציונלי)</label>
-          <textarea value={volunteerWhatsappMessage} onChange={(e) => setVolunteerWhatsappMessage(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <textarea value={volunteerWhatsappMessage} onChange={(e) => setVolunteerWhatsappMessage(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline.none focus:ring-2 focus:ring-blue-500" />
         </div>
 
         {error && <div className="text-red-600">{error}</div>}
