@@ -38,7 +38,7 @@ const VolunteerShareSuccess = () => {
       <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
         <div className="bg-green-600 text-white px-6 py-4">
           <h1 className="text-2xl font-bold">🎉 תודה על ההתנדבות!</h1>
-          <p className="text-green-100 mt-1">אתה רשמת כמתנדב להזמנה: {orderName || orderId}</p>
+          <p className="text-green-100 mt-1">נרשמתם כמתנדבים להזמנה: {orderName || orderId}</p>
         </div>
         
         <div className="p-6">
@@ -52,7 +52,7 @@ const VolunteerShareSuccess = () => {
               </div>
               <div className="mr-3">
                 <h3 className="text-lg font-semibold text-green-800">ההתנדבות נרשמה בהצלחה!</h3>
-                <p className="text-green-700">אתה עכשיו נקודת האיסוף הרשמית עבור הקהילה שלך.</p>
+                <p className="text-green-700">אתם עכשיו נקודת האיסוף עבור הקהילה שלכם להזמנה זו.</p>
               </div>
             </div>
             

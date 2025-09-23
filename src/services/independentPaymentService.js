@@ -21,8 +21,11 @@ export async function createSuspendedPayment({
   pickupSpot,
   description = 'תשלום הזמנה קהילתית - חקלאים עצמאיים',
   customerOrderId
-}) {
-  const endpoint = 'http://127.0.0.1:5001/auth-development-323c3/us-central1/createIndependentSuspendedPayment';
+}) {        
+  // prod env
+  const endpoint = 'https://us-central1-auth-development-323c3.cloudfunctions.net/createIndependentSuspendedPayment';
+  // test env
+  // const endpoint = 'http://127.0.0.1:5001/auth-development-323c3/us-central1/createIndependentSuspendedPayment';
   console.log('endpoint', endpoint); // debugging
   // Assemble product data for invoice context (backend may override)
   // The provider expects integers; backend should convert/validate
@@ -38,7 +41,7 @@ export async function createSuspendedPayment({
     });
     productIndex++;
   }
-
+  
   const successUrl = `${window.location.origin}/payment-success/`;
   const cancelUrl = `${window.location.origin}/payment-cancel/`;
 

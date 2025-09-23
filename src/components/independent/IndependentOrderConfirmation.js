@@ -7,7 +7,7 @@ import Swal from 'sweetalert2';
 import { checkAndUpdateIndependentStock } from '../../utils/independentStock';
 import { createSuspendedPayment, generateCustomerOrderId } from '../../services/independentPaymentService';
 import { db } from '../../firebase/firebase';
-import { doc, setDoc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, arrayUnion, serverTimestamp, getDoc, increment } from 'firebase/firestore';
 
 const IndependentOrderConfirmation = () => {
   const navigate = useNavigate();
@@ -128,12 +128,20 @@ const IndependentOrderConfirmation = () => {
       // 2b) Update IndependentOrders doc with reference to this customer order (per community)
       try {
         const indepOrderRef = doc(db, 'IndependentOrders', orderId);
+        const indepSnap = await getDoc(indepOrderRef);
+        let baseMinAmount = 0;
+        if (indepSnap.exists()) {
+          const d = indepSnap.data() || {};
+          baseMinAmount = Number(d.minAmount ?? d.minCommunityTotal ?? 0);
+        }
         await updateDoc(indepOrderRef, {
-          [`customerOrderIdsByCommunity.${selectedPickupSpot}`]: arrayUnion(customerOrderId)
+          [`customerOrderIdsByCommunity.${selectedPickupSpot}`]: arrayUnion(customerOrderId),
+          [`minAmountByCommunity.${selectedPickupSpot}`]: baseMinAmount,
+          updatedAt: serverTimestamp()
         });
       } catch (e) {
         // Non-fatal: log and proceed
-        console.error('Failed to update IndependentOrders with customer order id', e);
+        console.error('Failed to update IndependentOrders with per-community fields', e);
       }
 
       // 3) Update user's orders array in the current user's document
@@ -142,10 +150,6 @@ const IndependentOrderConfirmation = () => {
         await updateDoc(userRef, {
           [`orders.${orderId}`]: arrayUnion({
             orderId: customerOrderId,
-            orderName: orderName || orderId,
-            total: Number(total),
-            paymentStatus: 'pending_payment',
-            createdAt: serverTimestamp()
           })
         });
       }

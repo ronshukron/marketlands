@@ -133,6 +133,7 @@ const CreateIndependentOrderForm = () => {
         paymentRoute: 'threshold',
         status: 'open',
         minCommunityTotal: Number(minCommunityTotal || 0),
+        minAmount: Number(minCommunityTotal || 0),
         endingTime: combinedDeadline,
         volunteerIncentive,
         volunteerWhatsappMessage,
@@ -160,6 +161,33 @@ const CreateIndependentOrderForm = () => {
         }
       } catch (e) {
         console.error('Batch update of communities failed', e);
+      }
+
+      // Create scheduled task for backend settlement processing
+      try {
+        const task = {
+          taskType: 'settleIndependentOrder',
+          orderId: docRef.id,
+          scheduledFor: combinedDeadline,
+          processed: false,
+          createdAt: serverTimestamp(),
+          ordername: orderName,
+        };
+        await addDoc(collection(db, 'independentScheduledTasks'), task);
+      } catch (e) {
+        console.error('Failed creating independent scheduled task', e);
+        try {
+          await updateDoc(doc(db, 'IndependentOrders', docRef.id), {
+            status: 'canceled',
+            updatedAt: serverTimestamp(),
+            cancelReason: 'scheduled_task_creation_failed'
+          });
+        } catch (updateErr) {
+          console.error('Failed to mark order as canceled after task failure', updateErr);
+        }
+        setSaving(false);
+        Swal.fire({ icon: 'error', title: 'שגיאה', text: 'נכשלה יצירת משימה מתוזמנת למודעה. המודעה בוטלה.', confirmButtonText: 'הבנתי' });
+        return;
       }
 
       Swal.fire({ icon: 'success', title: 'המודעה נוצרה בהצלחה!', showConfirmButton: false, timer: 1500 });

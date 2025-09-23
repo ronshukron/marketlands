@@ -10,8 +10,10 @@ export async function checkAndUpdateIndependentStock(groupedItemsByOrder) {
     // Reuse existing Cloud Function endpoint shape, but keep separate util in case of future divergence
     // Prod
     const response = await axios.post(
-    //   'https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock',
-      'http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock',
+    // prod env
+      'https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock',
+    // test env
+      // 'http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock',
 
       { orderItems: groupedItemsByOrder },
       { headers: { 'Content-Type': 'application/json' } }

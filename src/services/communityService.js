@@ -24,7 +24,11 @@ export async function searchCommunities(term) {
 
 export async function createCommunityIfMissing({ name, region = 'אחר', alias }) {
   const payload = { name: name?.trim(), region, alias: alias?.trim() };
-  const url = functionsEndpoint('createCommunityIfMissing');
+  // const url = functionsEndpoint('createCommunityIfMissing');
+  // prod env
+  const url = 'https://us-central1-auth-development-323c3.cloudfunctions.net/createCommunityIfMissing';
+  // test env
+  // const url = 'http://127.0.0.1:5001/auth-development-323c3/us-central1/createCommunityIfMissing';
   const res = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' } });
   return res.data; // expect { id, name, region }
 } 

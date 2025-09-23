@@ -45,6 +45,11 @@ const IndependentFarmers = () => {
         for (const d of qs.docs) {
           const data = d.data();
           
+          // Skip orders that are not open (canceled/closed/etc.)
+          if (data.status && data.status !== 'open') {
+            continue;
+          }
+          
           // Filter out orders that have passed their endingTime
           const endingTime = data.endingTime;
           if (endingTime) {
