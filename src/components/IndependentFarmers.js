@@ -173,8 +173,33 @@ const IndependentFarmers = () => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredOrders.map((order) => {
-            const minCommunityTotal = Number(order.minCommunityTotal || 0);
-            const currentTotal = 0; // TODO: aggregate
+            const isAll = !selectedPickupSpot || selectedPickupSpot === 'הכל';
+            const community = selectedPickupSpot;
+            // Helper: get per-community value from nested map or dot-flattened field
+            const getCommunityValue = (obj, baseKey, key) => {
+              if (!obj || !baseKey || !key) return undefined;
+              const nested = obj[baseKey];
+              if (nested && typeof nested === 'object') {
+                const val = nested[key];
+                if (val !== undefined && val !== null) return val;
+              }
+              const flatKey = `${baseKey}.${key}`;
+              if (Object.prototype.hasOwnProperty.call(obj, flatKey)) {
+                return obj[flatKey];
+              }
+              return undefined;
+            };
+
+            const minFromMap = !isAll ? getCommunityValue(order, 'minAmountByCommunity', community) : 0;
+            const minCommunityTotal = isAll
+              ? 0
+              : Number(minFromMap ?? order.minAmount ?? order.minCommunityTotal ?? 0);
+
+            const heldFromMap = !isAll ? getCommunityValue(order, 'totalHeldByCommunity', community) : 0;
+            const currentTotal = isAll
+              ? 0
+              : Number(heldFromMap ?? 0);
+
             const thresholdDeadline = order.endingTime?.toDate ? order.endingTime.toDate() : order.endingTime;
             const showHasVolunteer = (selectedPickupSpot && selectedPickupSpot !== 'הכל')
               ? order.hasVolunteerBySpot === true
@@ -192,7 +217,13 @@ const IndependentFarmers = () => {
                 <div className="p-4">
                   <h3 className="text-lg font-semibold mb-2 text-gray-900">{order.orderName}</h3>
                   <p className="text-sm text-gray-600 line-clamp-2 mb-2">{order.description}</p>
-                  <ThresholdProgressBar minCommunityTotal={minCommunityTotal} currentTotal={currentTotal} thresholdDeadline={thresholdDeadline} />
+                  {!isAll && (
+                    <ThresholdProgressBar
+                      minCommunityTotal={minCommunityTotal}
+                      currentTotal={currentTotal}
+                      thresholdDeadline={thresholdDeadline}
+                    />
+                  )}
                   <div className="mt-2 text-sm text-gray-700">
                     {order.shippingDateRange && (
                       <div>
