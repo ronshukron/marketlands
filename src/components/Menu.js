@@ -7,6 +7,8 @@ import { doSignOut } from '../firebase/auth';
 import { useCart } from '../contexts/CartContext';
 import Cart from './Cart';
 import './Menu.css';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase/firebase';
 
 const Menu = () => {
   const { userLoggedIn, userRole, currentUser } = useAuth();
@@ -17,6 +19,7 @@ const Menu = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const menuRef = useRef(null);
+  const [isIndependent, setIsIndependent] = useState(false);
 
   // Handle scrolling effect
   useEffect(() => {
@@ -45,6 +48,30 @@ const Menu = () => {
   useEffect(() => {
     setIsOpen(false);
   }, [location.pathname]);
+
+  // Detect independent business
+  useEffect(() => {
+    const checkIndependent = async () => {
+      if (currentUser?.uid && userRole === 'business') {
+        try {
+          const ref = doc(db, 'businesses', currentUser.uid);
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            const data = snap.data();
+            setIsIndependent(Boolean(data?.isIndependent));
+          } else {
+            setIsIndependent(false);
+          }
+        } catch (e) {
+          console.error('Error checking isIndependent:', e);
+          setIsIndependent(false);
+        }
+      } else {
+        setIsIndependent(false);
+      }
+    };
+    checkIndependent();
+  }, [currentUser?.uid, userRole]);
 
   const toggleMenu = (event) => {
     event.stopPropagation();
@@ -130,15 +157,24 @@ const Menu = () => {
               
               {userLoggedIn && userRole === 'business' && (
                 <>
-                  <Link to="/Business-DashBoard" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/Business-DashBoard') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
-                    מודעות מכירה שלי
-                  </Link>
+                  {isIndependent && (
+                    <Link to="/independent-orders" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/independent-orders') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
+                      הזמנות עצמאיות
+                    </Link>
+                  )}
+                  {!isIndependent && (
+                    <Link to="/Business-DashBoard" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/Business-DashBoard') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
+                      מודעות מכירה שלי
+                    </Link>
+                  )}
                   <Link to="/Business-Products" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/Business-Products') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                     המוצרים שלי
                   </Link>
-                  <Link to="/dashboard" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/dashboard') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
-                    לוח מודעות
-                  </Link>
+                  {!isIndependent && (
+                    <Link to="/dashboard" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/dashboard') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
+                      לוח מודעות
+                    </Link>
+                  )}
                   {/* <Link to="/landing" className={`text-sm font-medium transition-colors py-1 px-1 ${isActive('/landing') ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-700 hover:text-blue-600'}`}>
                     הדרכה
                   </Link> */}
@@ -265,15 +301,24 @@ const Menu = () => {
               
               {userLoggedIn && userRole === 'business' && (
                 <>
-                  <Link to="/Business-DashBoard" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/Business-DashBoard') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                    מודעות מכירה שלי
-                  </Link>
+                  {isIndependent && (
+                    <Link to="/independent-orders" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/independent-orders') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                      הזמנות עצמאיות
+                    </Link>
+                  )}
+                  {!isIndependent && (
+                    <Link to="/Business-DashBoard" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/Business-DashBoard') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                      מודעות מכירה שלי
+                    </Link>
+                  )}
                   <Link to="/Business-Products" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/Business-Products') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                     המוצרים שלי
                   </Link>
-                  <Link to="/dashboard" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/dashboard') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                    לוח מודעות
-                  </Link>
+                  {!isIndependent && (
+                    <Link to="/dashboard" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/dashboard') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                      לוח מודעות
+                    </Link>
+                  )}
                   {businessId && (
                     <Link to={`/store/${businessId}`} className={`block px-3 py-2 rounded-md text-base font-medium ${isActive(`/store/${businessId}`) ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                       החנות שלי

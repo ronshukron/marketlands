@@ -32,53 +32,123 @@ const MyOrders = () => {
 
                 if (userDocSnap.exists()) {
                     const userData = userDocSnap.data();
-                    const orderIds = userData.orders || []; // Assuming 'orders' is the array field
+                    const ordersField = userData.orders; // Can be array (weekly) or object (independent mapping)
 
-                    if (orderIds.length === 0) {
-                        setOrders([]);
-                        setLoading(false);
-                        return;
+                    let weeklyOrderIds = [];
+                    let independentOrderIds = [];
+
+                    if (Array.isArray(ordersField)) {
+                        // Weekly: simple array of customerOrders IDs
+                        weeklyOrderIds = ordersField.filter(Boolean);
+                    } else if (ordersField && typeof ordersField === 'object') {
+                        // Independent: object map -> arrays of { orderId }
+                        independentOrderIds = Object.values(ordersField)
+                            .flat()
+                            .map((entry) => (typeof entry === 'string' ? entry : entry?.orderId))
+                            .filter(Boolean);
+                    } else {
+                        weeklyOrderIds = [];
+                        independentOrderIds = [];
                     }
 
-                    const fetchedOrders = await Promise.all(
-                        orderIds.map(async (orderId) => {
-                            try {
-                                const orderDocRef = doc(db, "customerOrders", orderId);
-                                const orderDocSnap = await getDoc(orderDocRef);
-                                if (orderDocSnap.exists()) {
-                                    return { id: orderId, ...orderDocSnap.data() };
-                                } else {
-                                    console.warn(`Order with ID ${orderId} not found.`);
-                                    return null; // Handle cases where an order might be deleted
-                                }
-                            } catch (orderError) {
-                                console.error(`Error fetching order ${orderId}:`, orderError);
-                                return null; // Handle fetch errors for individual orders
-                            }
-                        })
-                    );
+                    // Fallback: if we don't have IDs, query by userId
+                    const fetchWeeklyByUserPromise = (async () => {
+                        if (weeklyOrderIds.length > 0) return [];
+                        try {
+                            const qWeekly = query(collection(db, 'customerOrders'), where('userId', '==', currentUser.uid));
+                            const snap = await getDocs(qWeekly);
+                            return snap.docs.map((d) => ({ id: d.id, ...d.data(), isIndependent: false }));
+                        } catch (e) {
+                            console.error('Failed weekly fallback query', e);
+                            return [];
+                        }
+                    })();
 
-                    // Filter out nulls, include only completed orders, and sort by date (newest first)
-                    const validOrders = fetchedOrders
-                        .filter(order => {
-                            // First, make sure order exists
+                    const fetchIndependentByUserPromise = (async () => {
+                        if (independentOrderIds.length > 0) return [];
+                        try {
+                            const qInd = query(collection(db, 'IndepentCustomerOrders'), where('userId', '==', currentUser.uid));
+                            const snap = await getDocs(qInd);
+                            return snap.docs.map((d) => ({ id: d.id, ...d.data(), isIndependent: true }));
+                        } catch (e) {
+                            console.error('Failed independent fallback query', e);
+                            return [];
+                        }
+                    })();
+
+                    const [fetchedWeekly, fetchedIndependent, weeklyByUser, independentByUser] = await Promise.all([
+                        Promise.all(
+                            weeklyOrderIds.map(async (orderId) => {
+                                try {
+                                    const orderDocRef = doc(db, "customerOrders", orderId);
+                                    const orderDocSnap = await getDoc(orderDocRef);
+                                    if (orderDocSnap.exists()) {
+                                        return { id: orderId, ...orderDocSnap.data(), isIndependent: false };
+                                    } else {
+                                        console.warn(`Order with ID ${orderId} not found.`);
+                                        return null;
+                                    }
+                                } catch (orderError) {
+                                    console.error(`Error fetching order ${orderId}:`, orderError);
+                                    return null;
+                                }
+                            })
+                        ),
+                        Promise.all(
+                            independentOrderIds.map(async (orderId) => {
+                                try {
+                                    const orderDocRef = doc(db, 'IndepentCustomerOrders', orderId);
+                                    const orderDocSnap = await getDoc(orderDocRef);
+                                    if (orderDocSnap.exists()) {
+                                        return { id: orderId, ...orderDocSnap.data(), isIndependent: true };
+                                    } else {
+                                        console.warn(`Independent order with ID ${orderId} not found.`);
+                                        return null;
+                                    }
+                                } catch (orderError) {
+                                    console.error(`Error fetching independent order ${orderId}:`, orderError);
+                                    return null;
+                                }
+                            })
+                        ),
+                        fetchWeeklyByUserPromise,
+                        fetchIndependentByUserPromise
+                    ]);
+
+                    // Merge arrays and de-duplicate by id
+                    const mergeUnique = (arr) => {
+                        const map = new Map();
+                        for (const item of (arr || [])) {
+                            if (item && item.id && !map.has(item.id)) map.set(item.id, item);
+                        }
+                        return Array.from(map.values());
+                    };
+
+                    const weeklyCombined = mergeUnique([...(fetchedWeekly || []).filter(Boolean), ...(weeklyByUser || [])]);
+                    const independentCombined = mergeUnique([...(fetchedIndependent || []).filter(Boolean), ...(independentByUser || [])]);
+
+                    // Keep weekly logic: include only completed/paid
+                    const validWeekly = (weeklyCombined || [])
+                        .filter((order) => {
                             if (order === null) return false;
-                            
-                            // Check payment status - include only completed/paid orders
-                            const status = (order.paymentStatus || order.status || '').toLowerCase();
+                            const status = derivePaymentStatus(order);
                             return status === 'completed' || status === 'paid';
-                        })
-                        .sort((a, b) => {
-                            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-                            return dateB - dateA; // Sort descending
                         });
 
-                    setOrders(validOrders);
-                    
+                    // Independent: include all so we can show status (held/pending/etc.)
+                    const validIndependent = (independentCombined || []).filter((order) => order !== null);
+
+                    const combinedOrders = [...validIndependent, ...validWeekly].sort((a, b) => {
+                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                        return dateB - dateA; // Sort descending
+                    });
+
+                    setOrders(combinedOrders);
+
                     // Fetch refund statuses for all orders
-                    fetchRefundStatuses(validOrders.map(order => order.id));
-                    
+                    fetchRefundStatuses(combinedOrders.map(order => order.id));
+
                 } else {
                     setError("לא נמצאו נתוני משתמש.");
                 }
@@ -136,6 +206,16 @@ const MyOrders = () => {
         }
     };
 
+    // Helper to derive payment status (normalized)
+    const derivePaymentStatus = (order) => {
+        return (order?.paymentStatus || order?.status || order?.orderBreakdown?.paymentStatus || '').toLowerCase();
+    };
+
+    // Helper to get display status (raw text)
+    const getDisplayStatus = (order) => {
+        return order?.paymentStatus || order?.status || order?.orderBreakdown?.paymentStatus || 'לא ידוע';
+    };
+
     // Helper function to get status styles
     const getStatusBadge = (status) => {
         switch (status?.toLowerCase()) {
@@ -145,6 +225,8 @@ const MyOrders = () => {
             case 'pending_payment':
             case 'pending':
                 return 'bg-yellow-100 text-yellow-800';
+            case 'held':
+                return 'bg-blue-100 text-blue-800';
             case 'cancelled':
             case 'failed':
                 return 'bg-red-100 text-red-800';
@@ -300,13 +382,16 @@ const MyOrders = () => {
                                     <h2 className="text-lg font-semibold text-gray-800">
                                         הזמנה #{order.id.substring(0, 8)}...
                                     </h2>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        {order.isIndependent ? 'הזמנת חקלאים עצמאיים' : 'הזמנה רגילה'}
+                                    </div>
                                     <p className="text-sm text-gray-500">
                                         תאריך: {formatDate(order.createdAt)}
                                     </p>
                                 </div>
                                 <div className="flex flex-col items-end">
-                                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusBadge(order.paymentStatus || order.status)}`}>
-                                        {order.paymentStatus || order.status || 'לא ידוע'}
+                                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusBadge(derivePaymentStatus(order))}`}>
+                                        {getDisplayStatus(order)}
                                     </span>
                                     {getRefundStatusBadge(order.id)}
                                 </div>
@@ -315,25 +400,39 @@ const MyOrders = () => {
                             <div className="p-4 sm:p-6">
                                 <div className="mb-4">
                                     <h3 className="text-md font-semibold text-gray-700 mb-2">סיכום הזמנה:</h3>
-                                    {/* Iterate through orderBreakdown if it exists */}
-                                    {order.orderBreakdown && Object.entries(order.orderBreakdown).map(([businessOrderId, businessOrder]) => (
-                                        <div key={businessOrderId} className="mb-3 pl-4 border-r-2 border-blue-200">
-                                            <p className="text-sm font-medium text-gray-800">{businessOrder.businessName || 'עסק לא ידוע'}</p>
-                                            <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
-                                                {businessOrder.items?.map((item, index) => (
-                                                    <li key={index}>
-                                                        {item.productName} (x{item.quantity})
-                                                        {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
+                                    {/* Prefer business-style breakdown when present (weekly orders) */}
+                                    {order.orderBreakdown && Object.values(order.orderBreakdown).some((v) => Array.isArray(v?.items)) && (
+                                        Object.entries(order.orderBreakdown).map(([businessOrderId, businessOrder]) => (
+                                            <div key={businessOrderId} className="mb-3 pl-4 border-r-2 border-blue-200">
+                                                <p className="text-sm font-medium text-gray-800">{businessOrder.businessName || 'עסק לא ידוע'}</p>
+                                                <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
+                                                    {businessOrder.items?.map((item, index) => (
+                                                        <li key={index}>
+                                                            {item.productName} (x{item.quantity})
+                                                            {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
+                                                            {typeof item.price === 'number' && (
+                                                                <span> - ₪{(item.price * item.quantity).toFixed(2)}</span>
+                                                            )}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        ))
+                                    )}
+                                    {/* Unified fallback for independent or legacy structures */}
+                                    {(!order.orderBreakdown || !Object.values(order.orderBreakdown).some((v) => Array.isArray(v?.items))) && (
+                                        <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
+                                            {(order.items || order.orderItems || []).map((item, index) => (
+                                                <li key={index}>
+                                                    {item.productName} (x{item.quantity})
+                                                    {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
+                                                    {typeof item.price === 'number' && (
                                                         <span> - ₪{(item.price * item.quantity).toFixed(2)}</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    ))}
-                                    {/* Fallback for older order structure */}
-                                    {!order.orderBreakdown && order.orderItems?.map((item, index) => (
-                                         <p key={index} className="text-sm text-gray-600">{item.productName} (x{item.quantity})</p>
-                                    ))}
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
 
                                 <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
@@ -355,19 +454,19 @@ const MyOrders = () => {
                                     </Link>
                                 </div> */}
                                 <div className="mt-4 text-right">
-                                    {!refundStatuses[order.id] ? (
+                                    {refundStatuses[order.id] ? (
+                                        <div className="text-sm text-gray-500">
+                                            {refundStatuses[order.id].status === 'completed' ? 
+                                                'הזיכוי אושר' : 
+                                                'בקשת זיכוי הוגשה'}
+                                        </div>
+                                    ) : (
                                         <button
                                             onClick={() => openRefundModal(order.id)}
                                             className="text-sm bg-red-50 hover:bg-red-100 text-red-600 py-1 px-3 rounded-md transition-colors"
                                         >
                                             בקשת זיכוי
                                         </button>
-                                    ) : (
-                                        <div className="text-sm text-gray-500">
-                                            {refundStatuses[order.id].status === 'completed' ? 
-                                                'הזיכוי אושר' : 
-                                                'בקשת זיכוי הוגשה'}
-                                        </div>
                                     )}
                                 </div>
                             </div>

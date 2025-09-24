@@ -59,6 +59,8 @@ import VolunteerPickupSpot from './components/independent/VolunteerPickupSpot';
 import VolunteerShareSuccess from './components/independent/VolunteerShareSuccess';
 import IndependentOrderConfirmation from './components/independent/IndependentOrderConfirmation';
 import MyVolunteerSpots from './components/independent/MyVolunteerSpots';
+import IndependentBusinessDashboard from './components/independent/IndependentBusinessDashboard';
+import IndependentOrderDetail from './components/independent/IndependentOrderDetail';
 
 const App = () => {
   return (
@@ -122,6 +124,9 @@ const App = () => {
                   <Route path="/volunteer-share-success" element={<VolunteerShareSuccess />} />
                   <Route path="/order-confirmation-independent" element={<IndependentOrderConfirmation />} />
                   <Route path="/my-volunteer-spots" element={<MyVolunteerSpots />} />
+                  {/* Independent business routes */}
+                  <Route path="/independent-orders" element={<IndependentBusinessDashboard />} />
+                  <Route path="/independent-orders/:id" element={<IndependentOrderDetail />} />
                 </Routes>
               </main>
               <Footer />

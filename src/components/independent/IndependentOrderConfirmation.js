@@ -92,6 +92,8 @@ const IndependentOrderConfirmation = () => {
           throw new Error(stockResult.error || 'שגיאה בבדיקת המלאי');
         }
       }
+      const indepOrderRef = doc(db, 'IndependentOrders', orderId);
+      const indepSnap = await getDoc(indepOrderRef);
 
       // 2) Create Indepe(nt)CustomerOrders doc before payment
       const customerOrderId = generateCustomerOrderId();
@@ -100,6 +102,7 @@ const IndependentOrderConfirmation = () => {
       const customerOrderDoc = {
         independentOrderId: orderId,
         paymentStatus: 'pending_payment',
+        businessId: indepSnap.data()?.businessId || null,
         customerDetails: {
           name: userName,
           phone: userPhone,
@@ -127,8 +130,6 @@ const IndependentOrderConfirmation = () => {
 
       // 2b) Update IndependentOrders doc with reference to this customer order (per community)
       try {
-        const indepOrderRef = doc(db, 'IndependentOrders', orderId);
-        const indepSnap = await getDoc(indepOrderRef);
         let baseMinAmount = 0;
         if (indepSnap.exists()) {
           const d = indepSnap.data() || {};
