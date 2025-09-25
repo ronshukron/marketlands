@@ -160,6 +160,8 @@ const AddProduct = () => {
         createdAt: new Date(),
         catalogNumber: response.data.catalogNumber,
         vatType: Number(vatType),
+        verified: false,
+        rejected: false,
       };
 
       await addDoc(collection(db, 'Products'), productData);

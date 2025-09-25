@@ -61,6 +61,8 @@ import IndependentOrderConfirmation from './components/independent/IndependentOr
 import MyVolunteerSpots from './components/independent/MyVolunteerSpots';
 import IndependentBusinessDashboard from './components/independent/IndependentBusinessDashboard';
 import IndependentOrderDetail from './components/independent/IndependentOrderDetail';
+import AdminDashboard from './components/admin/AdminDashboard';
+import ProductApprovals from './components/admin/ProductApprovals';
 
 const App = () => {
   return (
@@ -127,6 +129,9 @@ const App = () => {
                   {/* Independent business routes */}
                   <Route path="/independent-orders" element={<IndependentBusinessDashboard />} />
                   <Route path="/independent-orders/:id" element={<IndependentOrderDetail />} />
+                  {/* Admin */}
+                  <Route path="/admin" element={<AdminDashboard />} />
+                  <Route path="/admin/products" element={<ProductApprovals />} />
                 </Routes>
               </main>
               <Footer />

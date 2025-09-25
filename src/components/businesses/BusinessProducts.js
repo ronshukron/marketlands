@@ -21,6 +21,20 @@ const BusinessProducts = () => {
   const [isIndependent, setIsIndependent] = useState(false);
   const navigate = useNavigate();
 
+  // Helper to determine selectability and status
+  const getProductStatus = (p) => {
+    const hasVerified = Object.prototype.hasOwnProperty.call(p || {}, 'verified');
+    const hasRejected = Object.prototype.hasOwnProperty.call(p || {}, 'rejected');
+    // Explicit states first
+    if (hasRejected && p.rejected === true) return 'rejected';
+    if (hasVerified && p.verified === true) return 'verified';
+    // Pending if explicitly false on either field
+    if ((hasVerified && p.verified === false) || (hasRejected && p.rejected === false)) return 'pending';
+    // Legacy products (no fields): treat as verified/selectable
+    return 'verified';
+  };
+  const isProductSelectable = (p) => getProductStatus(p) === 'verified';
+
   useEffect(() => {
     const fetchProducts = async () => {
       if (!currentUser) return;
@@ -70,6 +84,15 @@ const BusinessProducts = () => {
 
   const handleToggleProduct = (productId) => {
     // Toggle the selection of a product
+    const product = products.find(p => p.id === productId);
+    if (product && !isProductSelectable(product)) {
+      Swal.fire({
+        icon: 'info',
+        title: product?.rejected ? 'המוצר נדחה' : 'מוצר ממתין לאישור',
+        text: product?.rejected ? 'לא ניתן להוסיף מוצר שנדחה למודעת מכירה.' : 'לא ניתן להוסיף למודעת מכירה עד לאישור מנהל.',
+      });
+      return;
+    }
     if (selectedProducts.includes(productId)) {
       setSelectedProducts(selectedProducts.filter(id => id !== productId));
     } else {
@@ -285,6 +308,18 @@ const BusinessProducts = () => {
                       <span className="text-gray-400 text-sm">אין תמונה</span>
                     </div>
                   )}
+                 {/* Status Badge */}
+                 {(() => {
+                   const status = getProductStatus(product);
+                   if (status === 'verified') return null;
+                   const badgeClass = status === 'rejected' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-yellow-100 text-yellow-800 border-yellow-200';
+                   const text = status === 'rejected' ? 'נדחה על ידי מנהל' : 'ממתין לאישור מנהל';
+                   return (
+                     <div className={`absolute top-2 right-2 text-xs font-medium px-2 py-0.5 rounded border ${badgeClass}`}>
+                       {text}
+                     </div>
+                   );
+                 })()}
                 </div>
 
                 {/* Product Info - More Compact */}
@@ -304,16 +339,21 @@ const BusinessProducts = () => {
 
                   {/* Actions - More Compact */}
                   <div className="mt-2 flex flex-col gap-2">
-                    <button
-                      onClick={() => handleToggleProduct(product.id)}
-                      className={`w-full py-1.5 px-3 rounded transition-colors text-xs font-medium
-                        ${selectedProducts.includes(product.id)
-                          ? 'bg-blue-500 text-white hover:bg-blue-600'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                    >
-                      {selectedProducts.includes(product.id) ? '✓ נבחר להזמנה' : 'בחר להזמנה'}
-                    </button>
+                    {(() => {
+                      const selectable = isProductSelectable(product);
+                      const isSelected = selectedProducts.includes(product.id);
+                      const baseEnabled = `${isSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`;
+                      const baseDisabled = 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60';
+                      return (
+                        <button
+                          onClick={() => handleToggleProduct(product.id)}
+                          disabled={!selectable}
+                          className={`w-full py-1.5 px-3 rounded transition-colors text-xs font-medium ${selectable ? baseEnabled : baseDisabled}`}
+                        >
+                          {selectable ? (isSelected ? '✓ נבחר להזמנה' : 'בחר להזמנה') : (product?.rejected ? 'נדחה' : 'ממתין לאישור')}
+                        </button>
+                      );
+                    })()}
                     
                     <div className="flex gap-2">
                       <button
