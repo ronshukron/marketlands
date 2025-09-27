@@ -11,6 +11,7 @@ const IndependentFarmers = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const { userLoggedIn, currentUser } = useAuth();
+  const [isMerchant, setIsMerchant] = useState(false);
   const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
     return localStorage.getItem('selectedPickupSpot') || '';
   });
@@ -79,7 +80,31 @@ const IndependentFarmers = () => {
           } catch (e) {
             // ignore; keep false
           }
-          items.push({ id: d.id, ...data, business, hasVolunteer });
+
+          // Compute price range for display (merchant-aware)
+          let priceRange = null;
+          try {
+            const selectedProductIds = Array.isArray(data.selectedProducts) ? data.selectedProducts.slice(0, 10) : [];
+            if (selectedProductIds.length > 0) {
+              const productsSnap = await getDocs(query(collection(db, 'Products'), where('__name__', 'in', selectedProductIds)));
+              const prices = [];
+              productsSnap.forEach(pDoc => {
+                const p = pDoc.data();
+                const base = Number(p.price || 0);
+                const m = p.merchantPrice != null ? Number(p.merchantPrice) : null;
+                prices.push(isMerchant && m != null ? m : base);
+              });
+              if (prices.length > 0) {
+                const minP = Math.min(...prices);
+                const maxP = Math.max(...prices);
+                priceRange = { min: minP, max: maxP };
+              }
+            }
+          } catch (e) {
+            // ignore pricing failures
+          }
+
+          items.push({ id: d.id, ...data, business, hasVolunteer, priceRange });
         }
         setOrders(items);
       } catch (e) {
@@ -90,6 +115,20 @@ const IndependentFarmers = () => {
     };
     fetchIndependentOrders();
   }, []);
+
+  useEffect(() => {
+    const fetchIsMerchant = async () => {
+      try {
+        if (!currentUser?.uid) { setIsMerchant(false); return; }
+        const uRef = doc(db, 'users', currentUser.uid);
+        const uSnap = await getDoc(uRef);
+        setIsMerchant(Boolean(uSnap.exists() && uSnap.data().isMerchant === true));
+      } catch {
+        setIsMerchant(false);
+      }
+    };
+    fetchIsMerchant();
+  }, [currentUser]);
 
   // Refresh per-order volunteer status for the selected pickup spot
   useEffect(() => {
@@ -217,6 +256,11 @@ const IndependentFarmers = () => {
                 <div className="p-4">
                   <h3 className="text-lg font-semibold mb-2 text-gray-900">{order.orderName}</h3>
                   <p className="text-sm text-gray-600 line-clamp-2 mb-2">{order.description}</p>
+                 {order.priceRange && (
+                   <p className="text-xs text-gray-700 mb-1">
+                     טווח מחירים{isMerchant ? ' (סוחר)' : ''}: ₪{order.priceRange.min.toFixed(2)} - ₪{order.priceRange.max.toFixed(2)}
+                   </p>
+                 )}
                   {!isAll && (
                     <ThresholdProgressBar
                       minCommunityTotal={minCommunityTotal}

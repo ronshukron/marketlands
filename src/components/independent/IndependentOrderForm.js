@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
+import { useAuth } from '../../contexts/authContext';
 import ThresholdProgressBar from './components/ThresholdProgressBar';
 import FloatingCart from './components/FloatingCart';
 import LoadingSpinner from '../LoadingSpinner';
@@ -25,6 +26,8 @@ const IndependentOrderForm = () => {
   const [checkingVolunteer, setCheckingVolunteer] = useState(true);
   // ... existing code ...
   const [cartItems, setCartItems] = useState([]);
+  const { currentUser } = useAuth();
+  const [isMerchant, setIsMerchant] = useState(false);
   
   // Selected pickup spot (persisted in localStorage)
   const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
@@ -39,6 +42,23 @@ const IndependentOrderForm = () => {
       localStorage.removeItem('selectedPickupSpot');
     }
   }, [selectedPickupSpot]);
+
+  useEffect(() => {
+    const fetchUserMerchant = async () => {
+      try {
+        if (!currentUser?.uid) {
+          setIsMerchant(false);
+          return;
+        }
+        const uRef = doc(db, 'users', currentUser.uid);
+        const uSnap = await getDoc(uRef);
+        setIsMerchant(Boolean(uSnap.exists() && uSnap.data().isMerchant === true));
+      } catch (e) {
+        setIsMerchant(false);
+      }
+    };
+    fetchUserMerchant();
+  }, [orderFromNav, orderId, navigate]);
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -89,6 +109,8 @@ const IndependentOrderForm = () => {
             const qs = await getDocs(productsQuery);
             const chunkProducts = qs.docs.map(d => {
               const p = d.data();
+              const basePrice = Number(p.price || 0);
+              const merchantP = p.merchantPrice != null ? Number(p.merchantPrice) : null;
               return {
                 ...p,
                 id: d.id,
@@ -96,7 +118,9 @@ const IndependentOrderForm = () => {
                 quantity: 0,
                 uid: `${d.id}_${Math.random().toString(36).substr(2, 9)}`,
                 stockAmount: p.stockAmount || 0,
-                Owner_ID: p.Owner_ID
+                Owner_ID: p.Owner_ID,
+                effectivePrice: basePrice,
+                merchantPrice: merchantP
               };
             });
             fetchedProducts = [...fetchedProducts, ...chunkProducts];
@@ -190,10 +214,14 @@ const IndependentOrderForm = () => {
       return;
     }
 
+    const unitPrice = isMerchant && products[productIndex].merchantPrice != null
+      ? Number(products[productIndex].merchantPrice)
+      : Number(products[productIndex].price);
+
     const item = {
       id: product.id,
       name: product.name,
-      price: product.price,
+      price: unitPrice,
       selectedOption: product.selectedOption,
       quantity: product.quantity,
       images: product.images || [],
@@ -252,6 +280,12 @@ const IndependentOrderForm = () => {
     }
     if (!hasVolunteer) {
       Swal.fire({ icon: 'warning', title: 'אין מתנדב בקהילה שנבחרה', text: 'לא ניתן להתקדם לתשלום ללא מתנדב בקהילה שבחרת' });
+      return;
+    }
+    // Enforce merchant minimum order total
+    const merchantMin = Number(order?.merchantMinOrderTotal || 0);
+    if (isMerchant && merchantMin > 0 && cartTotal < merchantMin) {
+      Swal.fire({ icon: 'info', title: 'סכום מינימום להזמנת סוחר', text: `על מנת להזמין כסוחר יש להגיע למינימום של ₪${merchantMin}` });
       return;
     }
     navigate('/order-confirmation-independent', {
@@ -346,6 +380,11 @@ const IndependentOrderForm = () => {
                   currentTotal={currentTotal}
                   thresholdDeadline={thresholdDeadline}
                 />
+                <div className="text-xs text-gray-600 mt-2">
+                  {isMerchant && Number(order?.merchantMinOrderTotal || 0) > 0
+                    ? `סכום מינימום להזמנת סוחר: ₪${Number(order.merchantMinOrderTotal).toFixed(0)}`
+                    : `סכום מינימום לקהילה: ₪${Number(minCommunityTotal).toFixed(0)}`}
+                </div>
               </div>
             </div>
 
@@ -437,7 +476,12 @@ const IndependentOrderForm = () => {
 
                 <div className="flex-1 p-3">
                   <h3 className="text-base font-bold text-gray-900 mb-1">{product.name}</h3>
-                  <p className="text-sm text-gray-500 mb-1">₪{product.price}</p>
+                  <p className="text-sm text-gray-500 mb-1">
+                    ₪{(isMerchant && product.merchantPrice != null ? Number(product.merchantPrice) : Number(product.price)).toFixed(2)}
+                    {isMerchant && product.merchantPrice != null && (
+                      <span className="ml-2 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">מחיר סוחר</span>
+                    )}
+                  </p>
                   <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
                 </div>
               </div>

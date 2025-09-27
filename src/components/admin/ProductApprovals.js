@@ -102,6 +102,9 @@ const ProductApprovals = () => {
                       <p className="text-sm text-gray-600 mt-1 line-clamp-2">{p.description}</p>
                     )}
                     <div className="text-xs text-gray-500 mt-1">סוג מע"מ: {p.vatType ?? '—'}</div>
+                    {p.merchantPrice != null && (
+                      <div className="text-xs text-gray-500 mt-1">מחיר סוחר: ₪{Number(p.merchantPrice).toFixed(2)}</div>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <button

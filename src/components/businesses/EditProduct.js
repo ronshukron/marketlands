@@ -28,6 +28,7 @@ const EditProduct = () => {
     options: [],
     tags: [],
     stockAmount: 0,
+    merchantPrice: ''
   });
 
   useEffect(() => {
@@ -52,6 +53,7 @@ const EditProduct = () => {
             options: data.options || [],
             tags: data.tags || [],
             stockAmount: data.stockAmount || 0,
+            merchantPrice: data.merchantPrice != null ? String(data.merchantPrice) : ''
           });
           
           // Set existing images if available
@@ -211,6 +213,7 @@ const handleSubmit = async (e) => {
       options,
       images: updatedImages, // Update the Firestore with the new images array
       stockAmount: formData.stockAmount, // Include stock amount
+      ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null })
     });
 
     Swal.fire({
@@ -294,6 +297,29 @@ const handleSubmit = async (e) => {
               placeholder="הזן את כמות המלאי"
             />
             <p className="mt-1 text-xs text-gray-500">0 משמעותו מוצר אזל מהמלאי</p>
+          </div>
+
+          {/* Merchant Price */}
+          <div className="mb-4">
+            <label htmlFor="merchantPrice" className="block text-sm font-medium text-gray-700 mb-1">
+              מחיר לסיטונאי/סוחר (אופציונלי)
+            </label>
+            <input
+              type="number"
+              id="merchantPrice"
+              min="0"
+              step="0.01"
+              value={formData.merchantPrice}
+              onChange={(e) => 
+                setFormData({
+                  ...formData,
+                  merchantPrice: e.target.value
+                })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="מחיר סוחר"
+            />
+            <p className="mt-1 text-xs text-gray-500">אם יוגדר, יוצג לסוחרים בלבד.</p>
           </div>
           
           {/* Description */}

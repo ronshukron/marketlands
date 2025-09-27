@@ -32,6 +32,7 @@ const CreateIndependentOrderForm = () => {
   const [thresholdDeadlineTime, setThresholdDeadlineTime] = useState('');
   const [volunteerIncentive, setVolunteerIncentive] = useState('');
   const [volunteerWhatsappMessage, setVolunteerWhatsappMessage] = useState('');
+  const [merchantMinOrderTotal, setMerchantMinOrderTotal] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -134,6 +135,7 @@ const CreateIndependentOrderForm = () => {
         status: 'open',
         minCommunityTotal: Number(minCommunityTotal || 0),
         minAmount: Number(minCommunityTotal || 0),
+        ...(merchantMinOrderTotal !== '' ? { merchantMinOrderTotal: Number(merchantMinOrderTotal) } : {}),
         endingTime: combinedDeadline,
         volunteerIncentive,
         volunteerWhatsappMessage,
@@ -331,6 +333,11 @@ const CreateIndependentOrderForm = () => {
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">טקסט וואטסאפ לשיתוף (אופציונלי)</label>
           <textarea value={volunteerWhatsappMessage} onChange={(e) => setVolunteerWhatsappMessage(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline.none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">סכום מינימום להזמנת סוחר (₪)</label>
+          <input type="number" min="0" value={merchantMinOrderTotal} onChange={(e) => setMerchantMinOrderTotal(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <p className="text-xs text-gray-500 mt-1">אם יוגדר, יחול רק על משתמשים עם סטטוס סוחר.</p>
         </div>
 
         {error && <div className="text-red-600">{error}</div>}

@@ -24,6 +24,7 @@ const AddProduct = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [stockAmount, setStockAmount] = useState(0);
   const [vatType, setVatType] = useState(3);
+  const [merchantPrice, setMerchantPrice] = useState('');
 
 
   const handleAddOption = () => {
@@ -86,6 +87,8 @@ const AddProduct = () => {
         setCurrentOption(value);
       } else if (name === 'stockAmount') {
         setStockAmount(parseInt(value, 10));
+      } else if (name === 'merchantPrice') {
+        setMerchantPrice(value);
       }
     }
   };
@@ -160,6 +163,7 @@ const AddProduct = () => {
         createdAt: new Date(),
         catalogNumber: response.data.catalogNumber,
         vatType: Number(vatType),
+        ...(merchantPrice !== '' ? { merchantPrice: parseFloat(merchantPrice) } : {}),
         verified: false,
         rejected: false,
       };
@@ -255,6 +259,30 @@ const AddProduct = () => {
                 step="1"
               />
             </div>
+          </div>
+
+          {/* Merchant Price (optional) */}
+          <div className="mb-4">
+            <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="merchantPrice">
+              מחיר לסיטונאי/סוחר (אופציונלי)
+            </label>
+            <div className="relative max-w-md">
+              <input
+                type="number"
+                id="merchantPrice"
+                name="merchantPrice"
+                className="block w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="הכנס מחיר סוחר"
+                value={merchantPrice}
+                onChange={(e) => setMerchantPrice(e.target.value)}
+                min="0"
+                step="0.01"
+              />
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <span className="text-gray-500">₪</span>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">אם יוגדר, יוצג לסוחרים בלבד.</p>
           </div>
 
           {/* VAT Type */}
