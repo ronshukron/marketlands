@@ -63,6 +63,7 @@ import IndependentBusinessDashboard from './components/independent/IndependentBu
 import IndependentOrderDetail from './components/independent/IndependentOrderDetail';
 import AdminDashboard from './components/admin/AdminDashboard';
 import ProductApprovals from './components/admin/ProductApprovals';
+import IndependentOrdersAdmin from './components/admin/IndependentOrdersAdmin';
 
 const App = () => {
   return (
@@ -132,6 +133,8 @@ const App = () => {
                   {/* Admin */}
                   <Route path="/admin" element={<AdminDashboard />} />
                   <Route path="/admin/products" element={<ProductApprovals />} />
+                  <Route path="/admin/independent-orders" element={<IndependentOrdersAdmin />} />
+                  <Route path="/admin/independent-order/:id" element={<IndependentOrderDetail />} />
                 </Routes>
               </main>
               <Footer />

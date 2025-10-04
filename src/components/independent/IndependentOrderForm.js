@@ -10,6 +10,7 @@ import Slider from 'react-slick';
 import 'slick-carousel/slick/slick.css';
 import 'slick-carousel/slick/slick-theme.css';
 import Swal from 'sweetalert2';
+import { isVolunteerAvailableForCommunity } from '../../services/volunteerService';
 
 const IndependentOrderForm = () => {
   const { orderId } = useParams();
@@ -147,13 +148,22 @@ const IndependentOrderForm = () => {
         setHasVolunteer(false);
         return;
       }
-      const volunteersQuery = query(
-        collection(db, 'volunteers'),
-        where('orderId', '==', orderId),
-        where('community', '==', community)
-      );
-      const volunteersSnap = await getDocs(volunteersQuery);
-      setHasVolunteer(!volunteersSnap.empty);
+      let endIso;
+      if (order?.endingTime?.toDate && typeof order.endingTime.toDate === 'function') {
+        const d = order.endingTime.toDate();
+        if (d instanceof Date && !isNaN(d)) endIso = d.toISOString();
+      } else if (order?.endingTime instanceof Date && !isNaN(order.endingTime)) {
+        endIso = order.endingTime.toISOString();
+      } else if (typeof order?.endingTime === 'string') {
+        const d = new Date(order.endingTime);
+        if (!isNaN(d)) endIso = d.toISOString();
+      }
+      if (!endIso && order?.shippingDateRange?.end) {
+        const d = new Date(order.shippingDateRange.end);
+        if (!isNaN(d)) endIso = d.toISOString();
+      }
+      const ok = await isVolunteerAvailableForCommunity({ businessId: order?.businessId, community, orderId, orderEndingIso: endIso });
+      setHasVolunteer(Boolean(ok));
     } catch (error) {
       console.error('Error checking volunteers:', error);
       setHasVolunteer(false);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, where, updateDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
@@ -15,11 +15,12 @@ const ProductApprovals = () => {
     try {
       const q = query(
         collection(db, 'Products'),
-        where('verified', '==', false),
-        where('rejected', '!=', true)
+        where('verified', '==', false)
       );
       const snap = await getDocs(q);
-      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const items = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(p => p.rejected !== true); // exclude rejected on client side
       setProducts(items);
     } catch (e) {
       console.error('Failed to load pending products', e);

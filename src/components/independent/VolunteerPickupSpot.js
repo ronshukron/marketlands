@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { doc, getDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, addDoc, collection, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import { pickupSpots } from '../../data/pickupSpots';
@@ -23,6 +23,7 @@ const VolunteerPickupSpot = () => {
     address: '',
     locationInstructions: ''
   });
+  const [commitmentType, setCommitmentType] = useState('one_time');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -169,6 +170,33 @@ const VolunteerPickupSpot = () => {
     }
   };
 
+  const computeCommitmentWindow = () => {
+    const now = new Date();
+    let startAt = now.toISOString();
+    let endAt = now.toISOString();
+    if (commitmentType === 'one_time') {
+      // Prefer shipping end date, fallback to order endingTime, else today
+      if (orderData?.shippingDateRange?.end) {
+        endAt = new Date(orderData.shippingDateRange.end).toISOString();
+      } else if (orderData?.endingTime?.toDate) {
+        endAt = orderData.endingTime.toDate().toISOString();
+      } else if (orderData?.endingTime) {
+        endAt = new Date(orderData.endingTime).toISOString();
+      } else {
+        endAt = startAt;
+      }
+    } else if (commitmentType === 'month') {
+      const m = new Date(now);
+      m.setMonth(m.getMonth() + 1);
+      endAt = m.toISOString();
+    } else if (commitmentType === 'season') {
+      const s = new Date(now);
+      s.setMonth(s.getMonth() + 3);
+      endAt = s.toISOString();
+    }
+    return { startAt, endAt };
+  };
+
   async function onSubmit(e) {
     e.preventDefault();
     setLoading(true);
@@ -213,6 +241,7 @@ const VolunteerPickupSpot = () => {
 
     setSaving(true);
     try {
+      const { startAt, endAt } = computeCommitmentWindow();
       // Create volunteer document in main volunteers collection
       const volunteerData = {
         fullName: form.fullName.trim(),
@@ -222,12 +251,28 @@ const VolunteerPickupSpot = () => {
         locationInstructions: form.locationInstructions.trim(),
         volunteeredAt: new Date().toISOString(),
         userId: currentUser?.uid || null,
-        orderId: orderId // Reference to the independent order
+        orderId: orderId, // Reference to the independent order
+        businessId: orderData?.businessId || null,
+        commitment: {
+          type: commitmentType,
+          startAt,
+          endAt
+        }
       };
 
       // Add volunteer to the main volunteers collection
       const volunteersRef = collection(db, 'volunteers');
       const volunteerDoc = await addDoc(volunteersRef, volunteerData);
+      // console.log('orderData', orderData);
+      // // Link volunteer to the business (farmer)
+      // try {
+      //   if (orderData?.businessId) {
+      //     const bizRef = doc(db, 'businesses', orderData.businessId);
+      //     await updateDoc(bizRef, { volunteerIds: arrayUnion(volunteerDoc.id) });
+      //   }
+      // } catch (e) {
+      //   console.warn('Failed to link volunteer to business', e);
+      // }
 
       // Call backend function to update the independent order
       try {
@@ -237,6 +282,7 @@ const VolunteerPickupSpot = () => {
         // const url = 'http://127.0.0.1:5001/auth-development-323c3/us-central1/updateIndependentOrderVolunteer';
         console.log('url', url);
         await axios.post(url, {
+          businessId: orderData?.businessId,
           orderId,
           volunteerId: volunteerDoc.id,
           volunteerInfo: {
@@ -257,7 +303,7 @@ const VolunteerPickupSpot = () => {
       Swal.fire({
         icon: 'success',
         title: 'תודה על ההתנדבות!',
-        text: 'פרטיך נשמרו בהצלחה. כעת תוכל לשתף את ההזמנה בוואטסאפ כדי לעזור להגיע לסף המינימום.',
+        text: 'פרטיך נשמרו בהצלחה. ניתן לבטל בכל עת דרך תמיכה. כעת תוכל לשתף את ההזמנה בוואטסאפ כדי לעזור להגיע לסף המינימום.',
         confirmButtonText: 'המשך לשיתוף'
       }).then(() => {
         // Navigate to WhatsApp share screen
@@ -364,6 +410,33 @@ ${form.locationInstructions ? `🗺️ הנחיות נוספות: ${form.locatio
                   תקבל עדכונים ישירים על סטטוס ההזמנה
                 </li>
               </ul>
+            </div>
+            <div className="bg-green-50 rounded-lg p-4 mb-4">
+              <h3 className="font-semibold text-green-800 mb-2">משך ההתנדבות</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" name="commitment" value="one_time" checked={commitmentType === 'one_time'} onChange={() => setCommitmentType('one_time')} className="mt-1" />
+                  <div>
+                    <div className="font-medium text-sm">התנדבות חד-פעמית</div>
+                    <div className="text-xs text-gray-700">לסבב הזמנה זה בלבד. מתאים לנסיון ראשון.</div>
+                  </div>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" name="commitment" value="month" checked={commitmentType === 'month'} onChange={() => setCommitmentType('month')} className="mt-1" />
+                  <div>
+                    <div className="font-medium text-sm">חודש</div>
+                    <div className="text-xs text-gray-700">מחויבות לחודש הקרוב. ניתן לבטל בכל עת.</div>
+                  </div>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" name="commitment" value="season" checked={commitmentType === 'season'} onChange={() => setCommitmentType('season')} className="mt-1" />
+                  <div>
+                    <div className="font-medium text-sm">עונה</div>
+                    <div className="text-xs text-gray-700">כשלושה חודשים של הזמנות. אפשר לבטל בכל שלב.</div>
+                  </div>
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-gray-600">תמיד ניתן לבטל את ההתנדבות דרך התמיכה.</p>
             </div>
             
             {orderData?.volunteerIncentive && (

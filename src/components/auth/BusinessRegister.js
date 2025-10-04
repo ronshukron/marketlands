@@ -18,7 +18,7 @@ const BusinessRegister = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const userData = { email, name, phone, businessName, communityName, businessKind, role: 'business' };
+      const userData = { email, name, phone, businessName, communityName, businessKind, role: 'business', isIndependent: true };
       await doCreateUserWithEmailAndPassword(email, password, userData, 'businesses');
       navigate('/business-dashboard');
     } catch (error) {

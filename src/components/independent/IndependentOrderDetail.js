@@ -73,9 +73,6 @@ const IndependentOrderDetail = () => {
   useEffect(() => {
     const compute = async () => {
       if (!order) return;
-      console.log('Order data:', order);
-      console.log('totalHeldByCommunity:', order.totalHeldByCommunity);
-      console.log('numHeldByCommunity:', order.numHeldByCommunity);
       
       const byCommunityRaw = order.customerOrderIdsByCommunity || {};
 
@@ -107,32 +104,24 @@ const IndependentOrderDetail = () => {
       }
 
       // Compute items and stats per final community key
-      // Fix: Access nested Firestore objects properly
-      const preHeldMap = order.totalHeldByCommunity || {};
-      const preNumMap = order.numHeldByCommunity || {};
+      // Use ONLY precomputed values from the IndependentOrders doc (updated after successful payments)
       const minByCommunity = order.minAmountByCommunity || {};
-
-      console.log('Communities found:', Object.keys(mapCO));
-      console.log('preHeldMap:', preHeldMap);
-      console.log('preNumMap:', preNumMap);
 
       for (const [community, coList] of Object.entries(mapCO)) {
         mapItems[community] = aggregateItems(coList);
 
-        // Stats: prefer precomputed totals, else derive
-        const preHeld = Number(preHeldMap[community] ?? NaN);
-        const preNum = Number(preNumMap[community] ?? NaN);
-        console.log(`Community ${community}: preHeld=${preHeld}, preNum=${preNum}`);
+        // Extract held amounts from dot-notation fields in the order doc
+        const heldKey = `totalHeldByCommunity.${community}`;
+        const numKey = `numHeldByCommunity.${community}`;
         
-        let totalHeld = Number.isFinite(preHeld) ? preHeld : coList.reduce((sum, co) => {
-          return sum + (isHeldLike(co) ? Number(co.holdSum || co.grandTotal || 0) : 0);
-        }, 0);
-        let numHeld = Number.isFinite(preNum) ? preNum : coList.reduce((acc, co) => acc + (isHeldLike(co) ? 1 : 0), 0);
+        const totalHeld = Number(order[heldKey] ?? 0);
+        const numHeld = Number(order[numKey] ?? 0);
+        
+        // Total amount and count are derived from all customer orders (for display purposes)
         const totalAmount = coList.reduce((sum, co) => sum + Number(co.grandTotal || co.holdSum || 0), 0);
         const totalCount = coList.length;
         const min = Number(minByCommunity[community] ?? order.minAmount ?? order.minCommunityTotal ?? 0);
 
-        console.log(`Final stats for ${community}:`, { totalHeld, numHeld, min, totalAmount, totalCount });
         mapStats[community] = { totalHeld, numHeld, min, totalAmount, totalCount };
       }
 
@@ -177,6 +166,20 @@ const IndependentOrderDetail = () => {
 
   const handleCancel = async (community) => {
     if (!order) return;
+    
+    // Confirm before canceling
+    const result = await Swal.fire({
+      icon: 'warning',
+      title: 'האם לבטל את הקהילה?',
+      text: `פעולה זו תבטל את כל ההזמנות בקהילה ${community}`,
+      showCancelButton: true,
+      confirmButtonText: 'בטל קהילה',
+      cancelButtonText: 'חזור',
+      confirmButtonColor: '#dc2626'
+    });
+    
+    if (!result.isConfirmed) return;
+    
     try {
       setBusy((b) => ({ ...b, [community]: true }));
       await cancelCommunityPayment({ orderId: order.id, community });
@@ -194,6 +197,12 @@ const IndependentOrderDetail = () => {
 
   const byCommunity = Object.keys(statsByCommunity).length > 0 ? statsByCommunity : (order.customerOrderIdsByCommunity || {});
   const sortedCommunities = Object.keys(byCommunity).sort((a, b) => a.localeCompare(b));
+  
+  // Check if order is finished (not open)
+  const isOrderFinished = order.status && order.status !== 'open';
+  
+  // Get list of canceled communities
+  const canceledCommunities = order.canceledCommunities || [];
 
   return (
     <div dir="rtl" className="max-w-5xl mx-auto px-4 py-8">
@@ -207,26 +216,43 @@ const IndependentOrderDetail = () => {
             {sortedCommunities.map((community) => {
               const stats = statsByCommunity[community] || { totalHeld: 0, numHeld: 0, min: order.minAmount ?? order.minCommunityTotal ?? 0, totalAmount: 0, totalCount: 0 };
               const canAccept = Number(stats.totalHeld) >= Number(stats.min);
-            const volunteerList = volunteersByCommunity[community] || [];
-            const items = itemsByCommunity[community] || [];
-            return (
-              <div key={community} className="bg-white rounded shadow p-4">
+              const volunteerList = volunteersByCommunity[community] || [];
+              const items = itemsByCommunity[community] || [];
+              const isCanceled = canceledCommunities.includes(community);
+              const isLoading = busy[community];
+              
+              return (
+              <div key={community} className={`bg-white rounded shadow p-4 ${isCanceled ? 'opacity-60' : ''}`}>
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-lg font-semibold">{community}</div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-lg font-semibold">{community}</div>
+                      {isCanceled && (
+                        <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">בוטל</span>
+                      )}
+                    </div>
                     <div className="text-sm text-gray-600">מינימום: {currency(stats.min)} | מוחזק: {currency(stats.totalHeld)} | לקוחות מוחזקים: {stats.numHeld} | לקוחות סה"כ: {stats.totalCount}</div>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      disabled={!canAccept || busy[community]}
+                    {/* Temporarily commented out - accept functionality */}
+                    {/* <button
+                      disabled={!canAccept || isLoading || isOrderFinished || isCanceled}
                       onClick={() => handleAccept(community)}
-                      className={`px-3 py-1 rounded text-sm text-white ${canAccept ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed'}`}
-                    >אשר</button>
-                    <button
-                      disabled={busy[community]}
-                      onClick={() => handleCancel(community)}
-                      className={`px-3 py-1 rounded text-sm text-white ${busy[community] ? 'bg-gray-300' : 'bg-red-600 hover:bg-red-700'}`}
-                    >בטל</button>
+                      className={`px-3 py-1 rounded text-sm text-white ${canAccept && !isOrderFinished && !isCanceled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed'}`}
+                    >אשר</button> */}
+                    {isLoading ? (
+                      <div className="px-3 py-1">
+                        <LoadingSpinner />
+                      </div>
+                    ) : (
+                      <button
+                        disabled={isOrderFinished || isCanceled}
+                        onClick={() => handleCancel(community)}
+                        className={`px-3 py-1 rounded text-sm text-white ${isOrderFinished || isCanceled ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
+                      >
+                        {isCanceled ? 'בוטל' : 'בטל'}
+                      </button>
+                    )}
                   </div>
                 </div>
 

@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { pickupSpots } from '../data/pickupSpots';
 import ThresholdProgressBar from './independent/components/ThresholdProgressBar';
 import { useAuth } from '../contexts/authContext';
+import { isVolunteerAvailableForCommunity, isAnyVolunteerAvailable } from '../services/volunteerService';
 
 const IndependentFarmers = () => {
   const [orders, setOrders] = useState([]);
@@ -53,8 +54,9 @@ const IndependentFarmers = () => {
           
           // Filter out orders that have passed their endingTime
           const endingTime = data.endingTime;
+          let endDate = null;
           if (endingTime) {
-            const endDate = endingTime.toDate ? endingTime.toDate() : new Date(endingTime);
+            endDate = endingTime.toDate ? endingTime.toDate() : new Date(endingTime);
             if (endDate <= currentTime) {
               continue; // Skip expired orders
             }
@@ -67,19 +69,8 @@ const IndependentFarmers = () => {
             const bizSnap = await getDoc(bizRef);
             business = bizSnap.exists() ? bizSnap.data() : null;
           }
-          // check volunteers in main collection for this orderId (any community)
-          let hasVolunteer = false;
-          try {
-            const volQ = query(
-              collection(db, 'volunteers'), 
-              where('orderId', '==', d.id), 
-              limit(1)
-            );
-            const volSnap = await getDocs(volQ);
-            hasVolunteer = !volSnap.empty;
-          } catch (e) {
-            // ignore; keep false
-          }
+          // check volunteers across farmer commitments (any community) and ensure coverage through order ending
+          const hasVolunteer = await isAnyVolunteerAvailable({ businessId: data.businessId, requiredEndIso: endDate ? endDate.toISOString() : undefined });
 
           // Compute price range for display (merchant-aware)
           let priceRange = null;
@@ -141,18 +132,9 @@ const IndependentFarmers = () => {
       try {
         const updated = [];
         for (const o of orders) {
-          try {
-            const volQ = query(
-              collection(db, 'volunteers'),
-              where('orderId', '==', o.id),
-              where('community', '==', selectedPickupSpot),
-              limit(1)
-            );
-            const volSnap = await getDocs(volQ);
-            updated.push({ ...o, hasVolunteerBySpot: !volSnap.empty });
-          } catch {
-            updated.push({ ...o, hasVolunteerBySpot: false });
-          }
+          const endDate = o.endingTime?.toDate ? o.endingTime.toDate() : (o.endingTime ? new Date(o.endingTime) : null);
+          const ok = await isVolunteerAvailableForCommunity({ businessId: o.businessId, community: selectedPickupSpot, orderId: o.id, orderEndingIso: endDate ? endDate.toISOString() : undefined });
+          updated.push({ ...o, hasVolunteerBySpot: ok });
         }
         setOrders(updated);
       } catch (e) {

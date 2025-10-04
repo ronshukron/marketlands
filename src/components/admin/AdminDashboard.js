@@ -3,6 +3,12 @@ import { Link } from 'react-router-dom';
 
 const cards = [
   {
+    title: 'ניהול מודעות חקלאים עצמאיים',
+    description: 'צפייה וניהול מודעות מכירה של חקלאים עצמאיים',
+    to: '/admin/independent-orders',
+    featured: true
+  },
+  {
     title: 'אישור מוצרים (חקלאים עצמאיים)',
     description: 'סקירה ואישור מוצרים שנוספו על ידי חקלאים עצמאיים',
     to: '/admin/products'
@@ -41,7 +47,10 @@ const AdminDashboard = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {cards.map((card) => (
             <Link key={card.to} to={card.to} className="block group">
-              <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 hover:shadow-lg transition-shadow h-full">
+              <div className={`bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow h-full ${card.featured ? 'border-2 border-green-500' : 'border border-gray-200'}`}>
+                {card.featured && (
+                  <span className="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded mb-2">מומלץ</span>
+                )}
                 <h2 className="text-xl font-semibold text-gray-800 mb-2 group-hover:text-blue-700">{card.title}</h2>
                 <p className="text-gray-600 text-sm">{card.description}</p>
                 <div className="mt-4 text-blue-600 text-sm font-medium">לכניסה →</div>

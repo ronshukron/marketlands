@@ -228,25 +228,25 @@ const DeliveryManagement80 = () => {
             html += `
               <div style="margin-top:10px;">
                 <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">${crate.name}</div>
-                <table style="width:100%; border-collapse:collapse;">
-                  <thead>
-                    <tr style="background:#F3F4F6; border-bottom:1px solid #E5E7EB;">
-                      <th style="padding:4px; font-size:12px; text-align:right;">מוצר</th>
-                      <th style="padding:4px; font-size:12px; text-align:right;">אופציה</th>
-                      <th style="padding:4px; font-size:12px; text-align:right;">כמות</th>
-                    </tr>
-                  </thead>
+                <table style="width:100%; border-collapse:collapse; border:1px solid #E5E7EB;">
                   <tbody>
             `;
-            (crate.items || []).forEach((it) => {
+            const items = crate.items || [];
+            for (let i = 0; i < items.length; i += 2) {
+              const item1 = items[i];
+              const item2 = items[i + 1];
+              const formatItem = (it) => {
+                if (!it) return '';
+                const option = it.selectedOption && it.selectedOption !== 'ללא' ? ` (${it.selectedOption})` : '';
+                return `${it.productName}${option} - ${it.quantity}`;
+              };
               html += `
                 <tr style="border-bottom:1px solid #E5E7EB;">
-                  <td style="padding:4px; font-size:12px;">${it.productName}</td>
-                  <td style="padding:4px; font-size:12px;">${it.selectedOption || 'ללא'}</td>
-                  <td style="padding:4px; font-size:12px; font-weight:bold;">${it.quantity}</td>
+                  <td style="padding:6px 8px; font-size:12px; width:50%; border-left:1px solid #E5E7EB;">${formatItem(item1)}</td>
+                  <td style="padding:6px 8px; font-size:12px; width:50%;">${formatItem(item2)}</td>
                 </tr>
               `;
-            });
+            }
             html += `</tbody></table></div>`;
           });
         }
@@ -269,23 +269,24 @@ const DeliveryManagement80 = () => {
             <h1 style="font-size:16px; color:#111827; margin:0;">נקודת איסוף: ${pickupSpot}</h1>
             <p style="font-size:11px; margin:2px 0 0 0; color:#6B7280;">רשימת פריטים כללית (ללא ארגזים) — ${items.length}</p>
           </div>
-          <table style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr style="background:#F3F4F6; border-bottom:1px solid #E5E7EB;">
-                <th style="padding:4px; font-size:12px; text-align:right;">מוצר</th>
-                <th style="padding:4px; font-size:12px; text-align:right;">כמות</th>
-              </tr>
-            </thead>
+          <table style="width:100%; border-collapse:collapse; border:1px solid #E5E7EB;">
             <tbody>
         `;
-        chunk.forEach(it => {
+        for (let i = 0; i < chunk.length; i += 2) {
+          const item1 = chunk[i];
+          const item2 = chunk[i + 1];
+          const formatItem = (it) => {
+            if (!it) return '';
+            const option = it.selectedOption && it.selectedOption !== 'ללא' ? ` (${it.selectedOption})` : '';
+            return `${it.productName}${option} - ${it.quantity}`;
+          };
           html += `
             <tr style="border-bottom:1px solid #E5E7EB;">
-              <td style="padding:4px; font-size:12px;">${it.productName}</td>
-              <td style="padding:4px; font-size:12px; font-weight:bold;">${it.quantity}</td>
+              <td style="padding:6px 8px; font-size:12px; width:50%; border-left:1px solid #E5E7EB;">${formatItem(item1)}</td>
+              <td style="padding:6px 8px; font-size:12px; width:50%;">${formatItem(item2)}</td>
             </tr>
           `;
-        });
+        }
         html += `</tbody></table>`;
         el.innerHTML = html;
         await renderToPdf(el, pageIndex++ > 0);

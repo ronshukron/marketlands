@@ -28,7 +28,8 @@ const EditProduct = () => {
     options: [],
     tags: [],
     stockAmount: 0,
-    merchantPrice: ''
+    merchantPrice: '',
+    vatType: 3
   });
 
   useEffect(() => {
@@ -53,7 +54,8 @@ const EditProduct = () => {
             options: data.options || [],
             tags: data.tags || [],
             stockAmount: data.stockAmount || 0,
-            merchantPrice: data.merchantPrice != null ? String(data.merchantPrice) : ''
+            merchantPrice: data.merchantPrice != null ? String(data.merchantPrice) : '',
+            vatType: data.vatType ?? 3
           });
           
           // Set existing images if available
@@ -320,6 +322,26 @@ const handleSubmit = async (e) => {
               placeholder="מחיר סוחר"
             />
             <p className="mt-1 text-xs text-gray-500">אם יוגדר, יוצג לסוחרים בלבד.</p>
+          </div>
+
+          {/* VAT Type (Read-only) */}
+          <div className="mb-4">
+            <label htmlFor="vatType" className="block text-sm font-medium text-gray-700 mb-1">
+              סוג מע"מ
+            </label>
+            <input
+              type="text"
+              id="vatType"
+              value={
+                formData.vatType === 1 ? 'פטור ממע"מ (1)' :
+                formData.vatType === 2 ? 'מע"מ 0% (2)' :
+                formData.vatType === 3 ? 'מע"מ רגיל (3)' :
+                `סוג ${formData.vatType}`
+              }
+              readOnly
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-600 cursor-not-allowed"
+            />
+            <p className="mt-1 text-xs text-gray-500">לא ניתן לשנות את סוג המע"מ לאחר יצירת המוצר.</p>
           </div>
           
           {/* Description */}
