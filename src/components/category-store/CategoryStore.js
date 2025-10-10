@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, getDocs, doc, getDoc, where } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
 import ProductGrid from './ProductGrid';
 import SearchBar from './SearchBar';
 import './CategoryStore.css';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import Slider from 'react-slick';
 
 const CategoryStore = () => {
   const [products, setProducts] = useState([]);
@@ -15,6 +16,11 @@ const CategoryStore = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const sliderRef = useRef(null);
+  const storeTopRef = useRef(null);
+  
+  const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר'];
 
   useEffect(() => {
     fetchCategorizedProducts();
@@ -26,7 +32,38 @@ const CategoryStore = () => {
     const cat = params.get('category') || 'הכל';
     setSelectedCategory(cat);
     setIsSearchActive(false); // leave search mode when category changes
+    
+    // Update slider position when category changes
+    const categoryIndex = categories.indexOf(cat);
+    if (sliderRef.current && categoryIndex !== -1) {
+      // Use setTimeout to ensure slider is fully initialized
+      setTimeout(() => {
+        if (sliderRef.current) {
+          const targetIndex = getAdjustedSlideIndex(categoryIndex);
+          sliderRef.current.slickGoTo(targetIndex);
+        }
+      }, 100);
+    }
   }, [location.search]);
+  
+  // Ensure slider is positioned correctly on mount
+  useEffect(() => {
+    if (sliderRef.current && selectedCategory) {
+      const categoryIndex = categories.indexOf(selectedCategory);
+      if (categoryIndex !== -1) {
+        setTimeout(() => {
+          if (sliderRef.current) {
+            const targetIndex = getAdjustedSlideIndex(categoryIndex);
+            sliderRef.current.slickGoTo(targetIndex);
+          }
+        }, 200);
+      }
+    }
+  }, [sliderRef.current]);
+  
+  const handleCategoryChange = (category) => {
+    navigate({ pathname: '/', search: `?category=${encodeURIComponent(category)}` });
+  };
 
   const fetchCategorizedProducts = async () => {
     setLoading(true);
@@ -242,8 +279,52 @@ const CategoryStore = () => {
     return <LoadingSpinner />;
   }
 
+  const currentCategoryIndex = categories.indexOf(selectedCategory);
+
+  // Adjust the slide index so edges behave nicely with 3 visible slides
+  // - Index 0 can be centered when infinite=true
+  // - Last index cannot be centered; use second-to-last so the last is visible on the right
+  // - Second-to-last can be centered and shows the last on the right
+  const getAdjustedSlideIndex = (index) => {
+    const maxIndex = categories.length - 1;
+    if (index >= maxIndex) return Math.max(maxIndex - 1, 0);
+    return index;
+  };
+  
+  const sliderSettings = {
+    dots: false,
+    infinite: true,
+    speed: 250,
+    slidesToShow: 3,
+    slidesToScroll: 1,
+    centerMode: true,
+    centerPadding: '0px',
+    rtl: true,
+    arrows: false,
+    swipeToSlide: false,
+    focusOnSelect: false,
+    draggable: true,
+    initialSlide: currentCategoryIndex !== -1 ? getAdjustedSlideIndex(currentCategoryIndex) : 0,
+    responsive: [
+      {
+        breakpoint: 768,
+        settings: {
+          slidesToShow: 3,
+          centerPadding: '0px',
+        }
+      },
+      {
+        breakpoint: 480,
+        settings: {
+          slidesToShow: 3,
+          centerPadding: '0px',
+        }
+      }
+    ]
+  };
+
   return (
-    <div className="category-store-container" dir="rtl" id="category-store">
+    <div className="category-store-container" dir="rtl" id="category-store" ref={storeTopRef}>
       <div className="w-full max-w-full mx-auto">
         {/* Search Bar */}
         <SearchBar 
@@ -252,17 +333,56 @@ const CategoryStore = () => {
           setSearchActive={setIsSearchActive}
         />
 
-        {/* Category Title - shown when not searching */}
+        {/* Category Carousel - shown when not searching, only on mobile */}
         {!isSearchActive && (
-          <div className="my-8 text-center">
-            <h2 className="text-4xl font-bold text-gray-900 mb-2">
-              {selectedCategory}
-            </h2>
-            {/* {categoryCounts[selectedCategory] > 0 && (
-              <p className="text-lg text-gray-600">
-                {categoryCounts[selectedCategory]} מוצרים זמינים
-              </p>
-            )} */}
+          <div className="my-6 category-carousel-container md:hidden">
+            <Slider ref={sliderRef} {...sliderSettings}>
+              {categories.map((category) => {
+                const isActive = category === selectedCategory;
+                const categoryIcon = {
+                  'הכל': '🛒',
+                  'ירקות': '🥬',
+                  'פירות': '🍎',
+                  'ירוקים': '🌿',
+                  'אחר': '🏷️'
+                };
+                
+                return (
+                  <div key={category}>
+                    <div
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const categoryIndex = categories.indexOf(category);
+                        if (sliderRef.current && categoryIndex !== -1) {
+                          const targetIndex = getAdjustedSlideIndex(categoryIndex);
+                          sliderRef.current.slickGoTo(targetIndex);
+                          // Update category after slide animation
+                          setTimeout(() => {
+                            handleCategoryChange(category);
+                          }, 300);
+                        }
+                      }}
+                      className={`category-card cursor-pointer ${
+                        isActive
+                          ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-xl'
+                          : 'bg-white text-gray-700 shadow-md hover:shadow-lg'
+                      }`}
+                    >
+                      <div className="category-icon">{categoryIcon[category]}</div>
+                      <h3 className={`category-title ${isActive ? 'text-white' : 'text-gray-800'}`}>
+                        {category}
+                      </h3>
+                      {categoryCounts[category] > 0 && (
+                        <p className={`category-count ${isActive ? 'text-blue-100' : 'text-gray-500'}`}>
+                          {/* {categoryCounts[category]} מוצרים */}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </Slider>
           </div>
         )}
 

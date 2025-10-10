@@ -160,7 +160,7 @@ const IndependentFarmers = () => {
           <div className="mb-8">
             <h1 className="text-3xl md:text-5xl font-bold mb-2 text-center tracking-tight">חקלאים עצמאיים</h1>
             <div className="h-1 w-24 bg-yellow-400 mx-auto rounded-full mb-4"></div>
-            <p className="text-green-100 text-center max-w-3xl mx-auto text-lg">מודעות מכירה של חקלאים עצמאיים</p>
+            <p className="text-green-100 text-center max-w-3xl mx-auto text-lg">כאן חקלאים מעלים את התוצרת שלהם ואתם יכולים להתנדב לארח נק איסוף</p>
           </div>
           <div className="max-w-xs mx-auto">
             <label className="block text-green-100 text-sm font-medium mb-2 text-center">אזור איסוף:</label>
