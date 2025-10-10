@@ -55,25 +55,19 @@ const Cart = ({ isOpen, onClose }) => {
 
         {/* Cart Items - More compact and elegant */}
         <div className="flex-grow overflow-y-auto">
-          <div className="flex flex-col items-center justify-center p-8 text-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-blue-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">העגלה שלך</h2>
-            <p className="text-gray-600 mb-8">כאן תוכל לראות את כל המוצרים שהוספת לעגלה</p>
-            
+          <div className="p-2">
             {/* Cart Items */}
             {cartItems.length === 0 ? (
-              <div className="text-center text-gray-500 py-8 px-4">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto mb-2 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="text-center text-gray-500 py-6 px-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mx-auto mb-1 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
-                <p className="text-sm">הסל שלך ריק</p>
+                <p className="text-xs">הסל שלך ריק</p>
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
                 {cartItems.map((item) => (
-                  <div key={item.uid} className="flex items-center py-3 px-3 hover:bg-gray-50 transition-colors">
+                  <div key={item.uid} className="flex items-center py-2 px-2 hover:bg-gray-50 transition-colors">
                     {/* Smaller product image */}
                     <div className="flex-shrink-0 ml-3">
                       {item.images && item.images.length > 0 ? (
@@ -91,30 +85,30 @@ const Cart = ({ isOpen, onClose }) => {
                     
                     {/* Product details - More compact layout */}
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-medium text-gray-800 truncate">{item.name}</h4>
+                      <h4 className="text-sm font-medium text-gray-800 truncate leading-tight">{item.name}</h4>
                       {item.selectedOption && (
-                        <p className="text-xs text-gray-500 mt-0.5 truncate">
+                        <p className="text-[11px] text-gray-500 mt-0.5 truncate">
                           {item.selectedOption}
                         </p>
                       )}
-                      <p className="text-xs font-medium text-blue-600 mt-1">₪{item.price.toFixed(2)}</p>
+                      <p className="text-[11px] font-medium text-blue-600 mt-0.5">₪{item.price.toFixed(2)}</p>
                     </div>
                     
                     {/* Improved quantity controls with more visible icons */}
-                    <div className="flex items-center space-x-1 space-x-reverse mr-2">
+                    <div className="flex items-center space-x-1 space-x-reverse mr-1">
                       <button 
                         onClick={() => updateQuantity(item.uid, item.quantity - 1)} 
-                        className="text-white-100 hover:bg-gray-100 transition-colors w-9 h-7 rounded-full flex items-center justify-center border border-gray-200"
+                        className="text-white-100 hover:bg-gray-100 transition-colors w-8 h-7 rounded-full flex items-center justify-center border border-gray-200"
                         aria-label="הפחת כמות"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="5 0 10 20" fill="currentColor">
                           <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
                         </svg>
                       </button>
-                      <span className="text-xs font-medium text-gray-700 w-5 text-center">{item.quantity}</span>
+                      <span className="text-[11px] font-medium text-gray-700 w-5 text-center">{item.quantity}</span>
                       <button 
                         onClick={() => updateQuantity(item.uid, item.quantity + 1)} 
-                        className="text-white-600 hover:bg-gray-100 transition-colors w-9 h-7 rounded-full flex items-center justify-center border border-gray-200"
+                        className="text-white-600 hover:bg-gray-100 transition-colors w-8 h-7 rounded-full flex items-center justify-center border border-gray-200"
                         aria-label="הוסף כמות"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="5 0 10 20" fill="currentColor">
@@ -126,7 +120,7 @@ const Cart = ({ isOpen, onClose }) => {
                     {/* Improved delete button with more visible icon */}
                     <button
                       onClick={() => removeItem(item.uid)}
-                      className="flex-shrink-0 w-12 h-10 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors ml-1 mr-4"
+                      className="flex-shrink-0 w-10 h-9 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors ml-1 mr-3"
                       title="הסר פריט"
                       aria-label="הסר פריט"
                     >
@@ -143,15 +137,15 @@ const Cart = ({ isOpen, onClose }) => {
 
         {/* Footer - Cleaner and more elegant */}
         {cartItems.length > 0 && (
-          <div className="p-3 border-t border-gray-100 bg-white shadow-inner">
-            <div className="flex justify-between items-center mb-3">
-              <span className="text-sm font-medium text-gray-800">סה"כ לתשלום:</span>
-              <span className="text-sm font-semibold text-blue-600">₪{cartTotal.toFixed(2)}</span>
+          <div className="p-2 border-t border-gray-100 bg-white shadow-inner">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-medium text-gray-800">סה"כ לתשלום:</span>
+              <span className="text-xs font-semibold text-blue-600">₪{cartTotal.toFixed(2)}</span>
             </div>
-            <div className="mt-6 pb-20 md:pb-6">
+            <div className="mt-4 pb-16 md:pb-5">
               <button
                 onClick={handleCheckout}
-                className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                className="w-full bg-blue-600 text-white py-2.5 px-3 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
                 לתשלום ({cartTotal.toFixed(2)} ₪)
               </button>

@@ -1,0 +1,105 @@
+/* CategoryStore.css */
+
+.category-store-container {
+  min-height: 100vh;
+  background-color: #f9fafb;
+  padding: 1rem;
+}
+
+.category-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: white;
+}
+
+.product-card {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Line clamp for product description */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Grayscale filter for out of stock products */
+.grayscale {
+  filter: grayscale(50%);
+}
+
+/* Search Bar Animations */
+.search-bar-enter {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.search-bar-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 200ms, transform 200ms;
+}
+
+/* Search suggestions animation */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.search-suggestions {
+  animation: slideDown 0.2s ease-out;
+}
+
+/* Highlight matching text in search results */
+.search-highlight {
+  background-color: #fef3c7;
+  font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .category-store-container {
+    padding: 0.5rem;
+  }
+}
+
+/* Animation for category buttons */
+.category-nav button {
+  transition: all 0.2s ease-in-out;
+}
+
+.category-nav button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.category-nav button:not(:disabled):active {
+  transform: translateY(0);
+}
+
+/* Smooth transitions */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+

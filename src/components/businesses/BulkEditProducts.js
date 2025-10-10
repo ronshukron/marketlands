@@ -36,7 +36,8 @@ const BulkEditProducts = () => {
           initialEdits[product.id] = {
             price: product.price || '',
             stockAmount: product.stockAmount || 0,
-            merchantPrice: product.merchantPrice || ''
+            merchantPrice: product.merchantPrice || '',
+            category: product.category || ''
           };
         });
         setEditedProducts(initialEdits);
@@ -73,7 +74,8 @@ const BulkEditProducts = () => {
       return (
         Number(edited.price) !== Number(product.price || 0) ||
         Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
-        (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null)
+        (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
+        edited.category !== (product.category || '')
       );
     });
   };
@@ -112,7 +114,8 @@ const BulkEditProducts = () => {
         const hasProductChanges = (
           Number(edited.price) !== Number(product.price || 0) ||
           Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
-          (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null)
+          (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
+          edited.category !== (product.category || '')
         );
 
         if (hasProductChanges) {
@@ -126,6 +129,12 @@ const BulkEditProducts = () => {
             updates.merchantPrice = Number(edited.merchantPrice);
           } else {
             updates.merchantPrice = null;
+          }
+
+          if (edited.category !== '') {
+            updates.category = edited.category;
+          } else {
+            updates.category = '';
           }
 
           batch.update(productRef, updates);
@@ -174,7 +183,8 @@ const BulkEditProducts = () => {
       initialEdits[product.id] = {
         price: product.price || '',
         stockAmount: product.stockAmount || 0,
-        merchantPrice: product.merchantPrice || ''
+        merchantPrice: product.merchantPrice || '',
+        category: product.category || ''
       };
     });
     setEditedProducts(initialEdits);
@@ -266,6 +276,9 @@ const BulkEditProducts = () => {
                     כמות במלאי
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    קטגוריה
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     סוג מע"מ
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -279,7 +292,8 @@ const BulkEditProducts = () => {
                   const hasProductChanges = (
                     Number(edited.price) !== Number(product.price || 0) ||
                     Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
-                    (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null)
+                    (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
+                    edited.category !== (product.category || '')
                   );
 
                   return (
@@ -334,6 +348,19 @@ const BulkEditProducts = () => {
                           onChange={(e) => handleFieldChange(product.id, 'stockAmount', e.target.value)}
                           className="w-20 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         />
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <select
+                          value={edited.category}
+                          onChange={(e) => handleFieldChange(product.id, 'category', e.target.value)}
+                          className="w-28 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        >
+                          <option value="">ללא קטגוריה</option>
+                          <option value="ירקות">ירקות</option>
+                          <option value="פירות">פירות</option>
+                          <option value="ירוקים">ירוקים</option>
+                          <option value="אחר">אחר</option>
+                        </select>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-700">

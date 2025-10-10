@@ -22,8 +22,14 @@ const OrderConfirmation = () => {
     const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems } = useCart();
     
     const [loading, setLoading] = useState(false);
-    const [userName, setUserName] = useState('');
-    const [userPhone, setUserPhone] = useState('');
+    const [userName, setUserName] = useState(() => {
+        // Load from localStorage on first render
+        return localStorage.getItem('orderUserName') || '';
+    });
+    const [userPhone, setUserPhone] = useState(() => {
+        // Load from localStorage on first render
+        return localStorage.getItem('orderUserPhone') || '';
+    });
     const [userEmail, setUserEmail] = useState('');
     const [paymentUrl, setPaymentUrl] = useState('');
     const [formIsValid, setFormIsValid] = useState(false);
@@ -170,9 +176,14 @@ const OrderConfirmation = () => {
         console.log('orderIds', orderIds);
 
         if (userLoggedIn && currentUser) {
-            setUserName(currentUser.name || '');
+            // Only override with currentUser data if localStorage is empty
+            if (!localStorage.getItem('orderUserName')) {
+                setUserName(currentUser.name || '');
+            }
             setUserEmail(currentUser.email || '');
-            setUserPhone(currentUser.phoneNumber || '');
+            if (!localStorage.getItem('orderUserPhone')) {
+                setUserPhone(currentUser.phoneNumber || '');
+            }
         }
 
         // Collect all pickup spots from all orders in the cart
@@ -212,6 +223,19 @@ const OrderConfirmation = () => {
         
         collectPickupSpots();
     }, [userLoggedIn, currentUser, itemsByOrder]);
+
+    // Save userName and userPhone to localStorage whenever they change
+    useEffect(() => {
+        if (userName.trim() !== '') {
+            localStorage.setItem('orderUserName', userName);
+        }
+    }, [userName]);
+
+    useEffect(() => {
+        if (userPhone.trim() !== '') {
+            localStorage.setItem('orderUserPhone', userPhone);
+        }
+    }, [userPhone]);
 
     useEffect(() => {
         const isValid = userName.trim() !== '' && 
@@ -875,66 +899,13 @@ const OrderConfirmation = () => {
         <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
             <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="bg-blue-600 text-white px-6 py-4">
-                    <h1 className="text-2xl font-bold">סיכום הזמנה</h1>
+                    <h1 className="text-2xl font-bold">השלמת הזמנה</h1>
                 </div>
                 
                 <div className="p-6">
-                    <h2 className="text-xl font-semibold text-gray-800 mb-4">פריטים בהזמנה</h2>
-                    
-                    {/* Group items by order for display */}
-                    {Object.entries(itemsByOrder).map(([orderId, orderData]) => (
-                        <div key={orderId} className="mb-6">
-                            <h3 className="font-semibold text-gray-700 mb-2 border-b pb-2">
-                                {orderData.items[0]?.businessName || "Unknown Business"}
-                            </h3>
-                            
-                            <div className="mb-3 rounded-lg border border-gray-200 overflow-hidden">
-                                <ul className="divide-y divide-gray-200">
-                                    {orderData.items.map((item, index) => (
-                                        <li key={index} className="p-4 hover:bg-gray-50 transition-colors">
-                                            <div className="flex justify-between items-center">
-                                                <div className="flex-1">
-                                                    <h3 className="font-medium text-gray-800">{item.name}</h3>
-                                                    <p className="text-sm text-gray-600">
-                                                        <span className="font-medium">אופציה:</span> {item.selectedOption || 'ללא'}
-                                                    </p>
-                                                    <p className="text-sm text-gray-600 mt-1">
-                                                        <span className="font-medium">מחיר:</span> {item.price}₪ × {item.quantity} = {item.quantity * item.price}₪
-                                                    </p>
-                                                </div>
-                        </div>
-                    </li>
-                ))}
-            </ul>
-                            </div>
-                            
-                            <div className="bg-gray-50 p-3 rounded-lg mb-3">
-                                <div className="flex justify-between items-center">
-                                    <span className="font-semibold">סה"כ להזמנה זו:</span>
-                                    <span className="font-bold text-blue-600">{orderData.total.toFixed(2)}₪</span>
-                                </div>
-                                
-                                {orderData.minimumOrderAmount > 0 && (
-                                    <p className={`text-sm ${orderData.total < orderData.minimumOrderAmount ? 'text-red-600' : 'text-blue-600'}`}>
-                                        {orderData.total < orderData.minimumOrderAmount 
-                                            ? `סכום מינימום להזמנה: ${orderData.minimumOrderAmount}₪ (חסרים ${(orderData.minimumOrderAmount - orderData.total).toFixed(2)}₪)`
-                                            : `✓ עברת את סכום המינימום להזמנה (${orderData.minimumOrderAmount}₪)`
-                                        }
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                    
-                    <div className="bg-gray-100 p-4 rounded-lg mb-6 border-t-2 border-blue-500">
-                        <div className="flex justify-between items-center mb-2">
-                            <span className="text-lg font-semibold">סה"כ לתשלום:</span>
-                            <span className="text-lg font-bold text-blue-600">{totalWithDelivery.toFixed(2)}₪</span>
-                        </div>
-                    </div>
-                    
-                    <div className="border-t border-gray-200 pt-6 mb-6">
-                        <h2 className="text-xl font-semibold text-gray-800 mb-4">פרטי התשלום</h2>
+                    {/* User Details Form - FIRST */}
+                    <div className="mb-6">
+                        <h2 className="text-xl font-semibold text-gray-800 mb-4">פרטים אישיים</h2>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             <div className="form-group">
@@ -1108,7 +1079,7 @@ const OrderConfirmation = () => {
                                                     <span className="font-medium">{deliveryOption === 'homeDelivery' ? (cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID).reduce((sum, i) => sum + (i.price * i.quantity), 0)) : 0} ₪</span>
                                                 </div>
                                             )}
-                                            <div className="flex justify-between text-lg font-medium mt-2 pt-2 border-t border-gray-200">
+                                            <div className="flex justify-between text-lg font-small mt-2 pt-2 border-t border-gray-200">
                                                 <span>סה"כ לתשלום:</span>
                                                 <span>{totalWithDelivery} ₪</span>
                                             </div>
@@ -1167,34 +1138,96 @@ const OrderConfirmation = () => {
                         </>
                     )}
                 </div>
+                    </div>
 
-                        <div className="flex items-center mb-6">
+                    {/* Order Total - SECOND */}
+                    <div className="mb-6 bg-gradient-to-r from-blue-50 to-blue-100 p-4 sm:p-6 rounded-lg border-2 border-blue-200">
+                        <div className="flex items-baseline justify-between gap-3">
+                            <span className="text-lg sm:text-2xl font-bold text-gray-900">סה"כ לתשלום:</span>
+                            <span className="text-xl sm:text-3xl font-bold text-blue-600 whitespace-nowrap">{totalWithDelivery.toFixed(2)}₪</span>
+                        </div>
+                        <p className="text-xs sm:text-sm text-gray-600 mt-2">
+                            {Object.keys(itemsByOrder).length} הזמנות • {Object.values(itemsByOrder).reduce((total, order) => total + order.items.length, 0)} פריטים
+                        </p>
+                    </div>
+
+                    {/* Terms and Buy Button - THIRD */}
+                    <div className="mb-6 space-y-4">
+                        <div className="flex items-center justify-center">
                             <input
-                    type="checkbox" 
-                    id="agreeToTerms" 
-                    checked={agreeToTerms}
-                    onChange={(e) => setAgreeToTerms(e.target.checked)}
+                                type="checkbox" 
+                                id="agreeToTerms" 
+                                checked={agreeToTerms}
+                                onChange={(e) => setAgreeToTerms(e.target.checked)}
                                 className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ml-2"
-                />
+                            />
                             <label htmlFor="agreeToTerms" className="text-sm text-gray-700">
-                                קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank" className="text-blue-600 hover:underline">תנאי השימוש</Link>
+                                קראתי ואני מסכים ל<Link to="/terms-of-service" target="_blank" className="text-blue-600 hover:underline font-medium">תנאי השימוש</Link>
                             </label>
-            </div>
+                        </div>
 
-                        <div className="flex space-x-4 rtl:space-x-reverse">
-                            <button
-                                onClick={proceedToCheckout}
-                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                            >
-                                לתשלום
-                            </button>
-                            <button
-                                onClick={handleCancel}
-                                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-4 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-                            >
-                                ביטול
-                            </button>
-                </div>
+                        <button
+                            onClick={proceedToCheckout}
+                            disabled={!agreeToTerms || !formIsValid}
+                            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-3 sm:py-4 px-4 sm:px-6 rounded-lg text-base sm:text-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg"
+                        >
+                            {totalWithDelivery === 0 ? 'אישור הזמנה' : `לתשלום - ${totalWithDelivery.toFixed(2)}₪`}
+                        </button>
+
+                        <button
+                            onClick={handleCancel}
+                            className="w-full bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-lg border-2 border-gray-300 transition-colors duration-200"
+                        >
+                            חזור לעגלה
+                        </button>
+                    </div>
+
+                    {/* Compact Order Details - FOURTH */}
+                    <div className="border-t-2 border-gray-200 pt-6">
+                        <details className="group">
+                            <summary className="cursor-pointer list-none flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                <span className="text-lg font-semibold text-gray-800">פירוט ההזמנה</span>
+                                <svg className="w-5 h-5 text-gray-600 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </summary>
+                            
+                            <div className="mt-4 space-y-4">
+                                {Object.entries(itemsByOrder).map(([orderId, orderData]) => (
+                                    <div key={orderId} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+                                            <h3 className="font-semibold text-gray-800">{orderData.items[0]?.businessName || "Unknown Business"}</h3>
+                                            <span className="text-sm font-medium text-blue-600">{orderData.total.toFixed(2)}₪</span>
+                                        </div>
+                                        
+                                        <div className="divide-y divide-gray-100">
+                                            {orderData.items.map((item, index) => (
+                                                <div key={index} className="px-4 py-2 flex justify-between items-center text-sm">
+                                                    <div className="flex-1">
+                                                        <span className="font-medium text-gray-800">{item.name}</span>
+                                                        {item.selectedOption && item.selectedOption !== 'ללא' && (
+                                                            <span className="text-gray-500 text-xs mr-2">({item.selectedOption})</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <span className="text-gray-600">{item.quantity} × {item.price}₪</span>
+                                                        <span className="font-medium text-gray-800 mr-2">= {(item.quantity * item.price).toFixed(2)}₪</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {orderData.minimumOrderAmount > 0 && orderData.total < orderData.minimumOrderAmount && (
+                                            <div className="bg-red-50 px-4 py-2 border-t border-red-100">
+                                                <p className="text-xs text-red-600">
+                                                    ⚠️ סכום מינימום: {orderData.minimumOrderAmount}₪ (חסרים {(orderData.minimumOrderAmount - orderData.total).toFixed(2)}₪)
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </details>
                     </div>
                 </div>
             </div>

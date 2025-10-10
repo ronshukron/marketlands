@@ -1,13 +1,13 @@
 // src/components/Home.js
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/authContext';
 import { usePickupSpot } from '../contexts/PickupSpotContext';
 import { pickupSpots } from '../data/pickupSpots';
 import './Home.css';
-import OngoingOrders from './OngoingOrders';
 import IndependentFarmers from './IndependentFarmers';
+import CategoryStore from './category-store/CategoryStore';
 import ModeToggle from './shared/ModeToggle';
 import { useSaleMode } from '../contexts/SaleModeContext';
 
@@ -48,7 +48,7 @@ const Home = () => {
             <p className="mt-3 max-w-2xl mx-auto text-lg md:text-xl text-blue-50 leading-relaxed">
             מחברים בין קהילות לחקלאים מקומיים
             </p>
-            <div className="mt-6 flex justify-center">
+            <div className="mt-6 flex flex-col items-center gap-4">
               <ModeToggle />
             </div>
             {/* Improved buttons */}
@@ -88,8 +88,8 @@ const Home = () => {
       </div>
 
       {/* Ongoing Orders Section with improved styling */}
-      <div className="bg-gray-50 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="bg-gray-50 py-8" id="store-section">
+        <div className="w-full px-2 sm:px-4">
           <div className="mb-8 text-center">
             {/* <h2 className="text-2xl md:text-3xl font-bold text-gray-900">
               דפי מכירה פעילים
@@ -99,7 +99,7 @@ const Home = () => {
             </p> */}
           </div>
           {saleMode === 'weekly' ? (
-            <OngoingOrders />
+            <CategoryStore />
           ) : (
             <IndependentFarmers />
           )}

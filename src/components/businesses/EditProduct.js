@@ -215,7 +215,8 @@ const handleSubmit = async (e) => {
       options,
       images: updatedImages, // Update the Firestore with the new images array
       stockAmount: formData.stockAmount, // Include stock amount
-      ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null })
+      ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
+      ...(formData.category !== '' ? { category: formData.category } : {})
     });
 
     Swal.fire({
@@ -342,6 +343,32 @@ const handleSubmit = async (e) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-600 cursor-not-allowed"
             />
             <p className="mt-1 text-xs text-gray-500">לא ניתן לשנות את סוג המע"מ לאחר יצירת המוצר.</p>
+          </div>
+
+          {/* Category */}
+          <div className="mb-4">
+            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+              קטגוריה
+            </label>
+            <select
+              id="category"
+              name="category"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={formData.category}
+              onChange={(e) => 
+                setFormData({
+                  ...formData,
+                  category: e.target.value
+                })
+              }
+            >
+              <option value="">בחר קטגוריה (אופציונלי)</option>
+              <option value="ירקות">ירקות</option>
+              <option value="פירות">פירות</option>
+              <option value="ירוקים">ירוקים</option>
+              <option value="אחר">אחר</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">בחירת קטגוריה תאפשר למוצר להופיע בתצוגת הקטגוריות בחנות</p>
           </div>
           
           {/* Description */}
