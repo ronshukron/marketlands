@@ -33,9 +33,15 @@ const CreateIndependentOrderForm = () => {
   const [volunteerIncentive, setVolunteerIncentive] = useState('');
   const [volunteerWhatsappMessage, setVolunteerWhatsappMessage] = useState('');
   const [merchantMinOrderTotal, setMerchantMinOrderTotal] = useState('');
+  const [whatsappImageFile, setWhatsappImageFile] = useState(null);
+  const [whatsappImageUrl, setWhatsappImageUrl] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [deadlineError, setDeadlineError] = useState('');
+  
+  // General WhatsApp group link - to be manually configured
+  const GENERAL_WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/KBkUDXJUw3n2v40JFxxLV1?mode=ems_copy_t'; 
 
   const validateDates = () => {
     setDateError('');
@@ -53,6 +59,168 @@ const CreateIndependentOrderForm = () => {
     }
     setFormValid(true);
     return true;
+  };
+
+  const validateDeadline = (dateOverride = null, timeOverride = null) => {
+    setDeadlineError('');
+    
+    const deadlineDate = dateOverride !== null ? dateOverride : thresholdDeadlineDate;
+    const deadlineTime = timeOverride !== null ? timeOverride : thresholdDeadlineTime;
+    
+    if (!deadlineDate || !deadlineTime) {
+      setDeadlineError('יש להזין תאריך ושעה לדדליין נכונים');
+      return false;
+    }
+    if (!shippingDateStart) {
+      setDeadlineError('יש להזין תאריך משלוח לפני בחירת דדליין');
+      return false;
+    }
+    
+    const combinedDeadline = new Date(`${deadlineDate}T${deadlineTime}`);
+    // Shipping starts at midnight (00:00) of the shipping date
+    const shippingStart = new Date(`${shippingDateStart}T08:00`);
+    const now = new Date();
+    
+    // Check if deadline is more than 7 days in the future
+    const diffFromNow = combinedDeadline - now;
+    const daysFromNow = diffFromNow / (1000 * 60 * 60 * 24);
+    
+    if (daysFromNow > 7) {
+      const deadlineFormatted = combinedDeadline.toLocaleString('he-IL', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      setDeadlineError(`הדדליין (${deadlineFormatted}) מרוחק מדי בעתיד. הדדליין לא יכול להיות יותר מ-7 ימים מהיום.`);
+      return false;
+    }
+    
+    // Calculate difference in hours between deadline and shipping
+    const diffInMs = shippingStart - combinedDeadline;
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    
+    if (diffInHours < 10) {
+      const deadlineFormatted = combinedDeadline.toLocaleString('he-IL', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      const shippingFormatted = shippingStart.toLocaleDateString('he-IL', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+      
+      if (diffInHours <= 0) {
+        setDeadlineError(`הדדליין (${deadlineFormatted}) מאוחר או זהה לתאריך המשלוח (${shippingFormatted}). הדדליין חייב להיות לפחות 10 שעות לפני המשלוח.`);
+      } else {
+        setDeadlineError(`הפער בין הדדליין (${deadlineFormatted}) למשלוח (${shippingFormatted}) הוא ${diffInHours} שעות בלבד. נדרש פער של לפחות 10 שעות.`);
+      }
+      return false;
+    }
+    
+    return true;
+  };
+
+  // Build full WhatsApp message with system data
+  const buildFullWhatsappMessage = async (community) => {
+    const userMessage = volunteerWhatsappMessage.trim();
+    const combinedDeadline = new Date(`${thresholdDeadlineDate}T${thresholdDeadlineTime}`);
+    
+    // Format dates
+    const deadlineStr = combinedDeadline.toLocaleString('he-IL', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const shippingStartStr = new Date(shippingDateStart).toLocaleDateString('he-IL');
+    const shippingEndStr = new Date(shippingDateEnd).toLocaleDateString('he-IL');
+    
+    // Get WhatsApp group link for community
+    let whatsappGroupLink = GENERAL_WHATSAPP_GROUP_LINK;
+    try {
+      const q = query(collection(db, 'communities'), where('name', '==', community));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const communityData = snap.docs[0].data();
+        if (communityData.whatsappGroupLink) {
+          whatsappGroupLink = communityData.whatsappGroupLink;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch community WhatsApp link', e);
+    }
+    
+    // Build message
+    let message = `🌱 הזמנה קהילתית חדשה!\n\n`;
+    message += `📦 ${orderName}\n\n`;
+    
+    if (userMessage) {
+      message += `${userMessage}\n\n`;
+    }
+    
+    message += `📅 תאריך סיום הזמנה: ${deadlineStr}\n`;
+    message += `🚚 תאריכי משלוח: ${shippingStartStr} - ${shippingEndStr}\n`;
+    // message += `💰 סכום מינימום לקהילה: ₪${minCommunityTotal}\n\n`;
+    
+    message += `🔗 לצפייה והזמנה: [קישור למודעה]\n\n`;
+    
+    if (whatsappGroupLink) {
+      message += `👥 הצטרפו לקבוצת הוואטסאפ של הקהילה:\n${whatsappGroupLink}`;
+    }
+    
+    return message;
+  };
+
+  // Show preview of WhatsApp message
+  const handlePreviewMessage = async () => {
+    if (!orderName.trim()) {
+      Swal.fire({ icon: 'warning', title: 'חסר שם מודעה', text: 'אנא הזינו שם מודעה כדי לצפות בתצוגה מקדימה' });
+      return;
+    }
+    if (!thresholdDeadlineDate || !thresholdDeadlineTime) {
+      Swal.fire({ icon: 'warning', title: 'חסר תאריך סיום', text: 'אנא הזינו תאריך ושעה לדדליין' });
+      return;
+    }
+    if (!shippingDateStart || !shippingDateEnd) {
+      Swal.fire({ icon: 'warning', title: 'חסרים תאריכי משלוח', text: 'אנא הזינו תאריכי משלוח' });
+      return;
+    }
+    if (!minCommunityTotal) {
+      Swal.fire({ icon: 'warning', title: 'חסר סכום מינימום', text: 'אנא הזינו סכום מינימום לקהילה' });
+      return;
+    }
+    
+    // Show preview for first selected community or example
+    const exampleCommunity = selectedPickupSpots.length > 0 ? selectedPickupSpots[0] : 'דוגמה';
+    const fullMessage = await buildFullWhatsappMessage(exampleCommunity);
+    
+    Swal.fire({
+      title: 'תצוגה מקדימה של הודעת וואטסאפ',
+      html: `
+        <div class="text-right" dir="rtl">
+          <p class="text-sm text-gray-600 mb-3">דוגמה עבור קהילה: <strong>${exampleCommunity}</strong></p>
+          ${whatsappImageFile ? `
+            <div class="mb-3">
+              <img src="${URL.createObjectURL(whatsappImageFile)}" alt="תמונת וואטסאפ" class="max-w-full h-auto rounded-lg border border-gray-200" style="max-height: 200px; margin: 0 auto;" />
+            </div>
+          ` : ''}
+          <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-sm whitespace-pre-wrap text-right">
+            ${fullMessage.replace(/\n/g, '<br>')}
+          </div>
+          <p class="text-xs text-gray-500 mt-3">* הקישור למודעה יתווסף אוטומטית לאחר יצירת המודעה</p>
+          <p class="text-xs text-gray-500">* הקישור יכלול את שם הקהילה לסינון אוטומטי</p>
+        </div>
+      `,
+      width: '600px',
+      confirmButtonText: 'סגור'
+    });
   };
 
   const handleCreate = async () => {
@@ -77,8 +245,12 @@ const CreateIndependentOrderForm = () => {
       return;
     }
 
-    if (!thresholdDeadlineDate || !thresholdDeadlineTime) {
-      Swal.fire({ icon: 'error', title: 'שגיאה', text: 'אנא הזינו תאריך ושעה לדדליין הסף הקהילתי.' });
+    if (!validateDeadline()) {
+      const deadlineElement = document.getElementById('thresholdDeadlineDate');
+      if (deadlineElement) {
+        deadlineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      Swal.fire({ icon: 'error', title: 'שגיאה', text: deadlineError || 'אנא הזינו תאריך ושעה תקינים לדדליין.' });
       return;
     }
 
@@ -102,7 +274,7 @@ const CreateIndependentOrderForm = () => {
         }
       }
 
-      // Upload image if provided (path aligned with Storage rules)
+      // Upload order image if provided (path aligned with Storage rules)
       let uploadedImageUrl = imageUrl;
       if (imageFile) {
         const storageRef = ref(
@@ -111,6 +283,17 @@ const CreateIndependentOrderForm = () => {
         );
         const snapshot = await uploadBytes(storageRef, imageFile);
         uploadedImageUrl = await getDownloadURL(snapshot.ref);
+      }
+
+      // Upload WhatsApp image if provided
+      let uploadedWhatsappImageUrl = whatsappImageUrl;
+      if (whatsappImageFile) {
+        const storageRef = ref(
+          storage,
+          `businesses/${currentUser?.uid || 'anon'}/whatsapp-images/${Date.now()}_${whatsappImageFile.name}`
+        );
+        const snapshot = await uploadBytes(storageRef, whatsappImageFile);
+        uploadedWhatsappImageUrl = await getDownloadURL(snapshot.ref);
       }
 
       // Combine date and time for deadline
@@ -138,7 +321,8 @@ const CreateIndependentOrderForm = () => {
         ...(merchantMinOrderTotal !== '' ? { merchantMinOrderTotal: Number(merchantMinOrderTotal) } : {}),
         endingTime: combinedDeadline,
         volunteerIncentive,
-        volunteerWhatsappMessage,
+        volunteerWhatsappMessage, // Store user's custom text
+        volunteerWhatsappMessageImage: uploadedWhatsappImageUrl,
         createdAt: serverTimestamp(),
       };
 
@@ -307,32 +491,110 @@ const CreateIndependentOrderForm = () => {
         </div>
 
         {/* Independent Threshold + Volunteer */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">סכום מינימום לקהילה (₪) <span className="text-red-500">*</span></label>
-            <input type="number" min="0" value={minCommunityTotal} onChange={(e) => setMinCommunityTotal(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">דדליין לסף הקהילה <span className="text-red-500">*</span></label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">תאריך</label>
-                <input type="date" value={thresholdDeadlineDate} onChange={(e) => setThresholdDeadlineDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">שעה</label>
-                <input type="time" value={thresholdDeadlineTime} onChange={(e) => setThresholdDeadlineTime(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline.none focus:ring-2 focus:ring-blue-500" />
-              </div>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">סכום מינימום לקהילה (₪) <span className="text-red-500">*</span></label>
+          <input type="number" min="0" value={minCommunityTotal} onChange={(e) => setMinCommunityTotal(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">דדליין לסף הקהילה <span className="text-red-500">*</span></label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">תאריך</label>
+              <input 
+                id="thresholdDeadlineDate"
+                type="date" 
+                value={thresholdDeadlineDate} 
+                onChange={(e) => {
+                  const newDate = e.target.value;
+                  setThresholdDeadlineDate(newDate);
+                  if (thresholdDeadlineTime && shippingDateStart) {
+                    validateDeadline(newDate, thresholdDeadlineTime);
+                  }
+                }} 
+                className={`w-full px-3 py-2 border ${deadlineError ? 'border-red-500' : 'border-gray-300'} rounded-md text-sm focus:outline-none focus:ring-2 ${deadlineError ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">שעה</label>
+              <select 
+                value={thresholdDeadlineTime} 
+                onChange={(e) => {
+                  const newTime = e.target.value;
+                  setThresholdDeadlineTime(newTime);
+                  if (thresholdDeadlineDate && shippingDateStart) {
+                    validateDeadline(thresholdDeadlineDate, newTime);
+                  }
+                }} 
+                className={`w-full px-3 py-2 border ${deadlineError ? 'border-red-500' : 'border-gray-300'} rounded-md text-sm focus:outline-none focus:ring-2 ${deadlineError ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}
+              >
+                <option value="">בחר שעה</option>
+                {Array.from({ length: 24 }, (_, i) => {
+                  const hour = i.toString().padStart(2, '0');
+                  return (
+                    <React.Fragment key={i}>
+                      <option value={`${hour}:00`}>{`${hour}:00`}</option>
+                      <option value={`${hour}:30`}>{`${hour}:30`}</option>
+                    </React.Fragment>
+                  );
+                })}
+              </select>
             </div>
           </div>
+          {deadlineError && <p className="text-red-500 text-sm mt-1">{deadlineError}</p>}
+          <p className="text-xs text-gray-500 mt-1">
+            ⚠️ הדדליין חייב להיות לפחות 10 שעות לפני תאריך המשלוח הראשון ולא יותר מ-7 ימים מהיום
+          </p>
         </div>
-        <div className="space-y-2">
+        {/* <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">תמריץ למתנדבים (אופציונלי)</label>
           <input type="text" value={volunteerIncentive} onChange={(e) => setVolunteerIncentive(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline.none focus:ring-2 focus:ring-blue-500" />
-        </div>
+        </div> */}
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700">טקסט וואטסאפ לשיתוף (אופציונלי)</label>
-          <textarea value={volunteerWhatsappMessage} onChange={(e) => setVolunteerWhatsappMessage(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline.none focus:ring-2 focus:ring-blue-500" />
+          <label className="block text-sm font-medium text-gray-700">טקסט מותאם אישית להודעת וואטסאפ</label>
+          <textarea 
+            value={volunteerWhatsappMessage} 
+            onChange={(e) => setVolunteerWhatsappMessage(e.target.value)} 
+            rows={3} 
+            placeholder="הוסף כאן טקסט מותאם אישית... המערכת תוסיף אוטומטית את פרטי ההזמנה, תאריכים וקישור לקבוצת הוואטסאפ"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
+          />
+          <p className="text-xs text-gray-500">המערכת תוסיף אוטומטית: תאריך סיום הזמנה, תאריכי משלוח, סכום מינימום וקישור לקבוצת וואטסאפ</p>
+        </div>
+
+        {/* WhatsApp Image Upload */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">תמונה להודעת וואטסאפ (אופציונלי)</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setWhatsappImageFile(e.target.files[0])}
+            className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+          />
+          {whatsappImageFile && (
+            <div className="flex items-center gap-2 text-sm text-green-700">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              תמונה נבחרה: {whatsappImageFile.name}
+            </div>
+          )}
+          <p className="text-xs text-gray-500">תמונה זו תצורף להודעת הוואטסאפ שתישלח למתנדבים</p>
+        </div>
+
+        {/* Preview Button */}
+        <div>
+          <button
+            type="button"
+            onClick={handlePreviewMessage}
+            className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium py-2 px-4 rounded-lg border-2 border-blue-200 transition-colors flex items-center justify-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            תצוגה מקדימה של הודעת וואטסאפ
+          </button>
         </div>
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">סכום מינימום להזמנת סוחר (₪)</label>

@@ -1,10 +1,95 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore';
+import { db } from '../../firebase/firebase';
 
 const VolunteerShareSuccess = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { orderId, orderName, volunteerInfo, whatsappLink, shareMessage } = location.state || {};
+  const [fullMessage, setFullMessage] = useState(shareMessage || '');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const buildFullMessage = async () => {
+      if (!orderId || !volunteerInfo) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        // Fetch order data
+        const orderRef = doc(db, 'IndependentOrders', orderId);
+        const orderSnap = await getDoc(orderRef);
+        
+        if (!orderSnap.exists()) {
+          setLoading(false);
+          return;
+        }
+
+        const orderData = orderSnap.data();
+        const community = volunteerInfo.community;
+        
+        // Build order URL with community parameter
+        const orderUrl = `${window.location.origin}/independent/order/${orderId}?community=${encodeURIComponent(community)}`;
+        
+        // Get WhatsApp group link for community
+        const GENERAL_WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/KBkUDXJUw3n2v40JFxxLV1?mode=ems_copy_t';
+        let whatsappGroupLink = GENERAL_WHATSAPP_GROUP_LINK;
+        
+        try {
+          const q = query(collection(db, 'communities'), where('name', '==', community));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const communityData = snap.docs[0].data();
+            if (communityData.whatsappGroupLink) {
+              whatsappGroupLink = communityData.whatsappGroupLink;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch community WhatsApp link', e);
+        }
+
+        // Format dates
+        const endingTime = orderData.endingTime?.toDate ? orderData.endingTime.toDate() : new Date(orderData.endingTime);
+        const deadlineStr = endingTime.toLocaleString('he-IL', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        const shippingStartStr = new Date(orderData.shippingDateRange.start).toLocaleDateString('he-IL');
+        const shippingEndStr = new Date(orderData.shippingDateRange.end).toLocaleDateString('he-IL');
+        
+        // Build message
+        let message = `🌱 הזמנה קהילתית חדשה!\n\n`;
+        message += `📦 ${orderData.orderName}\n\n`;
+        
+        if (orderData.volunteerWhatsappMessage) {
+          message += `${orderData.volunteerWhatsappMessage}\n\n`;
+        }
+        
+        message += `📅 תאריך סיום הזמנה: ${deadlineStr}\n`;
+        message += `🚚 תאריכי משלוח: ${shippingStartStr} - ${shippingEndStr}\n`;
+        message += `💰 סכום מינימום לקהילה: ₪${orderData.minCommunityTotal || orderData.minAmount}\n\n`;
+        message += `🔗 לצפייה והזמנה:\n${orderUrl}\n\n`;
+        
+        if (whatsappGroupLink) {
+          message += `👥 הצטרפו לקבוצת הוואטסאפ של הקהילה:\n${whatsappGroupLink}`;
+        }
+        
+        setFullMessage(message);
+      } catch (error) {
+        console.error('Error building message:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    buildFullMessage();
+  }, [orderId, volunteerInfo]);
 
   if (!orderId || !volunteerInfo) {
     return (
@@ -18,13 +103,13 @@ const VolunteerShareSuccess = () => {
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(shareMessage);
+      await navigator.clipboard.writeText(fullMessage);
       alert('הודעה הועתקה ללוח!');
     } catch (err) {
       console.error('Failed to copy: ', err);
       // Fallback for browsers that don't support clipboard API
       const textArea = document.createElement('textarea');
-      textArea.value = shareMessage;
+      textArea.value = fullMessage;
       document.body.appendChild(textArea);
       textArea.select();
       document.execCommand('copy');
@@ -32,6 +117,9 @@ const VolunteerShareSuccess = () => {
       alert('הודעה הועתקה ללוח!');
     }
   };
+
+  // Build WhatsApp share link with the full message
+  const whatsappShareLink = `https://wa.me/?text=${encodeURIComponent(fullMessage)}`;
 
   return (
     <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
@@ -110,15 +198,22 @@ const VolunteerShareSuccess = () => {
             {/* Message Preview */}
             <div className="bg-white rounded-lg p-4 border border-gray-200 mb-4">
               <h4 className="font-semibold text-gray-800 mb-2">תצוגה מקדימה של ההודעה:</h4>
-              <div className="text-sm text-gray-700 whitespace-pre-line border-r-4 border-green-500 pr-3">
-                {shareMessage}
-              </div>
+              {loading ? (
+                <div className="text-center py-4">
+                  <div className="animate-spin h-6 w-6 border-2 border-green-600 border-t-transparent rounded-full mx-auto"></div>
+                  <p className="text-sm text-gray-600 mt-2">בונה הודעה...</p>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-700 whitespace-pre-line border-r-4 border-green-500 pr-3">
+                  {fullMessage}
+                </div>
+              )}
             </div>
             
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
               <a 
-                href={whatsappLink}
+                href={whatsappShareLink}
                 target="_blank" 
                 rel="noreferrer" 
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 px-3 rounded-md text-center transition-colors duration-200 flex items-center justify-center gap-2 text-sm"

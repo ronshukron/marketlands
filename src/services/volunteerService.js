@@ -20,13 +20,15 @@ export async function isVolunteerAvailableForCommunity({ businessId, community, 
 
     const endCheckIso = orderEndingIso || atIso;
     // Primary: business-level commitments for this community
+    // Note: We can't add where('cancelled', '!=', true) due to Firestore query limitations with multiple inequality operators
+    // So we filter cancelled volunteers in the isActive function
     const q1 = query(
       collection(db, 'volunteers'),
       where('businessId', '==', businessId),
       where('community', '==', community),
       where('commitment.startAt', '<=', atIso),
       where('commitment.endAt', '>=', endCheckIso),
-      limit(5)
+      limit(10) // Increased limit to account for potentially cancelled volunteers
     );
     const snap1 = await getDocs(q1);
     for (const d of snap1.docs) {
@@ -45,12 +47,14 @@ export async function isAnyVolunteerAvailable({ businessId, atIso = nowIso(), re
   try {
     if (!businessId) return false;
     const endCheckIso = requiredEndIso || atIso;
+    // Note: We can't add where('cancelled', '!=', true) due to Firestore query limitations with multiple inequality operators
+    // So we filter cancelled volunteers in the isActive function
     const q = query(
       collection(db, 'volunteers'),
       where('businessId', '==', businessId),
       where('commitment.startAt', '<=', atIso),
       where('commitment.endAt', '>=', endCheckIso),
-      limit(1)
+      limit(10) // Increased limit to account for potentially cancelled volunteers
     );
     const snap = await getDocs(q);
     for (const d of snap.docs) {

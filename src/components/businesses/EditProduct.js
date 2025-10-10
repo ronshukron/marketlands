@@ -333,9 +333,9 @@ const handleSubmit = async (e) => {
               type="text"
               id="vatType"
               value={
-                formData.vatType === 1 ? 'פטור ממע"מ (1)' :
-                formData.vatType === 2 ? 'מע"מ 0% (2)' :
-                formData.vatType === 3 ? 'מע"מ רגיל (3)' :
+                formData.vatType === 1 ? 'מע"מ רגיל (1)' :
+                // formData.vatType === 2 ? 'מע"מ 0% (2)' :
+                formData.vatType === 3 ? 'פטור ממע"מ (3)' :
                 `סוג ${formData.vatType}`
               }
               readOnly

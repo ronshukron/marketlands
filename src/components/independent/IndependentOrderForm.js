@@ -76,7 +76,27 @@ const IndependentOrderForm = () => {
         }
         setOrder(currentOrder);
 
-        if (currentOrder.shippingDateRange && currentOrder.shippingDateRange.end) {
+        // Check if order has ended (with 15-minute grace period)
+        if (currentOrder.endingTime) {
+          let endingDate;
+          if (currentOrder.endingTime?.toDate && typeof currentOrder.endingTime.toDate === 'function') {
+            endingDate = currentOrder.endingTime.toDate();
+          } else if (currentOrder.endingTime instanceof Date) {
+            endingDate = currentOrder.endingTime;
+          } else if (typeof currentOrder.endingTime === 'string') {
+            endingDate = new Date(currentOrder.endingTime);
+          }
+          
+          if (endingDate && !isNaN(endingDate)) {
+            const gracePeriodEnd = new Date(endingDate.getTime() + 15 * 60 * 1000); // Add 15 minutes
+            if (new Date() >= gracePeriodEnd) {
+              setOrderEnded(true);
+            }
+          }
+        }
+        
+        // Fallback to shipping date if endingTime not available
+        if (!orderEnded && currentOrder.shippingDateRange && currentOrder.shippingDateRange.end) {
           const end = new Date(currentOrder.shippingDateRange.end);
           if (new Date() >= end) setOrderEnded(true);
         }

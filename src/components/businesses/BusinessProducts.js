@@ -180,12 +180,20 @@ const BusinessProducts = () => {
     <div dir="rtl" className="max-w-6xl mx-auto px-4 py-4">
       <div className="text-center mb-4">
         <h1 className="text-xl font-bold mb-3">המוצרים שלי</h1>
-        <button
-          onClick={handleAddProduct}
-          className="w-40 bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
-        >
-          + הוסף מוצר
-        </button>
+        <div className="flex gap-2 justify-center">
+          <button
+            onClick={handleAddProduct}
+            className="w-40 bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
+          >
+            + הוסף מוצר
+          </button>
+          <button
+            onClick={() => navigate('/bulk-edit-products')}
+            className="w-40 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
+          >
+            עריכה מרובה
+          </button>
+        </div>
       </div>
 
       {/* Integrated guidance section - always visible */}

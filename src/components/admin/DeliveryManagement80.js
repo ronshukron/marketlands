@@ -97,7 +97,7 @@ const DeliveryManagement80 = () => {
         eligibleCustomersBySpot[spot] = new Set();
         cratesMap[spot] = [];
         Object.entries(byCustomer).forEach(([normalizedName, totals]) => {
-          if (totals.totalPrice > 80) {
+          if (totals.totalPrice > 70) {
             eligibleCustomersBySpot[spot].add(normalizedName);
             cratesMap[spot].push({ name: totals.displayName, totalQty: totals.totalQty, totalPrice: totals.totalPrice });
           }

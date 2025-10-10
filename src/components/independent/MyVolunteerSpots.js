@@ -5,7 +5,7 @@ import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
-import { cancelVolunteer } from '../../services/independentAdminService';
+// import { cancelVolunteer } from '../../services/independentAdminService'; // TODO: Enable when CORS is fixed
 
 const MyVolunteerSpots = () => {
   const { currentUser, userLoggedIn } = useAuth();
@@ -70,18 +70,21 @@ const MyVolunteerSpots = () => {
       if (!res.isConfirmed) return;
       setActionLoadingId(vol.id);
       
-      // Call backend to cancel volunteer
-      await cancelVolunteer({
-        volunteerId: vol.id,
-        orderId: vol.orderId,
-        businessId: vol.businessId
-      });
-      
-      // Update local state
+      // Update Firestore to mark as cancelled
+      console.log('Updating volunteer to cancelled', vol.id);
       await updateDoc(doc(db, 'volunteers', vol.id), {
         cancelled: true,
         cancelledAt: new Date().toISOString()
       });
+      
+      // TODO: Call backend to update order volunteer list when CORS is fixed
+      // await cancelVolunteer({
+      //   volunteerId: vol.id,
+      //   orderId: vol.orderId,
+      //   businessId: vol.businessId
+      // });
+      
+      // Update local state
       setVolunteers((prev) => prev.map((entry) => entry.volunteer.id === vol.id
         ? { ...entry, volunteer: { ...entry.volunteer, cancelled: true, cancelledAt: new Date().toISOString() } }
         : entry

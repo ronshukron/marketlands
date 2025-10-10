@@ -1,6 +1,6 @@
 // src/components/Home.js
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/authContext';
 import { usePickupSpot } from '../contexts/PickupSpotContext';
@@ -21,8 +21,13 @@ import featureImage4 from '../images/freshlybaledfield.jpg';
 
 const Home = () => {
   const { userLoggedIn } = useAuth();
-  const { saleMode } = useSaleMode();
+  const { saleMode, setSaleMode } = useSaleMode();
   console.log("User logged in status:", userLoggedIn); // Debug log
+
+  // Always reset to 'weekly' mode when Home component mounts
+  useEffect(() => {
+    setSaleMode('weekly');
+  }, [setSaleMode]);
 
   return (
     <div className="min-h-screen bg-gray-50">

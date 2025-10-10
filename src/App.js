@@ -32,6 +32,7 @@ import BusinessDashBoard from './components/businesses/BusinessDashBoard.js';
 import BusinessProducts from './components/businesses/BusinessProducts';
 import AddProduct from './components/businesses/AddProduct';
 import EditProduct from './components/businesses/EditProduct';
+import BulkEditProducts from './components/businesses/BulkEditProducts';
 import CreateOrderForBusiness from './components/businesses/CreateOrderForBusiness';
 import OrderFormBusiness from './components/businesses/OrderFormBusiness';
 import BusinessOrderSummary from './components/businesses/BusinessOrderSummary';
@@ -106,6 +107,7 @@ const App = () => {
                   <Route path="/Business-Products" element={<BusinessProducts />} />
                   <Route path="/add-product" element={<AddProduct />} />
                   <Route path="/edit-product/:productId" element={<EditProduct />} />
+                  <Route path="/bulk-edit-products" element={<BulkEditProducts />} />
                   <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
                   <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
                   <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />

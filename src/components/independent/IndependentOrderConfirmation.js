@@ -16,6 +16,7 @@ const IndependentOrderConfirmation = () => {
   const { userLoggedIn, currentUser } = useAuth();
   
   const [loading, setLoading] = useState(false);
+  const [orderEnded, setOrderEnded] = useState(false);
   const [userName, setUserName] = useState('');
   const [userPhone, setUserPhone] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -28,6 +29,44 @@ const IndependentOrderConfirmation = () => {
   const [formIsValid, setFormIsValid] = useState(false);
 
   const isEmpty = !items || items.length === 0;
+
+  // Check if order has ended (with 15-minute grace period)
+  useEffect(() => {
+    const checkOrderEnding = async () => {
+      if (!orderId) return;
+      
+      try {
+        const orderRef = doc(db, 'IndependentOrders', orderId);
+        const snap = await getDoc(orderRef);
+        
+        if (snap.exists()) {
+          const orderData = snap.data();
+          
+          if (orderData.endingTime) {
+            let endingDate;
+            if (orderData.endingTime?.toDate && typeof orderData.endingTime.toDate === 'function') {
+              endingDate = orderData.endingTime.toDate();
+            } else if (orderData.endingTime instanceof Date) {
+              endingDate = orderData.endingTime;
+            } else if (typeof orderData.endingTime === 'string') {
+              endingDate = new Date(orderData.endingTime);
+            }
+            
+            if (endingDate && !isNaN(endingDate)) {
+              const gracePeriodEnd = new Date(endingDate.getTime() + 15 * 60 * 1000); // Add 15 minutes
+              if (new Date() >= gracePeriodEnd) {
+                setOrderEnded(true);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error checking order ending time:', e);
+      }
+    };
+    
+    checkOrderEnding();
+  }, [orderId]);
 
   // Initialize user data if logged in
   useEffect(() => {
@@ -50,6 +89,16 @@ const IndependentOrderConfirmation = () => {
   }, [userName, userPhone, userEmail, selectedPickupSpot, agreeToTerms]);
 
   const handleSubmit = async () => {
+    if (orderEnded) {
+      Swal.fire({
+        icon: 'error',
+        title: 'ההזמנה הסתיימה',
+        text: 'זמן ההזמנה הסתיים ולא ניתן לבצע רכישה',
+        confirmButtonText: 'הבנתי'
+      });
+      return;
+    }
+
     if (!formIsValid) {
       Swal.fire({
         icon: 'warning',
@@ -218,9 +267,14 @@ const IndependentOrderConfirmation = () => {
   return (
     <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
       <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="bg-green-600 text-white px-6 py-4">
+        <div className={`${orderEnded ? 'bg-red-600' : 'bg-green-600'} text-white px-6 py-4`}>
           <h1 className="text-2xl font-bold">אישור הזמנה קהילתית</h1>
-          <p className="text-green-100 mt-1">{orderName || orderId}</p>
+          <p className={`${orderEnded ? 'text-red-100' : 'text-green-100'} mt-1`}>{orderName || orderId}</p>
+          {orderEnded && (
+            <div className="mt-2 bg-red-700 bg-opacity-50 rounded-md p-2 text-sm">
+              ⚠️ זמן ההזמנה הסתיים - לא ניתן לבצע רכישה
+            </div>
+          )}
         </div>
         
         <div className="p-6">
@@ -386,10 +440,10 @@ const IndependentOrderConfirmation = () => {
                 <div className="flex space-x-4 rtl:space-x-reverse">
                   <button
                     onClick={handleSubmit}
-                    disabled={!formIsValid}
-                    className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    disabled={!formIsValid || orderEnded}
+                    className={`flex-1 ${orderEnded ? 'bg-red-400' : 'bg-green-600 hover:bg-green-700'} disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${orderEnded ? 'focus:ring-red-500' : 'focus:ring-green-500'}`}
                   >
-                    לתשלום
+                    {orderEnded ? 'ההזמנה הסתיימה' : 'לתשלום'}
                   </button>
                   <button
                     onClick={() => navigate(-1)}
