@@ -275,9 +275,7 @@ const CategoryStore = () => {
       ? products 
       : products.filter(product => (product.category || 'אחר') === selectedCategory);
 
-  if (loading) {
-    return <LoadingSpinner />;
-  }
+  // Do not early-return on loading; show search/carousel immediately and spinner below
 
   const currentCategoryIndex = categories.indexOf(selectedCategory);
 
@@ -386,6 +384,14 @@ const CategoryStore = () => {
           </div>
         )}
 
+        {/* Loading state below the carousel, above the grid */}
+        {loading && (
+          <div className="text-center py-6">
+            <LoadingSpinner />
+            <p className="mt-2 text-gray-600 text-sm">טוען מוצרים...</p>
+          </div>
+        )}
+
         {/* Show search results header when searching */}
         {isSearchActive && (
           <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -400,10 +406,12 @@ const CategoryStore = () => {
           </div>
         )}
         
-        <ProductGrid 
-          products={displayProducts} 
-          calculateTimeRemaining={calculateTimeRemaining}
-        />
+        {!loading && (
+          <ProductGrid 
+            products={displayProducts} 
+            calculateTimeRemaining={calculateTimeRemaining}
+          />
+        )}
       </div>
     </div>
   );

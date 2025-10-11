@@ -7,6 +7,7 @@ import { usePickupSpot } from '../contexts/PickupSpotContext';
 import { pickupSpots } from '../data/pickupSpots';
 import './Home.css';
 import IndependentFarmers from './IndependentFarmers';
+import OngoingOrders from './OngoingOrders';
 import CategoryStore from './category-store/CategoryStore';
 import ModeToggle from './shared/ModeToggle';
 import { useSaleMode } from '../contexts/SaleModeContext';
