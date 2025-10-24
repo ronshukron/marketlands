@@ -1,16 +1,17 @@
-// src/components/admin/WeeklyOrderSummary.js
+// src/components/admin/WeeklyOrderSummaryV2.js
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { pickupSpots } from '../../data/pickupSpots';
 
 // Helper to identify the "basic products" vendor
 const BASIC_VENDOR_NAME_SUBSTRINGS = ['basic', 'basic products', 'מוצרים בסיסיים', 'בסיס',"הבסקט של בסטה"];
-const BASIC_VENDOR_IDS = []; // optionally add known businessId(s) here for exact matching
+const BASIC_VENDOR_IDS = [];
 const BASIC_CRATE_LABEL = 'ארגז עם שמי';
 const isBasicVendor = (businessOrder) => {
   const name = businessOrder?.businessName;
@@ -21,7 +22,7 @@ const isBasicVendor = (businessOrder) => {
   return BASIC_VENDOR_NAME_SUBSTRINGS.some(sub => lower.includes(sub.toLowerCase()));
 };
 
-const WeeklyOrderSummary = () => {
+const WeeklyOrderSummaryV2 = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [customerOrders, setCustomerOrders] = useState([]);
@@ -30,41 +31,113 @@ const WeeklyOrderSummary = () => {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [ordersByPickupSpot, setOrdersByPickupSpot] = useState({});
   
+  // New state for week selection
+  const [availableWeeks, setAvailableWeeks] = useState([]);
+  const [selectedWeek, setSelectedWeek] = useState('');
+  
+  // New state for community selection
+  const [selectedCommunities, setSelectedCommunities] = useState(new Set());
+  const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
+  
   // Refs for PDF generation
   const pdfRefs = useRef({});
+  const communityDropdownRef = useRef(null);
   
-  // Admin UIDs - add your user ID here
-  const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2']; // Replace with your actual UID
+  // Admin UIDs
+  const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
+  
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (communityDropdownRef.current && !communityDropdownRef.current.contains(e.target)) {
+        setShowCommunityDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
   
   useEffect(() => {
-    // Check if current user is authorized
     if (!currentUser || !ADMIN_UIDS.includes(currentUser.uid)) {
       setError("You are not authorized to view this page");
       setLoading(false);
       return;
     }
     
-    fetchWeeklyOrders();
+    fetchAvailableWeeks();
   }, [currentUser]);
+  
+  useEffect(() => {
+    if (selectedWeek) {
+      fetchWeeklyOrders();
+    }
+  }, [selectedWeek, selectedCommunities]);
+  
+  const fetchAvailableWeeks = async () => {
+    setLoading(true);
+    try {
+      // Fetch all orders and group by week
+      const ordersRef = collection(db, 'Orders');
+      const ordersSnapshot = await getDocs(ordersRef);
+      
+      const weeksSet = new Set();
+      
+      ordersSnapshot.docs.forEach(doc => {
+        const orderData = doc.data();
+        const endingTime = orderData.Ending_Time || orderData.endingTime;
+        
+        if (endingTime) {
+          let endDate;
+          if (endingTime.toDate) {
+            endDate = endingTime.toDate();
+          } else {
+            endDate = new Date(endingTime);
+          }
+          
+          // Get the Sunday of that week
+          const sunday = new Date(endDate);
+          sunday.setDate(endDate.getDate() - endDate.getDay());
+          sunday.setHours(0, 0, 0, 0);
+          
+          const weekKey = sunday.toISOString().split('T')[0];
+          weeksSet.add(weekKey);
+        }
+      });
+      
+      // Sort weeks (newest first)
+      const sortedWeeks = Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));
+      setAvailableWeeks(sortedWeeks);
+      
+      // Auto-select most recent week
+      if (sortedWeeks.length > 0) {
+        setSelectedWeek(sortedWeeks[0]);
+      }
+    } catch (err) {
+      console.error("Error fetching available weeks:", err);
+      setError("Failed to load weeks data");
+    } finally {
+      setLoading(false);
+    }
+  };
   
   const fetchWeeklyOrders = async () => {
     setLoading(true);
     try {
-      // Calculate date range for the past week
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 4);
+      // Parse selected week to get date range (Sunday to Friday)
+      const sunday = new Date(selectedWeek);
+      const friday = new Date(sunday);
+      friday.setDate(sunday.getDate() + 5); // Sunday + 5 = Friday
+      friday.setHours(23, 59, 59, 999);
       
       setDateRange({
-        start: format(startDate, 'dd/MM/yyyy'),
-        end: format(endDate, 'dd/MM/yyyy')
+        start: format(sunday, 'dd/MM/yyyy'),
+        end: format(friday, 'dd/MM/yyyy')
       });
       
-      // Convert to ISO strings for comparison
-      const startDateISO = startDate.toISOString();
-      const endDateISO = endDate.toISOString();
+      const startDateISO = sunday.toISOString();
+      const endDateISO = friday.toISOString();
       
-      // Query for completed orders from the past week
+      // Query for completed orders from the selected week
       const ordersRef = collection(db, 'customerOrders');
       const ordersSnapshot = await getDocs(ordersRef);
       
@@ -76,94 +149,88 @@ const WeeklyOrderSummary = () => {
       ordersSnapshot.docs.forEach(doc => {
         const orderData = doc.data();
         
-        // Check if order is completed and created within the past week
+        // Check if order is completed
+        if (orderData.paymentStatus !== 'completed') return;
+        
+        // Parse the createdAt date
         const createdAt = orderData.createdAt;
-        const paymentStatus = orderData.paymentStatus;
-        
-        // Skip if not completed
-        if (paymentStatus !== 'completed') return;
-        
-        // Parse the createdAt date (handle both string and timestamp formats)
         let createdDate;
         if (typeof createdAt === 'string') {
           createdDate = new Date(createdAt);
         } else if (createdAt && createdAt.toDate) {
           createdDate = createdAt.toDate();
         } else {
-          // Skip if no valid date
           return;
         }
         
         // Check if within date range
         const createdDateISO = createdDate.toISOString();
-        if (createdDateISO >= startDateISO && createdDateISO <= endDateISO) {
-          // Add to filtered orders
-          const orderWithDate = {
-            id: doc.id,
-            ...orderData,
-            createdDate
-          };
-          
-          filteredOrders.push(orderWithDate);
-          
-          // Group by pickup spot
-          const pickupSpot = orderData.customerDetails?.pickupSpot || 'לא צוין';
-          if (!pickupSpotMap[pickupSpot]) {
-            pickupSpotMap[pickupSpot] = [];
-          }
-          pickupSpotMap[pickupSpot].push(orderWithDate);
-          
-          // Process business summary
-          if (orderData.orderBreakdown) {
-            Object.values(orderData.orderBreakdown).forEach(businessOrder => {
-              const businessId = businessOrder.businessId;
-              const businessName = businessOrder.businessName;
+        if (createdDateISO < startDateISO || createdDateISO > endDateISO) return;
+        
+        // Filter by selected communities
+        const pickupSpot = orderData.customerDetails?.pickupSpot || 'לא צוין';
+        if (selectedCommunities.size > 0 && !selectedCommunities.has(pickupSpot)) return;
+        
+        // Add to filtered orders
+        const orderWithDate = {
+          id: doc.id,
+          ...orderData,
+          createdDate
+        };
+        
+        filteredOrders.push(orderWithDate);
+        
+        // Group by pickup spot
+        if (!pickupSpotMap[pickupSpot]) {
+          pickupSpotMap[pickupSpot] = [];
+        }
+        pickupSpotMap[pickupSpot].push(orderWithDate);
+        
+        // Process business summary
+        if (orderData.orderBreakdown) {
+          Object.values(orderData.orderBreakdown).forEach(businessOrder => {
+            const businessId = businessOrder.businessId;
+            const businessName = businessOrder.businessName;
+            
+            if (!businessProductMap[businessId]) {
+              businessProductMap[businessId] = {
+                businessName,
+                products: {},
+                totalRevenue: 0
+              };
+            }
+            
+            // Process each item
+            businessOrder.items.forEach(item => {
+              const productId = item.productId;
+              const productName = item.productName;
+              const quantity = item.quantity;
+              const price = item.price;
+              const totalPrice = price * quantity;
+              const selectedOption = item.selectedOption;
               
-              if (!businessProductMap[businessId]) {
-                businessProductMap[businessId] = {
-                  businessName,
-                  products: {},
+              const productKey = `${productId}_${selectedOption}`;
+              
+              if (!businessProductMap[businessId].products[productKey]) {
+                businessProductMap[businessId].products[productKey] = {
+                  productName,
+                  selectedOption,
+                  quantity: 0,
                   totalRevenue: 0
                 };
               }
               
-              // Process each item
-              businessOrder.items.forEach(item => {
-                const productId = item.productId;
-                const productName = item.productName;
-                const quantity = item.quantity;
-                const price = item.price;
-                const totalPrice = price * quantity;
-                const selectedOption = item.selectedOption;
-                
-                // Create product key that includes the option
-                const productKey = `${productId}_${selectedOption}`;
-                
-                if (!businessProductMap[businessId].products[productKey]) {
-                  businessProductMap[businessId].products[productKey] = {
-                    productName,
-                    selectedOption,
-                    quantity: 0,
-                    totalRevenue: 0
-                  };
-                }
-                
-                // Update product stats
-                businessProductMap[businessId].products[productKey].quantity += quantity;
-                businessProductMap[businessId].products[productKey].totalRevenue += totalPrice;
-                
-                // Update business total revenue
-                businessProductMap[businessId].totalRevenue += totalPrice;
-              });
+              businessProductMap[businessId].products[productKey].quantity += quantity;
+              businessProductMap[businessId].products[productKey].totalRevenue += totalPrice;
+              businessProductMap[businessId].totalRevenue += totalPrice;
             });
-          }
+          });
         }
       });
       
-      // Sort orders by date (newest first)
+      // Sort orders by date
       filteredOrders.sort((a, b) => b.createdDate - a.createdDate);
       
-      // Sort orders within each pickup spot
       Object.keys(pickupSpotMap).forEach(spot => {
         pickupSpotMap[spot].sort((a, b) => b.createdDate - a.createdDate);
       });
@@ -179,10 +246,29 @@ const WeeklyOrderSummary = () => {
     }
   };
   
-  // PDF generation function for a specific pickup spot
+  const toggleCommunity = (community) => {
+    setSelectedCommunities(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(community)) {
+        newSet.delete(community);
+      } else {
+        newSet.add(community);
+      }
+      return newSet;
+    });
+  };
+  
+  const selectAllCommunities = () => {
+    setSelectedCommunities(new Set(pickupSpots));
+  };
+  
+  const clearAllCommunities = () => {
+    setSelectedCommunities(new Set());
+  };
+  
+  // PDF generation function (same as original)
   const generatePDF = async (pickupSpot, orders) => {
     try {
-      // Create a new document
       const pdf = new jsPDF({
         orientation: 'p',
         unit: 'mm',
@@ -190,8 +276,7 @@ const WeeklyOrderSummary = () => {
         putOnlyUsedFonts: true
       });
       
-      // First: compute per-customer totals for the basic vendor to know crate eligibility
-      const customerBasicTotals = {}; // { normalizedName: { displayName, totalPrice, totalQty } }
+      const customerBasicTotals = {};
       orders.forEach(order => {
         const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
         const normalizedCustomerName = rawCustomerName.trim();
@@ -215,42 +300,39 @@ const WeeklyOrderSummary = () => {
           });
         }
       });
+      
       const isCustomerEligibleForCrate = (normalizedName) => {
         const t = customerBasicTotals[normalizedName];
         return !!t && (t.totalPrice > 50 || t.totalQty > 7);
       };
       
-      // Group items by customer, aggregating items if a customer has multiple orders
-      const customerItems = {}; // Stores { normalizedName: { displayName: 'Name', items: [...], needsCrate: boolean } }
+      const customerItems = {};
       
       orders.forEach(order => {
         const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
-        // Normalize the customer name (e.g., trim whitespace) to ensure consistent grouping
-        const normalizedCustomerName = rawCustomerName.trim(); 
+        const normalizedCustomerName = rawCustomerName.trim();
 
         if (!customerItems[normalizedCustomerName]) {
           customerItems[normalizedCustomerName] = {
-            displayName: rawCustomerName, // Use the first encountered name for display
+            displayName: rawCustomerName,
             items: [],
             needsCrate: false
           };
         }
         
-        // Add items from this order to the customer's aggregated list
         if (order.orderBreakdown) {
           Object.values(order.orderBreakdown).forEach(businessOrder => {
             const isBasic = isBasicVendor(businessOrder);
             const eligible = isCustomerEligibleForCrate(normalizedCustomerName);
             (businessOrder.items || []).forEach(item => {
               if (isBasic && eligible) {
-                // Do not list individual basic items; mark to add crate once
                 customerItems[normalizedCustomerName].needsCrate = true;
               } else {
                 customerItems[normalizedCustomerName].items.push({
                   productName: item.productName,
                   quantity: item.quantity,
                   option: item.selectedOption,
-                  businessName: businessOrder.businessName // Preserving for potential future use
+                  businessName: businessOrder.businessName
                 });
               }
             });
@@ -258,25 +340,21 @@ const WeeklyOrderSummary = () => {
         }
       });
       
-      // If a customer needs a crate, add a single crate line once
       Object.values(customerItems).forEach(cust => {
         if (cust.needsCrate) {
           cust.items.push({ isCrate: true, label: BASIC_CRATE_LABEL });
         }
       });
       
-      // Character count pagination approach
-      const CHARS_PER_PAGE = 1300; 
+      const CHARS_PER_PAGE = 1300;
       let currentPage = 1;
       let currentChars = 0;
-      let pagesContent = [[]]; // Array of pages, each containing rows
+      let pagesContent = [[]];
       
-      // Process each customer and their aggregated items
       Object.entries(customerItems).forEach(([normalizedName, customerData]) => {
-        const displayNameForPdf = customerData.displayName; // Use the stored display name
+        const displayNameForPdf = customerData.displayName;
         const aggregatedItemsList = customerData.items;
 
-        // Format all aggregated items in a single line
         const itemsText = aggregatedItemsList.map(item => {
           if (item.isCrate) {
             return BASIC_CRATE_LABEL;
@@ -288,30 +366,24 @@ const WeeklyOrderSummary = () => {
           return text;
         }).join(', ');
         
-        // Calculate total characters in this row
         const rowChars = displayNameForPdf.length + itemsText.length;
         
-        // Always start a new page if this is a very long row
         if (rowChars > CHARS_PER_PAGE) {
-          // If this isn't the first item on the page and it's a very long item,
-          // start a new page for it
           if (pagesContent[currentPage - 1].length > 0) {
             currentPage++;
             currentChars = 0;
             pagesContent.push([]);
           }
         }
-        // If adding this row would exceed the page limit, start a new page
         else if (currentChars + rowChars > CHARS_PER_PAGE && pagesContent[currentPage - 1].length > 0) {
           currentPage++;
           currentChars = 0;
           pagesContent.push([]);
         }
         
-        // Add row to current page
         pagesContent[currentPage - 1].push({
           type: 'row',
-          name: displayNameForPdf, // Use the display name for the PDF
+          name: displayNameForPdf,
           items: itemsText,
           chars: rowChars
         });
@@ -319,17 +391,15 @@ const WeeklyOrderSummary = () => {
         currentChars += rowChars;
       });
       
-      // Generate HTML for each page
       const renderPage = (pageContent) => {
         const element = document.createElement('div');
-        element.style.width = '595px'; // A4 width in pixels at 72 dpi
+        element.style.width = '595px';
         element.style.fontFamily = 'Arial, sans-serif';
         element.style.direction = 'rtl';
         element.style.textAlign = 'right';
         element.style.padding = '10px 20px 30px 20px';
         element.style.boxSizing = 'border-box';
         
-        // Create HTML content
         let htmlContent = `
           <div style="text-align: center; margin-bottom: 5px;">
             <h1 style="font-size: 14px; color: #2563EB; margin: 0;">נקודת איסוף: ${pickupSpot}</h1>
@@ -345,7 +415,6 @@ const WeeklyOrderSummary = () => {
             <tbody>
         `;
         
-        // Add each row for this page
         pageContent.rows.forEach(row => {
           if (row.type === 'row') {
             htmlContent += `
@@ -366,7 +435,6 @@ const WeeklyOrderSummary = () => {
         return element;
       };
       
-      // Add page numbers to content
       const totalPages = pagesContent.length;
       const numberedPages = pagesContent.map((content, i) => ({
         rows: content,
@@ -374,12 +442,10 @@ const WeeklyOrderSummary = () => {
         totalPages
       }));
       
-      // Generate all pages and add to PDF
       for (let i = 0; i < numberedPages.length; i++) {
         const pageElement = renderPage(numberedPages[i]);
         document.body.appendChild(pageElement);
         
-        // Render to canvas
         const canvas = await html2canvas(pageElement, {
           scale: 1.5,
           useCORS: true,
@@ -387,130 +453,24 @@ const WeeklyOrderSummary = () => {
           windowWidth: 595,
         });
         
-        // Add new page if not first page
         if (i > 0) {
           pdf.addPage();
         }
         
-        // Add the image to the page - FIX HERE
         const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        const imgWidth = 210; // A4 width in mm
+        const imgWidth = 210;
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
         
-        // Clean up
         document.body.removeChild(pageElement);
       }
       
-      // Save the PDF
       pdf.save(`נקודת_איסוף_${pickupSpot.replace(/\s+/g, '_')}.pdf`);
       
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('אירעה שגיאה ביצירת ה-PDF');
     }
-  };
-  
-  // Render a single pickup spot section
-  const renderPickupSpotSection = (pickupSpot, orders) => {
-    return (
-      <div key={pickupSpot} className="mb-12">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-semibold">
-            נקודת איסוף: {pickupSpot} ({orders.length} הזמנות)
-          </h3>
-          <button
-            onClick={() => generatePDF(pickupSpot, orders)}
-            className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg flex items-center"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            ייצוא ל-PDF
-          </button>
-        </div>
-        
-        <div ref={el => pdfRefs.current[pickupSpot] = el} className="bg-white rounded-lg shadow p-6">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold">הזמנות לנקודת איסוף: {pickupSpot}</h2>
-            <p className="text-gray-600">
-              {dateRange.start} - {dateRange.end}
-            </p>
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    לקוח
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    תאריך
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    פריטים
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    סה"כ
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {orders.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {order.customerDetails?.name || 'לקוח לא ידוע'}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {order.customerDetails?.phone || 'אין טלפון'}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {order.customerDetails?.email || 'אין אימייל'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {format(order.createdDate, 'dd/MM/yyyy HH:mm')}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">
-                        <ul className="list-disc list-inside">
-                          {order.orderBreakdown && Object.values(order.orderBreakdown).flatMap(business => 
-                            business.items.map((item, idx) => (
-                              <li key={`${business.businessId}-${idx}`} className="mb-1">
-                                <span className="font-medium">{item.productName}</span>
-                                {item.selectedOption && item.selectedOption !== "ללא אופציות" && item.selectedOption !== "None" && (
-                                  <span className="text-gray-500"> ({item.selectedOption})</span>
-                                )}
-                                <span> - {item.quantity} יח' - ₪{(item.price * item.quantity).toFixed(2)}</span>
-                                <div className="text-xs text-gray-500 mr-4">מ{business.businessName}</div>
-                              </li>
-                            ))
-                          )}
-                        </ul>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      ₪{order.grandTotal?.toFixed(2) || '0.00'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          
-          <div className="mt-6 text-left">
-            <p className="font-bold">
-              סה"כ הזמנות: {orders.length}
-            </p>
-            <p className="font-bold">
-              סה"כ הכנסות: ₪{orders.reduce((sum, order) => sum + (order.grandTotal || 0), 0).toFixed(2)}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
   };
   
   if (loading) {
@@ -530,14 +490,76 @@ const WeeklyOrderSummary = () => {
   
   return (
     <div className="container mx-auto px-4 py-8" dir="rtl">
-      <h1 className="text-3xl font-bold text-center mb-8">סיכום הזמנות שבועי</h1>
-      <p className="text-center text-gray-600 mb-6">
-        {dateRange.start} - {dateRange.end}
-      </p>
+      <h1 className="text-3xl font-bold text-center mb-8">סיכום הזמנות שבועי (גרסה 2)</h1>
+      
+      {/* Week and Community Selection */}
+      <div className="mb-6 bg-white p-6 rounded-lg shadow">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Week Selection */}
+          <div>
+            <label className="block text-gray-700 text-sm font-medium mb-2">בחר שבוע:</label>
+            <select
+              value={selectedWeek}
+              onChange={(e) => setSelectedWeek(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {availableWeeks.map(week => {
+                const sunday = new Date(week);
+                const friday = new Date(sunday);
+                friday.setDate(sunday.getDate() + 5);
+                return (
+                  <option key={week} value={week}>
+                    {format(sunday, 'dd/MM/yyyy')} - {format(friday, 'dd/MM/yyyy')}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          
+          {/* Community Selection */}
+          <div ref={communityDropdownRef}>
+            <label className="block text-gray-700 text-sm font-medium mb-2">בחר קהילות:</label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowCommunityDropdown(o => !o)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-right focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {selectedCommunities.size === 0 ? 'כל הקהילות' : `${selectedCommunities.size} קהילות נבחרו`}
+              </button>
+              {showCommunityDropdown && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2 max-h-80 overflow-auto">
+                  <div className="flex gap-2 mb-2 pb-2 border-b">
+                    <button onClick={selectAllCommunities} className="text-xs px-2 py-1 bg-blue-500 text-white rounded">בחר הכל</button>
+                    <button onClick={clearAllCommunities} className="text-xs px-2 py-1 bg-gray-300 text-gray-700 rounded">נקה הכל</button>
+                  </div>
+                  {pickupSpots.map(spot => (
+                    <div key={spot} className="flex items-center px-2 py-1 hover:bg-gray-50 rounded">
+                      <input
+                        type="checkbox"
+                        id={`community-${spot}`}
+                        checked={selectedCommunities.has(spot)}
+                        onChange={() => toggleCommunity(spot)}
+                        className="ml-2"
+                      />
+                      <label htmlFor={`community-${spot}`} className="text-sm cursor-pointer flex-1">{spot}</label>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <p className="text-center text-gray-600 mt-4">
+          מציג הזמנות מ-{dateRange.start} עד {dateRange.end}
+          {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
+        </p>
+      </div>
       
       {customerOrders.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 p-4 rounded text-center">
-          לא נמצאו הזמנות שהושלמו בשבוע האחרון
+          לא נמצאו הזמנות עבור השבוע והקהילות שנבחרו
         </div>
       ) : (
         <>
@@ -701,4 +723,6 @@ const WeeklyOrderSummary = () => {
   );
 };
 
-export default WeeklyOrderSummary;
+export default WeeklyOrderSummaryV2;
+
+

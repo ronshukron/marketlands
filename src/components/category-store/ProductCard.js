@@ -14,10 +14,22 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
 
   const handleQuantityChange = (increment) => {
     if (increment) {
-      if (product.stockAmount && quantity >= product.stockAmount) {
+      // Check if the NEXT quantity would exceed stock
+      const nextQuantity = quantity + 1;
+      
+      if (product.stockAmount && nextQuantity > product.stockAmount) {
+        // Show popup when trying to exceed stock
+        Swal.fire({
+          title: 'הגעת למלאי המקסימלי',
+          text: `יש רק ${product.stockAmount} יחידות זמינות במלאי`,
+          icon: 'info',
+          confirmButtonText: 'הבנתי',
+          confirmButtonColor: '#3b82f6'
+        });
         return; // Don't allow more than stock
       }
-      setQuantity(quantity + 1);
+      
+      setQuantity(nextQuantity);
     } else {
       setQuantity(Math.max(quantity - 1, 0));
     }
@@ -187,7 +199,7 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
               <button 
                 onClick={() => handleQuantityChange(true)}
                 className="px-3 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium"
-                disabled={isOutOfStock || (product.stockAmount !== undefined && quantity >= product.stockAmount)}
+                disabled={isOutOfStock}
               >
                 +
               </button>
@@ -307,7 +319,7 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
             <button 
               onClick={() => handleQuantityChange(true)}
               className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700"
-              disabled={isOutOfStock || (product.stockAmount !== undefined && quantity >= product.stockAmount)}
+              disabled={isOutOfStock}
             >
               +
             </button>

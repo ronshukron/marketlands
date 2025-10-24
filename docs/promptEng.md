@@ -3,39 +3,9 @@ You are an expert prompt engineer tasked with improving a given prompt. Your goa
 Here's the prompt that needs improvement:
 
 <prompt_to_improve>
-Product tagging system: How are products currently tagged? What field name? Is this already implemented or needs to be added? - answer:
-we should add a field to @AddProduct.js and @EditProduct.js. i will manualy edit the existing products with the edit page.
+as of now i only make the "weekly" shippments on one day of the week for 4-5 communities, now i want to add more days and more communities, the importent thing is that the time to order closes at a certian point, that is the endTime parameter in the orderId, in the current ui it doesnt support multiple days for different communities (each day is a different set of communities). an easy way to solve this is to just add a list with the communities name, and a user picks his community and if filters the items for him, and i will upload orders forms from the farmers side for each communities.
 
-Category names: Only examples given (פירות\ירקות\ירוקים) - what's the complete list?
- - answer:
-
-the list should be open ended and i will later add more names but for now there will be (ירקות, פירות, ירוקים, אחר)
-
-
-"toggle": Does this mean a UI toggle switch or a configuration flag?
-- answer:
-a ui toggle switch that i can easly comment out so there will only be the new version of ongoingorders.
-
-
-Farmer attribution display: Where/how should farmer info be shown in the new layout?
-- answer"
-beneth the description
-
-
-Cart integration: Should the cart behavior change or remain the same?
-- answer:
-remain the same
-
-Filtering logic: Should products from multiple farmers be mixed in categories, or grouped by farmer within categories?
-- answer:
-they should be mixed like a regular grocery store, for example apples from farmer A and oranges from farmer B should both be under fruit page
-
-
-Order document structure: How does the new flow map to existing orderId structure if products are displayed directly?
-- answer:
-the orderid should not be displayed to the user, but for our current flow we the orderid, so when bringing the product info to the page, make sure to also bring its order id and other relevant info for the flow. check out the js file i gave you previously to see what info you need. @OngoingOrders.js @OrderConfirmation.js @OrderFormBusiness.js etc.
-
-* we can add a product.js  also</prompt_to_improve>
+</prompt_to_improve>
 
 Please follow these steps to analyze and improve the prompt:
 

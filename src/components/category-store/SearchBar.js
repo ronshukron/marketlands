@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 const SearchBar = ({ products, onSearchResults, setSearchActive }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [exactMode, setExactMode] = useState(false);
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -53,25 +54,34 @@ const SearchBar = ({ products, onSearchResults, setSearchActive }) => {
       onSearchResults([]);
       setSearchActive(false);
       setShowSuggestions(false);
-    } else {
-      // Filter and sort products by relevance
-      const filtered = products
-        .filter(product => 
-          product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          product.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          product.businessName.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-        .sort((a, b) => {
-          const scoreA = calculateRelevance(a, searchTerm);
-          const scoreB = calculateRelevance(b, searchTerm);
-          return scoreB - scoreA; // Higher score first
-        });
-      
-      onSearchResults(filtered);
-      setSearchActive(true);
-      setShowSuggestions(true);
+      return;
     }
-  }, [searchTerm, products, onSearchResults, setSearchActive]);
+
+    if (exactMode) {
+      const exact = products.filter(p => p.name.toLowerCase() === searchTerm.toLowerCase());
+      onSearchResults(exact);
+      setSearchActive(true);
+      setShowSuggestions(false);
+      return;
+    }
+
+    // Filter and sort products by relevance
+    const filtered = products
+      .filter(product => 
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.businessName.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .sort((a, b) => {
+        const scoreA = calculateRelevance(a, searchTerm);
+        const scoreB = calculateRelevance(b, searchTerm);
+        return scoreB - scoreA; // Higher score first
+      });
+
+    onSearchResults(filtered);
+    setSearchActive(true);
+    setShowSuggestions(true);
+  }, [searchTerm, products, onSearchResults, setSearchActive, exactMode]);
 
   const handleClear = () => {
     setSearchTerm('');
@@ -84,7 +94,7 @@ const SearchBar = ({ products, onSearchResults, setSearchActive }) => {
         <input
           type="text"
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(e) => { setExactMode(false); setSearchTerm(e.target.value); }}
           onFocus={() => searchTerm && setShowSuggestions(true)}
           placeholder="חפש מוצרים לפי שם, תיאור או חקלאי..."
           className="w-full px-4 py-3 pr-12 pl-12 text-right border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
@@ -150,9 +160,13 @@ const SearchBar = ({ products, onSearchResults, setSearchActive }) => {
                   key={product.uid}
                   className="p-3 hover:bg-blue-50 cursor-pointer transition-colors"
                   onClick={() => {
-                    // Set search term to product name and close suggestions
+                    // Select exact product name, close list, and show exact results
+                    setExactMode(true);
                     setSearchTerm(product.name);
                     setShowSuggestions(false);
+                    const exact = products.filter(p => p.name.toLowerCase() === product.name.toLowerCase());
+                    onSearchResults(exact);
+                    setSearchActive(true);
                   }}
                 >
                   <div className="flex items-center gap-3">

@@ -158,7 +158,8 @@ const CreateIndependentOrderForm = () => {
     }
     
     // Build message
-    let message = `🌱 הזמנה קהילתית חדשה!\n\n`;
+    // let message = `🌱 הזמנה קהילתית חדשה!\n\n`;
+    let message = `\n\n`;
     message += `📦 ${orderName}\n\n`;
     
     if (userMessage) {

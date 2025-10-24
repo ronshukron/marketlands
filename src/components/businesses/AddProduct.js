@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/authContext';
 import { db, storage } from '../../firebase/firebase'; // Correct storage import
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'; // Import necessary storage methods
 import { useNavigate } from 'react-router-dom';
 import './AddProduct.css';
@@ -25,7 +25,25 @@ const AddProduct = () => {
   const [stockAmount, setStockAmount] = useState(0);
   const [vatType, setVatType] = useState(3);
   const [merchantPrice, setMerchantPrice] = useState('');
+  const [thaiName, setThaiName] = useState('');
+  const [isIndependent, setIsIndependent] = useState(false);
 
+  // Fetch isIndependent status
+  useEffect(() => {
+    const fetchIsIndependent = async () => {
+      if (!currentUser) return;
+      try {
+        const businessRef = doc(db, 'businesses', currentUser.uid);
+        const snap = await getDoc(businessRef);
+        if (snap.exists()) {
+          setIsIndependent(Boolean(snap.data().isIndependent));
+        }
+      } catch (e) {
+        console.error('Error fetching isIndependent:', e);
+      }
+    };
+    fetchIsIndependent();
+  }, [currentUser]);
 
   const handleAddOption = () => {
     if (currentOption.trim() !== '') {
@@ -164,6 +182,7 @@ const AddProduct = () => {
         catalogNumber: response.data.catalogNumber,
         vatType: Number(vatType),
         ...(merchantPrice !== '' ? { merchantPrice: parseFloat(merchantPrice) } : {}),
+        ...(thaiName !== '' ? { thaiName: thaiName } : {}),
         verified: false,
         rejected: false,
       };
@@ -301,6 +320,25 @@ const AddProduct = () => {
               <option value={1}>חייב במע"מ (למשל דבש/משלוח/מוצרים מעובדים)</option>
             </select>
           </div>
+
+          {/* Thai Name - Only for non-independent farmers */}
+          {!isIndependent && (
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="thaiName">
+                ชื่อภาษาไทย (Thai Name)
+              </label>
+              <input
+                type="text"
+                id="thaiName"
+                name="thaiName"
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="ใส่ชื่อผลิตภัณฑ์เป็นภาษาไทย"
+                value={thaiName}
+                onChange={(e) => setThaiName(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-gray-500">שדה זה יעזור לעובדים התאילנדיים להכין את הארגזים</p>
+            </div>
+          )}
 
           {/* Description */}
           <div>

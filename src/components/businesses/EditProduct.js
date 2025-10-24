@@ -29,13 +29,25 @@ const EditProduct = () => {
     tags: [],
     stockAmount: 0,
     merchantPrice: '',
-    vatType: 3
+    vatType: 3,
+    thaiName: ''
   });
+  const [isIndependent, setIsIndependent] = useState(false);
 
   useEffect(() => {
     const fetchProduct = async () => {
       try {
         setLoading(true);
+
+        // Fetch isIndependent status
+        if (currentUser) {
+          const businessRef = doc(db, 'businesses', currentUser.uid);
+          const snap = await getDoc(businessRef);
+          if (snap.exists()) {
+            setIsIndependent(Boolean(snap.data().isIndependent));
+          }
+        }
+
         const docRef = doc(db, "Products", productId);
         const docSnap = await getDoc(docRef);
         
@@ -55,7 +67,8 @@ const EditProduct = () => {
             tags: data.tags || [],
             stockAmount: data.stockAmount || 0,
             merchantPrice: data.merchantPrice != null ? String(data.merchantPrice) : '',
-            vatType: data.vatType ?? 3
+            vatType: data.vatType ?? 3,
+            thaiName: data.thaiName || ''
           });
           
           // Set existing images if available
@@ -74,7 +87,7 @@ const EditProduct = () => {
     };
     
     fetchProduct();
-  }, [productId, navigate]);
+  }, [productId, navigate, currentUser]);
 
   const handleAddOption = () => {
     if (currentOption.trim() !== '') {
@@ -216,7 +229,8 @@ const handleSubmit = async (e) => {
       images: updatedImages, // Update the Firestore with the new images array
       stockAmount: formData.stockAmount, // Include stock amount
       ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
-      ...(formData.category !== '' ? { category: formData.category } : {})
+      ...(formData.category !== '' ? { category: formData.category } : {}),
+      ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {})
     });
 
     Swal.fire({
@@ -370,6 +384,30 @@ const handleSubmit = async (e) => {
             </select>
             <p className="mt-1 text-xs text-gray-500">בחירת קטגוריה תאפשר למוצר להופיע בתצוגת הקטגוריות בחנות</p>
           </div>
+
+          {/* Thai Name - Only for non-independent farmers */}
+          {!isIndependent && (
+            <div className="mb-4">
+              <label htmlFor="thaiName" className="block text-sm font-medium text-gray-700 mb-1">
+                ชื่อภาษาไทย (Thai Name)
+              </label>
+              <input
+                type="text"
+                id="thaiName"
+                name="thaiName"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="ใส่ชื่อผลิตภัณฑ์เป็นภาษาไทย"
+                value={formData.thaiName}
+                onChange={(e) => 
+                  setFormData({
+                    ...formData,
+                    thaiName: e.target.value
+                  })
+                }
+              />
+              <p className="mt-1 text-xs text-gray-500">שדה זה יעזור לעובדים התאילנדיים להכין את הארגזים</p>
+            </div>
+          )}
           
           {/* Description */}
           <div>

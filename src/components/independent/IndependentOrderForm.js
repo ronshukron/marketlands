@@ -512,7 +512,7 @@ const IndependentOrderForm = () => {
                       <span className="ml-2 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">מחיר סוחר</span>
                     )}
                   </p>
-                  <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
+                  <p className="text-xs text-gray-600 whitespace-pre-line">{product.description}</p>
                 </div>
               </div>
 

@@ -52,6 +52,9 @@ import './components/Accessibility.css';
 import AdminRefundRequests from './components/admin/AdminRefundRequests';
 import DeliveryManagement from './components/admin/DeliveryManagement';
 import DeliveryManagement80 from './components/admin/DeliveryManagement80';
+import WeeklyOrderSummaryV2 from './components/admin/WeeklyOrderSummaryV2';
+import DeliveryManagementV2 from './components/admin/DeliveryManagementV2';
+import DeliveryManagementV3 from './components/admin/DeliveryManagementV3';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
 import { SaleModeProvider } from './contexts/SaleModeContext';
 import CreateIndependentOrderForm from './components/independent/CreateIndependentOrderForm';
@@ -123,6 +126,9 @@ const App = () => {
                   <Route path="/admin/refunds" element={<AdminRefundRequests />} />
                   <Route path="/admin/delivery" element={<DeliveryManagement />} />
                   <Route path="/admin/delivery-80" element={<DeliveryManagement80 />} />
+                  <Route path="/admin/weekly-summary-v2" element={<WeeklyOrderSummaryV2 />} />
+                  <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
+                  <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
                   <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
                   <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />

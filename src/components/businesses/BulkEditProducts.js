@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, writeBatch, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import Swal from 'sweetalert2';
@@ -13,12 +13,20 @@ const BulkEditProducts = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editedProducts, setEditedProducts] = useState({});
+  const [isIndependent, setIsIndependent] = useState(false);
 
   useEffect(() => {
     const fetchProducts = async () => {
       if (!currentUser) return;
       setLoading(true);
       try {
+        // Fetch isIndependent status
+        const businessRef = doc(db, 'businesses', currentUser.uid);
+        const snap = await getDoc(businessRef);
+        if (snap.exists()) {
+          setIsIndependent(Boolean(snap.data().isIndependent));
+        }
+
         const q = query(
           collection(db, 'Products'),
           where('Owner_Email', '==', currentUser.email)
@@ -37,7 +45,8 @@ const BulkEditProducts = () => {
             price: product.price || '',
             stockAmount: product.stockAmount || 0,
             merchantPrice: product.merchantPrice || '',
-            category: product.category || ''
+            category: product.category || '',
+            thaiName: product.thaiName || ''
           };
         });
         setEditedProducts(initialEdits);
@@ -75,7 +84,8 @@ const BulkEditProducts = () => {
         Number(edited.price) !== Number(product.price || 0) ||
         Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
         (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
-        edited.category !== (product.category || '')
+        edited.category !== (product.category || '') ||
+        edited.thaiName !== (product.thaiName || '')
       );
     });
   };
@@ -115,7 +125,8 @@ const BulkEditProducts = () => {
           Number(edited.price) !== Number(product.price || 0) ||
           Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
           (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
-          edited.category !== (product.category || '')
+          edited.category !== (product.category || '') ||
+          edited.thaiName !== (product.thaiName || '')
         );
 
         if (hasProductChanges) {
@@ -135,6 +146,12 @@ const BulkEditProducts = () => {
             updates.category = edited.category;
           } else {
             updates.category = '';
+          }
+
+          if (edited.thaiName !== '') {
+            updates.thaiName = edited.thaiName;
+          } else {
+            updates.thaiName = '';
           }
 
           batch.update(productRef, updates);
@@ -184,7 +201,8 @@ const BulkEditProducts = () => {
         price: product.price || '',
         stockAmount: product.stockAmount || 0,
         merchantPrice: product.merchantPrice || '',
-        category: product.category || ''
+        category: product.category || '',
+        thaiName: product.thaiName || ''
       };
     });
     setEditedProducts(initialEdits);
@@ -278,6 +296,11 @@ const BulkEditProducts = () => {
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     קטגוריה
                   </th>
+                  {!isIndependent && (
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      ชื่อภาษาไทย
+                    </th>
+                  )}
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     סוג מע"מ
                   </th>
@@ -293,7 +316,8 @@ const BulkEditProducts = () => {
                     Number(edited.price) !== Number(product.price || 0) ||
                     Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
                     (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
-                    edited.category !== (product.category || '')
+                    edited.category !== (product.category || '') ||
+                    edited.thaiName !== (product.thaiName || '')
                   );
 
                   return (
@@ -362,6 +386,17 @@ const BulkEditProducts = () => {
                           <option value="אחר">אחר</option>
                         </select>
                       </td>
+                      {!isIndependent && (
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <input
+                            type="text"
+                            value={edited.thaiName}
+                            onChange={(e) => handleFieldChange(product.id, 'thaiName', e.target.value)}
+                            placeholder="ชื่อภาษาไทย"
+                            className="w-32 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-700">
                           {product.vatType === 1 ? 'מע"מ רגיל' : 

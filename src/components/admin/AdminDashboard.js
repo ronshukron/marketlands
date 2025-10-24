@@ -32,6 +32,24 @@ const cards = [
     title: 'בקשות זיכוי',
     description: 'סקירה וטיפול בבקשות זיכוי של משתמשים',
     to: '/admin/refunds'
+  },
+  {
+    title: 'סיכום שבועי V2',
+    description: 'דוחות שבועיים עם בחירת שבוע וקהילות',
+    to: '/admin/weekly-summary-v2',
+    featured: true
+  },
+  {
+    title: 'ניהול משלוחים V2',
+    description: 'ניהול משלוחים עם בחירת שבוע וקהילות',
+    to: '/admin/delivery-v2',
+    featured: true
+  },
+  {
+    title: 'ניהול משלוחים V3 (ไทย)',
+    description: 'גרסה לעובדים תאילנדיים - עם תמונות ושמות בתאילנדית',
+    to: '/admin/delivery-v3',
+    featured: true
   }
 ];
 
