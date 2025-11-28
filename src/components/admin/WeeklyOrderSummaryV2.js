@@ -1,6 +1,6 @@
 // src/components/admin/WeeklyOrderSummaryV2.js
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, getDocs } from 'firebase/firestore';
+import { collection, query, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
@@ -39,9 +39,21 @@ const WeeklyOrderSummaryV2 = () => {
   const [selectedCommunities, setSelectedCommunities] = useState(new Set());
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
   
+  // Temporary filter states (before submit)
+  const [tempSelectedWeek, setTempSelectedWeek] = useState('');
+  const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
+  
   // Refs for PDF generation
   const pdfRefs = useRef({});
   const communityDropdownRef = useRef(null);
+  // Message settings for per-business copy
+  const [orderMessageName, setOrderMessageName] = useState('');
+  const [orderMessageDate, setOrderMessageDate] = useState('');
+  // Cost calculator modal state
+  const [costModalOpen, setCostModalOpen] = useState(false);
+  const [costModalBusinessId, setCostModalBusinessId] = useState('');
+  const [costModalBusinessName, setCostModalBusinessName] = useState('');
+  const [costModalItems, setCostModalItems] = useState([]); // [{key, productName, selectedOption, quantity, price}]
   
   // Admin UIDs
   const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -66,6 +78,15 @@ const WeeklyOrderSummaryV2 = () => {
     
     fetchAvailableWeeks();
   }, [currentUser]);
+  
+  // Default the message date to tomorrow on first load
+  useEffect(() => {
+    if (!orderMessageDate) {
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      setOrderMessageDate(t.toISOString().split('T')[0]);
+    }
+  }, [orderMessageDate]);
   
   useEffect(() => {
     if (selectedWeek) {
@@ -108,9 +129,9 @@ const WeeklyOrderSummaryV2 = () => {
       const sortedWeeks = Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));
       setAvailableWeeks(sortedWeeks);
       
-      // Auto-select most recent week
+      // Auto-select most recent week for temp state
       if (sortedWeeks.length > 0) {
-        setSelectedWeek(sortedWeeks[0]);
+        setTempSelectedWeek(sortedWeeks[0]);
       }
     } catch (err) {
       console.error("Error fetching available weeks:", err);
@@ -133,6 +154,10 @@ const WeeklyOrderSummaryV2 = () => {
         start: format(sunday, 'dd/MM/yyyy'),
         end: format(friday, 'dd/MM/yyyy')
       });
+      // Default the order message date to tomorrow (input format yyyy-MM-dd)
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      setOrderMessageDate(t.toISOString().split('T')[0]);
       
       const startDateISO = sunday.toISOString();
       const endDateISO = friday.toISOString();
@@ -246,8 +271,199 @@ const WeeklyOrderSummaryV2 = () => {
     }
   };
   
+  const normalizeOption = (opt) => {
+    if (!opt) return '';
+    const trimmed = String(opt).trim();
+    if (trimmed === 'ללא אופציות' || trimmed === 'None') return '';
+    return trimmed;
+  };
+
+  const buildBusinessOrderMessage = (business) => {
+    if (!business) return '';
+    const dateForHeader = orderMessageDate
+      ? format(new Date(orderMessageDate), 'dd.MM.yy')
+      : (dateRange?.end ? String(dateRange.end).replace(/\//g, '.').slice(0, 8) : '');
+    const greetingName = orderMessageName ? `${orderMessageName} ` : '';
+    const header = `${greetingName}צהריים טובים, הזמנה ל${dateForHeader}:`;
+
+    const items = Object.values(business.products)
+      .sort((a, b) => b.totalRevenue - a.totalRevenue)
+      .map((product) => {
+        const opt = normalizeOption(product.selectedOption);
+        const optPart = opt ? ` *${opt}*` : '';
+        return `* ${product.productName}${optPart} – ${product.quantity} יח'`;
+      });
+
+    return [header, '', ...items].join('\n');
+  };
+
+  const handleCopyBusinessOrder = async (business) => {
+    try {
+      const text = buildBusinessOrderMessage(business);
+      if (!text) return;
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      alert('ההזמנה הועתקה ללוח העריכה');
+    } catch (e) {
+      console.error('Failed to copy order text', e);
+      alert('שגיאה בהעתקת ההזמנה');
+    }
+  };
+  
+  // Cost calculator logic
+  const getSafeDocId = (businessId, businessName) => {
+    const sanitize = (s) => String(s || '')
+      .replace(/[\/\\#?[\]]+/g, '-')
+      .trim()
+      .slice(0, 120) || 'unknown';
+    if (businessId && !/[\/\\#?[\]]/.test(String(businessId))) return String(businessId);
+    return sanitize(businessName);
+  };
+
+  const openCostModal = async (businessId, business) => {
+    try {
+      const safeId = getSafeDocId(businessId, business?.businessName || '');
+      setCostModalBusinessId(safeId);
+      setCostModalBusinessName(business?.businessName || '');
+      // Build items from current summary (keys are stable)
+      const baseItems = Object.entries(business.products || {}).map(([key, p]) => ({
+        key,
+        productName: p.productName,
+        selectedOption: normalizeOption(p.selectedOption),
+        quantity: Number(p.quantity) || 0,
+        price: '' // default until loaded
+      }));
+      // Try to load saved costs for this farmer (business). If it fails, continue with empty defaults.
+      try {
+        const ref = doc(db, 'farmerCosts', safeId);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data() || {};
+          const savedItems = data.items || {};
+          // Merge prices and saved quantities if exist
+          baseItems.forEach(it => {
+            const saved = savedItems[it.key];
+            if (saved) {
+              if (saved.price !== undefined && saved.price !== null) it.price = String(saved.price);
+              if (saved.quantity !== undefined && saved.quantity !== null) it.quantity = Number(saved.quantity);
+            }
+          });
+        }
+      } catch (inner) {
+        console.warn('Unable to fetch saved costs, continuing without them', inner);
+      }
+      setCostModalItems(baseItems);
+      setCostModalOpen(true);
+    } catch (e) {
+      console.error('Failed to open cost modal', e);
+      alert('שגיאה בטעינת נתוני העלות לעסק');
+    }
+  };
+
+  const closeCostModal = () => {
+    setCostModalOpen(false);
+    setCostModalBusinessId('');
+    setCostModalBusinessName('');
+    setCostModalItems([]);
+  };
+
+  const updateCostModalItem = (idx, field, value) => {
+    setCostModalItems(prev => {
+      const next = [...prev];
+      const item = { ...next[idx] };
+      if (field === 'price') {
+        item.price = value;
+      } else if (field === 'quantity') {
+        item.quantity = value === '' ? '' : Number(value);
+      }
+      next[idx] = item;
+      return next;
+    });
+  };
+
+  const computeCostTotals = (items) => {
+    let total = 0;
+    const lines = [];
+    items.forEach(it => {
+      const qty = Number(it.quantity) || 0;
+      const price = Number(it.price) || 0;
+      if (qty > 0 && price > 0) {
+        const lineTotal = qty * price;
+        total += lineTotal;
+        lines.push(`${it.productName}${it.selectedOption ? ` ${it.selectedOption}` : ''} – ${qty}×${price} = ${lineTotal} ₪`);
+      }
+    });
+    return { total, lines };
+  };
+
+  const saveCostsAndCopy = async () => {
+    try {
+      // Build payload for Firestore
+      const itemsPayload = {};
+      costModalItems.forEach(it => {
+        itemsPayload[it.key] = {
+          productName: it.productName,
+          selectedOption: it.selectedOption || '',
+          quantity: Number(it.quantity) || 0,
+          price: Number(it.price) || 0,
+          updatedAt: new Date().toISOString()
+        };
+      });
+
+      const safeId = getSafeDocId(costModalBusinessId, costModalBusinessName);
+      const ref = doc(db, 'farmerCosts', safeId);
+      // Compare with existing to avoid unnecessary writes
+      let shouldWrite = true;
+      const existing = await getDoc(ref);
+      if (existing.exists()) {
+        const prev = existing.data() || {};
+        const prevItems = prev.items || {};
+        if (JSON.stringify(prevItems) === JSON.stringify(itemsPayload)) {
+          shouldWrite = false;
+        }
+      }
+      if (shouldWrite) {
+        await setDoc(ref, { businessName: costModalBusinessName, items: itemsPayload }, { merge: true });
+      }
+
+      // Build copy text
+      const { total, lines } = computeCostTotals(costModalItems);
+      const header = 'עלות מחושבת:';
+      const footer = `סה״כ לתשלום: ${total}`;
+      const copyText = [header, '', ...lines, '', footer].join('\n');
+
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(copyText);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = copyText;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      alert('העלות נשמרה והועתקה ללוח העריכה');
+      closeCostModal();
+    } catch (e) {
+      console.error('Failed to save/copy costs', e);
+      alert('שגיאה בשמירת/העתקת העלויות');
+    }
+  };
+
   const toggleCommunity = (community) => {
-    setSelectedCommunities(prev => {
+    setTempSelectedCommunities(prev => {
       const newSet = new Set(prev);
       if (newSet.has(community)) {
         newSet.delete(community);
@@ -259,11 +475,16 @@ const WeeklyOrderSummaryV2 = () => {
   };
   
   const selectAllCommunities = () => {
-    setSelectedCommunities(new Set(pickupSpots));
+    setTempSelectedCommunities(new Set(pickupSpots));
   };
   
   const clearAllCommunities = () => {
-    setSelectedCommunities(new Set());
+    setTempSelectedCommunities(new Set());
+  };
+  
+  const handleSubmitFilters = () => {
+    setSelectedWeek(tempSelectedWeek);
+    setSelectedCommunities(tempSelectedCommunities);
   };
   
   // PDF generation function (same as original)
@@ -499,8 +720,8 @@ const WeeklyOrderSummaryV2 = () => {
           <div>
             <label className="block text-gray-700 text-sm font-medium mb-2">בחר שבוע:</label>
             <select
-              value={selectedWeek}
-              onChange={(e) => setSelectedWeek(e.target.value)}
+              value={tempSelectedWeek}
+              onChange={(e) => setTempSelectedWeek(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {availableWeeks.map(week => {
@@ -525,7 +746,7 @@ const WeeklyOrderSummaryV2 = () => {
                 onClick={() => setShowCommunityDropdown(o => !o)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-right focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
-                {selectedCommunities.size === 0 ? 'כל הקהילות' : `${selectedCommunities.size} קהילות נבחרו`}
+                {tempSelectedCommunities.size === 0 ? 'כל הקהילות' : `${tempSelectedCommunities.size} קהילות נבחרו`}
               </button>
               {showCommunityDropdown && (
                 <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2 max-h-80 overflow-auto">
@@ -538,7 +759,7 @@ const WeeklyOrderSummaryV2 = () => {
                       <input
                         type="checkbox"
                         id={`community-${spot}`}
-                        checked={selectedCommunities.has(spot)}
+                        checked={tempSelectedCommunities.has(spot)}
                         onChange={() => toggleCommunity(spot)}
                         className="ml-2"
                       />
@@ -551,10 +772,22 @@ const WeeklyOrderSummaryV2 = () => {
           </div>
         </div>
         
-        <p className="text-center text-gray-600 mt-4">
-          מציג הזמנות מ-{dateRange.start} עד {dateRange.end}
-          {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
-        </p>
+        {/* Submit Button */}
+        <div className="mt-6 text-center">
+          <button
+            onClick={handleSubmitFilters}
+            className="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
+          >
+            טען נתונים
+          </button>
+        </div>
+        
+        {selectedWeek && (
+          <p className="text-center text-gray-600 mt-4">
+            מציג הזמנות מ-{dateRange.start} עד {dateRange.end}
+            {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
+          </p>
+        )}
       </div>
       
       {customerOrders.length === 0 ? (
@@ -642,6 +875,33 @@ const WeeklyOrderSummaryV2 = () => {
           {/* Business Summary Table */}
           <div>
             <h2 className="text-2xl font-semibold mb-4">סיכום לפי עסקים ({Object.keys(businessSummary).length})</h2>
+            {/* Message settings applied for copy buttons below */}
+            <div className="mb-3 bg-white rounded-lg shadow p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">שם נמען (לא חובה)</label>
+                <input
+                  type="text"
+                  value={orderMessageName}
+                  onChange={(e) => setOrderMessageName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="למשל: מאיר"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">תאריך להזמנה</label>
+                <input
+                  type="date"
+                  value={orderMessageDate}
+                  onChange={(e) => setOrderMessageDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex items-end">
+                <p className="text-xs text-gray-500">
+                  תבנית תיושם בעת לחיצה על "העתק הזמנה" ליד כל עסק
+                </p>
+              </div>
+            </div>
             <div className="overflow-x-auto bg-white rounded-lg shadow">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -654,6 +914,9 @@ const WeeklyOrderSummaryV2 = () => {
                     </th>
                     <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       סה"כ הכנסה
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      פעולות
                     </th>
                   </tr>
                 </thead>
@@ -690,11 +953,90 @@ const WeeklyOrderSummaryV2 = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           ₪{business.totalRevenue.toFixed(2)}
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <button
+                            onClick={() => handleCopyBusinessOrder(business)}
+                            className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                            title="העתק הזמנה לעסק זה"
+                          >
+                            העתק הזמנה
+                          </button>
+                          <button
+                            onClick={() => openCostModal(businessId, business)}
+                            className="ml-2 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                            title="חשב עלות ושמור מחירים"
+                          >
+                            חשב עלות
+                          </button>
+                        </td>
                       </tr>
                     ))}
                 </tbody>
               </table>
             </div>
+            
+            {/* Cost Calculator Modal */}
+            {costModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center">
+                <div className="absolute inset-0 bg-black bg-opacity-40" onClick={closeCostModal}></div>
+                <div className="relative bg-white rounded-lg shadow-xl w-11/12 max-w-3xl p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-lg font-semibold">חישוב עלות – {costModalBusinessName}</h3>
+                    <button onClick={closeCostModal} className="text-gray-600 hover:text-gray-900">✕</button>
+                  </div>
+                  <div className="max-h-[60vh] overflow-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">מוצר</th>
+                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">אופציה</th>
+                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">כמות</th>
+                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">מחיר ליח'</th>
+                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">סה"כ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {costModalItems.map((it, idx) => {
+                          const qty = Number(it.quantity) || 0;
+                          const price = Number(it.price) || 0;
+                          const lineTotal = qty > 0 && price > 0 ? qty * price : 0;
+                          return (
+                            <tr key={it.key} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 text-sm">{it.productName}</td>
+                              <td className="px-3 py-2 text-sm">{it.selectedOption || '-'}</td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={it.quantity}
+                                  onChange={(e) => updateCostModalItem(idx, 'quantity', e.target.value)}
+                                  className="w-24 px-2 py-1 border border-gray-300 rounded"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={it.price}
+                                  onChange={(e) => updateCostModalItem(idx, 'price', e.target.value)}
+                                  className="w-24 px-2 py-1 border border-gray-300 rounded"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-sm">₪{lineTotal.toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button onClick={closeCostModal} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">בטל</button>
+                    <button onClick={saveCostsAndCopy} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">שמור והעתק</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Summary Statistics */}

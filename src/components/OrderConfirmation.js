@@ -69,8 +69,10 @@ const OrderConfirmation = () => {
 
     // Add this useEffect to update deliveryOption when pickup spot changes
     useEffect(() => {
-        // Prioritize homeDelivery if available
-        if (selectedSpotData && selectedSpotData.options.includes('homeDelivery')) {
+        // Default to pickup if available, otherwise homeDelivery, then boxCollection
+        if (selectedSpotData && selectedSpotData.options.includes('pickup')) {
+            setDeliveryOption('pickup');
+        } else if (selectedSpotData && selectedSpotData.options.includes('homeDelivery')) {
             setDeliveryOption('homeDelivery');
         } else if (selectedSpotData && 
             selectedSpotData.options.length === 1 && 
@@ -987,83 +989,50 @@ const OrderConfirmation = () => {
                                     <h3 className="text-lg font-medium text-gray-900 mb-4">
                                         אפשרויות איסוף
                                     </h3>
-                                    <div className="space-y-6">
+                                    <div className="space-y-2">
                                         {selectedSpotData.options.includes('pickup') && (
-                                            <div className="relative flex items-start p-4 rounded-lg border border-transparent hover:border-gray-200 transition-colors">
-                                                <div className="flex items-center h-5">
-                                                    <input
-                                                        type="radio"
-                                                        id="pickup"
-                                                        name="deliveryOption"
-                                                        value="pickup"
-                                                        checked={deliveryOption === 'pickup'}
-                                                        onChange={(e) => setDeliveryOption(e.target.value)}
-                                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                                                    />
-                                                </div>
-                                                <div className="mr-3 flex-grow">
-                                                    <label htmlFor="pickup" className="font-medium text-gray-900">איסוף עצמי</label>
-                                                    <p className="text-gray-500 text-sm">איסוף מנקודת האיסוף {selectedPickupSpot}</p>
-                                                </div>
-                                                <div className="text-green-600 font-medium">חינם</div>
-                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDeliveryOption('pickup')}
+                                                className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-all ${
+                                                    deliveryOption === 'pickup' 
+                                                    ? 'border-blue-600 bg-blue-500 text-white shadow-lg' 
+                                                    : 'border-gray-400 bg-white text-gray-900 hover:border-blue-400 hover:bg-blue-50'
+                                                }`}
+                                            >
+                                                <span className="font-medium text-sm">איסוף עצמי מ{selectedPickupSpot}</span>
+                                                <span className={`font-bold text-sm ${deliveryOption === 'pickup' ? 'text-white' : 'text-green-600'}`}>חינם</span>
+                                            </button>
                                         )}
                                         
                                         {selectedSpotData.options.includes('homeDelivery') && (
-                                            <div className="relative flex items-start p-4 rounded-lg border border-transparent hover:border-gray-200 transition-colors">
-                                                <div className="flex items-center h-5">
-                                                    <input
-                                                        type="radio"
-                                                        id="homeDelivery"
-                                                        name="deliveryOption"
-                                                        value="homeDelivery"
-                                                        checked={deliveryOption === 'homeDelivery'}
-                                                        onChange={(e) => setDeliveryOption(e.target.value)}
-                                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                                                    />
-                                                </div>
-                                                <div className="mr-3 flex-grow">
-                                                    <label htmlFor="homeDelivery" className="font-medium text-gray-900">משלוח עד הבית</label>
-                                                    <p className="text-gray-500 text-sm">משלוח לכתובת שתבחרו באזור {selectedPickupSpot}</p>
-                                                </div>
-                                                <div className="text-gray-900 font-medium">{selectedSpotData.deliveryFee} ₪</div>
-                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDeliveryOption('homeDelivery')}
+                                                className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-all ${
+                                                    deliveryOption === 'homeDelivery' 
+                                                    ? 'border-blue-600 bg-blue-500 text-white shadow-lg' 
+                                                    : 'border-gray-400 bg-white text-gray-900 hover:border-blue-400 hover:bg-blue-50'
+                                                }`}
+                                            >
+                                                <span className="font-medium text-sm">משלוח עד הבית (באזור {selectedPickupSpot})</span>
+                                                <span className={`font-bold text-sm ${deliveryOption === 'homeDelivery' ? 'text-white' : 'text-gray-900'}`}>{selectedSpotData.deliveryFee}₪</span>
+                                            </button>
                                         )}
                                         
                                         {selectedSpotData.options.includes('boxCollection') && (
-                                            <div className="relative flex flex-col p-4 rounded-lg border border-transparent hover:border-gray-200 transition-colors">
-                                                <div className="flex items-start">
-                                                    <div className="flex items-center h-5">
-                                                        <input
-                                                            type="radio"
-                                                            id="boxCollection"
-                                                            name="deliveryOption"
-                                                            value="boxCollection"
-                                                            checked={deliveryOption === 'boxCollection'}
-                                                            onChange={(e) => setDeliveryOption(e.target.value)}
-                                                            className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                                                        />
-                                                    </div>
-                                                    <div className="mr-3 flex-grow">
-                                                        <label htmlFor="boxCollection" className="font-medium text-gray-900">איסוף מארגז שמור</label>
-                                                        <p className="text-gray-500 text-sm">ההזמנה תחכה לך בארגז שמור בנקודת האיסוף</p>
-                                                    </div>
-                                                    <div className="text-green-600 font-medium">חינם</div>
-                                                </div>
-                                                
-                                                {/* {deliveryOption === 'boxCollection' && (
-                                                    <div className="mt-3 mr-7">
-                                                        <input
-                                                            type="text"
-                                                            value={boxCollectionName}
-                                                            onChange={(e) => setBoxCollectionName(e.target.value)}
-                                                            placeholder="שם על הארגז"
-                                                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-right"
-                                                            required
-                                                        />
-                                                    </div>
-                                                )} */}
-                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDeliveryOption('boxCollection')}
+                                                className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-all ${
+                                                    deliveryOption === 'boxCollection' 
+                                                    ? 'border-blue-600 bg-blue-500 text-white shadow-lg' 
+                                                    : 'border-gray-400 bg-white text-gray-900 hover:border-blue-400 hover:bg-blue-50'
+                                                }`}
+                                            >
+                                                <span className="font-medium text-sm">איסוף מארגז שמור ב {selectedPickupSpot}</span>
+                                                <span className={`font-bold text-sm ${deliveryOption === 'boxCollection' ? 'text-white' : 'text-green-600'}`}>חינם</span>
+                                            </button>
                                         )}
                                     </div>
                                     
@@ -1071,7 +1040,12 @@ const OrderConfirmation = () => {
                                         <div className="mt-4 pt-4 border-t border-gray-200">
                                             <div className="flex justify-between text-sm">
                                                 <span className="text-gray-600">סכום ההזמנה:</span>
-                                                <span className="font-medium">{cartTotal} ₪</span>
+                                                <span className="font-medium">
+                                                    {/* Calculate subtotal by subtracting shipping cost from cartTotal if shipping is included */}
+                                                    {(deliveryOption === 'homeDelivery' 
+                                                        ? (cartTotal - (cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID).reduce((sum, i) => sum + (i.price * i.quantity), 0)))
+                                                        : cartTotal).toFixed(2)} ₪
+                                                </span>
                                             </div>
                                             {deliveryOption !== 'pickup' && (
                                                 <div className="flex justify-between text-sm mt-2">

@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/authContext';
 import Swal from 'sweetalert2';
 import { pickupSpots } from '../../data/pickupSpots';
 import communityToRegion from '../../utils/communityToRegion';
+import { regions } from '../../utils/israelRegions';
 
 const CreateIndependentOrderForm = () => {
   const navigate = useNavigate();
@@ -25,6 +26,7 @@ const CreateIndependentOrderForm = () => {
   const [formValid, setFormValid] = useState(true);
 
   const [selectedPickupSpots, setSelectedPickupSpots] = useState([]);
+  const [selectedServiceRegions, setSelectedServiceRegions] = useState([]);
 
   // Independent-specific fields
   const [minCommunityTotal, setMinCommunityTotal] = useState('');
@@ -320,6 +322,7 @@ const CreateIndependentOrderForm = () => {
         minCommunityTotal: Number(minCommunityTotal || 0),
         minAmount: Number(minCommunityTotal || 0),
         ...(merchantMinOrderTotal !== '' ? { merchantMinOrderTotal: Number(merchantMinOrderTotal) } : {}),
+        serviceRegions: selectedServiceRegions, // Add service regions for merchants
         endingTime: combinedDeadline,
         volunteerIncentive,
         volunteerWhatsappMessage, // Store user's custom text
@@ -489,6 +492,36 @@ const CreateIndependentOrderForm = () => {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Merchant Delivery Regions */}
+        <div className="mb-2">
+          <label className="block text-gray-700 font-medium mb-2">איזורי משלוח לסוחרים (אופציונלי)</label>
+          <p className="text-sm text-gray-600 mb-2">בחרו אילו אזורים אתם יכולים לספק למסעדות וסוחרים</p>
+          <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+            <div className="flex justify-end gap-2 mb-3 pb-3 border-b border-gray-200">
+              <button type="button" onClick={() => setSelectedServiceRegions(regions.slice())} className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded-md shadow-sm hover:bg-green-700">בחר הכל</button>
+              <button type="button" onClick={() => setSelectedServiceRegions([])} className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded-md shadow-sm hover:bg-gray-300">נקה הכל</button>
+            </div>
+            <div className="space-y-2">
+              {regions.map((region) => (
+                <div key={region} className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id={`region-${region}`}
+                    checked={selectedServiceRegions.includes(region)}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedServiceRegions([...selectedServiceRegions, region]);
+                      else setSelectedServiceRegions(selectedServiceRegions.filter((r) => r !== region));
+                    }}
+                    className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded ml-3"
+                  />
+                  <label htmlFor={`region-${region}`} className="text-sm text-gray-800 select-none font-medium">{region}</label>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">אם לא תבחרו אזורים, המודעה תהיה זמינה רק לצרכנים רגילים</p>
         </div>
 
         {/* Independent Threshold + Volunteer */}

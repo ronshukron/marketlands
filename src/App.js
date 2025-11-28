@@ -68,6 +68,10 @@ import IndependentOrderDetail from './components/independent/IndependentOrderDet
 import AdminDashboard from './components/admin/AdminDashboard';
 import ProductApprovals from './components/admin/ProductApprovals';
 import IndependentOrdersAdmin from './components/admin/IndependentOrdersAdmin';
+import Deliveries from './components/admin/Deliveries';
+import AbandonedCarts from './components/admin/AbandonedCarts';
+import AnalyticsDashboard from './components/admin/AnalyticsDashboard';
+import CustomerInsights from './components/admin/CustomerInsights';
 
 const App = () => {
   return (
@@ -143,6 +147,10 @@ const App = () => {
                   <Route path="/admin/products" element={<ProductApprovals />} />
                   <Route path="/admin/independent-orders" element={<IndependentOrdersAdmin />} />
                   <Route path="/admin/independent-order/:id" element={<IndependentOrderDetail />} />
+                  <Route path="/admin/deliveries" element={<Deliveries />} />
+                  <Route path="/admin/abandoned-carts" element={<AbandonedCarts />} />
+                  <Route path="/admin/analytics" element={<AnalyticsDashboard />} />
+                  <Route path="/admin/customers" element={<CustomerInsights />} />
                 </Routes>
               </main>
               <Footer />

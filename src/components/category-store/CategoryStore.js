@@ -25,7 +25,7 @@ const CategoryStore = () => {
   const [isCommunityOpen, setIsCommunityOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState('');
   
-  const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר'];
+  const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'אחר'];
 
   useEffect(() => {
     fetchCategorizedProducts();
@@ -381,7 +381,14 @@ const CategoryStore = () => {
     ? searchResults 
     : selectedCategory === 'הכל' 
       ? products 
-      : products.filter(product => (product.category || 'אחר') === selectedCategory);
+      : products.filter(product => {
+          const productCategory = product.category || 'אחר';
+          // Special handling for "ירוקים ופטריות" - match both "ירוקים" and "ירוקים ופטריות"
+          if (selectedCategory === 'ירוקים ופטריות') {
+            return productCategory === 'ירוקים' || productCategory === 'ירוקים ופטריות';
+          }
+          return productCategory === selectedCategory;
+        });
   const displayProducts = (selectedCommunity)
     ? baseProducts.filter(p => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity))
     : baseProducts;
@@ -498,7 +505,7 @@ const CategoryStore = () => {
                   'הכל': '🛒',
                   'ירקות': '🥬',
                   'פירות': '🍎',
-                  'ירוקים': '🌿',
+                  'ירוקים ופטריות': '🌿',
                   'אחר': '🏷️'
                 };
                 

@@ -4,6 +4,7 @@ import { db } from '../firebase/firebase';
 import LoadingSpinner from './LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
 import { pickupSpots } from '../data/pickupSpots';
+import { regions } from '../utils/israelRegions';
 import ThresholdProgressBar from './independent/components/ThresholdProgressBar';
 import { useAuth } from '../contexts/authContext';
 import { isVolunteerAvailableForCommunity, isAnyVolunteerAvailable } from '../services/volunteerService';
@@ -121,6 +122,19 @@ const IndependentFarmers = () => {
     fetchIsMerchant();
   }, [currentUser]);
 
+  // Reset selection when switching between merchant/regular user
+  useEffect(() => {
+    if (selectedPickupSpot && selectedPickupSpot !== 'הכל') {
+      // Check if current selection is valid for current user type
+      const isValidForMerchant = isMerchant && regions.includes(selectedPickupSpot);
+      const isValidForRegular = !isMerchant && pickupSpots.includes(selectedPickupSpot);
+      
+      if (!isValidForMerchant && !isValidForRegular) {
+        setSelectedPickupSpot('הכל');
+      }
+    }
+  }, [isMerchant, selectedPickupSpot]);
+
   // Refresh per-order volunteer status for the selected pickup spot
   useEffect(() => {
     const updateVolunteerBySpot = async () => {
@@ -145,13 +159,25 @@ const IndependentFarmers = () => {
   }, [selectedPickupSpot, orders.length]);
 
   const handleClickOrder = (order) => {
-    navigate(`/independent/order/${order.id}`, { state: { order } });
+    // Check if merchant and order has service regions
+    if (isMerchant && order.serviceRegions && order.serviceRegions.length > 0) {
+      navigate(`/independent/order-merchant/${order.id}`, { state: { order } });
+    } else {
+      navigate(`/independent/order/${order.id}`, { state: { order } });
+    }
   };
 
   const filteredOrders = useMemo(() => {
     if (!selectedPickupSpot || selectedPickupSpot === 'הכל') return orders;
+    
+    // Merchants: filter by serviceRegions
+    if (isMerchant) {
+      return orders.filter(o => Array.isArray(o.serviceRegions) && o.serviceRegions.includes(selectedPickupSpot));
+    }
+    
+    // Regular users: filter by pickupSpots
     return orders.filter(o => Array.isArray(o.pickupSpots) && o.pickupSpots.includes(selectedPickupSpot));
-  }, [orders, selectedPickupSpot]);
+  }, [orders, selectedPickupSpot, isMerchant]);
 
   return (
     <div className="bg-white" dir="rtl">
@@ -163,7 +189,9 @@ const IndependentFarmers = () => {
             <p className="text-green-100 text-center max-w-3xl mx-auto text-lg">כאן חקלאים מעלים את התוצרת שלהם עצמאית ואתם יכולים להתנדב לארח נק איסוף</p>
           </div>
           <div className="max-w-xs mx-auto">
-            <label className="block text-green-100 text-sm font-medium mb-2 text-center">אזור איסוף:</label>
+            <label className="block text-green-100 text-sm font-medium mb-2 text-center">
+              {isMerchant ? 'אזור משלוח:' : 'אזור איסוף:'}
+            </label>
             <div className="relative">
               <select
                 value={selectedPickupSpot}
@@ -172,9 +200,15 @@ const IndependentFarmers = () => {
                 dir="rtl"
               >
                 <option value="הכל">הכל</option>
-                {pickupSpots.map((spot) => (
-                  <option key={spot} value={spot}>{spot}</option>
-                ))}
+                {isMerchant ? (
+                  regions.map((region) => (
+                    <option key={region} value={region}>{region}</option>
+                  ))
+                ) : (
+                  pickupSpots.map((spot) => (
+                    <option key={spot} value={spot}>{spot}</option>
+                  ))
+                )}
               </select>
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-3 text-gray-700">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
@@ -189,7 +223,11 @@ const IndependentFarmers = () => {
       ) : filteredOrders.length === 0 ? (
         <div className="text-center py-12">
           <h3 className="text-lg font-medium text-gray-900 mb-2">אין מודעות עצמאיות זמינות</h3>
-          <p className="text-gray-600">{selectedPickupSpot && selectedPickupSpot !== 'הכל' ? `לא נמצאו מודעות באזור ${selectedPickupSpot}` : 'לא נמצאו מודעות כרגע'}</p>
+          <p className="text-gray-600">
+            {selectedPickupSpot && selectedPickupSpot !== 'הכל' 
+              ? `לא נמצאו מודעות ב${isMerchant ? 'אזור' : 'נקודת איסוף'} ${selectedPickupSpot}` 
+              : 'לא נמצאו מודעות כרגע'}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -225,6 +263,9 @@ const IndependentFarmers = () => {
             const showHasVolunteer = (selectedPickupSpot && selectedPickupSpot !== 'הכל')
               ? order.hasVolunteerBySpot === true
               : order.hasVolunteer === true;
+            // Check if order is available for merchants
+            const isMerchantAvailable = order.serviceRegions && order.serviceRegions.length > 0;
+            
             return (
               <div key={order.id} onClick={() => handleClickOrder(order)} className="bg-white rounded-lg shadow.md overflow-hidden hover:shadow-lg transition-shadow duration-300 cursor-pointer border-2 border-green-200 hover:border-green-400">
                 <div className="relative pt-[50%]">
@@ -234,6 +275,11 @@ const IndependentFarmers = () => {
                   <div className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-full ${showHasVolunteer ? 'bg-green-600 text-white' : 'bg-yellow-400 text-gray-900'}`}>
                     {showHasVolunteer ? 'יש נקודת איסוף' : 'דרוש מתנדב לנקודת איסוף'}
                   </div>
+                  {isMerchant && isMerchantAvailable && (
+                    <div className="absolute top-2 left-2 text-xs px-2 py-1 rounded-full bg-blue-600 text-white font-medium shadow-sm">
+                      זמין לסוחרים
+                    </div>
+                  )}
                 </div>
                 <div className="p-4">
                   <h3 className="text-lg font-semibold mb-2 text-gray-900">{order.orderName}</h3>

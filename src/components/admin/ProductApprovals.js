@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
+import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
 import { verifyProduct, rejectProduct } from '../../services/independentAdminService';
 
 const ProductApprovals = () => {
+  const { currentUser } = useAuth();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
@@ -34,6 +36,10 @@ const ProductApprovals = () => {
   }, []);
 
   const handleApprove = async (product) => {
+    if (!currentUser) {
+      Swal.fire({ icon: 'error', title: 'שגיאת התחברות', text: 'יש להתחבר מחדש למערכת' });
+      return;
+    }
     try {
       setActionLoadingId(product.id);
       await verifyProduct({ productId: product.id });
@@ -48,6 +54,10 @@ const ProductApprovals = () => {
   };
 
   const handleReject = async (product) => {
+    if (!currentUser) {
+      Swal.fire({ icon: 'error', title: 'שגיאת התחברות', text: 'יש להתחבר מחדש למערכת' });
+      return;
+    }
     try {
       const { value: reason } = await Swal.fire({
         title: 'סיבת דחייה',

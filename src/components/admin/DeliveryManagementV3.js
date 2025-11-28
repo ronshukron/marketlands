@@ -27,9 +27,6 @@ const modalStyles = `
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
-// Box/Crate eligibility threshold - customers spending MORE than this amount get a box
-const BOX_THRESHOLD = 60; // Change this value to adjust the cutoff (in ₪)
-
 const DeliveryManagementV3 = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -42,6 +39,7 @@ const DeliveryManagementV3 = () => {
   const [completedItems, setCompletedItems] = useState(new Set()); // Track completed items
   const [showUnmarkModal, setShowUnmarkModal] = useState(false);
   const [pendingUnmark, setPendingUnmark] = useState(null);
+  const [showQuantityWarning, setShowQuantityWarning] = useState(null); // {productName, quantity}
   
   // New state for week selection
   const [availableWeeks, setAvailableWeeks] = useState([]);
@@ -51,6 +49,20 @@ const DeliveryManagementV3 = () => {
   const [selectedCommunities, setSelectedCommunities] = useState(new Set());
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
   const communityDropdownRef = useRef(null);
+  // Persistent customer numbering GLOBALLY across all pickup spots (stored in localStorage per week)
+  const [customerNumbersGlobal, setCustomerNumbersGlobal] = useState({});
+  const [showHebrewSummary, setShowHebrewSummary] = useState(false);
+  
+  // Box threshold with localStorage persistence
+  const [boxThreshold, setBoxThreshold] = useState(() => {
+    const stored = localStorage.getItem('delivery_box_threshold_v3');
+    return stored ? Number(stored) : 60;
+  });
+  
+  // Temporary filter states (before submit)
+  const [tempSelectedWeek, setTempSelectedWeek] = useState('');
+  const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
+  const [tempBoxThreshold, setTempBoxThreshold] = useState(boxThreshold);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -76,7 +88,41 @@ const DeliveryManagementV3 = () => {
     if (selectedWeek) {
       fetchDeliveryData();
     }
-  }, [selectedWeek, selectedCommunities]);
+  }, [selectedWeek, selectedCommunities, boxThreshold]);
+  
+  // Save boxThreshold to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('delivery_box_threshold_v3', boxThreshold.toString());
+  }, [boxThreshold]);
+
+  // Load completed items from localStorage on mount and when week changes
+  useEffect(() => {
+    if (!selectedWeek) return;
+    const storageKey = `delivery_completed_items_${selectedWeek}_v3`;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setCompletedItems(new Set(parsed));
+      } else {
+        setCompletedItems(new Set());
+      }
+    } catch (e) {
+      console.error('Failed to load completed items from localStorage', e);
+      setCompletedItems(new Set());
+    }
+  }, [selectedWeek]);
+
+  // Save completed items to localStorage whenever they change
+  useEffect(() => {
+    if (!selectedWeek) return;
+    const storageKey = `delivery_completed_items_${selectedWeek}_v3`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(Array.from(completedItems)));
+    } catch (e) {
+      console.error('Failed to save completed items to localStorage', e);
+    }
+  }, [completedItems, selectedWeek]);
 
   const fetchAvailableWeeks = async () => {
     setLoading(true);
@@ -113,9 +159,9 @@ const DeliveryManagementV3 = () => {
       const sortedWeeks = Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));
       setAvailableWeeks(sortedWeeks);
       
-      // Auto-select most recent week
+      // Auto-select most recent week for temp state
       if (sortedWeeks.length > 0) {
-        setSelectedWeek(sortedWeeks[0]);
+        setTempSelectedWeek(sortedWeeks[0]);
       }
     } catch (err) {
       console.error("Error fetching available weeks:", err);
@@ -231,14 +277,14 @@ const DeliveryManagementV3 = () => {
         }
       });
 
-      // Eligibility: totalPrice > BOX_THRESHOLD
+      // Eligibility: totalPrice >= boxThreshold
       const eligibleCustomersBySpot = {};
       const cratesMap = {};
       Object.entries(totalsBySpotCustomer).forEach(([spot, byCustomer]) => {
         eligibleCustomersBySpot[spot] = new Set();
         cratesMap[spot] = [];
         Object.entries(byCustomer).forEach(([normalizedName, totals]) => {
-          if (totals.totalPrice >= BOX_THRESHOLD) {
+          if (totals.totalPrice >= boxThreshold) {
             eligibleCustomersBySpot[spot].add(normalizedName);
             cratesMap[spot].push({ name: totals.displayName, totalQty: totals.totalQty, totalPrice: totals.totalPrice });
           }
@@ -319,9 +365,59 @@ const DeliveryManagementV3 = () => {
       setLoading(false);
     }
   };
+
+  // Helper to build storage key per week (GLOBAL, not per spot)
+  const getNumbersStorageKey = () => `delivery_customer_numbers_${selectedWeek || 'all'}_global`;
+
+  // Initialize/update persistent numbering whenever crates content changes (GLOBAL across all spots)
+  useEffect(() => {
+    if (!selectedWeek) return;
+    if (!cratesContentByPickupSpot || Object.keys(cratesContentByPickupSpot).length === 0) {
+      setCustomerNumbersGlobal({});
+      return;
+    }
+
+    const storageKey = getNumbersStorageKey();
+    let stored = {};
+    try {
+      stored = JSON.parse(localStorage.getItem(storageKey)) || {};
+    } catch (e) {
+      stored = {};
+    }
+
+    // Collect all crate IDs across all pickup spots
+    const allCrateIds = [];
+    Object.entries(cratesContentByPickupSpot).forEach(([spot, crates]) => {
+      const nameCounts = {};
+      (crates || []).forEach(c => {
+        const name = (c?.name || '').trim();
+        if (!name) return;
+        nameCounts[name] = (nameCounts[name] || 0) + 1;
+        allCrateIds.push({ spot, crateId: `${spot}::${name}#${nameCounts[name]}` });
+      });
+    });
+
+    // Build a new mapping ensuring uniqueness GLOBALLY
+    const usedNumbers = new Set(Object.values(stored));
+    let nextNumber = Math.max(0, ...Array.from(usedNumbers, n => Number(n) || 0)) + 1;
+
+    const mapping = { ...stored };
+
+    allCrateIds.forEach(({ crateId }) => {
+      if (mapping[crateId] != null) return;
+      // Assign next available unique number
+      while (usedNumbers.has(nextNumber)) nextNumber++;
+      mapping[crateId] = nextNumber;
+      usedNumbers.add(nextNumber);
+      nextNumber++;
+    });
+
+    localStorage.setItem(storageKey, JSON.stringify(mapping));
+    setCustomerNumbersGlobal(mapping);
+  }, [cratesContentByPickupSpot, selectedWeek]);
   
   const toggleCommunity = (community) => {
-    setSelectedCommunities(prev => {
+    setTempSelectedCommunities(prev => {
       const newSet = new Set(prev);
       if (newSet.has(community)) {
         newSet.delete(community);
@@ -333,11 +429,17 @@ const DeliveryManagementV3 = () => {
   };
   
   const selectAllCommunities = () => {
-    setSelectedCommunities(new Set(pickupSpots));
+    setTempSelectedCommunities(new Set(pickupSpots));
   };
   
   const clearAllCommunities = () => {
-    setSelectedCommunities(new Set());
+    setTempSelectedCommunities(new Set());
+  };
+  
+  const handleSubmitFilters = () => {
+    setSelectedWeek(tempSelectedWeek);
+    setSelectedCommunities(tempSelectedCommunities);
+    setBoxThreshold(tempBoxThreshold);
   };
 
   const toggleItemComplete = (pickupSpot, itemType, itemKey, customerName = null) => {
@@ -404,6 +506,91 @@ const DeliveryManagementV3 = () => {
     }
   };
 
+  // Build global family summary (Thai-based with Hebrew fallback)
+  const getFamilyMatchThai = (thaiName, hebrewName) => {
+    const thai = (thaiName || '').trim();
+    const heb = (hebrewName || '').trim();
+    
+    // Thai patterns (first word or prefix)
+    if (thai) {
+      const tokens = thai.split(/\s+/);
+      const head = tokens[0] || thai;
+      const variant = tokens.slice(1).join(' ').trim();
+      return { 
+        key: head, 
+        labelThai: head, 
+        labelHebrew: heb, 
+        variantThai: variant || thai,
+        variantHebrew: heb
+      };
+    }
+    
+    // Fallback to Hebrew patterns if no Thai name
+    const patterns = [
+      { key: 'apple', labelThai: 'แอปเปิ้ล', labelHebrew: 'תפוחים', regex: /^(תפוח(?:\s+עץ)?)/ },
+      { key: 'tomato', labelThai: 'มะเขือเทศ', labelHebrew: 'עגבניות', regex: /^עגבנ(?:יה|יות)/ },
+      { key: 'pepper', labelThai: 'พริก', labelHebrew: 'פלפל', regex: /^פלפל/ },
+      { key: 'potato', labelThai: 'มันฝรั่ง', labelHebrew: 'תפוחי אדמה', regex: /^תפוח(?:י)?\s+אדמה/ },
+      { key: 'cucumber', labelThai: 'แตงกวา', labelHebrew: 'מלפפונים', regex: /^מלפפון/ },
+      { key: 'onion', labelThai: 'หัวหอม', labelHebrew: 'בצלים', regex: /^בצל/ },
+      { key: 'cabbage', labelThai: 'กะหล่ำ', labelHebrew: 'כרוב', regex: /^כרוב/ },
+      { key: 'grape', labelThai: 'องุ่น', labelHebrew: 'ענבים', regex: /^ענב/ },
+      { key: 'mushroom', labelThai: 'เห็ด', labelHebrew: 'פטריות', regex: /^פטריות?/ },
+    ];
+    for (const p of patterns) {
+      const m = heb.match(p.regex);
+      if (m) {
+        const familyText = m[0];
+        const variant = heb.replace(familyText, '').trim().replace(/^[-–—,:]/, '').trim();
+        return { 
+          key: p.key, 
+          labelThai: p.labelThai, 
+          labelHebrew: p.labelHebrew, 
+          variantThai: p.labelThai,
+          variantHebrew: variant || heb 
+        };
+      }
+    }
+    return null;
+  };
+
+  const buildGlobalFamilySummary = () => {
+    const families = {};
+    const addName = (thaiName, hebrewName) => {
+      const match = getFamilyMatchThai(thaiName, hebrewName);
+      if (!match) return;
+      if (!families[match.key]) {
+        families[match.key] = { 
+          labelThai: match.labelThai, 
+          labelHebrew: match.labelHebrew,
+          variantsThai: new Set(),
+          variantsHebrew: new Set()
+        };
+      }
+      families[match.key].variantsThai.add(match.variantThai);
+      families[match.key].variantsHebrew.add(match.variantHebrew);
+    };
+
+    // Collect from all pickup spots
+    Object.entries(pickupSpotItems).forEach(([spot, items]) => {
+      Object.values(items).forEach(it => addName(it.thaiName, it.productName));
+    });
+    Object.entries(cratesContentByPickupSpot).forEach(([spot, crates]) => {
+      crates.forEach(c => (c.items || []).forEach(it => addName(it.thaiName, it.productName)));
+    });
+
+    // Return only families with more than one variant
+    return Object.values(families)
+      .map(f => ({ 
+        labelThai: f.labelThai,
+        labelHebrew: f.labelHebrew,
+        count: Math.max(f.variantsThai.size, f.variantsHebrew.size),
+        variantsThai: Array.from(f.variantsThai).slice(0, 4),
+        variantsHebrew: Array.from(f.variantsHebrew).slice(0, 4)
+      }))
+      .filter(f => f.count > 1);
+  };
+
   const generatePickupSpotPDF = async (pickupSpot) => {
     try {
       const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', putOnlyUsedFonts: true });
@@ -436,6 +623,7 @@ const DeliveryManagementV3 = () => {
       }
 
       let pageIndex = 0;
+      const nameCountsForPdf = {};
 
       // Render crate pages
       for (let ci = 0; ci < Math.max(1, crateChunks.length); ci++) {
@@ -457,9 +645,14 @@ const DeliveryManagementV3 = () => {
           html += `<div style="font-size:12px; color:#6B7280;">אין צורך בארגזים לנקודה זו.</div>`;
         } else {
           chunk.forEach((crate) => {
+            const trimmed = (crate.name || '').trim();
+            nameCountsForPdf[trimmed] = (nameCountsForPdf[trimmed] || 0) + 1;
+            const crateKey = `${pickupSpot}::${trimmed}#${nameCountsForPdf[trimmed]}`;
+            const crateNumber = customerNumbersGlobal[crateKey] || null;
+            const namePrefix = crateNumber ? ('#' + crateNumber + ' — ') : '';
             html += `
               <div style="margin-top:10px;">
-                <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">${crate.name}</div>
+                <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">${namePrefix}${crate.name}</div>
                 <table style="width:100%; border-collapse:collapse; border:1px solid #E5E7EB;">
                   <tbody>
             `;
@@ -600,15 +793,72 @@ const DeliveryManagementV3 = () => {
         </div>
       )}
 
+      {/* Quantity Warning Modal */}
+      {showQuantityWarning && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-60"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowQuantityWarning(null);
+            }
+          }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-red-400 to-red-500 p-6 text-center">
+              <div className="mx-auto w-20 h-20 bg-white rounded-full flex items-center justify-center mb-4 shadow-lg">
+                <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-bold text-white">ระวัง! จำนวนมาก</h2>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="p-8 text-center">
+              <p className="text-xl font-semibold text-gray-800 mb-2">
+                {showQuantityWarning?.productName}
+              </p>
+              <p className="text-3xl font-bold text-red-600 mb-4">
+                จำนวน: {showQuantityWarning?.quantity}
+              </p>
+              <p className="text-base text-gray-600 mb-6">
+                โปรดตรวจสอบให้แน่ใจว่าคุณนับถูกต้อง
+              </p>
+              
+              {/* Action Button */}
+              <button
+                onClick={() => {
+                  // Mark as complete after acknowledging the warning
+                  if (showQuantityWarning?.pickupSpot && showQuantityWarning?.itemKey) {
+                    toggleItemComplete(
+                      showQuantityWarning.pickupSpot, 
+                      showQuantityWarning.itemType, 
+                      showQuantityWarning.itemKey, 
+                      showQuantityWarning.customerName
+                    );
+                  }
+                  setShowQuantityWarning(null);
+                }}
+                className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:scale-105 shadow-lg text-lg"
+              >
+                เข้าใจแล้ว ✓
+                <div className="text-sm font-normal">Got it & Mark Complete</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Week and Community Selection */}
       <div className="mb-6 bg-white p-6 rounded-lg shadow" dir="rtl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Week Selection */}
           <div>
             <label className="block text-gray-700 text-sm font-medium mb-2">เลือกสัปดาห์:</label>
             <select
-              value={selectedWeek}
-              onChange={(e) => setSelectedWeek(e.target.value)}
+              value={tempSelectedWeek}
+              onChange={(e) => setTempSelectedWeek(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {availableWeeks.map(week => {
@@ -633,7 +883,7 @@ const DeliveryManagementV3 = () => {
                 onClick={() => setShowCommunityDropdown(o => !o)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-right focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
-                {selectedCommunities.size === 0 ? 'ทุกชุมชน' : `เลือก ${selectedCommunities.size} ชุมชน`}
+                {tempSelectedCommunities.size === 0 ? 'ทุกชุมชน' : `เลือก ${tempSelectedCommunities.size} ชุมชน`}
               </button>
               {showCommunityDropdown && (
                 <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2 max-h-80 overflow-auto">
@@ -646,7 +896,7 @@ const DeliveryManagementV3 = () => {
                       <input
                         type="checkbox"
                         id={`delivery-community-${spot}`}
-                        checked={selectedCommunities.has(spot)}
+                        checked={tempSelectedCommunities.has(spot)}
                         onChange={() => toggleCommunity(spot)}
                         className="ml-2"
                       />
@@ -657,13 +907,73 @@ const DeliveryManagementV3 = () => {
               )}
             </div>
           </div>
+          
+          {/* Box Threshold Selection */}
+          <div>
+            <label className="block text-gray-700 text-sm font-medium mb-2">סף ארגז (₪):</label>
+            <input
+              type="number"
+              value={tempBoxThreshold}
+              onChange={(e) => setTempBoxThreshold(Number(e.target.value) || 60)}
+              min="0"
+              step="10"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="60"
+            />
+            <p className="text-xs text-gray-500 mt-1">לקוחות מעל סכום זה יקבלו ארגז</p>
+          </div>
         </div>
         
-        <p className="text-center text-gray-600 mt-4">
-          แสดงคำสั่งซื้อตั้งแต่ <span className="font-semibold">{dateRange.start}</span> ถึง <span className="font-semibold">{dateRange.end}</span>
-          {selectedCommunities.size > 0 && ` สำหรับ ${selectedCommunities.size} ชุมชน`}
-        </p>
+        {/* Submit Button */}
+        <div className="mt-6 text-center">
+          <button
+            onClick={handleSubmitFilters}
+            className="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
+          >
+            โหลดข้อมูล (Load Data)
+          </button>
+        </div>
+        
+        {selectedWeek && (
+          <p className="text-center text-gray-600 mt-4">
+            แสดงคำสั่งซื้อตั้งแต่ <span className="font-semibold">{dateRange.start}</span> ถึง <span className="font-semibold">{dateRange.end}</span>
+            {selectedCommunities.size > 0 && ` สำหรับ ${selectedCommunities.size} ชุมชน`}
+            {' — '}סף ארגז: ₪{boxThreshold}
+          </p>
+        )}
       </div>
+
+      {/* Global Family Summary - Thai-based with collapsible Hebrew */}
+      {Object.keys(pickupSpotItems).length > 0 && (() => {
+        const fam = buildGlobalFamilySummary();
+        if (!fam || fam.length === 0) return null;
+        return (
+          <div className="mb-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-400 rounded-lg p-4 shadow-md">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-bold text-lg text-yellow-900">⚠️ หมายเหตุสำคัญ: วันนี้มีหลายชนิดที่ชื่อคล้ายกัน</div>
+              <button
+                onClick={() => setShowHebrewSummary(s => !s)}
+                className="text-xs px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition-colors"
+              >
+                {showHebrewSummary ? 'ซ่อนภาษาฮีบรู' : 'แสดงภาษาฮีบรู'}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+              {fam.map((f, i) => (
+                <div key={i} className="bg-white p-2 rounded border border-yellow-300">
+                  <div className="font-semibold text-yellow-900">{f.labelThai}</div>
+                  <div className="text-xs text-yellow-700">{f.count} ชนิด</div>
+                  {showHebrewSummary && (
+                    <div className="mt-1 pt-1 border-t border-yellow-200 text-xs text-gray-600" dir="rtl">
+                      {f.labelHebrew} — {f.variantsHebrew.join(', ')}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       
       {Object.keys(pickupSpotItems).length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 p-4 rounded text-center">
@@ -693,12 +1003,20 @@ const DeliveryManagementV3 = () => {
               {(cratesContentByPickupSpot[pickupSpot] && cratesContentByPickupSpot[pickupSpot].length > 0) ? (
                 <div className="mt-2 space-y-4">
                   {cratesContentByPickupSpot[pickupSpot].map((crate, idx) => {
+                    const trimmedName = (crate.name || '').trim();
+                    const occ = cratesContentByPickupSpot[pickupSpot].slice(0, idx).filter(c => (c.name || '').trim() === trimmedName).length + 1;
+                    const crateKey = `${pickupSpot}::${trimmedName}#${occ}`;
                     const stats = getCompletionStats(pickupSpot, crate.name);
                     const isComplete = stats.completed === stats.total && stats.total > 0;
                     return (
                       <div key={idx} className={`border-2 rounded-lg ${isComplete ? 'border-green-500 bg-green-50' : 'border-blue-300'}`}>
                         <div className={`px-4 py-3 font-bold text-lg flex items-center justify-between ${isComplete ? 'bg-green-200' : 'bg-blue-100'}`}>
-                          <span>{crate.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-500 text-white">
+                              {customerNumbersGlobal[crateKey] ?? '-'}
+                            </span>
+                            <span>{crate.name}</span>
+                          </div>
                           <span className="text-sm font-normal">
                             {stats.completed}/{stats.total} ✓
                           </span>
@@ -711,7 +1029,22 @@ const DeliveryManagementV3 = () => {
                               return (
                                 <div 
                                   key={iidx} 
-                                  onClick={() => toggleItemComplete(pickupSpot, 'crate', itemKey, crate.name)}
+                                  onClick={() => {
+                                    // Only show quantity warning if item is NOT already completed
+                                    if (!isCompleted && it.quantity >= 2) {
+                                      setShowQuantityWarning({ 
+                                        productName: it.thaiName || it.productName, 
+                                        quantity: it.quantity,
+                                        pickupSpot,
+                                        itemType: 'crate',
+                                        itemKey,
+                                        customerName: crate.name
+                                      });
+                                    } else {
+                                      // Item is completed (unmark) or quantity is 1 (mark directly)
+                                      toggleItemComplete(pickupSpot, 'crate', itemKey, crate.name);
+                                    }
+                                  }}
                                   className={`border rounded-lg p-3 shadow-sm cursor-pointer transition-all hover:shadow-md ${
                                     isCompleted 
                                       ? 'bg-green-100 border-green-400' 
@@ -749,8 +1082,19 @@ const DeliveryManagementV3 = () => {
                                           ({it.selectedOption})
                                         </div>
                                       )}
-                                      <div className={`mt-1 text-xl font-bold ${isCompleted ? 'text-green-700' : 'text-blue-600'}`}>
+                                      <div 
+                                        className={`mt-1 text-xl font-bold ${
+                                          isCompleted 
+                                            ? 'text-green-700' 
+                                            : it.quantity >= 2 
+                                              ? 'text-red-600 animate-pulse' 
+                                              : 'text-blue-600'
+                                        }`}
+                                      >
                                         จำนวน: {it.quantity}
+                                        {it.quantity >= 2 && (
+                                          <span className="ml-2 text-base">⚠️</span>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -787,7 +1131,22 @@ const DeliveryManagementV3 = () => {
                   return (
                     <div 
                       key={idx} 
-                      onClick={() => toggleItemComplete(pickupSpot, 'general', key)}
+                      onClick={() => {
+                        // Only show quantity warning if item is NOT already completed
+                        if (!isCompleted && item.quantity >= 2) {
+                          setShowQuantityWarning({ 
+                            productName: item.thaiName || item.productName, 
+                            quantity: item.quantity,
+                            pickupSpot,
+                            itemType: 'general',
+                            itemKey: key,
+                            customerName: null
+                          });
+                        } else {
+                          // Item is completed (unmark) or quantity is 1 (mark directly)
+                          toggleItemComplete(pickupSpot, 'general', key);
+                        }
+                      }}
                       className={`border rounded-lg p-3 shadow-sm cursor-pointer transition-all hover:shadow-md ${
                         isCompleted 
                           ? 'bg-green-100 border-green-400' 
@@ -828,8 +1187,19 @@ const DeliveryManagementV3 = () => {
                           <div className="text-xs text-gray-500 mt-1">
                             {item.businessName}
                           </div>
-                          <div className={`mt-1 text-xl font-bold ${isCompleted ? 'text-green-700' : 'text-green-600'}`}>
+                          <div 
+                            className={`mt-1 text-xl font-bold ${
+                              isCompleted 
+                                ? 'text-green-700' 
+                                : item.quantity >= 2 
+                                  ? 'text-red-600 animate-pulse' 
+                                  : 'text-green-600'
+                            }`}
+                          >
                             จำนวน: {item.quantity}
+                            {item.quantity >= 2 && (
+                              <span className="ml-2 text-base">⚠️</span>
+                            )}
                           </div>
                         </div>
                       </div>

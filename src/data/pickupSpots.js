@@ -12,7 +12,8 @@ const pickupSpotsData = {
   },
   "קיבוץ גת": {
     name: "קיבוץ גת",
-    options: ["pickup"], // Pickup and box collection available
+    options: ["pickup", "homeDelivery"], // Pickup and box collection available
+    deliveryFee: 25,
   },
   "כוכב מיכאל": {
     name: "כוכב מיכאל",
@@ -25,28 +26,33 @@ const pickupSpotsData = {
   },
   "נגבה": {
     name: "נגבה",
-    options: ["pickup"],
-    deliveryFee: 30,
+    options: ["pickup", "homeDelivery"],
+    deliveryFee: 25,
   },
   "נחלה": {
     name: "נחלה",
-    options: ["pickup"],
-    deliveryFee: 30,
+    options: ["pickup", "homeDelivery"],
+    deliveryFee: 25,
   },
   "יד מרדכי": {
     name: "יד מרדכי",
-    options: ["pickup"],
-    deliveryFee: 30,
+    options: ["pickup", "homeDelivery"],
+    deliveryFee: 25,
   },
   "שדה יואב": {
     name: "שדה יואב",
-    options: ["pickup"],
-    deliveryFee: 30,
+    options: ["pickup", "homeDelivery"],
+    deliveryFee: 25,
   },
   "כפר מנחם": {
     name: "כפר מנחם",
+    options: ["pickup", "homeDelivery"],
+    deliveryFee: 25,
+  },
+  "אלתא": {
+    name: "אלתא",
     options: ["pickup"],
-    deliveryFee: 30,
+    deliveryFee: 25,
   },
 };
 
@@ -58,7 +64,7 @@ const pickupSpotsByRegion = {
   "צפון": ["מרכז המושב צפון", "בית העם צפון", "תחנת הדלק צפון"],
   "מרכז": ["מרכז המושב מרכז", "בית העם מרכז", "תחנת הדלק מרכז"],
   "דרום": ["מרכז המושב דרום", "בית העם דרום", "תחנת הדלק דרום"],
-  "אשקלון אשדוד": ["ניצנים", "מרכז שפירא", "קיבוץ גת", "כוכב מיכאל", "אור הנר", "נגבה"],
+  "אשקלון אשדוד": ["ניצנים", "מרכז שפירא", "קיבוץ גת", "כוכב מיכאל", "אור הנר", "נגבה", "אלתא"],
 };
 
 export { pickupSpots, pickupSpotsByRegion, pickupSpotsData }; 

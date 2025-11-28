@@ -1,4 +1,6 @@
 import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase/firebase';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -48,6 +50,65 @@ export const CartProvider = ({ children }) => {
     // Mark that we've completed the initial load
     setHasLoadedFromStorage(true);
   }, []);
+
+  // Check for expired orders (ended more than 24h ago)
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return;
+
+    const checkExpiredOrders = async () => {
+      const orderIds = Object.keys(orderInfoMap);
+      if (orderIds.length === 0) return;
+
+      const now = new Date();
+      // Calculate cutoff time: 24 hours ago
+      const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      
+      const idsToRemove = [];
+
+      for (const orderId of orderIds) {
+        try {
+          // We assume orders are in the 'Orders' collection based on the user request
+          // Note: Some orders might be in 'IndependentOrders' but the user specifically showed 'Orders' schema
+          const orderRef = doc(db, 'Orders', orderId);
+          const orderSnap = await getDoc(orderRef);
+
+          if (orderSnap.exists()) {
+            const orderData = orderSnap.data();
+            
+            // Check endingTime
+            if (orderData.endingTime) {
+              const endingTime = orderData.endingTime.toDate ? orderData.endingTime.toDate() : new Date(orderData.endingTime);
+              
+              // If the order ended before the cutoff time (more than 24 hours ago)
+              if (endingTime < cutoffTime) {
+                console.log(`Order ${orderId} expired on ${endingTime}. Removing from cart.`);
+                idsToRemove.push(orderId);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error checking expiration for order ${orderId}:`, error);
+        }
+      }
+
+      // Remove all identified expired orders
+      if (idsToRemove.length > 0) {
+        idsToRemove.forEach(id => {
+          // We can call the existing function to remove logic
+          // Using the function definition directly since we are inside the component
+          setCartItems(prevItems => prevItems.filter(item => item.orderId !== id));
+          setOrderInfoMap(prev => {
+            const updated = {...prev};
+            delete updated[id];
+            return updated;
+          });
+        });
+      }
+    };
+
+    checkExpiredOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLoadedFromStorage]); // Run once when storage is fully loaded
 
   // Save cart data to localStorage whenever cartItems changes (but only after initial load)
   useEffect(() => {

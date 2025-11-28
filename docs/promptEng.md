@@ -3,8 +3,19 @@ You are an expert prompt engineer tasked with improving a given prompt. Your goa
 Here's the prompt that needs improvement:
 
 <prompt_to_improve>
-as of now i only make the "weekly" shippments on one day of the week for 4-5 communities, now i want to add more days and more communities, the importent thing is that the time to order closes at a certian point, that is the endTime parameter in the orderId, in the current ui it doesnt support multiple days for different communities (each day is a different set of communities). an easy way to solve this is to just add a list with the communities name, and a user picks his community and if filters the items for him, and i will upload orders forms from the farmers side for each communities.
+i want to work on enabling merchants to order from the farmers, as of now we have a flag in the user doc: isMerchant telling the system if a user is a merchant and if so it show him a different prices.
 
+what we need to do:
+
+in @IndependentFarmers.js when a merchant presses on the farmer listing we should take him to a new page that we need to create, i will be very similar.
+
+instead of showing the merchant the community pickup spot we should ask him to pick a general location. like "השפלה" or "ירושלים".
+
+we should add to @CreateIndependentOrderForm.js the farmer the ability to pick those general locations.
+
+when the merchant adds a item to the cart it will go to the original global cart from the weekly sale, so that when he goes to order confirmation page he will meet the regular order flow, but in @OrderConfirmation.js we need to add a check if its a merchant, we need to also ask him for his address and also instead of pickup spot put a list with the general locations.
+
+we need to add file that has all the places in israel and their general region, so when the merchant enters his address he need to choose from that list and if the place isnt in the regions that the farmer picked it will not be validated
 </prompt_to_improve>
 
 Please follow these steps to analyze and improve the prompt:

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Slider from "react-slick";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
@@ -10,7 +10,13 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
   const [selectedOption, setSelectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
   );
-  const { addItem } = useCart();
+  const { addItem, cartItems } = useCart();
+
+  const quantityInCart = useMemo(() => {
+    return cartItems
+      .filter(item => item.id === product.id)
+      .reduce((sum, item) => sum + item.quantity, 0);
+  }, [cartItems, product.id]);
 
   const handleQuantityChange = (increment) => {
     if (increment) {
@@ -140,6 +146,15 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
               אזל במלאי
             </div>
           )}
+          
+          {!isOutOfStock && quantityInCart > 0 && (
+            <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-3 py-1 rounded-full shadow-lg z-10 flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              בסל: {quantityInCart}
+            </div>
+          )}
         </div>
 
         {/* Product Info - Desktop */}
@@ -256,6 +271,15 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
           {isOutOfStock && (
             <div className="absolute top-0 right-0 bg-red-500 text-white text-xs px-2 py-1 rounded-bl-md">
               אזל במלאי
+            </div>
+          )}
+          
+          {!isOutOfStock && quantityInCart > 0 && (
+            <div className="absolute top-0 left-0 bg-green-500 text-white text-xs px-2 py-1 rounded-br-md shadow-sm flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              {quantityInCart} בסל
             </div>
           )}
         </div>

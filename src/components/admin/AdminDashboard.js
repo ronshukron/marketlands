@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { FaArchive, FaBoxOpen, FaEye, FaEyeSlash } from 'react-icons/fa'; // Assuming react-icons is available, or I'll use emoji/svg
 
-const cards = [
+const initialCards = [
   {
     title: 'ניהול מודעות חקלאים עצמאיים',
     description: 'צפייה וניהול מודעות מכירה של חקלאים עצמאיים',
@@ -50,30 +51,131 @@ const cards = [
     description: 'גרסה לעובדים תאילנדיים - עם תמונות ושמות בתאילנדית',
     to: '/admin/delivery-v3',
     featured: true
+  },
+  {
+    title: 'משלוחים וחלוקה (חדש)',
+    description: 'ממשק נוח לניהול חלוקה ומשלוחים לפי קהילות',
+    to: '/admin/deliveries',
+    featured: true
+  },
+  {
+    title: 'עגלות נטושות',
+    description: 'צפייה בהזמנות שלא הושלמו (עגלות נטושות) לפי שבוע וקהילה',
+    to: '/admin/abandoned-carts',
+    featured: true
+  },
+  {
+    title: 'אנליטיקס ודוחות',
+    description: 'דשבורד נתונים מתקדם: מכירות, צמיחת קהילה, התנהגות צרכנים ועוד',
+    to: '/admin/analytics',
+    featured: true
+  },
+  {
+    title: 'ניתוח לקוחות',
+    description: 'מעקב אחרי לקוחות בודדים: כמה הזמנות ביצעו ומה ההיסטוריה שלהם',
+    to: '/admin/customers',
+    featured: true
   }
 ];
 
 const AdminDashboard = () => {
+  const [archivedPaths, setArchivedPaths] = useState([]);
+  const [showArchive, setShowArchive] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('adminDashboardArchived');
+    if (saved) {
+      try {
+        setArchivedPaths(JSON.parse(saved));
+      } catch (e) {
+        console.error("Error parsing archived paths", e);
+      }
+    }
+  }, []);
+
+  const toggleArchive = (path) => {
+    let newPaths;
+    if (archivedPaths.includes(path)) {
+      newPaths = archivedPaths.filter(p => p !== path);
+    } else {
+      newPaths = [...archivedPaths, path];
+    }
+    setArchivedPaths(newPaths);
+    localStorage.setItem('adminDashboardArchived', JSON.stringify(newPaths));
+  };
+
+  const visibleCards = initialCards.filter(card => {
+    const isArchived = archivedPaths.includes(card.to);
+    if (showArchive) {
+      return isArchived; // Only show archived
+    }
+    return !isArchived; // Only show non-archived
+  });
+
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
       <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900">לוח ניהול</h1>
-          <p className="text-gray-600 mt-2">גישה מהירה לכלי הניהול והבקרה</p>
+        <div className="mb-8 flex flex-col md:flex-row justify-between items-center">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
+              {showArchive ? 'ארכיון דפים' : 'לוח ניהול'}
+            </h1>
+            <p className="text-gray-600 mt-2">
+              {showArchive ? 'דפים שהועברו לארכיון' : 'גישה מהירה לכלי הניהול והבקרה'}
+            </p>
+          </div>
+          
+          <button 
+            onClick={() => setShowArchive(!showArchive)}
+            className={`mt-4 md:mt-0 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${showArchive ? 'bg-gray-200 text-gray-800' : 'bg-gray-800 text-white'}`}
+          >
+            {showArchive ? (
+              <>חזרה ללוח הראשי</>
+            ) : (
+              <>מעבר לארכיון</>
+            )}
+          </button>
         </div>
 
+        {visibleCards.length === 0 && (
+          <div className="text-center py-12 text-gray-500 bg-white rounded-lg border border-dashed border-gray-300">
+            {showArchive ? 'אין דפים בארכיון' : 'אין דפים להצגה'}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {cards.map((card) => (
-            <Link key={card.to} to={card.to} className="block group">
-              <div className={`bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow h-full ${card.featured ? 'border-2 border-green-500' : 'border border-gray-200'}`}>
-                {card.featured && (
-                  <span className="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded mb-2">מומלץ</span>
-                )}
-                <h2 className="text-xl font-semibold text-gray-800 mb-2 group-hover:text-blue-700">{card.title}</h2>
-                <p className="text-gray-600 text-sm">{card.description}</p>
-                <div className="mt-4 text-blue-600 text-sm font-medium">לכניסה →</div>
-              </div>
-            </Link>
+          {visibleCards.map((card) => (
+            <div key={card.to} className="relative group">
+              <Link to={card.to} className="block h-full">
+                <div className={`bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow h-full ${card.featured ? 'border-2 border-green-500' : 'border border-gray-200'}`}>
+                  {card.featured && (
+                    <span className="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded mb-2">מומלץ</span>
+                  )}
+                  <h2 className="text-xl font-semibold text-gray-800 mb-2 group-hover:text-blue-700">{card.title}</h2>
+                  <p className="text-gray-600 text-sm">{card.description}</p>
+                  <div className="mt-4 text-blue-600 text-sm font-medium">לכניסה ←</div>
+                </div>
+              </Link>
+              
+              {/* Archive/Unarchive Button */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  toggleArchive(card.to);
+                }}
+                title={showArchive ? "החזר ללוח" : "העבר לארכיון"}
+                className="absolute top-3 right-3 h-8 w-8 inline-flex items-center justify-center text-gray-500 hover:text-gray-700 bg-white rounded-full shadow-sm border border-gray-200"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  {showArchive ? (
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  ) : (
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                  )}
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -81,4 +183,4 @@ const AdminDashboard = () => {
   );
 };
 
-export default AdminDashboard; 
+export default AdminDashboard;

@@ -10,9 +10,6 @@ import { format } from 'date-fns';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
-// Box/Crate eligibility threshold - customers spending MORE than this amount get a box
-const BOX_THRESHOLD = 60; // Change this value to adjust the cutoff (in ₪)
-
 const DeliveryManagementV2 = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -30,6 +27,9 @@ const DeliveryManagementV2 = () => {
   const [selectedCommunities, setSelectedCommunities] = useState(new Set());
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
   const communityDropdownRef = useRef(null);
+  
+  // Box/Crate eligibility threshold - customers spending MORE than this amount get a box
+  const [boxThreshold, setBoxThreshold] = useState(60);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -55,7 +55,7 @@ const DeliveryManagementV2 = () => {
     if (selectedWeek) {
       fetchDeliveryData();
     }
-  }, [selectedWeek, selectedCommunities]);
+  }, [selectedWeek, selectedCommunities, boxThreshold]);
 
   const fetchAvailableWeeks = async () => {
     setLoading(true);
@@ -175,14 +175,14 @@ const DeliveryManagementV2 = () => {
         }
       });
 
-      // Eligibility: totalPrice > BOX_THRESHOLD
+      // Eligibility: totalPrice >= boxThreshold
       const eligibleCustomersBySpot = {};
       const cratesMap = {};
       Object.entries(totalsBySpotCustomer).forEach(([spot, byCustomer]) => {
         eligibleCustomersBySpot[spot] = new Set();
         cratesMap[spot] = [];
         Object.entries(byCustomer).forEach(([normalizedName, totals]) => {
-          if (totals.totalPrice >= BOX_THRESHOLD) {
+          if (totals.totalPrice >= boxThreshold) {
             eligibleCustomersBySpot[spot].add(normalizedName);
             cratesMap[spot].push({ name: totals.displayName, totalQty: totals.totalQty, totalPrice: totals.totalPrice });
           }
@@ -421,7 +421,7 @@ const DeliveryManagementV2 = () => {
       
       {/* Week and Community Selection */}
       <div className="mb-6 bg-white p-6 rounded-lg shadow">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Week Selection */}
           <div>
             <label className="block text-gray-700 text-sm font-medium mb-2">בחר שבוע:</label>
@@ -476,11 +476,27 @@ const DeliveryManagementV2 = () => {
               )}
             </div>
           </div>
+
+          {/* Box Threshold Selection */}
+          <div>
+            <label className="block text-gray-700 text-sm font-medium mb-2">סף ארגז (₪):</label>
+            <input
+              type="number"
+              value={boxThreshold}
+              onChange={(e) => setBoxThreshold(Number(e.target.value) || 60)}
+              min="0"
+              step="10"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="60"
+            />
+            <p className="text-xs text-gray-500 mt-1">לקוחות מעל סכום זה יקבלו ארגז</p>
+          </div>
         </div>
         
         <p className="text-center text-gray-600 mt-4">
           מציג הזמנות מתאריך <span className="font-semibold">{dateRange.start}</span> עד <span className="font-semibold">{dateRange.end}</span>
           {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
+          {` • סף ארגז: ₪${boxThreshold}`}
         </p>
       </div>
       
