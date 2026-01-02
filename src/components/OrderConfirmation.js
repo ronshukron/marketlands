@@ -246,7 +246,7 @@ const OrderConfirmation = () => {
                         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
                         (!requestAddress || userAddress.trim() !== '') &&
                         (deliveryOption !== 'homeDelivery' || userAddress.trim() !== '') &&
-                        (availablePickupSpots.length === 0 || selectedPickupSpot !== ''); 
+                        (availablePickupSpots.length === 0 || (selectedPickupSpot && selectedPickupSpot !== 'הכל')); 
         setFormIsValid(isValid);
     }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots, deliveryOption]);
 
@@ -270,8 +270,16 @@ const OrderConfirmation = () => {
 
     // Then define the validatePickupSpotCompatibility function
     const validatePickupSpotCompatibility = () => {
-        // If no selection made yet or if "הכל" is selected, skip validation
-        if (!selectedPickupSpot || selectedPickupSpot === "הכל") return true;
+        // Require a concrete pickup spot selection
+        if (!selectedPickupSpot || selectedPickupSpot === "הכל") {
+            Swal.fire({
+                icon: 'error',
+                title: 'נא לבחור נקודת איסוף',
+                text: 'יש לבחור נקודת איסוף ספציפית עבור ההזמנה שלך',
+                confirmButtonText: 'הבנתי'
+            });
+            return false;
+        }
         
         const incompatibleItems = [];
         
@@ -388,7 +396,7 @@ const OrderConfirmation = () => {
             return;
         }
 
-        if (availablePickupSpots.length > 0 && !selectedPickupSpot) {
+        if (availablePickupSpots.length > 0 && (!selectedPickupSpot || selectedPickupSpot === 'הכל')) {
             Swal.fire({
                 icon: 'error',
                 title: 'נא לבחור נקודת איסוף',
@@ -786,7 +794,7 @@ const OrderConfirmation = () => {
         }
 
         // Then check for pickup spot selection if needed
-        if (availablePickupSpots.length > 0 && !selectedPickupSpot) {
+        if (availablePickupSpots.length > 0 && (!selectedPickupSpot || selectedPickupSpot === 'הכל')) {
             Swal.fire({
                 icon: 'warning',
                 title: 'נא לבחור נקודת איסוף',
