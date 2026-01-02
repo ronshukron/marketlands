@@ -25,11 +25,15 @@ const PriceElasticity = ({ orders }) => {
   }, [orders]);
 
   // 2. Analyze data for selected product
-  const { pricePointData, timelineData } = useMemo(() => {
-    if (!selectedProduct || !orders) return { pricePointData: [], timelineData: [] };
+  const { pricePointData, timelineData, totals } = useMemo(() => {
+    if (!selectedProduct || !orders) {
+      return { pricePointData: [], timelineData: [], totals: { totalQty: 0, totalRevenue: 0 } };
+    }
 
     const pricePoints = {}; // { price: { count: 0, totalQty: 0 } }
     const bucketData = {}; // { key: { date, label, totalQty, sumPrice, count } }
+    let totalQtySold = 0;
+    let totalRevenue = 0;
 
     // Sort orders by date for timeline
     const sortedOrders = [...orders].sort((a, b) => a.createdAt - b.createdAt);
@@ -40,13 +44,15 @@ const PriceElasticity = ({ orders }) => {
         Object.values(o.orderBreakdown).forEach(biz => {
           biz.items?.forEach(item => {
              if (item.productName === selectedProduct) {
-                 const price = Number(item.price);
-                 const qty = item.quantity;
+                 const price = Number(item.price) || 0;
+                 const qty = Number(item.quantity) || 0;
 
                  // --- Aggregated by Price ---
                  if (!pricePoints[price]) pricePoints[price] = { price, count: 0, totalQty: 0 };
                  pricePoints[price].count += 1; 
                  pricePoints[price].totalQty += qty; 
+                 totalQtySold += qty;
+                 totalRevenue += price * qty;
 
                  // --- Aggregated by Week / Month (Timeline) ---
                  const bucketStart = period === 'week' 
@@ -93,7 +99,11 @@ const PriceElasticity = ({ orders }) => {
           };
       });
 
-    return { pricePointData: processedPricePoints, timelineData: processedTimeline };
+    return { 
+      pricePointData: processedPricePoints, 
+      timelineData: processedTimeline,
+      totals: { totalQty: totalQtySold, totalRevenue }
+    };
   }, [orders, selectedProduct, period]);
 
   // Set default product
@@ -156,6 +166,23 @@ const PriceElasticity = ({ orders }) => {
             </select>
         </div>
       </div>
+
+      {selectedProduct && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-1">סה"כ כמות שנמכרה</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {totals.totalQty.toLocaleString('he-IL')}
+            </p>
+          </div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-1">סה"כ הכנסות מהמוצר</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {totals.totalRevenue.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="flex-grow">
           {viewMode === 'timeline' ? (

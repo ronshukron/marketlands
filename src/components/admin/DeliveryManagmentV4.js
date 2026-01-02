@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { collection, getDocs, doc, getDoc, setDoc, onSnapshot, writeBatch, query, where, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
@@ -27,7 +27,7 @@ const modalStyles = `
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
-const DeliveryManagementV3 = () => {
+const DeliveryManagementV4 = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -51,8 +51,139 @@ const DeliveryManagementV3 = () => {
   const communityDropdownRef = useRef(null);
   // Persistent customer numbering GLOBALLY across all pickup spots (stored in localStorage per week)
   const [customerNumbersGlobal, setCustomerNumbersGlobal] = useState({});
+  const [permanentNumbersMap, setPermanentNumbersMap] = useState({});
   const [showHebrewSummary, setShowHebrewSummary] = useState(false);
+  const [customerDemands, setCustomerDemands] = useState({});
+  const [customersByPickupSpot, setCustomersByPickupSpot] = useState({});
   
+  // New: Community Order State
+  const [communityOrder, setCommunityOrder] = useState([]);
+  const [isReordering, setIsReordering] = useState(false);
+
+  // New: Scroll to next incomplete
+  const scrollToNextIncomplete = () => {
+    // Find all incomplete item containers
+    // We'll use a data attribute 'data-status="incomplete"' on the crate/item divs
+    const incomplete = document.querySelectorAll('[data-status="incomplete"]');
+    if (incomplete.length === 0) {
+      alert("כל הפריטים הושלמו!");
+      return;
+    }
+    
+    // Find the first one that is "below" the current viewport or just the next one in DOM order
+    // For simplicity, let's find the first one that is not fully visible or just the first one in the list
+    // Better: find the first one currently below the window top + offset
+    const currentScroll = window.scrollY + 100; // + header offset
+    let nextTarget = null;
+    
+    for (let i = 0; i < incomplete.length; i++) {
+      const el = incomplete[i];
+      const rect = el.getBoundingClientRect();
+      const absTop = rect.top + window.scrollY;
+      
+      if (absTop > currentScroll) {
+        nextTarget = el;
+        break;
+      }
+    }
+    
+    // If no target found below, wrap around to the first one
+    if (!nextTarget && incomplete.length > 0) {
+      nextTarget = incomplete[0];
+    }
+    
+    if (nextTarget) {
+      nextTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Add a temporary highlight flash
+      nextTarget.classList.add('ring-4', 'ring-yellow-400');
+      setTimeout(() => nextTarget.classList.remove('ring-4', 'ring-yellow-400'), 1000);
+    }
+  };
+
+  // New: Permanent Customer Numbers Logic
+  const fetchPermanentCustomerNumbers = async (customersList) => {
+    // customersList: array of { id: string (phone/email), name: string }
+    if (!customersList.length) return {};
+
+    const mapping = {};
+    const missing = [];
+
+    // 1. Check existing
+    // Optimization: Fetch all numbers or batch query. For now, let's fetch all numbers (assuming < a few thousands is fine for cache)
+    // Or chunk query by ID.
+    // Better: Create 'customerNumbers' collection where ID is the phone number.
+    
+    // We'll query by IDs in chunks of 10
+    const chunks = [];
+    for (let i = 0; i < customersList.length; i += 10) {
+      chunks.push(customersList.slice(i, i + 10));
+    }
+
+    for (const chunk of chunks) {
+      await Promise.all(chunk.map(async (c) => {
+        const docRef = doc(db, 'customerNumbers', c.id);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          mapping[c.id] = snap.data().number;
+        } else {
+          missing.push(c);
+        }
+      }));
+    }
+
+    // 2. Allocate new numbers
+    if (missing.length > 0) {
+      // Get current max number. Store it in a config doc 'customerNumbers/_config'
+      const configRef = doc(db, 'customerNumbers', '_config');
+      
+      await runTransaction(db, async (transaction) => {
+        const configSnap = await transaction.get(configRef);
+        let currentMax = 0;
+        if (configSnap.exists()) {
+          currentMax = configSnap.data().maxNumber || 0;
+        }
+
+        let next = currentMax;
+        for (const m of missing) {
+          next++;
+          const newRef = doc(db, 'customerNumbers', m.id);
+          transaction.set(newRef, { number: next, name: m.name, assignedAt: new Date() });
+          mapping[m.id] = next;
+        }
+        
+        transaction.set(configRef, { maxNumber: next }, { merge: true });
+      });
+    }
+
+    return mapping;
+  };
+
+  const fetchCustomDemandsForUsers = async (userIds) => {
+    if (!userIds || userIds.length === 0) return {};
+    const demandsMap = {};
+    await Promise.all(
+      userIds.map(async (uid) => {
+        if (!uid) return;
+        try {
+          const userRef = doc(db, 'users', uid);
+          const snap = await getDoc(userRef);
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data.customDemandsHebrew || data.customDemandsThai) {
+              demandsMap[uid] = {
+                hebrew: data.customDemandsHebrew || '',
+                thai: data.customDemandsThai || '',
+              };
+            }
+          }
+        } catch (err) {
+          console.error(`Error fetching custom demands for user ${uid}:`, err);
+        }
+      })
+    );
+    return demandsMap;
+  };
+
   // Box threshold with localStorage persistence
   const [boxThreshold, setBoxThreshold] = useState(() => {
     const stored = localStorage.getItem('delivery_box_threshold_v3');
@@ -95,35 +226,39 @@ const DeliveryManagementV3 = () => {
     localStorage.setItem('delivery_box_threshold_v3', boxThreshold.toString());
   }, [boxThreshold]);
 
-  // Load completed items from localStorage on mount and when week changes
+  // Sync completed items with Firestore (Real-time & Offline)
   useEffect(() => {
     if (!selectedWeek) return;
-    const storageKey = `delivery_completed_items_${selectedWeek}_v3`;
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setCompletedItems(new Set(parsed));
+    const syncDocRef = doc(db, 'deliverySync', selectedWeek);
+    
+    const unsubscribe = onSnapshot(syncDocRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.completedItems) {
+          setCompletedItems(new Set(data.completedItems));
+        }
       } else {
+        // Initialize if not exists
         setCompletedItems(new Set());
       }
-    } catch (e) {
-      console.error('Failed to load completed items from localStorage', e);
-      setCompletedItems(new Set());
-    }
+    });
+    
+    return () => unsubscribe();
   }, [selectedWeek]);
 
-  // Save completed items to localStorage whenever they change
-  useEffect(() => {
+  const updateFirestoreCompleted = async (newSet) => {
     if (!selectedWeek) return;
-    const storageKey = `delivery_completed_items_${selectedWeek}_v3`;
+    const syncDocRef = doc(db, 'deliverySync', selectedWeek);
+    const itemsArray = Array.from(newSet);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(Array.from(completedItems)));
+      await setDoc(syncDocRef, { completedItems: itemsArray }, { merge: true });
     } catch (e) {
-      console.error('Failed to save completed items to localStorage', e);
+      console.error("Failed to sync completion status", e);
     }
-  }, [completedItems, selectedWeek]);
+  };
 
+  /* Removed LocalStorage Sync logic */
+  
   const fetchAvailableWeeks = async () => {
     setLoading(true);
     try {
@@ -219,14 +354,14 @@ const DeliveryManagementV3 = () => {
         customerOrderDocs = fallbackSnapshot.docs;
       }
 
-      // Fetch all product details we'll need only for relevant orders
       const productIds = new Set();
       const validOrders = [];
+      const uniqueUserIds = new Set();
 
       customerOrderDocs.forEach(docSnap => {
         const order = docSnap.data();
         if (!order || order.paymentStatus !== 'completed') return;
-
+        
         const createdAt = order.createdAt;
         let createdDate;
         if (typeof createdAt === 'string') {
@@ -236,14 +371,18 @@ const DeliveryManagementV3 = () => {
         } else {
           createdDate = null;
         }
+        
         if (!createdDate) return;
         const createdDateISO = createdDate.toISOString();
         if (createdDateISO < startDateISO || createdDateISO > endDateISO) return;
-
+        
         const pickupSpot = order.customerDetails?.pickupSpot || 'לא צוין';
         if (selectedCommunities.size > 0 && !selectedCommunities.has(pickupSpot)) return;
-
+        
         validOrders.push(order);
+        if (order.userId) {
+          uniqueUserIds.add(order.userId);
+        }
 
         if (order.orderBreakdown) {
           Object.values(order.orderBreakdown).forEach(businessOrder => {
@@ -280,6 +419,8 @@ const DeliveryManagementV3 = () => {
         setPickupSpotItems({});
         setCratesByPickupSpot({});
         setCratesContentByPickupSpot({});
+        setCustomersByPickupSpot({});
+        setCustomerDemands({});
         return;
       }
 
@@ -294,7 +435,9 @@ const DeliveryManagementV3 = () => {
           totalsBySpotCustomer[pickupSpot][normalizedCustomerName] = {
             displayName: rawCustomerName,
             totalQty: 0,
-            totalPrice: 0
+            totalPrice: 0,
+            userId: order.userId || null,
+            contactId: order.customerDetails?.phone || order.customerDetails?.email || null
           };
         }
         if (order.orderBreakdown) {
@@ -341,6 +484,8 @@ const DeliveryManagementV3 = () => {
                 if (!cratesContentMap[pickupSpot][normalizedCustomerName]) {
                   cratesContentMap[pickupSpot][normalizedCustomerName] = {
                     displayName: rawCustomerName,
+                    customerId: order.customerDetails?.phone || order.customerDetails?.email,
+                    userId: order.userId || null,
                     itemsMap: {}
                   };
                 }
@@ -383,13 +528,46 @@ const DeliveryManagementV3 = () => {
       Object.entries(cratesContentMap).forEach(([spot, byCustomer]) => {
         cratesContentObj[spot] = Object.values(byCustomer).map(c => ({
           name: c.displayName,
+          customerId: c.customerId,
+          userId: c.userId || null,
           items: Object.values(c.itemsMap)
         }));
       });
 
+      const customersBySpot = {};
+      Object.entries(totalsBySpotCustomer).forEach(([spot, byCustomer]) => {
+        customersBySpot[spot] = Object.values(byCustomer).map((customer) => ({
+          name: customer.displayName,
+          userId: customer.userId || null,
+          contactId: customer.contactId || null
+        }));
+      });
+
+      // Collect customers for permanent numbering
+      const uniqueCustomers = [];
+      const seenCustomers = new Set();
+      validOrders.forEach(o => {
+        const details = o.customerDetails || {};
+        const id = details.phone || details.email; // Use phone preferred
+        const name = details.name || 'Unknown';
+        if (id && !seenCustomers.has(id)) {
+          seenCustomers.add(id);
+          uniqueCustomers.push({ id, name });
+        }
+      });
+
+      // Fetch permanent numbers
+      const [permMap, demandsMap] = await Promise.all([
+        fetchPermanentCustomerNumbers(uniqueCustomers),
+        fetchCustomDemandsForUsers(Array.from(uniqueUserIds))
+      ]);
+      setPermanentNumbersMap(permMap);
+      setCustomerDemands(demandsMap);
+
       setPickupSpotItems(spotMap);
       setCratesByPickupSpot(cratesMap);
       setCratesContentByPickupSpot(cratesContentObj);
+      setCustomersByPickupSpot(customersBySpot);
     } catch (err) {
       setError("אירעה שגיאה בטעינת נתוני המשלוחים");
       console.error(err);
@@ -398,10 +576,7 @@ const DeliveryManagementV3 = () => {
     }
   };
 
-  // Helper to build storage key per week (GLOBAL, not per spot)
-  const getNumbersStorageKey = () => `delivery_customer_numbers_${selectedWeek || 'all'}_global`;
-
-  // Initialize/update persistent numbering whenever crates content changes (GLOBAL across all spots)
+  // Initialize/update numbering using permanent numbers (GLOBAL across all spots)
   useEffect(() => {
     if (!selectedWeek) return;
     if (!cratesContentByPickupSpot || Object.keys(cratesContentByPickupSpot).length === 0) {
@@ -409,46 +584,43 @@ const DeliveryManagementV3 = () => {
       return;
     }
 
-    const storageKey = getNumbersStorageKey();
-    let stored = {};
-    try {
-      stored = JSON.parse(localStorage.getItem(storageKey)) || {};
-    } catch (e) {
-      stored = {};
-    }
-
-    // Collect all crate IDs across all pickup spots
-    const allCrateIds = [];
+    const mapping = {};
     Object.entries(cratesContentByPickupSpot).forEach(([spot, crates]) => {
       const nameCounts = {};
       (crates || []).forEach(c => {
         const name = (c?.name || '').trim();
         if (!name) return;
         nameCounts[name] = (nameCounts[name] || 0) + 1;
-        allCrateIds.push({ spot, crateId: `${spot}::${name}#${nameCounts[name]}` });
+        const crateKey = `${spot}::${name}#${nameCounts[name]}`;
+        
+        // Assign permanent number if available
+        if (c.customerId && permanentNumbersMap[c.customerId]) {
+          mapping[crateKey] = permanentNumbersMap[c.customerId];
+        } else {
+          mapping[crateKey] = '-'; // Pending or missing
+        }
       });
-
     });
 
-    // Build a new mapping ensuring uniqueness GLOBALLY
-    const usedNumbers = new Set(Object.values(stored));
-    let nextNumber = Math.max(0, ...Array.from(usedNumbers, n => Number(n) || 0)) + 1;
-
-    const mapping = { ...stored };
-
-    allCrateIds.forEach(({ crateId }) => {
-      if (mapping[crateId] != null) return;
-      // Assign next available unique number
-      while (usedNumbers.has(nextNumber)) nextNumber++;
-      mapping[crateId] = nextNumber;
-      usedNumbers.add(nextNumber);
-      nextNumber++;
-    });
-
-    localStorage.setItem(storageKey, JSON.stringify(mapping));
     setCustomerNumbersGlobal(mapping);
-  }, [cratesContentByPickupSpot, selectedWeek]);
-  
+  }, [cratesContentByPickupSpot, selectedWeek, permanentNumbersMap]);
+
+  // Initialize/Sync Community Order
+  useEffect(() => {
+    const currentSpots = Object.keys(pickupSpotItems);
+    if (currentSpots.length > 0) {
+      setCommunityOrder(prev => {
+        const prevSet = new Set(prev);
+        const newSpots = currentSpots.filter(s => !prevSet.has(s));
+        // Keep existing order, remove deleted spots, append new ones
+        const nextOrder = [...prev.filter(s => currentSpots.includes(s)), ...newSpots];
+        // If strictly equal, return prev to avoid render loop (though React handles this)
+        if (nextOrder.length === prev.length && nextOrder.every((v, i) => v === prev[i])) return prev;
+        return nextOrder;
+      });
+    }
+  }, [pickupSpotItems]);
+
   const toggleCommunity = (community) => {
     setTempSelectedCommunities(prev => {
       const newSet = new Set(prev);
@@ -489,7 +661,8 @@ const DeliveryManagementV3 = () => {
       // Mark as completed
       const newCompleted = new Set(completedItems);
       newCompleted.add(uniqueId);
-      setCompletedItems(newCompleted);
+      // Optimistic update handled by Firestore listener, but we pass the new set to write
+      updateFirestoreCompleted(newCompleted);
     }
   };
 
@@ -497,7 +670,7 @@ const DeliveryManagementV3 = () => {
     if (pendingUnmark) {
       const newCompleted = new Set(completedItems);
       newCompleted.delete(pendingUnmark);
-      setCompletedItems(newCompleted);
+      updateFirestoreCompleted(newCompleted);
     }
     setShowUnmarkModal(false);
     setPendingUnmark(null);
@@ -958,12 +1131,18 @@ const DeliveryManagementV3 = () => {
         </div>
         
         {/* Submit Button */}
-        <div className="mt-6 text-center">
+        <div className="mt-6 text-center flex justify-center gap-4">
           <button
             onClick={handleSubmitFilters}
             className="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
           >
             โหลดข้อมูล (Load Data)
+          </button>
+          <button
+            onClick={() => setIsReordering(true)}
+            className="px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-lg transition-all shadow-lg"
+          >
+            סידור קהילות (Reorder)
           </button>
         </div>
         
@@ -1013,7 +1192,27 @@ const DeliveryManagementV3 = () => {
           ไม่พบสินค้าสำหรับการจัดส่งในสัปดาห์และชุมชนที่เลือก
         </div>
       ) : (
-        Object.entries(pickupSpotItems).map(([pickupSpot, items]) => (
+        communityOrder.map(pickupSpot => {
+          const items = pickupSpotItems[pickupSpot];
+          if (!items) return null;
+          const crateEntries = cratesContentByPickupSpot[pickupSpot] || [];
+          const crateUserIds = new Set(crateEntries.map((c) => c.userId).filter(Boolean));
+          const generalDemandEntries = [];
+          const seenDemandUsers = new Set();
+          (customersByPickupSpot[pickupSpot] || []).forEach((customer) => {
+            if (!customer.userId) return;
+            if (crateUserIds.has(customer.userId)) return;
+            if (seenDemandUsers.has(customer.userId)) return;
+            const demand = customerDemands[customer.userId];
+            if (!demand || (!demand.hebrew?.trim() && !demand.thai?.trim())) return;
+            seenDemandUsers.add(customer.userId);
+            generalDemandEntries.push({
+              name: customer.name,
+              userId: customer.userId,
+              demand
+            });
+          });
+          return (
           <div key={pickupSpot} className="mb-10 bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xl font-semibold text-blue-800">
@@ -1033,16 +1232,24 @@ const DeliveryManagementV3 = () => {
                 <h3 className="text-lg font-semibold text-gray-800">กล่องที่ต้องเตรียม</h3>
                 <span className="text-sm text-gray-600">รวม: {cratesByPickupSpot[pickupSpot]?.length || 0}</span>
               </div>
-              {(cratesContentByPickupSpot[pickupSpot] && cratesContentByPickupSpot[pickupSpot].length > 0) ? (
+              {(crateEntries && crateEntries.length > 0) ? (
                 <div className="mt-2 space-y-4">
-                  {cratesContentByPickupSpot[pickupSpot].map((crate, idx) => {
+                  {crateEntries.map((crate, idx) => {
                     const trimmedName = (crate.name || '').trim();
-                    const occ = cratesContentByPickupSpot[pickupSpot].slice(0, idx).filter(c => (c.name || '').trim() === trimmedName).length + 1;
+                    const occ = crateEntries.slice(0, idx).filter(c => (c.name || '').trim() === trimmedName).length + 1;
                     const crateKey = `${pickupSpot}::${trimmedName}#${occ}`;
                     const stats = getCompletionStats(pickupSpot, crate.name);
                     const isComplete = stats.completed === stats.total && stats.total > 0;
+                    const demand = crate.userId ? customerDemands[crate.userId] : null;
+                    const hasHebrewDemand = demand?.hebrew && demand.hebrew.trim();
+                    const hasThaiDemand = demand?.thai && demand.thai.trim();
+                    const showDemandBanner = hasHebrewDemand || hasThaiDemand;
                     return (
-                      <div key={idx} className={`border-2 rounded-lg ${isComplete ? 'border-green-500 bg-green-50' : 'border-blue-300'}`}>
+                      <div 
+                        key={idx} 
+                        data-status={isComplete ? 'complete' : 'incomplete'}
+                        className={`border-2 rounded-lg ${isComplete ? 'border-green-500 bg-green-50' : 'border-blue-300'}`}
+                      >
                         <div className={`px-4 py-3 font-bold text-lg flex items-center justify-between ${isComplete ? 'bg-green-200' : 'bg-blue-100'}`}>
                           <div className="flex items-center gap-2">
                             <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-500 text-white">
@@ -1054,6 +1261,17 @@ const DeliveryManagementV3 = () => {
                             {stats.completed}/{stats.total} ✓
                           </span>
                         </div>
+                        {showDemandBanner && (
+                          <div className="mx-4 mt-3 mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900" dir="rtl">
+                            <p className="font-semibold text-amber-900 mb-1">בקשות מיוחדות:</p>
+                            {hasHebrewDemand && (
+                              <p className="text-gray-900 mb-1">{demand.hebrew}</p>
+                            )}
+                            {hasThaiDemand && (
+                              <p className="text-gray-700" dir="ltr">{demand.thai}</p>
+                            )}
+                          </div>
+                        )}
                         <div className="p-4">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {(crate.items || []).map((it, iidx) => {
@@ -1144,6 +1362,31 @@ const DeliveryManagementV3 = () => {
                 <p className="mt-2 text-sm text-gray-500">ไม่ต้องเตรียมกล่องสำหรับจุดนี้</p>
               )}
             </div>
+
+            {generalDemandEntries.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-amber-900">בקשות מיוחדות ללקוחות ללא ארגז</h3>
+                  <span className="text-xs text-amber-600">{generalDemandEntries.length}</span>
+                </div>
+                <div className="mt-2 space-y-2">
+                  {generalDemandEntries.map((entry) => (
+                    <div
+                      key={`${pickupSpot}-${entry.userId}`}
+                      className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm"
+                    >
+                      <div className="font-semibold text-amber-900">{entry.name}</div>
+                      {entry.demand?.hebrew && (
+                        <p className="text-gray-900 mt-1" dir="rtl">{entry.demand.hebrew}</p>
+                      )}
+                      {entry.demand?.thai && (
+                        <p className="text-gray-700 mt-1" dir="ltr">{entry.demand.thai}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* General Items */}
             <div className="mt-6">
@@ -1242,13 +1485,57 @@ const DeliveryManagementV3 = () => {
               </div>
             </div>
           </div>
-        ))
+          );
+        })
       )}
+      {/* Reorder Modal */}
+      {isReordering && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-60">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale p-6">
+            <h2 className="text-xl font-bold mb-4 text-right">סידור קהילות</h2>
+            <div className="max-h-96 overflow-y-auto space-y-2">
+              {communityOrder.map((spot, idx) => (
+                <div key={spot} className="flex justify-between items-center p-2 border rounded bg-gray-50">
+                  <div className="flex gap-1">
+                    <button onClick={() => {
+                        const newOrder = [...communityOrder];
+                        if (idx < communityOrder.length - 1) {
+                          [newOrder[idx], newOrder[idx+1]] = [newOrder[idx+1], newOrder[idx]];
+                          setCommunityOrder(newOrder);
+                        }
+                    }} disabled={idx === communityOrder.length - 1} className="px-2 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50">↓</button>
+                    <button onClick={() => {
+                        const newOrder = [...communityOrder];
+                        if (idx > 0) {
+                          [newOrder[idx], newOrder[idx-1]] = [newOrder[idx-1], newOrder[idx]];
+                          setCommunityOrder(newOrder);
+                        }
+                    }} disabled={idx === 0} className="px-2 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50">↑</button>
+                  </div>
+                  <span>{spot}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setIsReordering(false)} className="mt-4 w-full bg-blue-600 text-white py-2 rounded font-bold">סיום</button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Next Button */}
+      <button
+        onClick={scrollToNextIncomplete}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-yellow-500 hover:bg-yellow-600 text-white rounded-full shadow-2xl flex items-center justify-center z-40 transition-transform transform hover:scale-110 border-4 border-white"
+        title="Go to next incomplete"
+      >
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+        </svg>
+      </button>
     </div>
   );
 };
 
-export default DeliveryManagementV3;
+export default DeliveryManagementV4;
 
 
 

@@ -53,6 +53,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'ניהול משלוחים V4 (חדש)',
+    description: 'גרסה V4 עם מספרים קבועים וסנכרון אונליין/אופליין',
+    to: '/admin/delivery-v4',
+    featured: true
+  },
+  {
     title: 'משלוחים וחלוקה (חדש)',
     description: 'ממשק נוח לניהול חלוקה ומשלוחים לפי קהילות',
     to: '/admin/deliveries',
