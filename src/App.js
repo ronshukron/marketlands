@@ -56,6 +56,7 @@ import WeeklyOrderSummaryV2 from './components/admin/WeeklyOrderSummaryV2';
 import DeliveryManagementV2 from './components/admin/DeliveryManagementV2';
 import DeliveryManagementV3 from './components/admin/DeliveryManagementV3';
 import DeliveryManagementV4 from './components/admin/DeliveryManagmentV4';
+import DeliveryManagementV5 from './components/adminV5/deliveryWeighingV5/DeliveryManagementV5';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
 import { SaleModeProvider } from './contexts/SaleModeContext';
 import CreateIndependentOrderForm from './components/independent/CreateIndependentOrderForm';
@@ -66,6 +67,7 @@ import IndependentOrderConfirmation from './components/independent/IndependentOr
 import MyVolunteerSpots from './components/independent/MyVolunteerSpots';
 import IndependentBusinessDashboard from './components/independent/IndependentBusinessDashboard';
 import IndependentOrderDetail from './components/independent/IndependentOrderDetail';
+import OrderConfirmationDelayed from './components/delayedPayment/OrderConfirmationDelayed';
 import AdminDashboard from './components/admin/AdminDashboard';
 import ProductApprovals from './components/admin/ProductApprovals';
 import IndependentOrdersAdmin from './components/admin/IndependentOrdersAdmin';
@@ -100,6 +102,7 @@ const App = () => {
                   <Route path="/order-form/:orderId" element={<OrderForm />} />
                   <Route path="/order-summary/:orderId" element={<OrderSummary />} />
                   <Route path="/order-confirmation" element={<OrderConfirmation />} />
+                  <Route path="/order-confirmation-delayed" element={<OrderConfirmationDelayed />} />
                   <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
                   <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
                   <Route path="/contact" element={<Contact />} />
@@ -135,6 +138,7 @@ const App = () => {
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
                   <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />
                   <Route path="/admin/delivery-v4" element={<DeliveryManagementV4 />} />
+                  <Route path="/admin/delivery-v5" element={<DeliveryManagementV5 />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
                   <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
                   <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />
