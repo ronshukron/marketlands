@@ -179,7 +179,10 @@ const OrderForm = () => {
             });
             return;
         }
-        navigate('/order-confirmation', { state: { cartProducts, userName, orderId } });
+        // navigate('/order-confirmation', { state: { cartProducts, userName, orderId } });
+        // TEMP (testing): route checkout to delayed-payment confirmation
+        navigate('/order-confirmation-delayed', { state: { cartProducts, userName, orderId } });
+
     };
 
     const checkIfOrderEnded = async () => {

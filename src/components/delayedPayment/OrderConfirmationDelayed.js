@@ -11,12 +11,21 @@ import { useAuth } from '../../contexts/authContext';
 import { useCart } from '../../contexts/CartContext';
 import { pickupSpots, pickupSpotsData } from '../../data/pickupSpots';
 import { createGrowSuspendedPaymentProcess } from './delayedPaymentService';
+import { functionsEndpoint } from '../../utils/functionsClient';
 
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
 const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
 // Shipping product id in Firestore
 const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
+
+// ------------------------------------------------------------------
+// HOLD BUFFER: % extra to hold on the customer's credit card (J5).
+// e.g. 15 means hold 115% of order total so final weighing can go up.
+// ------------------------------------------------------------------
+const HOLD_BUFFER_PERCENT = 15;
+// Catalog number for the buffer line item (weighing safety margin)
+const BUFFER_LINE_CATALOG_NUMBER = process.env.REACT_APP_BUFFER_LINE_CATALOG_NUMBER || '999003';
 
 /**
  * Delayed-payment variant of OrderConfirmation.
@@ -459,7 +468,8 @@ const OrderConfirmationDelayed = () => {
                         quantity: item.quantity,
                         price: item.price,
                         selectedOption: item.selectedOption || "None",
-                        catalogNumber: item.catalogNumber,
+                        // Firestore does not allow undefined values anywhere in the document.
+                        catalogNumber: item.catalogNumber || '',
                         vatType: item.vatType ?? 3,
                         isShipping: item.isShipping === true
                     });
@@ -491,7 +501,8 @@ const OrderConfirmationDelayed = () => {
                 deliveryDetails: {
                     type: deliveryOption,
                     boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                    deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData?.deliveryFee : 0,
+                    // Avoid writing undefined if selectedSpotData is missing.
+                    deliveryFee: deliveryOption === 'homeDelivery' ? (Number(selectedSpotData?.deliveryFee) || 0) : 0,
                 }
             },
             businessIds: businessIds,
@@ -501,11 +512,13 @@ const OrderConfirmationDelayed = () => {
             grandTotal: totalWithDelivery,
             // Delayed-order fields (safe client-side fields)
             isDelayedOrder: true,
-            delayedOrderStatus: 'pending_weighing', // later: you will refine statuses
+            delayedOrderStatus: 'created_in_fe', // later: you will refine statuses
             delayedPayment: {
                 provider: 'grow',
                 chargeType: 2, // suspended charge (J5)
-                status: 'created'
+                status: 'created',
+                holdBufferPercent: HOLD_BUFFER_PERCENT,
+                holdSum: Math.round(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100
             },
             // If user is logged in, store their ID
             userId: currentUser?.uid || null
@@ -532,9 +545,12 @@ const OrderConfirmationDelayed = () => {
         try {
             // Call backend to create Grow (J5) payment process.
             // Backend MUST be the one calling Grow.
+            // Hold extra buffer so final weighing can exceed estimate.
+            const holdAmount = Math.round(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100;
+
             const paymentData = {
                 mode: 'weekly_delayed',
-                amount: totalWithDelivery,
+                amount: holdAmount,
                 userName,
                 userPhone,
                 userEmail,
@@ -549,18 +565,34 @@ const OrderConfirmationDelayed = () => {
 
             // Add product data for each item in the cart (invoice context)
             let productIndex = 0;
+            let productLinesSum = 0;
             Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
                 orderData.items.forEach(item => {
                     if (item.quantity > 0) {
+                        const linePrice = Math.round(item.quantity * item.price * 100) / 100;
                         paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
                         paymentData[`productData[${productIndex}][quantity]`] = item.quantity;
-                        paymentData[`productData[${productIndex}][price]`] = item.quantity * item.price;
+                        paymentData[`productData[${productIndex}][price]`] = linePrice;
                         paymentData[`productData[${productIndex}][itemDescription]`] = item.name || item.productName || 'Unknown Item';
                         paymentData[`productData[${productIndex}][vatType]`] = item.vatType ?? 3;
+                        productLinesSum += linePrice;
                         productIndex++;
                     }
                 });
             });
+
+            // Add buffer line so product lines sum == holdAmount
+            const bufferAmount = Math.round((holdAmount - productLinesSum) * 100) / 100;
+            if (bufferAmount > 0) {
+                paymentData[`productData[${productIndex}][catalogNumber]`] = BUFFER_LINE_CATALOG_NUMBER;
+                paymentData[`productData[${productIndex}][quantity]`] = 1;
+                paymentData[`productData[${productIndex}][price]`] = bufferAmount;
+                paymentData[`productData[${productIndex}][itemDescription]`] = 'מרווח ביטחון לשקילה (יוחזר/יופחת לפי משקל בפועל)';
+                paymentData[`productData[${productIndex}][vatType]`] = 3; // exempt
+                productIndex++;
+            }
+
+            console.log('paymentData', paymentData);
     
             const paymentResponse = await createGrowSuspendedPaymentProcess(paymentData);
     
@@ -696,7 +728,7 @@ const OrderConfirmationDelayed = () => {
                     deliveryDetails: {
                         type: deliveryOption,
                         boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                        deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 0,
+                    deliveryFee: deliveryOption === 'homeDelivery' ? (Number(selectedSpotData?.deliveryFee) || 0) : 0,
                     }
                 },
                 businessIds: businessIds,
@@ -859,8 +891,14 @@ const OrderConfirmationDelayed = () => {
     const checkAndUpdateStock = async (orderItems) => {
         try {
             // Call the backend function instead of performing the transaction in the frontend
-            // Prod Environment
-            const response = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock', {
+            // For testing with the Functions emulator, force local endpoint when requested.
+            // Set REACT_APP_FORCE_FUNCTIONS_LOCAL=true to always use emulator even if hostname isn't localhost.
+            const forceLocal = process.env.REACT_APP_FORCE_FUNCTIONS_LOCAL === 'true';
+            const url = forceLocal
+              ? 'http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock'
+              : functionsEndpoint('checkAndUpdateStock');
+
+            const response = await axios.post(url, {
                 orderItems
             }, {
                 headers: {
@@ -1082,11 +1120,15 @@ const OrderConfirmationDelayed = () => {
                     {/* Order Total - SECOND */}
                     <div className="mb-6 bg-gradient-to-r from-purple-50 to-purple-100 p-4 sm:p-6 rounded-lg border-2 border-purple-200">
                         <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-lg sm:text-2xl font-bold text-gray-900">סה"כ למסגרת (J5):</span>
+                            <span className="text-lg sm:text-2xl font-bold text-gray-900">סה"כ הזמנה:</span>
                             <span className="text-xl sm:text-3xl font-bold text-purple-700 whitespace-nowrap">{totalWithDelivery.toFixed(2)}₪</span>
                         </div>
+                        <div className="flex items-baseline justify-between gap-3 mt-2">
+                            <span className="text-sm sm:text-base text-gray-700">מסגרת אשראי (כולל {HOLD_BUFFER_PERCENT}% מרווח):</span>
+                            <span className="text-base sm:text-lg font-semibold text-gray-700 whitespace-nowrap">{(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100)).toFixed(2)}₪</span>
+                        </div>
                         <p className="text-xs sm:text-sm text-gray-600 mt-2">
-                            זהו סכום המסגרת (J5). החיוב הסופי יתבצע לאחר שקילה ביום המשלוח.
+                            נחזיק מסגרת גבוהה יותר למקרה שהמשקל הסופי יעלה על ההערכה. החיוב בפועל יהיה לפי השקילה ביום המשלוח.
                         </p>
                     </div>
 
@@ -1110,7 +1152,9 @@ const OrderConfirmationDelayed = () => {
                             disabled={!agreeToTerms || !formIsValid}
                             className="w-full bg-purple-700 hover:bg-purple-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-3 sm:py-4 px-4 sm:px-6 rounded-lg text-base sm:text-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-purple-300 shadow-lg"
                         >
-                            {totalWithDelivery === 0 ? 'אישור הזמנה' : `להזנת אשראי (מסגרת J5) - ${totalWithDelivery.toFixed(2)}₪`}
+                            {totalWithDelivery === 0
+                                ? 'אישור הזמנה'
+                                : `להזנת אשראי (מסגרת J5) - עד ${(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100)).toFixed(2)}₪`}
                         </button>
 
                         <button

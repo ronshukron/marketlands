@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { getAuth } from 'firebase/auth';
 import { functionsEndpoint } from '../../../utils/functionsClient';
-import { buildMockDelayedOrders } from './mockDelayedOrders';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
 
@@ -39,7 +38,8 @@ function weekWindowFromKey(weekKey) {
   const start = new Date(sunday);
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
-  end.setDate(start.getDate() + 5);
+  // Include Saturday as well (Sun -> Sat) so weekend orders show up.
+  end.setDate(start.getDate() + 7);
   end.setHours(23, 59, 59, 999);
   return { start, end };
 }
@@ -72,13 +72,13 @@ export async function fetchDelayedOrdersFromCustomerOrders({
   snapshot.forEach((docSnap) => {
     const d = docSnap.data() || {};
 
-    // "Delayed" flag will be added later; until then we keep this flexible.
-    // Include if explicit delayed flag exists OR if still pending payment (most similar to delayed, for now).
+    // Only show orders that are eligible for weighing & settlement:
+    // - paymentStatus must be "held" (customer completed authorization)
+    // - delayedOrderStatus must be "pending_weighing"
     const isDelayed = d.isDelayedOrder === true || d.delayedOrder === true;
-    const isPendingPayment = d.paymentStatus === 'pending_payment' || d.paymentStatus === 'suspended' || d.paymentStatus === 'delayed_pending';
-    const isabandonded = d.status === 'abandoned' && d.paymentStatus === 'pending_payment';
-    if (!isDelayed && !isPendingPayment || isabandonded) return;
-
+    if (!isDelayed) return;
+    if (d.paymentStatus !== 'held') return;
+    if (d.delayedOrderStatus !== 'pending_weighing') return;
     const createdAt = toDateSafe(d.createdAt) || toDateSafe(d.createdAtIso) || toDateSafe(d.updatedAt);
     if (!createdAt) return;
     if (createdAt < window.start || createdAt > window.end) return;
@@ -145,20 +145,21 @@ export async function fetchDelayedOrdersForDeliveryV5({
   weekKey,
   communities = [],
 }) {
-  try {
-    // Phase 1: Use real orders from Firestore.
-    const firestoreOrders = await fetchDelayedOrdersFromCustomerOrders({ weekKey, communities });
-    if (firestoreOrders.length > 0) return firestoreOrders;
-  } catch (e) {
-    console.warn('[DeliveryWeighingV5] Failed to load from Firestore, falling back to mock:', e?.message || e);
-  }
-  return buildMockDelayedOrders({ weekKey, communities });
+  // Use real orders from Firestore only. No mock fallback.
+  return await fetchDelayedOrdersFromCustomerOrders({ weekKey, communities });
 }
 
 export async function handleSuspendedPaymentV5({
   orderId,
   // weightsByLineId: { [lineId]: { actualQuantity, source } }
   weightsByLineId,
+  // finalInvoiceLines: array of items with actual weighed quantities (buffer line excluded)
+  finalInvoiceLines = [],
+  // finalSum: the total amount to charge (sum of finalInvoiceLines[].linePrice)
+  finalSum = 0,
+  // productDataForGrow: ready-to-use Grow productData format { "productData[0][catalogNumber]": "...", ... }
+  // Backend can spread this directly into the Grow J4 request.
+  productDataForGrow = {},
 }) {
   // User request: call "handlesuspendedpayment" backend endpoint when completing the order.
   // We don't yet know the exact deployed function name/contract, so we keep this isolated here.
@@ -166,7 +167,7 @@ export async function handleSuspendedPaymentV5({
   const token = await getIdTokenIfAvailable();
   const { data } = await axios.post(
     url,
-    { orderId, weightsByLineId },
+    { orderId, weightsByLineId, finalInvoiceLines, finalSum, productDataForGrow },
     {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -14,7 +14,9 @@ const Cart = ({ isOpen, onClose }) => {
     }
 
     // Navigate to order confirmation page
-    navigate('/order-confirmation', {
+    // navigate('/order-confirmation', {
+          // TEMP (testing): route checkout to delayed-payment confirmation
+    navigate('/order-confirmation-delayed', {
       state: {
         cartProducts: cartItems,
       },
