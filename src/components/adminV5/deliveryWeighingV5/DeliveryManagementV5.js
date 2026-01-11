@@ -391,12 +391,13 @@ export default function DeliveryManagementV5() {
       setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? { ...o, status: 'settling' } : o)));
 
       // Build final invoice lines: real products with weighed quantities, excluding buffer line.
+      // No rounding here - send precise values (up to 10 decimals), backend will round.
       const finalInvoiceLines = items
         .filter((it) => it.catalogNumber !== BUFFER_LINE_CATALOG_NUMBER)
         .map((it) => {
           const weighed = weightsByLineId[it.lineId];
           const actualQty = weighed?.actualQuantity ?? it.requestedQuantity;
-          const linePrice = Math.round(actualQty * (it.pricePerUnit || 0) * 100) / 100;
+          const linePrice = actualQty * (it.pricePerUnit || 0); // NO ROUNDING - backend rounds
           return {
             lineId: it.lineId,
             productId: it.productId,
@@ -410,8 +411,8 @@ export default function DeliveryManagementV5() {
           };
         });
 
-      // Calculate final sum based on weighed quantities
-      const finalSum = Math.round(finalInvoiceLines.reduce((acc, li) => acc + li.linePrice, 0) * 100) / 100;
+      // Calculate final sum based on weighed quantities - NO ROUNDING, backend will round
+      const finalSum = finalInvoiceLines.reduce((acc, li) => acc + li.linePrice, 0);
 
       // Build productData in exact Grow format for backend to pass through.
       // IMPORTANT: quantity = ACTUAL weighed quantity, price = line total
