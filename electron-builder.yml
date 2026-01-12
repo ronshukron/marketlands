@@ -1,0 +1,99 @@
+# Electron Builder Configuration
+# Windows-only build configuration for B2C Desktop App
+
+appId: com.b2c.desktop
+productName: B2C Desktop
+copyright: Copyright © 2024
+
+# Directories
+directories:
+  output: dist-electron
+  buildResources: build
+
+# Files to include in the build (with exclusions)
+files:
+  - build/**/*
+  - electron/**/*
+  - node_modules/**/*
+  - package.json
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/*.d.ts"
+  - "!**/node_modules/.bin"
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+  - "!.editorconfig"
+  - "!**/._*"
+  - "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}"
+  - "!**/{thumbs.db,ehthumbs.db,Desktop.ini,$RECYCLE.BIN}"
+
+# Extra resources (copied as-is)
+extraResources:
+  - from: "build/"
+    to: "build/"
+    filter:
+      - "**/*"
+
+# Windows-specific configuration
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: build/favicon.ico
+  artifactName: "${productName}-${version}-Setup.${ext}"
+
+# NSIS installer configuration
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  installerIcon: build/favicon.ico
+  uninstallerIcon: build/favicon.ico
+  installerHeaderIcon: build/favicon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: B2C Desktop
+  include: null
+  script: null
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+
+# Portable configuration
+portable:
+  artifactName: "${productName}-${version}-Portable.${ext}"
+
+# Auto-update configuration
+publish:
+  - provider: github
+    owner: YOUR_GITHUB_USERNAME
+    repo: YOUR_REPO_NAME
+    releaseType: release
+
+# Build options
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - "**/node_modules/serialport/**/*"
+  - "**/node_modules/@serialport/**/*"
+
+# Compression
+compression: normal
+
+# Remove package scripts
+removePackageScripts: true
+
+# Build version from package.json
+buildVersion: null
+
+# Electron version (auto-detected from node_modules)
+electronVersion: null
+
+# Native module rebuild
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+
+# Extend default configuration
+extends: null

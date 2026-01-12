@@ -26,3 +26,13 @@ yarn-error.log*
 .firebase/
 .firebase/hosting.YnVpbGQ.cache
 firebase-debug.log
+
+# Electron build outputs
+/dist-electron
+*.exe
+*.msi
+*.nsis
+*.blockmap
+
+# Native module rebuild artifacts
+*.node
