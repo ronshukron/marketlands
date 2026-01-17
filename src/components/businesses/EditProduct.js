@@ -30,7 +30,8 @@ const EditProduct = () => {
     stockAmount: 0,
     merchantPrice: '',
     vatType: 3,
-    thaiName: ''
+    thaiName: '',
+    measurementType: 'kg' // 'kg' or 'unit'
   });
   const [isIndependent, setIsIndependent] = useState(false);
 
@@ -68,7 +69,8 @@ const EditProduct = () => {
             stockAmount: data.stockAmount || 0,
             merchantPrice: data.merchantPrice != null ? String(data.merchantPrice) : '',
             vatType: data.vatType ?? 3,
-            thaiName: data.thaiName || ''
+            thaiName: data.thaiName || '',
+            measurementType: data.measurementType || 'kg' // default to kg if not set
           });
           
           // Set existing images if available
@@ -228,6 +230,7 @@ const handleSubmit = async (e) => {
       options,
       images: updatedImages, // Update the Firestore with the new images array
       stockAmount: formData.stockAmount, // Include stock amount
+      measurementType: formData.measurementType || 'kg',
       ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
       ...(formData.category !== '' ? { category: formData.category } : {}),
       ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {})
@@ -357,6 +360,33 @@ const handleSubmit = async (e) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-600 cursor-not-allowed"
             />
             <p className="mt-1 text-xs text-gray-500">לא ניתן לשנות את סוג המע"מ לאחר יצירת המוצר.</p>
+          </div>
+
+          {/* Measurement Type */}
+          <div className="mb-4">
+            <label htmlFor="measurementType" className="block text-sm font-medium text-gray-700 mb-1">
+              נמדד לפי
+            </label>
+            <select
+              id="measurementType"
+              name="measurementType"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={formData.measurementType}
+              onChange={(e) => 
+                setFormData({
+                  ...formData,
+                  measurementType: e.target.value
+                })
+              }
+            >
+              <option value="kg">ק"ג (משקל)</option>
+              <option value="unit">יחידה / מארז / חבילה</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {formData.measurementType === 'kg' 
+                ? 'המוצר יישקל ביום המשלוח והחיוב יהיה לפי המשקל בפועל.'
+                : 'המוצר נמכר ביחידות/מארזים - לא יישקל, רק ייספר.'}
+            </p>
           </div>
 
           {/* Category */}

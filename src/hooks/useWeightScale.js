@@ -351,3 +351,4 @@ export function useAutoUpdater() {
 
 export default useWeightScale;
 
+

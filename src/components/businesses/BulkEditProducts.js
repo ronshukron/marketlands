@@ -46,7 +46,8 @@ const BulkEditProducts = () => {
             stockAmount: product.stockAmount || 0,
             merchantPrice: product.merchantPrice || '',
             category: product.category || '',
-            thaiName: product.thaiName || ''
+            thaiName: product.thaiName || '',
+            measurementType: product.measurementType || 'kg' // default to kg
           };
         });
         setEditedProducts(initialEdits);
@@ -85,7 +86,8 @@ const BulkEditProducts = () => {
         Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
         (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
         edited.category !== (product.category || '') ||
-        edited.thaiName !== (product.thaiName || '')
+        edited.thaiName !== (product.thaiName || '') ||
+        edited.measurementType !== (product.measurementType || 'kg')
       );
     });
   };
@@ -126,14 +128,16 @@ const BulkEditProducts = () => {
           Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
           (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
           edited.category !== (product.category || '') ||
-          edited.thaiName !== (product.thaiName || '')
+          edited.thaiName !== (product.thaiName || '') ||
+          edited.measurementType !== (product.measurementType || 'kg')
         );
 
         if (hasProductChanges) {
           const productRef = doc(db, 'Products', product.id);
           const updates = {
             price: Number(edited.price),
-            stockAmount: Number(edited.stockAmount)
+            stockAmount: Number(edited.stockAmount),
+            measurementType: edited.measurementType || 'kg'
           };
           
           if (edited.merchantPrice !== '') {
@@ -202,7 +206,8 @@ const BulkEditProducts = () => {
         stockAmount: product.stockAmount || 0,
         merchantPrice: product.merchantPrice || '',
         category: product.category || '',
-        thaiName: product.thaiName || ''
+        thaiName: product.thaiName || '',
+        measurementType: product.measurementType || 'kg'
       };
     });
     setEditedProducts(initialEdits);
@@ -296,6 +301,9 @@ const BulkEditProducts = () => {
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     קטגוריה
                   </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    נמדד לפי
+                  </th>
                   {!isIndependent && (
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       ชื่อภาษาไทย
@@ -317,7 +325,8 @@ const BulkEditProducts = () => {
                     Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
                     (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
                     edited.category !== (product.category || '') ||
-                    edited.thaiName !== (product.thaiName || '')
+                    edited.thaiName !== (product.thaiName || '') ||
+                    edited.measurementType !== (product.measurementType || 'kg')
                   );
 
                   return (
@@ -384,6 +393,16 @@ const BulkEditProducts = () => {
                           <option value="פירות">פירות</option>
                           <option value="ירוקים">ירוקים</option>
                           <option value="אחר">אחר</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <select
+                          value={edited.measurementType}
+                          onChange={(e) => handleFieldChange(product.id, 'measurementType', e.target.value)}
+                          className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        >
+                          <option value="kg">ק"ג</option>
+                          <option value="unit">יחידה</option>
                         </select>
                       </td>
                       {!isIndependent && (

@@ -26,6 +26,7 @@ const AddProduct = () => {
   const [vatType, setVatType] = useState(3);
   const [merchantPrice, setMerchantPrice] = useState('');
   const [thaiName, setThaiName] = useState('');
+  const [measurementType, setMeasurementType] = useState('kg'); // 'kg' or 'unit'
   const [isIndependent, setIsIndependent] = useState(false);
 
   // Fetch isIndependent status
@@ -181,6 +182,7 @@ const AddProduct = () => {
         createdAt: new Date(),
         catalogNumber: response.data.catalogNumber,
         vatType: Number(vatType),
+        measurementType: measurementType, // 'kg' or 'unit'
         ...(merchantPrice !== '' ? { merchantPrice: parseFloat(merchantPrice) } : {}),
         ...(thaiName !== '' ? { thaiName: thaiName } : {}),
         verified: false,
@@ -319,6 +321,28 @@ const AddProduct = () => {
               <option value={3}>פטור ממע"מ (פירות/ירקות לא מעובדים)</option>
               <option value={1}>חייב במע"מ (למשל דבש/משלוח/מוצרים מעובדים)</option>
             </select>
+          </div>
+
+          {/* Measurement Type */}
+          <div>
+            <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="measurementType">
+              נמדד לפי
+            </label>
+            <select
+              id="measurementType"
+              name="measurementType"
+              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              value={measurementType}
+              onChange={(e) => setMeasurementType(e.target.value)}
+            >
+              <option value="kg">ק"ג (משקל)</option>
+              <option value="unit">יחידה / מארז / חבילה</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {measurementType === 'kg' 
+                ? 'המוצר יישקל ביום המשלוח והחיוב יהיה לפי המשקל בפועל.'
+                : 'המוצר נמכר ביחידות/מארזים - לא יישקל, רק ייספר.'}
+            </p>
           </div>
 
           {/* Thai Name - Only for non-independent farmers */}

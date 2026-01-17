@@ -8,6 +8,7 @@ import { pickupSpots } from '../../../data/pickupSpots';
 import { fetchDelayedOrdersForDeliveryV5, handleSuspendedPaymentV5 } from './api';
 import WeighItemModal from './WeighItemModal';
 import { loadWeighingState, upsertOrderWeighing } from './storage';
+import ScaleConnectionPanel from '../../scale/ScaleConnectionPanel';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
@@ -22,10 +23,12 @@ function weekKeyToRangeLabel(weekKey) {
   return `${format(sunday, 'dd/MM/yyyy')} - ${format(saturday, 'dd/MM/yyyy')}`;
 }
 
-function getNextUnweighedIndex(items = [], weightsByLineId = {}) {
+function getNextUnweighedIndex(items = [], weightsByLineId = {}, removedLineIds = {}) {
   for (let i = 0; i < items.length; i++) {
     const lineId = items[i]?.lineId;
     if (!lineId) continue;
+    // Skip removed items
+    if (removedLineIds[lineId]) continue;
     if (!weightsByLineId?.[lineId]?.actualQuantity) return i;
   }
   return -1;
@@ -57,6 +60,9 @@ export default function DeliveryManagementV5() {
   // Thai workers helpers: product images + Thai name, and customer numbering (like V4)
   const [productDetails, setProductDetails] = useState({});
   const [permanentNumbersMap, setPermanentNumbersMap] = useState({});
+
+  // Scale panel visibility
+  const [showScalePanel, setShowScalePanel] = useState(false);
 
   useEffect(() => {
     const handler = (e) => {
@@ -136,6 +142,7 @@ export default function DeliveryManagementV5() {
           images: Array.isArray(d.images) ? d.images : [],
           thaiName: d.thaiName || '',
           name: d.name || '',
+          measurementType: d.measurementType || 'kg', // default to kg if not set
         };
       } catch (e) {
         // non-fatal
@@ -245,6 +252,7 @@ export default function DeliveryManagementV5() {
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) || null, [orders, selectedOrderId]);
   const selectedOrderSaved = useMemo(() => (selectedWeek && selectedOrderId ? (weighingState.byOrderId?.[selectedOrderId] || {}) : {}), [weighingState, selectedWeek, selectedOrderId]);
   const weightsByLineId = selectedOrderSaved.weightsByLineId || {};
+  const removedLineIds = selectedOrderSaved.removedLineIds || {};
 
   const items = useMemo(() => {
     const base = selectedOrder?.items || [];
@@ -254,11 +262,14 @@ export default function DeliveryManagementV5() {
         ...it,
         thaiName: pd?.thaiName || it?.thaiName || '',
         images: pd?.images || it?.images || [],
+        measurementType: pd?.measurementType || it?.measurementType || 'kg', // default to kg
       };
     });
   }, [selectedOrder, productDetails]);
-  const nextIdx = useMemo(() => getNextUnweighedIndex(items, weightsByLineId), [items, weightsByLineId]);
-  const canComplete = items.length > 0 && nextIdx === -1;
+  // Count non-removed items
+  const activeItems = useMemo(() => items.filter((it) => !removedLineIds[it.lineId]), [items, removedLineIds]);
+  const nextIdx = useMemo(() => getNextUnweighedIndex(items, weightsByLineId, removedLineIds), [items, weightsByLineId, removedLineIds]);
+  const canComplete = activeItems.length > 0 && nextIdx === -1;
 
   useEffect(() => {
     if (!selectedOrder) return;
@@ -270,6 +281,8 @@ export default function DeliveryManagementV5() {
     if (!selectedOrder) return;
     const it = items[idx];
     if (!it) return;
+    // Don't open modal for removed items
+    if (removedLineIds[it.lineId]) return;
 
     // mark in-progress
     const updated = upsertOrderWeighing({
@@ -282,6 +295,35 @@ export default function DeliveryManagementV5() {
 
     setActiveItemIndex(idx);
     setWeighModalOpen(true);
+  };
+
+  const removeItem = (lineId) => {
+    if (!selectedOrder || !lineId) return;
+    const updated = upsertOrderWeighing({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      patch: {
+        removedLineIds: {
+          ...removedLineIds,
+          [lineId]: true,
+        },
+      },
+    });
+    setWeighingState(updated);
+  };
+
+  const restoreItem = (lineId) => {
+    if (!selectedOrder || !lineId) return;
+    const newRemoved = { ...removedLineIds };
+    delete newRemoved[lineId];
+    const updated = upsertOrderWeighing({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      patch: {
+        removedLineIds: newRemoved,
+      },
+    });
+    setWeighingState(updated);
   };
 
   const confirmWeight = (payload) => {
@@ -352,6 +394,9 @@ export default function DeliveryManagementV5() {
     let actualSum = 0;
 
     for (const it of items) {
+      // Skip removed items
+      if (removedLineIds[it.lineId]) continue;
+
       const req = Number(it.requestedQuantity || 0);
       const price = Number(it.pricePerUnit || 0);
       requestedTotal += req;
@@ -369,7 +414,7 @@ export default function DeliveryManagementV5() {
     };
   };
 
-  const totals = useMemo(() => computeTotals(), [items, weightsByLineId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const totals = useMemo(() => computeTotals(), [items, weightsByLineId, removedLineIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const completeOrder = async () => {
     if (!selectedOrder) return;
@@ -390,14 +435,15 @@ export default function DeliveryManagementV5() {
       setWeighingState(updatedSettling);
       setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? { ...o, status: 'settling' } : o)));
 
-      // Build final invoice lines: real products with weighed quantities, excluding buffer line.
+      // Build final invoice lines: real products with weighed quantities, excluding buffer line and removed items.
       // No rounding here - send precise values (up to 10 decimals), backend will round.
       const finalInvoiceLines = items
-        .filter((it) => it.catalogNumber !== BUFFER_LINE_CATALOG_NUMBER)
+        .filter((it) => it.catalogNumber !== BUFFER_LINE_CATALOG_NUMBER && !removedLineIds[it.lineId])
         .map((it) => {
           const weighed = weightsByLineId[it.lineId];
           const actualQty = weighed?.actualQuantity ?? it.requestedQuantity;
           const linePrice = actualQty * (it.pricePerUnit || 0); // NO ROUNDING - backend rounds
+          const measurementType = it.measurementType || 'kg'; // default to kg
           return {
             lineId: it.lineId,
             productId: it.productId,
@@ -408,27 +454,40 @@ export default function DeliveryManagementV5() {
             actualQuantity: actualQty,
             pricePerUnit: it.pricePerUnit || 0,
             linePrice,
+            measurementType, // 'kg' or 'unit'
           };
         });
 
       // Calculate final sum based on weighed quantities - NO ROUNDING, backend will round
       const finalSum = finalInvoiceLines.reduce((acc, li) => acc + li.linePrice, 0);
 
-      // Build productData in exact Grow format for backend to pass through.
-      // IMPORTANT: quantity = ACTUAL weighed quantity, price = line total
-      // So Grow calculates: price/quantity = correct per-unit price
+      // Build productData for Grow receipt.
+      // Grow doesn't support decimal quantities, so we use:
+      // - quantity: 1
+      // - price: linePrice (total for this item)
+      // - itemDescription: "productName X.XXX ק"ג" or "productName X יח'" (includes actual qty in name)
       const productDataForGrow = {};
       finalInvoiceLines.forEach((li, idx) => {
+        let descriptionWithQty;
+        if (li.measurementType === 'unit') {
+          // Unit items: show as "productName X יח'"
+          descriptionWithQty = `${li.productName} ${Number(li.actualQuantity)} יח'`;
+        } else {
+          // Weight items: show as "productName X.XXX ק"ג"
+          const weightStr = Number(li.actualQuantity).toFixed(3);
+          descriptionWithQty = `${li.productName} ${weightStr} ק"ג`;
+        }
         productDataForGrow[`productData[${idx}][catalogNumber]`] = li.catalogNumber;
-        productDataForGrow[`productData[${idx}][quantity]`] = li.actualQuantity; // WEIGHED quantity
+        productDataForGrow[`productData[${idx}][quantity]`] = 1; // Always 1 (Grow doesn't support decimals)
         productDataForGrow[`productData[${idx}][price]`] = li.linePrice; // LINE TOTAL
-        productDataForGrow[`productData[${idx}][itemDescription]`] = li.productName;
+        productDataForGrow[`productData[${idx}][itemDescription]`] = descriptionWithQty;
         productDataForGrow[`productData[${idx}][vatType]`] = li.vatType;
       });
 
       console.log('=== handleSuspendedPayment DEBUG ===');
       console.log('orderId:', selectedOrder.id);
       console.log('weightsByLineId:', weightsByLineId);
+      console.log('removedLineIds:', removedLineIds);
       console.log('finalInvoiceLines:', finalInvoiceLines);
       console.log('finalSum (should charge this amount):', finalSum);
       console.log('productDataForGrow (pass to Grow J4):', productDataForGrow);
@@ -437,6 +496,7 @@ export default function DeliveryManagementV5() {
       const res = await handleSuspendedPaymentV5({
         orderId: selectedOrder.id,
         weightsByLineId,
+        removedLineIds,
         finalInvoiceLines,
         finalSum,
         productDataForGrow,
@@ -493,10 +553,27 @@ export default function DeliveryManagementV5() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Delivery Management V5 — שקילת פריטים</h1>
             <p className="text-sm text-gray-600 mt-1">
-              דף חדש ועצמאי: שוקלים פריטים לפני השלמת חיוב (כרגע עם קריאת משקל Placeholder + הזנה ידנית).
+              דף חדש ועצמאי: שוקלים פריטים לפני השלמת חיוב.
             </p>
           </div>
+          <button
+            onClick={() => setShowScalePanel(!showScalePanel)}
+            className={`px-4 py-2 rounded-lg font-bold transition-colors ${
+              showScalePanel 
+                ? 'bg-green-600 text-white hover:bg-green-700' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            ⚖️ {showScalePanel ? 'הסתר משקל' : 'הצג משקל (BEP)'}
+          </button>
         </div>
+
+        {/* Scale Connection Panel */}
+        {showScalePanel && (
+          <div className="mb-6">
+            <ScaleConnectionPanel className="max-w-md" />
+          </div>
+        )}
 
         {/* Filters */}
         <div className="bg-white rounded-lg shadow p-5 mb-6">
@@ -698,67 +775,116 @@ export default function DeliveryManagementV5() {
                   </div>
 
                   <div className="border rounded-lg overflow-hidden">
-                    <div className="bg-gray-100 px-4 py-2 text-sm font-bold text-gray-800">פריטים</div>
+                    <div className="bg-gray-100 px-4 py-2 text-sm font-bold text-gray-800">פריטים ({activeItems.length}/{items.length})</div>
                     <div className="divide-y">
                       {items.map((it, idx) => {
                         const weighed = weightsByLineId?.[it.lineId]?.actualQuantity;
+                        const isRemoved = !!removedLineIds[it.lineId];
                         const isNext = nextIdx === idx;
                         const isActive = activeItemIndex === idx;
                         const title = it.thaiName ? it.thaiName : it.productName;
                         return (
-                          <button
+                          <div
                             key={it.lineId || idx}
-                            type="button"
-                            onClick={() => openWeighForIndex(idx)}
-                            className={`w-full text-right px-4 py-3 hover:bg-gray-50 transition-colors ${
-                              isActive ? 'bg-blue-50' : ''
+                            className={`w-full text-right px-4 py-3 transition-colors ${
+                              isRemoved ? 'bg-red-50 opacity-60' : isActive ? 'bg-blue-50' : 'hover:bg-gray-50'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-4">
+                              <button
+                                type="button"
+                                onClick={() => !isRemoved && openWeighForIndex(idx)}
+                                disabled={isRemoved}
+                                className="flex items-start gap-4 flex-1 text-right"
+                              >
                                 {it.images && it.images.length > 0 ? (
                                   <img
                                     src={it.images[0]}
                                     alt={title}
-                                    className="w-24 h-24 rounded-lg object-cover border border-gray-200 flex-shrink-0"
+                                    className={`w-24 h-24 rounded-lg object-cover border border-gray-200 flex-shrink-0 ${isRemoved ? 'grayscale' : ''}`}
                                   />
                                 ) : (
                                   <div className="w-24 h-24 rounded-lg bg-gray-100 border border-gray-200 flex-shrink-0" />
                                 )}
                                 <div className="min-w-0">
-                                  <div className="font-bold text-gray-900">
+                                  <div className={`font-bold ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                                     {title}
-                                    {isNext && (
+                                    {isRemoved && (
+                                      <span className="ml-2 text-xs px-2 py-0.5 rounded bg-red-100 border border-red-200 text-red-700 no-underline">
+                                        הוסר / ลบแล้ว
+                                      </span>
+                                    )}
+                                    {!isRemoved && isNext && (
                                       <span className="ml-2 text-xs px-2 py-0.5 rounded bg-yellow-100 border border-yellow-200 text-yellow-900">
                                         הבא לשקילה
                                       </span>
                                     )}
                                   </div>
                                   {it.thaiName && (
-                                    <div className="text-xs text-gray-500 mt-0.5">{it.productName}</div>
+                                    <div className={`text-xs mt-0.5 ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-500'}`}>{it.productName}</div>
                                   )}
-                                  <div className="text-xs text-gray-600 mt-1">
-                                    הוזמן: <span className="font-semibold">{Number(it.requestedQuantity || 0).toFixed(3)}</span> ק"ג
-                                    {' '}• מחיר לק"ג: <span className="font-semibold">₪{Number(it.pricePerUnit || 0).toFixed(2)}</span>
+                                  <div className={`text-xs mt-1 ${isRemoved ? 'text-gray-400' : 'text-gray-600'}`}>
+                                    {it.measurementType === 'unit' ? (
+                                      <>
+                                        הוזמן: <span className="font-semibold">{Number(it.requestedQuantity || 0)}</span> יח'
+                                        {' '}• מחיר ליחידה: <span className="font-semibold">₪{Number(it.pricePerUnit || 0).toFixed(2)}</span>
+                                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">יחידה</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        הוזמן: <span className="font-semibold">{Number(it.requestedQuantity || 0).toFixed(3)}</span> ק"ג
+                                        {' '}• מחיר לק"ג: <span className="font-semibold">₪{Number(it.pricePerUnit || 0).toFixed(2)}</span>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
-                              </div>
-                              <div className="text-right">
-                                <div className={`text-sm font-bold ${weighed ? 'text-green-700' : 'text-gray-500'}`}>
-                                  {weighed ? `${Number(weighed).toFixed(3)} ק"ג` : 'לא נשקל'}
-                                </div>
-                                <div className="text-xs text-gray-500 mt-0.5">
-                                  {weighed ? (
-                                    weightsByLineId?.[it.lineId]?.source === 'scale_placeholder'
-                                      ? 'סקייל (placeholder)'
-                                      : weightsByLineId?.[it.lineId]?.source === 'ordered_default'
-                                        ? 'כמות שהוזמנה'
-                                        : 'ידני'
-                                  ) : ''}
-                                </div>
+                              </button>
+                              <div className="text-right flex flex-col items-end gap-2">
+                                {!isRemoved && (
+                                  <>
+                                    <div className={`text-sm font-bold ${weighed ? 'text-green-700' : 'text-gray-500'}`}>
+                                      {weighed 
+                                        ? (it.measurementType === 'unit' 
+                                            ? `${Number(weighed)} יח'` 
+                                            : `${Number(weighed).toFixed(3)} ק"ג`)
+                                        : (it.measurementType === 'unit' ? 'לא אושר' : 'לא נשקל')}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      {weighed ? (
+                                        weightsByLineId?.[it.lineId]?.source === 'scale_placeholder'
+                                          ? 'סקייל (placeholder)'
+                                          : weightsByLineId?.[it.lineId]?.source === 'ordered_default'
+                                            ? 'כמות שהוזמנה'
+                                            : weightsByLineId?.[it.lineId]?.source === 'unit'
+                                              ? 'יחידה (אושר)'
+                                              : 'ידני'
+                                      ) : ''}
+                                    </div>
+                                  </>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isRemoved) {
+                                      restoreItem(it.lineId);
+                                    } else {
+                                      if (window.confirm(`להסיר את "${it.productName}" מההזמנה?\nลบ "${title}" ออกจากคำสั่งซื้อ?`)) {
+                                        removeItem(it.lineId);
+                                      }
+                                    }
+                                  }}
+                                  className={`text-xs px-2 py-1 rounded ${
+                                    isRemoved
+                                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                      : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                  }`}
+                                >
+                                  {isRemoved ? 'החזר / กู้คืน' : 'הסר / ลบ'}
+                                </button>
                               </div>
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>

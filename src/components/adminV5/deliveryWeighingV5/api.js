@@ -153,7 +153,9 @@ export async function handleSuspendedPaymentV5({
   orderId,
   // weightsByLineId: { [lineId]: { actualQuantity, source } }
   weightsByLineId,
-  // finalInvoiceLines: array of items with actual weighed quantities (buffer line excluded)
+  // removedLineIds: { [lineId]: true } - items that were removed (not in stock)
+  removedLineIds = {},
+  // finalInvoiceLines: array of items with actual weighed quantities (buffer line and removed items excluded)
   finalInvoiceLines = [],
   // finalSum: the total amount to charge (sum of finalInvoiceLines[].linePrice)
   finalSum = 0,
@@ -167,7 +169,7 @@ export async function handleSuspendedPaymentV5({
   const token = await getIdTokenIfAvailable();
   const { data } = await axios.post(
     url,
-    { orderId, weightsByLineId, finalInvoiceLines, finalSum, productDataForGrow },
+    { orderId, weightsByLineId, removedLineIds, finalInvoiceLines, finalSum, productDataForGrow },
     {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

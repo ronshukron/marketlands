@@ -455,3 +455,4 @@ const styles = {
 
 export default ScaleConnectionPanel;
 
+

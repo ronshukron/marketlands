@@ -91,3 +91,4 @@ contextBridge.exposeInMainWorld('electron', {
 // Log that preload script has been loaded
 console.log('Electron preload script loaded');
 
+

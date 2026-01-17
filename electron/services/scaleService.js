@@ -340,3 +340,4 @@ class ScaleService extends EventEmitter {
 
 module.exports = ScaleService;
 
+
