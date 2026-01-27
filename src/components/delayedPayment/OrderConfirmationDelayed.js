@@ -11,7 +11,9 @@ import { useAuth } from '../../contexts/authContext';
 import { useCart } from '../../contexts/CartContext';
 import { pickupSpots, pickupSpotsData } from '../../data/pickupSpots';
 import { createGrowSuspendedPaymentProcess } from './delayedPaymentService';
+import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
+import { isDelayedPaymentSpot } from '../../services/paymentConfigService';
 
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
@@ -281,6 +283,38 @@ const OrderConfirmationDelayed = () => {
             validatePickupSpotCompatibility();
         }
     }, [selectedPickupSpot, businessPickupSpots]);
+
+    // Check if user should be redirected to regular checkout when pickup spot changes
+    useEffect(() => {
+        const checkPaymentRoute = async () => {
+            if (!selectedPickupSpot || selectedPickupSpot === '' || selectedPickupSpot === 'הכל') {
+                return; // No spot selected yet
+            }
+            
+            try {
+                const shouldBeDelayed = await isDelayedPaymentSpot(selectedPickupSpot);
+                
+                // If this pickup spot is NOT configured for delayed payment, redirect to regular checkout
+                if (!shouldBeDelayed) {
+                    // Update localStorage with the new pickup spot
+                    localStorage.setItem('selectedPickupSpot', selectedPickupSpot);
+                    
+                    // Navigate to regular order confirmation
+                    navigate('/order-confirmation', {
+                        state: {
+                            cartProducts: cartItems,
+                            redirectedFromDelayed: true
+                        },
+                        replace: true
+                    });
+                }
+            } catch (error) {
+                console.error('Error checking payment route:', error);
+            }
+        };
+        
+        checkPaymentRoute();
+    }, [selectedPickupSpot, navigate, cartItems]);
 
     // Then define the validatePickupSpotCompatibility function
     const validatePickupSpotCompatibility = () => {
@@ -616,15 +650,17 @@ const OrderConfirmationDelayed = () => {
         navigate(`/`);
     };
 
-    const checkIfOrderEnded = async (orderId) => {
+    const checkIfOrderEnded = async (orderId, pickupSpot = null) => {
         try {
             const orderDoc = doc(db, "Orders", orderId);
             const docSnap = await getDoc(orderDoc);
     
             if (docSnap.exists()) {
                 const orderData = docSnap.data();
-                if (orderData.endingTime) {
-                    const endingTime = orderData.endingTime.toDate();
+                // Use per-pickup-spot ending time if available
+                const spotToCheck = pickupSpot || selectedPickupSpot;
+                const endingTime = getEndingTimeForSpot(orderData, spotToCheck);
+                if (endingTime) {
                     const currentTime = new Date();
                     if (currentTime >= endingTime) {
                         return true; // Order has ended
@@ -890,13 +926,14 @@ const OrderConfirmationDelayed = () => {
     // Add a function to check and update product stock levels
     const checkAndUpdateStock = async (orderItems) => {
         try {
-            // Call the backend function instead of performing the transaction in the frontend
-            // For testing with the Functions emulator, force local endpoint when requested.
-            // Set REACT_APP_FORCE_FUNCTIONS_LOCAL=true to always use emulator even if hostname isn't localhost.
-            const forceLocal = process.env.REACT_APP_FORCE_FUNCTIONS_LOCAL === 'true';
-            const url = forceLocal
-              ? 'http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock'
-              : functionsEndpoint('checkAndUpdateStock');
+            // Production: Always use production endpoint
+            const url = functionsEndpoint('checkAndUpdateStock');
+            
+            // Local testing (uncomment to use emulator):
+            // const forceLocal = process.env.REACT_APP_FORCE_FUNCTIONS_LOCAL === 'true';
+            // const url = forceLocal
+            //   ? 'http://127.0.0.1:5001/auth-development-323c3/us-central1/checkAndUpdateStock'
+            //   : functionsEndpoint('checkAndUpdateStock');
 
             const response = await axios.post(url, {
                 orderItems
@@ -928,7 +965,7 @@ const OrderConfirmationDelayed = () => {
         <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
             <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="bg-purple-700 text-white px-6 py-4">
-                    <h1 className="text-2xl font-bold">השלמת הזמנה (תשלום מושהה / J5)</h1>
+                    <h1 className="text-2xl font-bold">השלמת הזמנה </h1>
                 </div>
                 
                 <div className="p-6">
@@ -1154,7 +1191,7 @@ const OrderConfirmationDelayed = () => {
                         >
                             {totalWithDelivery === 0
                                 ? 'אישור הזמנה'
-                                : `להזנת אשראי (מסגרת J5) - עד ${(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100)).toFixed(2)}₪`}
+                                : "לתשלום"}
                         </button>
 
                         <button

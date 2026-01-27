@@ -173,12 +173,79 @@ export function useWeightScale(options = {}) {
   }, [scaleAPI]);
 
   /**
-   * Request a zero/tare operation (if supported by scale)
+   * Zero the scale (Beaver Z command)
+   * The scale will zero when weight stabilizes (up to 3 second timeout)
+   */
+  const zero = useCallback(async () => {
+    if (!scaleAPI) {
+      setError('Scale API not available');
+      return false;
+    }
+
+    try {
+      const result = await scaleAPI.zero();
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    }
+  }, [scaleAPI]);
+
+  /**
+   * Set tare value
+   * @param {number} value - Tare value in kg (e.g., 0.5 for 500g)
+   */
+  const setTare = useCallback(async (value) => {
+    if (!scaleAPI) {
+      setError('Scale API not available');
+      return false;
+    }
+
+    try {
+      const result = await scaleAPI.setTare(value);
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    }
+  }, [scaleAPI]);
+
+  /**
+   * Clear tare (set tare to 0)
+   */
+  const clearTare = useCallback(async () => {
+    if (!scaleAPI) {
+      setError('Scale API not available');
+      return false;
+    }
+
+    try {
+      const result = await scaleAPI.clearTare();
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    }
+  }, [scaleAPI]);
+
+  /**
+   * Legacy tare function (calls zero for backward compatibility)
    */
   const tare = useCallback(async () => {
-    // Common tare commands - adjust based on your scale
-    return sendCommand('T') || sendCommand('Z') || sendCommand('TARE');
-  }, [sendCommand]);
+    return zero();
+  }, [zero]);
 
   /**
    * Clear current error
@@ -282,7 +349,13 @@ export function useWeightScale(options = {}) {
     connectTCP,
     disconnect,
     sendCommand,
-    tare,
+    
+    // Beaver Protocol Commands
+    zero,        // Zero the scale (Z command)
+    setTare,     // Set tare value
+    clearTare,   // Clear tare
+    tare,        // Legacy tare (calls zero)
+    
     clearError,
   };
 }

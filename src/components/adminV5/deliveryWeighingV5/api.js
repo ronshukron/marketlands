@@ -165,8 +165,10 @@ export async function handleSuspendedPaymentV5({
 }) {
   // User request: call "handlesuspendedpayment" backend endpoint when completing the order.
   // We don't yet know the exact deployed function name/contract, so we keep this isolated here.
-  const url = functionsEndpoint('handleSuspendedPayment');
+  // const url = functionsEndpoint('handleSuspendedPayment');
+  const url = 'https://us-central1-auth-development-323c3.cloudfunctions.net/handleSuspendedPayment';
   const token = await getIdTokenIfAvailable();
+  console.log('handleSuspendedPaymentV5 url', url);
   const { data } = await axios.post(
     url,
     { orderId, weightsByLineId, removedLineIds, finalInvoiceLines, finalSum, productDataForGrow },

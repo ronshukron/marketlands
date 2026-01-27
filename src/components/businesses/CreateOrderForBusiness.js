@@ -38,7 +38,6 @@ const CreateOrderForBusiness = () => {
   const [orderName, setOrderName] = useState('');
   const [loading, setLoading] = useState(false);
   const [orderType, setOrderType] = useState('one_time'); // 'one_time' or 'recurring'
-  const [selectedDuration, setSelectedDuration] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('commission'); // 'commission' or 'free'
   const [selectedPaymentApps, setSelectedPaymentApps] = useState([]); // ['paybox', 'bit']
@@ -64,6 +63,8 @@ const CreateOrderForBusiness = () => {
   const [formValid, setFormValid] = useState(true);
   const navigate = useNavigate();
   const [selectedPickupSpots, setSelectedPickupSpots] = useState([]);
+  // Per-pickup-spot ending times: { 'spotName': Date }
+  const [endingTimeByPickupSpot, setEndingTimeByPickupSpot] = useState({});
 
   useEffect(() => {
     if (!selectedProducts || selectedProducts.length === 0) {
@@ -82,37 +83,35 @@ const CreateOrderForBusiness = () => {
     });
   };
 
-  // Function to calculate ending date based on duration
-  const calculateEndingDate = (duration) => {
-    const currentTime = new Date();
-    console.log(duration);
-    console.log(currentTime);
-    switch (duration) {
-      case '1_day':
-        currentTime.setDate(currentTime.getDate() + 1);
-        break;
-      case '2_days':
-        currentTime.setDate(currentTime.getDate() + 2);
-        break;
-      case '3_days':
-        currentTime.setDate(currentTime.getDate() + 3);
-        break;
-      case '5_days':
-        currentTime.setDate(currentTime.getDate() + 5);
-        break;
-      case '1_week':
-        currentTime.setDate(currentTime.getDate() + 7);
-        break;
-      case '2_weeks':
-        currentTime.setDate(currentTime.getDate() + 14);
-        break;
-      case '1_month':
-        currentTime.setMonth(currentTime.getMonth() + 1);
-        break;
-      default:
-        return null;
-    }
-    return currentTime;
+  // Handler for updating ending time for a specific pickup spot
+  const handleEndingTimeChange = (spot, dateTimeString) => {
+    setEndingTimeByPickupSpot((prev) => ({
+      ...prev,
+      [spot]: dateTimeString ? new Date(dateTimeString) : null,
+    }));
+  };
+
+  // Apply the same ending time to all selected pickup spots
+  const applyEndingTimeToAll = (dateTimeString) => {
+    if (!dateTimeString) return;
+    const newEndingTimes = {};
+    selectedPickupSpots.forEach((spot) => {
+      newEndingTimes[spot] = new Date(dateTimeString);
+    });
+    setEndingTimeByPickupSpot(newEndingTimes);
+  };
+
+  // Format a Date for datetime-local input
+  const formatDateTimeLocal = (date) => {
+    if (!date) return '';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
   const validateDates = () => {
@@ -162,29 +161,27 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
-    if (orderType === 'one_time' && !selectedDuration) {
-      Swal.fire({
-        icon: 'error',
-        title: 'שגיאה',
-        text: 'אנא בחרו משך זמן מודעה.',
-      });
-      return;
+    // Validate that all selected pickup spots have ending times
+    if (orderType === 'one_time' && selectedPickupSpots.length > 0) {
+      const spotsWithoutEndingTime = selectedPickupSpots.filter(
+        (spot) => !endingTimeByPickupSpot[spot]
+      );
+      if (spotsWithoutEndingTime.length > 0) {
+        Swal.fire({
+          icon: 'error',
+          title: 'שגיאה',
+          text: `אנא הגדירו זמן סיום לכל נקודות האיסוף: ${spotsWithoutEndingTime.join(', ')}`,
+        });
+        return;
+      }
     }
 
-    // if (isFarmerOrder && selectedAreas.length === 0) {
-    //   Swal.fire({
-    //     icon: 'error',
-    //     title: 'שגיאה',
-    //     text: 'אנא בחרו לפחות אזור אחד.',
-    //   });
-    //   return;
-    // }
-
-    if (isFarmerOrder && pickupSpots.length === 0) {
+    // Validate that at least one pickup spot is selected for one_time orders
+    if (orderType === 'one_time' && selectedPickupSpots.length === 0) {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
-        text: 'אנא בחרו לפחות אזור אחד.',
+        text: 'אנא בחרו לפחות נקודת איסוף אחת.',
       });
       return;
     }
@@ -260,16 +257,15 @@ const CreateOrderForBusiness = () => {
       }
     }
 
-    const endingTime =
-      orderType === 'one_time' ? calculateEndingDate(selectedDuration) : null;
-    console.log(endingTime);
-    if (orderType === 'one_time' && !endingTime) {
-      Swal.fire({
-        icon: 'error',
-        title: 'שגיאה',
-        text: 'משך הזמן שנבחר אינו תקין.',
-      });
-      return;
+    // For backward compatibility, compute a single endingTime as the latest of all per-spot times
+    let endingTime = null;
+    if (orderType === 'one_time' && selectedPickupSpots.length > 0) {
+      const allEndingTimes = selectedPickupSpots
+        .map((spot) => endingTimeByPickupSpot[spot])
+        .filter((t) => t instanceof Date && !isNaN(t.getTime()));
+      if (allEndingTimes.length > 0) {
+        endingTime = new Date(Math.max(...allEndingTimes.map((d) => d.getTime())));
+      }
     }
 
     setLoading(true);
@@ -308,6 +304,15 @@ const CreateOrderForBusiness = () => {
         imageUrl = await getDownloadURL(snapshot.ref);
       }
 
+      // Build endingTimeByPickupSpot map for Firestore (convert Date to Timestamp-compatible)
+      const endingTimeByPickupSpotForDb = {};
+      selectedPickupSpots.forEach((spot) => {
+        const dt = endingTimeByPickupSpot[spot];
+        if (dt instanceof Date && !isNaN(dt.getTime())) {
+          endingTimeByPickupSpotForDb[spot] = dt;
+        }
+      });
+
       // Create the order document with additional fields
       const orderData = {
         businessEmail: currentUser.email,
@@ -315,7 +320,8 @@ const CreateOrderForBusiness = () => {
         orderName,
         selectedProducts,
         Order_Time: currentTime,
-        endingTime: endingTime || null,
+        endingTime: endingTime || null, // Legacy field for backward compatibility
+        endingTimeByPickupSpot: endingTimeByPickupSpotForDb, // New per-spot ending times
         businessName,
         communityName,
         businessKind,
@@ -421,26 +427,56 @@ const CreateOrderForBusiness = () => {
           </div>
         </div> */}
 
-        {/* Duration Selection for One-time Orders */}
-        {orderType === 'one_time' && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-700">
-              בחרו את משך הזמן עד סיום המודעה: <span className="text-red-500">*</span>
+        {/* Per-Pickup-Spot Ending Time Selection for One-time Orders */}
+        {orderType === 'one_time' && selectedPickupSpots.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-gray-700">
+                זמן סיום הזמנות לפי נקודת איסוף: <span className="text-red-500">*</span>
+              </p>
+            </div>
+            
+            {/* Quick apply to all */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <label className="block text-sm font-medium text-blue-800 mb-2">
+                החל זמן סיום אחיד לכל הנקודות:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="datetime-local"
+                  onChange={(e) => applyEndingTimeToAll(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-blue-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Individual pickup spot ending times */}
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">או הגדירו זמן סיום שונה לכל נקודת איסוף:</p>
+              {selectedPickupSpots.map((spot) => (
+                <div key={spot} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <span className="text-sm font-medium text-gray-700 min-w-[120px]">{spot}</span>
+                  <input
+                    type="datetime-local"
+                    value={formatDateTimeLocal(endingTimeByPickupSpot[spot])}
+                    onChange={(e) => handleEndingTimeChange(spot, e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {endingTimeByPickupSpot[spot] && (
+                    <span className="text-xs text-green-600">✓</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Message when no pickup spots selected */}
+        {orderType === 'one_time' && selectedPickupSpots.length === 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <p className="text-sm text-yellow-800">
+              בחרו נקודות איסוף כדי להגדיר זמני סיום הזמנות
             </p>
-            <select
-              value={selectedDuration}
-              onChange={(e) => setSelectedDuration(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="" disabled>בחרו משך זמן</option>
-              <option value="1_day">יום אחד</option>
-              <option value="2_days">יומיים</option>
-              <option value="3_days">3 ימים</option>
-              <option value="5_days">5 ימים</option>
-              <option value="1_week">שבוע</option>
-              <option value="2_weeks">שבועיים</option>
-              <option value="1_month">חודש</option>
-            </select>
           </div>
         )}
 

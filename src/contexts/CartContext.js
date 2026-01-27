@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { getEndingTimeForSpot } from '../utils/orderUtils';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -52,6 +53,7 @@ export const CartProvider = ({ children }) => {
   }, []);
 
   // Check for expired orders (ended more than 24h ago)
+  // With per-pickup-spot ending times, an order is expired only if ALL pickup spots have ended
   useEffect(() => {
     if (!hasLoadedFromStorage) return;
 
@@ -74,9 +76,26 @@ export const CartProvider = ({ children }) => {
 
           if (orderSnap.exists()) {
             const orderData = orderSnap.data();
+            const pickupSpots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];
             
-            // Check endingTime
-            if (orderData.endingTime) {
+            // Check if order has per-pickup-spot ending times
+            if (orderData.endingTimeByPickupSpot && Object.keys(orderData.endingTimeByPickupSpot).length > 0) {
+              // New structure: check if ALL pickup spots have ended before cutoff
+              let allExpired = true;
+              for (const spot of pickupSpots) {
+                const spotEndingTime = getEndingTimeForSpot(orderData, spot);
+                if (spotEndingTime && spotEndingTime >= cutoffTime) {
+                  allExpired = false; // At least one spot is still active
+                  break;
+                }
+              }
+              
+              if (allExpired && pickupSpots.length > 0) {
+                console.log(`Order ${orderId} - all pickup spots expired. Removing from cart.`);
+                idsToRemove.push(orderId);
+              }
+            } else if (orderData.endingTime) {
+              // Legacy: single ending time
               const endingTime = orderData.endingTime.toDate ? orderData.endingTime.toDate() : new Date(orderData.endingTime);
               
               // If the order ended before the cutoff time (more than 24 hours ago)

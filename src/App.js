@@ -53,6 +53,7 @@ import AdminRefundRequests from './components/admin/AdminRefundRequests';
 import DeliveryManagement from './components/admin/DeliveryManagement';
 import DeliveryManagement80 from './components/admin/DeliveryManagement80';
 import WeeklyOrderSummaryV2 from './components/admin/WeeklyOrderSummaryV2';
+import WeeklyOrderSummaryV3 from './components/admin/WeeklyOrderSummaryV3';
 import DeliveryManagementV2 from './components/admin/DeliveryManagementV2';
 import DeliveryManagementV3 from './components/admin/DeliveryManagementV3';
 import DeliveryManagementV4 from './components/admin/DeliveryManagmentV4';
@@ -75,6 +76,7 @@ import Deliveries from './components/admin/Deliveries';
 import AbandonedCarts from './components/admin/AbandonedCarts';
 import AnalyticsDashboard from './components/admin/AnalyticsDashboard';
 import CustomerInsights from './components/admin/CustomerInsights';
+import PaymentConfigAdmin from './components/admin/PaymentConfigAdmin';
 
 const App = () => {
   return (
@@ -135,6 +137,7 @@ const App = () => {
                   <Route path="/admin/delivery" element={<DeliveryManagement />} />
                   <Route path="/admin/delivery-80" element={<DeliveryManagement80 />} />
                   <Route path="/admin/weekly-summary-v2" element={<WeeklyOrderSummaryV2 />} />
+                  <Route path="/admin/weekly-summary-v3" element={<WeeklyOrderSummaryV3 />} />
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
                   <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />
                   <Route path="/admin/delivery-v4" element={<DeliveryManagementV4 />} />
@@ -157,6 +160,7 @@ const App = () => {
                   <Route path="/admin/abandoned-carts" element={<AbandonedCarts />} />
                   <Route path="/admin/analytics" element={<AnalyticsDashboard />} />
                   <Route path="/admin/customers" element={<CustomerInsights />} />
+                  <Route path="/admin/payment-config" element={<PaymentConfigAdmin />} />
                 </Routes>
               </main>
               <Footer />

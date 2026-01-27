@@ -10,6 +10,8 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
 import { pickupSpots, pickupSpotsData } from '../data/pickupSpots';
+import { getEndingTimeForSpot } from '../utils/orderUtils';
+import { isDelayedPaymentSpot } from '../services/paymentConfigService';
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
 const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
@@ -267,6 +269,38 @@ const OrderConfirmation = () => {
             validatePickupSpotCompatibility();
         }
     }, [selectedPickupSpot, businessPickupSpots]);
+
+    // Check if user should be redirected to delayed payment checkout when pickup spot changes
+    useEffect(() => {
+        const checkPaymentRoute = async () => {
+            if (!selectedPickupSpot || selectedPickupSpot === '' || selectedPickupSpot === 'הכל') {
+                return; // No spot selected yet
+            }
+            
+            try {
+                const shouldBeDelayed = await isDelayedPaymentSpot(selectedPickupSpot);
+                
+                // If this pickup spot IS configured for delayed payment, redirect to delayed checkout
+                if (shouldBeDelayed) {
+                    // Update localStorage with the new pickup spot
+                    localStorage.setItem('selectedPickupSpot', selectedPickupSpot);
+                    
+                    // Navigate to delayed order confirmation
+                    navigate('/order-confirmation-delayed', {
+                        state: {
+                            cartProducts: cartItems,
+                            redirectedFromRegular: true
+                        },
+                        replace: true
+                    });
+                }
+            } catch (error) {
+                console.error('Error checking payment route:', error);
+            }
+        };
+        
+        checkPaymentRoute();
+    }, [selectedPickupSpot, navigate, cartItems]);
 
     // Then define the validatePickupSpotCompatibility function
     const validatePickupSpotCompatibility = () => {
@@ -587,15 +621,17 @@ const OrderConfirmation = () => {
         navigate(`/`);
     };
 
-    const checkIfOrderEnded = async (orderId) => {
+    const checkIfOrderEnded = async (orderId, pickupSpot = null) => {
         try {
             const orderDoc = doc(db, "Orders", orderId);
             const docSnap = await getDoc(orderDoc);
     
             if (docSnap.exists()) {
                 const orderData = docSnap.data();
-                if (orderData.endingTime) {
-                    const endingTime = orderData.endingTime.toDate();
+                // Use per-pickup-spot ending time if available
+                const spotToCheck = pickupSpot || selectedPickupSpot;
+                const endingTime = getEndingTimeForSpot(orderData, spotToCheck);
+                if (endingTime) {
                     const currentTime = new Date();
                     if (currentTime >= endingTime) {
                         return true; // Order has ended

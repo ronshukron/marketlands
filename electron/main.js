@@ -325,6 +325,56 @@ function setupScaleIPC() {
     }
   });
 
+  // Zero the scale (Beaver Z command)
+  ipcMain.handle('scale:zero', async () => {
+    try {
+      await scaleService.zeroScale();
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+
+  // Set tare value
+  ipcMain.handle('scale:set-tare', async (event, value) => {
+    try {
+      await scaleService.setTare(value);
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+
+  // Clear tare
+  ipcMain.handle('scale:clear-tare', async () => {
+    try {
+      await scaleService.clearTare();
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+
+  // Request firmware identifier
+  ipcMain.handle('scale:firmware-id', async () => {
+    try {
+      await scaleService.requestFirmwareId();
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+
+  // Set polling rate
+  ipcMain.handle('scale:set-polling-rate', async (event, rateMs) => {
+    try {
+      scaleService.setPollingRate(rateMs);
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+
   // Subscribe to weight updates
   scaleService.onWeight((weight) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

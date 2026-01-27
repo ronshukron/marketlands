@@ -1,27 +1,46 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
+import { getCheckoutRoute } from '../services/paymentConfigService';
 import Swal from 'sweetalert2';
 
 const Cart = ({ isOpen, onClose }) => {
   const { cartItems, removeItem, updateQuantity, cartTotal } = useCart();
   const navigate = useNavigate();
+  const [checkingRoute, setCheckingRoute] = useState(false);
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (cartItems.length === 0) {
       Swal.fire('הסל ריק', 'אנא הוסף פריטים לסל לפני המעבר לתשלום.', 'warning');
       return;
     }
 
-    // Navigate to order confirmation page
-    // navigate('/order-confirmation', {
-          // TEMP (testing): route checkout to delayed-payment confirmation
-    navigate('/order-confirmation-delayed', {
-      state: {
-        cartProducts: cartItems,
-      },
-    });
-    onClose();
+    setCheckingRoute(true);
+    try {
+      // Get the selected pickup spot from localStorage (set in CategoryStore)
+      const selectedPickupSpot = localStorage.getItem('selectedPickupSpot') || '';
+      
+      // Determine the correct checkout route based on pickup spot configuration
+      const checkoutRoute = await getCheckoutRoute(selectedPickupSpot);
+      
+      navigate(checkoutRoute, {
+        state: {
+          cartProducts: cartItems,
+        },
+      });
+      onClose();
+    } catch (error) {
+      console.error('Error determining checkout route:', error);
+      // Default to regular checkout on error
+      navigate('/order-confirmation', {
+        state: {
+          cartProducts: cartItems,
+        },
+      });
+      onClose();
+    } finally {
+      setCheckingRoute(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -147,9 +166,10 @@ const Cart = ({ isOpen, onClose }) => {
             <div className="mt-4 pb-16 md:pb-5">
               <button
                 onClick={handleCheckout}
+                disabled={checkingRoute}
                 className="w-full bg-blue-600 text-white py-2.5 px-3 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
-                לתשלום ({cartTotal.toFixed(2)} ₪)
+                {checkingRoute ? 'מעבר לתשלום...' : `לתשלום (${cartTotal.toFixed(2)} ₪)`}
               </button>
             </div>
           </div>

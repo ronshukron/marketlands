@@ -41,6 +41,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'סיכום שבועי V3',
+    description: 'דוחות שבועיים כולל הזמנות בתשלום מושהה',
+    to: '/admin/weekly-summary-v3',
+    featured: true
+  },
+  {
     title: 'ניהול משלוחים V2',
     description: 'ניהול משלוחים עם בחירת שבוע וקהילות',
     to: '/admin/delivery-v2',
@@ -56,6 +62,12 @@ const initialCards = [
     title: 'ניהול משלוחים V4 (חדש)',
     description: 'גרסה V4 עם מספרים קבועים וסנכרון אונליין/אופליין',
     to: '/admin/delivery-v4',
+    featured: true
+  },
+  {
+    title: 'ניהול משלוחים V5 (משקלים)',
+    description: 'גרסת שקילה וניהול חלוקה מתקדמת',
+    to: '/admin/delivery-v5',
     featured: true
   },
   {
@@ -80,6 +92,12 @@ const initialCards = [
     title: 'ניתוח לקוחות',
     description: 'מעקב אחרי לקוחות בודדים: כמה הזמנות ביצעו ומה ההיסטוריה שלהם',
     to: '/admin/customers',
+    featured: true
+  },
+  {
+    title: 'הגדרות תשלום',
+    description: 'הגדרת נקודות איסוף לתשלום מושהה (J5) או רגיל',
+    to: '/admin/payment-config',
     featured: true
   }
 ];

@@ -8,6 +8,7 @@ import './CategoryStore.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Slider from 'react-slick';
 import { pickupSpots } from '../../data/pickupSpots';
+import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 
 const CategoryStore = () => {
   const [products, setProducts] = useState([]);
@@ -97,6 +98,13 @@ const CategoryStore = () => {
   };
 
   const handleCommunityChange = (community) => {
+    // Save to localStorage immediately when user selects a community
+    if (community && community !== 'הכל') {
+      localStorage.setItem('selectedPickupSpot', community);
+    } else {
+      localStorage.removeItem('selectedPickupSpot');
+    }
+    
     const params = new URLSearchParams(location.search);
     const currentCategory = params.get('category') || selectedCategory || 'הכל';
     const nextParams = new URLSearchParams();
@@ -125,16 +133,18 @@ const CategoryStore = () => {
       const ordersSnapshot = await getDocs(ordersQuery);
 
       // Filter active orders first
+      // For per-pickup-spot ending times, we keep orders that have at least one active pickup spot
       const activeOrders = [];
       ordersSnapshot.docs.forEach(orderDoc => {
         const orderData = orderDoc.data();
         const endingTime = orderData.Ending_Time || orderData.endingTime;
+        const endingTimeByPickupSpot = orderData.endingTimeByPickupSpot || {};
         
         let orderType = orderData.orderType;
         if (!orderType) {
           if (orderData.schedule) {
             orderType = 'recurring';
-          } else if (endingTime) {
+          } else if (endingTime || Object.keys(endingTimeByPickupSpot).length > 0) {
             orderType = 'one_time';
           } else {
             return; // Skip unknown
@@ -143,8 +153,24 @@ const CategoryStore = () => {
 
         let isActive = false;
         if (orderType === 'one_time') {
-          if (endingTime && endingTime.toDate() > adjustedCurrentTime) {
-            isActive = true;
+          // Check if ANY pickup spot is still active (has ending time in the future)
+          const orderPickupSpots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];
+          
+          if (Object.keys(endingTimeByPickupSpot).length > 0) {
+            // New structure: check each pickup spot's ending time
+            for (const spot of orderPickupSpots) {
+              const spotEndingTime = getEndingTimeForSpot(orderData, spot);
+              if (spotEndingTime && spotEndingTime > adjustedCurrentTime) {
+                isActive = true;
+                break;
+              }
+            }
+          } else if (endingTime) {
+            // Legacy: single ending time
+            const legacyEnd = endingTime.toDate ? endingTime.toDate() : new Date(endingTime);
+            if (legacyEnd > adjustedCurrentTime) {
+              isActive = true;
+            }
           }
         } else if (orderType === 'recurring') {
           if (orderData.schedule && isOrderActiveNow(orderData.schedule)) {
@@ -157,7 +183,8 @@ const CategoryStore = () => {
             id: orderDoc.id,
             data: orderData,
             orderType,
-            endingTime
+            endingTime,
+            endingTimeByPickupSpot
           });
         }
       });
@@ -202,6 +229,7 @@ const CategoryStore = () => {
                 orderData: order.data,
                 orderType: order.orderType,
                 endingTime: order.endingTime,
+                endingTimeByPickupSpot: order.endingTimeByPickupSpot || {},
                 businessData: businessMap[order.data.businessId],
                 pickupSpots: Array.isArray(order.data.pickupSpots) ? order.data.pickupSpots : []
               });
@@ -247,6 +275,7 @@ const CategoryStore = () => {
               // Order timing fields
               orderType: metadata.orderType,
               endingTime: metadata.endingTime,
+              endingTimeByPickupSpot: metadata.endingTimeByPickupSpot,
               schedule: metadata.orderData.schedule,
               
               // For cart compatibility
@@ -297,55 +326,26 @@ const CategoryStore = () => {
     }
   };
 
-  const isOrderActiveNow = (schedule) => {
-    const now = new Date();
-    const currentDayIndex = now.getDay();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
-
-    const dayIndexMap = {
-      0: ['Sunday', 'ראשון'],
-      1: ['Monday', 'שני'],
-      2: ['Tuesday', 'שלישי'],
-      3: ['Wednesday', 'רביעי'],
-      4: ['Thursday', 'חמישי'],
-      5: ['Friday', 'שישי'],
-      6: ['Saturday', 'שבת'],
-    };
-
-    const dayNames = dayIndexMap[currentDayIndex];
-    const daySchedule = schedule.find((day) => dayNames.includes(day.day));
-
-    if (daySchedule && daySchedule.active) {
-      const [startHour, startMinute] = daySchedule.startTime.split(':').map(Number);
-      const [endHour, endMinute] = daySchedule.endTime.split(':').map(Number);
-
-      let startTimeInMinutes = startHour * 60 + startMinute;
-      let endTimeInMinutes = endHour * 60 + endMinute;
-
-      if (endTimeInMinutes <= startTimeInMinutes) {
-        endTimeInMinutes += 24 * 60;
-      }
-
-      let adjustedCurrentTime = currentTime;
-      if (currentTime < startTimeInMinutes) {
-        adjustedCurrentTime += 24 * 60;
-      }
-
-      return adjustedCurrentTime >= startTimeInMinutes && adjustedCurrentTime <= endTimeInMinutes;
-    }
-    return false;
-  };
-
-  const calculateTimeRemaining = (product) => {
+  // Calculate time remaining for a product, optionally for a specific pickup spot
+  // Shows time until the 1-hour buffer (when products stop showing), not the actual end time
+  const calculateTimeRemaining = (product, pickupSpot) => {
     const orderType = product.orderType;
     const now = new Date();
 
-    if (orderType === 'one_time') {
-      const endingTime = product.endingTime;
+    if (orderType === 'one_time' || !orderType) {
+      // Build a pseudo-orderData object for getEndingTimeForSpot
+      const orderData = {
+        endingTime: product.endingTime,
+        endingTimeByPickupSpot: product.endingTimeByPickupSpot || {},
+        Ending_Time: product.endingTime
+      };
+      
+      const endingTime = getEndingTimeForSpot(orderData, pickupSpot);
       if (endingTime) {
-        const end = endingTime.toDate();
-        const adjustedEndTime = new Date(end.getTime() - 60 * 60 * 1000); // Adjust if needed
-        const diff = adjustedEndTime - now;
+        // Apply 1-hour buffer: countdown shows time until buffer (1 hour before actual end)
+        const bufferEndTime = new Date(endingTime.getTime() - 60 * 60 * 1000);
+        const diff = bufferEndTime - now;
+        
         if (diff <= 0) {
           return 'ההזמנה הסתיימה';
         }
@@ -389,8 +389,47 @@ const CategoryStore = () => {
           }
           return productCategory === selectedCategory;
         });
+  
+  // Filter by community and per-community ending time
+  // Apply 1-hour buffer: products stop showing 1 hour before they actually end
   const displayProducts = (selectedCommunity)
-    ? baseProducts.filter(p => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity))
+    ? baseProducts.filter(p => {
+        // Must include this pickup spot
+        if (!Array.isArray(p.pickupSpots) || !p.pickupSpots.includes(selectedCommunity)) {
+          return false;
+        }
+        
+        // For recurring orders, check schedule
+        if (p.orderType === 'recurring' && p.schedule) {
+          return isOrderActiveNow(p.schedule);
+        }
+        
+        // For one-time orders, check ending time with 1-hour buffer
+        const orderData = {
+          endingTime: p.endingTime,
+          endingTimeByPickupSpot: p.endingTimeByPickupSpot || {},
+          Ending_Time: p.endingTime
+        };
+        
+        // If per-spot ending times exist, the spot MUST have an ending time to be valid
+        const hasPerSpotTimes = p.endingTimeByPickupSpot && Object.keys(p.endingTimeByPickupSpot).length > 0;
+        const endingTime = getEndingTimeForSpot(orderData, selectedCommunity);
+        
+        if (hasPerSpotTimes && !endingTime) {
+          // Per-spot times exist but this spot doesn't have one - treat as inactive
+          return false;
+        }
+        
+        if (endingTime) {
+          // Apply 1-hour buffer: stop showing 1 hour before actual end time
+          const now = new Date();
+          const bufferTime = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
+          return endingTime > bufferTime;
+        }
+        
+        // Legacy orders without per-spot times: allow if no ending time (shouldn't happen for one_time)
+        return p.orderType !== 'one_time';
+      })
     : baseProducts;
 
   // Do not early-return on loading; show search/carousel immediately and spinner below
@@ -574,6 +613,7 @@ const CategoryStore = () => {
           <ProductGrid 
             products={displayProducts} 
             calculateTimeRemaining={calculateTimeRemaining}
+            selectedCommunity={selectedCommunity}
           />
         )}
       </div>

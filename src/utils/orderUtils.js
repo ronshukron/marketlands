@@ -2,13 +2,63 @@
 
 import { Timestamp } from 'firebase/firestore';
 
-export const isOrderActive = (orderData) => {
+/**
+ * Get the ending time for a specific pickup spot.
+ * Supports both new per-spot structure and legacy single endingTime.
+ * @param {object} orderData - The order document data
+ * @param {string} [pickupSpot] - Optional pickup spot name
+ * @returns {Date|null} - The ending time as a Date, or null if not found
+ */
+export const getEndingTimeForSpot = (orderData, pickupSpot) => {
+  // New structure: endingTimeByPickupSpot
+  if (orderData.endingTimeByPickupSpot && pickupSpot) {
+    const spotTime = orderData.endingTimeByPickupSpot[pickupSpot];
+    if (spotTime) {
+      if (spotTime instanceof Timestamp) {
+        return spotTime.toDate();
+      }
+      if (spotTime instanceof Date) {
+        return spotTime;
+      }
+      // Handle string or other formats
+      const parsed = new Date(spotTime);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+  }
+
+  // Legacy fallback: single endingTime or Ending_Time
+  const legacyTime = orderData.endingTime || orderData.Ending_Time;
+  if (legacyTime) {
+    if (legacyTime instanceof Timestamp) {
+      return legacyTime.toDate();
+    }
+    if (legacyTime instanceof Date) {
+      return legacyTime;
+    }
+    const parsed = new Date(legacyTime);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Check if an order is currently active.
+ * @param {object} orderData - The order document data
+ * @param {string} [pickupSpot] - Optional pickup spot name for per-spot checking
+ * @returns {boolean} - True if the order is active
+ */
+export const isOrderActive = (orderData, pickupSpot) => {
   const currentTime = new Date();
 
   // Check for one-time orders
-  if (orderData.orderType === 'one_time' && orderData.endingTime) {
-    const endingTime = orderData.endingTime instanceof Timestamp ? orderData.endingTime.toDate() : orderData.endingTime;
-    if (currentTime >= endingTime) {
+  if (orderData.orderType === 'one_time') {
+    const endingTime = getEndingTimeForSpot(orderData, pickupSpot);
+    if (endingTime && currentTime >= endingTime) {
       return false;
     }
   }
@@ -16,6 +66,14 @@ export const isOrderActive = (orderData) => {
   // Check for recurring orders
   if (orderData.orderType === 'recurring' && orderData.schedule) {
     return isOrderActiveNow(orderData.schedule);
+  }
+
+  // If order type is not specified, check if there's an ending time anyway
+  if (!orderData.orderType) {
+    const endingTime = getEndingTimeForSpot(orderData, pickupSpot);
+    if (endingTime && currentTime >= endingTime) {
+      return false;
+    }
   }
 
   // If order type is not specified, or no ending time/schedule, assume active
@@ -66,30 +124,48 @@ export const isOrderActiveNow = (schedule) => {
   }
 };
 
-export const calculateTimeRemaining = (orderData) => {
+/**
+ * Calculate the time remaining until an order ends.
+ * @param {object} orderData - The order document data
+ * @param {string} [pickupSpot] - Optional pickup spot name for per-spot calculation
+ * @param {object} [options] - Optional configuration
+ * @param {boolean} [options.applyBuffer=false] - If true, applies a 1-hour buffer (shows time until 1hr before actual end)
+ * @returns {string} - Human-readable time remaining string
+ */
+export const calculateTimeRemaining = (orderData, pickupSpot, options = {}) => {
+  const { applyBuffer = false } = options;
   const now = new Date();
 
-  if (orderData.orderType === 'one_time' && orderData.endingTime) {
-    const end = orderData.endingTime instanceof Timestamp ? orderData.endingTime.toDate() : orderData.endingTime;
-    const diff = end - now;
-    if (diff <= 0) {
-      return 'ההזמנה הסתיימה';
+  if (orderData.orderType === 'one_time' || !orderData.orderType) {
+    const endingTime = getEndingTimeForSpot(orderData, pickupSpot);
+    if (endingTime) {
+      // If buffer is applied, calculate time until 1 hour before actual end
+      const targetTime = applyBuffer 
+        ? new Date(endingTime.getTime() - 60 * 60 * 1000) 
+        : endingTime;
+      const diff = targetTime - now;
+      
+      if (diff <= 0) {
+        return 'ההזמנה הסתיימה';
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+      const minutes = Math.floor((diff / (1000 * 60)) % 60);
+
+      let timeString = '';
+      if (days > 0) timeString += `${days} ימים `;
+      if (hours > 0) timeString += `${hours} שעות `;
+      if (minutes > 0) timeString += `${minutes} דקות`;
+
+      return timeString || 'פחות מדקה';
     }
-
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-    const minutes = Math.floor((diff / (1000 * 60)) % 60);
-
-    let timeString = '';
-    if (days > 0) timeString += `${days} ימים `;
-    if (hours > 0) timeString += `${hours} שעות `;
-    if (minutes > 0) timeString += `${minutes} דקות`;
-
-    return timeString || 'פחות מדקה';
-  } else if (orderData.orderType === 'recurring' && orderData.schedule) {
+  }
+  
+  if (orderData.orderType === 'recurring' && orderData.schedule) {
     const isActiveNow = isOrderActiveNow(orderData.schedule);
     return isActiveNow ? 'פעיל כעת' : 'לא פעיל כעת';
-  } else {
-    return 'מידע לא זמין';
   }
+
+  return 'מידע לא זמין';
 };

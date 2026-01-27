@@ -28,7 +28,8 @@ const ScaleConnectionPanel = ({ onWeightChange, className = '' }) => {
     connectSerial,
     connectTCP,
     disconnect,
-    tare,
+    zero,        // Beaver Z command - zeros when stable
+    clearTare,   // Clear tare value
     clearError,
   } = useWeightScale();
 
@@ -108,17 +109,28 @@ const ScaleConnectionPanel = ({ onWeightChange, className = '' }) => {
       {/* Weight Display */}
       <div style={styles.weightDisplay}>
         <div style={styles.weightValue}>
-          {weight ? weight.value.toFixed(2) : '---'}
+          {weight ? (
+            weight.status === 'overweight' ? 'H' :
+            weight.status === 'underweight' ? 'L' :
+            weight.value !== null ? weight.value.toFixed(3) : '---'
+          ) : '---'}
         </div>
         <div style={styles.weightUnit}>
-          {weight ? weight.unit : 'kg'}
+          {weight?.status === 'overweight' ? 'עומס יתר' :
+           weight?.status === 'underweight' ? 'משקל שלילי' :
+           weight ? weight.unit : 'kg'}
         </div>
         {weight && (
           <div style={{
             ...styles.stabilityIndicator,
-            color: weight.stable ? '#4CAF50' : '#ff9800'
+            color: weight.status === 'overweight' ? '#f44336' :
+                   weight.status === 'underweight' ? '#f44336' :
+                   weight.stable ? '#4CAF50' : '#ff9800'
           }}>
-            {weight.stable ? 'יציב' : 'לא יציב'}
+            {weight.status === 'overweight' ? 'עומס יתר!' :
+             weight.status === 'underweight' ? 'משקל שלילי!' :
+             weight.status === 'zero' ? 'אפס' :
+             weight.stable ? 'יציב' : 'לא יציב'}
           </div>
         )}
       </div>
@@ -248,8 +260,11 @@ const ScaleConnectionPanel = ({ onWeightChange, className = '' }) => {
             מחובר באמצעות {connectionType === 'serial' ? 'USB/RS232' : 'WiFi/רשת'}
           </div>
           <div style={styles.buttonRow}>
-            <button onClick={tare} style={styles.tareButton}>
-              אפס (Tare)
+            <button onClick={zero} style={styles.zeroButton}>
+              איפוס (Zero)
+            </button>
+            <button onClick={clearTare} style={styles.tareButton}>
+              נקה טרה
             </button>
             <button onClick={disconnect} style={styles.disconnectButton}>
               התנתק
@@ -430,6 +445,16 @@ const styles = {
   buttonRow: {
     display: 'flex',
     gap: '8px',
+  },
+  zeroButton: {
+    flex: 1,
+    padding: '10px',
+    backgroundColor: '#4CAF50',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '14px',
   },
   tareButton: {
     flex: 1,

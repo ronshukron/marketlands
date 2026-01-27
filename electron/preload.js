@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('electron', {
   isElectron: true,
   platform: process.platform,
 
-  // Scale API
+  // Scale API - SHEKEL Beaver Protocol Support
   scale: {
     // List available serial ports
     listPorts: () => ipcRenderer.invoke('scale:list-ports'),
@@ -24,8 +24,25 @@ contextBridge.exposeInMainWorld('electron', {
     // Get current connection status
     getStatus: () => ipcRenderer.invoke('scale:status'),
 
-    // Send a command to the scale
+    // Send a raw command to the scale
     sendCommand: (command) => ipcRenderer.invoke('scale:send-command', command),
+
+    // Beaver Protocol Specific Commands:
+    
+    // Zero the scale (Z command - zeros when weight stabilizes, 3s timeout)
+    zero: () => ipcRenderer.invoke('scale:zero'),
+
+    // Set tare value (value in kg, e.g., 0.5 for 500g)
+    setTare: (value) => ipcRenderer.invoke('scale:set-tare', value),
+
+    // Clear tare (set tare to 0)
+    clearTare: () => ipcRenderer.invoke('scale:clear-tare'),
+
+    // Request firmware identifier
+    getFirmwareId: () => ipcRenderer.invoke('scale:firmware-id'),
+
+    // Set polling rate for weight updates (in milliseconds)
+    setPollingRate: (rateMs) => ipcRenderer.invoke('scale:set-polling-rate', rateMs),
 
     // Subscribe to weight updates
     onWeight: (callback) => {

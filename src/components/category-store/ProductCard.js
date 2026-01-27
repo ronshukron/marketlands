@@ -5,7 +5,7 @@ import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext';
 
-const ProductCard = ({ product, calculateTimeRemaining }) => {
+const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => {
   const [quantity, setQuantity] = useState(1);
   const [selectedOption, setSelectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
@@ -176,7 +176,7 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 inline ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              {calculateTimeRemaining(product)}
+              {calculateTimeRemaining(product, selectedCommunity)}
             </p>
           )}
         </div>
@@ -303,7 +303,7 @@ const ProductCard = ({ product, calculateTimeRemaining }) => {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 inline ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              {calculateTimeRemaining(product)}
+              {calculateTimeRemaining(product, selectedCommunity)}
             </p>
           )}
         </div>

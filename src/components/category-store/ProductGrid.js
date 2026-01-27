@@ -1,7 +1,7 @@
 import React from 'react';
 import ProductCard from './ProductCard';
 
-const ProductGrid = ({ products, calculateTimeRemaining }) => {
+const ProductGrid = ({ products, calculateTimeRemaining, selectedCommunity }) => {
   if (products.length === 0) {
     return (
       <div className="text-center py-12 bg-white rounded-xl shadow-sm">
@@ -21,6 +21,7 @@ const ProductGrid = ({ products, calculateTimeRemaining }) => {
           key={product.uid} 
           product={product}
           calculateTimeRemaining={calculateTimeRemaining}
+          selectedCommunity={selectedCommunity}
         />
       ))}
     </div>
