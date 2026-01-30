@@ -143,6 +143,7 @@ export default function DeliveryManagementV5() {
           thaiName: d.thaiName || '',
           name: d.name || '',
           measurementType: d.measurementType || 'kg', // default to kg if not set
+          unitSize: d.unitSize || 1, // kg per cart click (default 1)
         };
       } catch (e) {
         // non-fatal
@@ -263,6 +264,7 @@ export default function DeliveryManagementV5() {
         thaiName: pd?.thaiName || it?.thaiName || '',
         images: pd?.images || it?.images || [],
         measurementType: pd?.measurementType || it?.measurementType || 'kg', // default to kg
+        unitSize: pd?.unitSize || it?.unitSize || 1, // kg per cart click (default 1)
       };
     });
   }, [selectedOrder, productDetails]);
@@ -444,6 +446,7 @@ export default function DeliveryManagementV5() {
           const actualQty = weighed?.actualQuantity ?? it.requestedQuantity;
           const linePrice = actualQty * (it.pricePerUnit || 0); // NO ROUNDING - backend rounds
           const measurementType = it.measurementType || 'kg'; // default to kg
+          const weighSource = weighed?.source || 'manual'; // track source for description logic
           return {
             lineId: it.lineId,
             productId: it.productId,
@@ -455,6 +458,7 @@ export default function DeliveryManagementV5() {
             pricePerUnit: it.pricePerUnit || 0,
             linePrice,
             measurementType, // 'kg' or 'unit'
+            weighSource, // 'manual' | 'scale' | 'scale_placeholder' | 'unit' | 'ordered_default'
           };
         });
 
@@ -466,6 +470,8 @@ export default function DeliveryManagementV5() {
       // - quantity: 1
       // - price: linePrice (total for this item)
       // - itemDescription: "productName X.XXX ק"ג" or "productName X יח'" (includes actual qty in name)
+      //   EXCEPTION: If a weight item used the "use ordered quantity" button (source = 'ordered_default' or 'unit'),
+      //   we don't include the weight in the description since it wasn't actually weighed.
       const productDataForGrow = {};
       finalInvoiceLines.forEach((li, idx) => {
         let descriptionWithQty;
@@ -473,9 +479,16 @@ export default function DeliveryManagementV5() {
           // Unit items: show as "productName X יח'"
           descriptionWithQty = `${li.productName} ${Number(li.actualQuantity)} יח'`;
         } else {
-          // Weight items: show as "productName X.XXX ק"ג"
-          const weightStr = Number(li.actualQuantity).toFixed(3);
-          descriptionWithQty = `${li.productName} ${weightStr} ק"ג`;
+          // Weight items: check if it was actually weighed or used ordered quantity
+          const usedOrderedQty = li.weighSource === 'ordered_default' || li.weighSource === 'unit';
+          if (usedOrderedQty) {
+            // Item used "השתמש בכמות שהוזמנה" - don't show weight in description
+            descriptionWithQty = li.productName;
+          } else {
+            // Item was actually weighed - show as "productName X.XXX ק"ג"
+            const weightStr = Number(li.actualQuantity).toFixed(3);
+            descriptionWithQty = `${li.productName} ${weightStr} ק"ג`;
+          }
         }
         productDataForGrow[`productData[${idx}][catalogNumber]`] = li.catalogNumber;
         productDataForGrow[`productData[${idx}][quantity]`] = 1; // Always 1 (Grow doesn't support decimals)
@@ -833,6 +846,9 @@ export default function DeliveryManagementV5() {
                                     ) : (
                                       <>
                                         הוזמן: <span className="font-semibold">{Number(it.requestedQuantity || 0).toFixed(3)}</span> ק"ג
+                                        {it.unitSize && it.unitSize !== 1 && (
+                                          <span className="text-gray-400 ml-1">({Math.round((it.requestedQuantity || 0) / it.unitSize)} × {it.unitSize} ק"ג)</span>
+                                        )}
                                         {' '}• מחיר לק"ג: <span className="font-semibold">₪{Number(it.pricePerUnit || 0).toFixed(2)}</span>
                                       </>
                                     )}

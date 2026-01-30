@@ -9,6 +9,21 @@ const Cart = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const [checkingRoute, setCheckingRoute] = useState(false);
 
+  // Helper functions for formatting quantities
+  const formatQuantity = (qty, isKgItem) => {
+    if (isKgItem) {
+      return qty % 1 === 0 ? qty.toString() : qty.toFixed(1);
+    }
+    return Math.round(qty).toString();
+  };
+
+  const formatQuantityWithUnit = (qty, isKgItem) => {
+    if (isKgItem) {
+      return `${formatQuantity(qty, true)} ק"ג`;
+    }
+    return qty.toString();
+  };
+
   const handleCheckout = async () => {
     if (cartItems.length === 0) {
       Swal.fire('הסל ריק', 'אנא הוסף פריטים לסל לפני המעבר לתשלום.', 'warning');
@@ -87,7 +102,12 @@ const Cart = ({ isOpen, onClose }) => {
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {cartItems.map((item) => (
+                {cartItems.map((item) => {
+                  const isKgItem = item.measurementType === 'kg';
+                  const unitSize = item.unitSize || 1;
+                  const step = isKgItem ? unitSize : 1;
+                  
+                  return (
                   <div key={item.uid} className="flex items-center py-2 px-2 hover:bg-gray-50 transition-colors">
                     {/* Smaller product image */}
                     <div className="flex-shrink-0 ml-3">
@@ -112,13 +132,18 @@ const Cart = ({ isOpen, onClose }) => {
                           {item.selectedOption}
                         </p>
                       )}
-                      <p className="text-[11px] font-medium text-blue-600 mt-0.5">₪{item.price.toFixed(2)}</p>
+                      <p className="text-[11px] font-medium text-blue-600 mt-0.5">
+                        ₪{item.price.toFixed(2)}{isKgItem ? '/ק"ג' : ''}
+                      </p>
                     </div>
                     
                     {/* Improved quantity controls with more visible icons */}
                     <div className="flex items-center space-x-1 space-x-reverse mr-1">
                       <button 
-                        onClick={() => updateQuantity(item.uid, item.quantity - 1)} 
+                        onClick={() => {
+                          const newQty = Math.round((item.quantity - step) * 1000) / 1000;
+                          updateQuantity(item.uid, Math.max(0, newQty));
+                        }} 
                         className="text-white-100 hover:bg-gray-100 transition-colors w-8 h-7 rounded-full flex items-center justify-center border border-gray-200"
                         aria-label="הפחת כמות"
                       >
@@ -126,9 +151,14 @@ const Cart = ({ isOpen, onClose }) => {
                           <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
                         </svg>
                       </button>
-                      <span className="text-[11px] font-medium text-gray-700 w-5 text-center">{item.quantity}</span>
+                      <span className="text-[11px] font-medium text-gray-700 min-w-[40px] text-center">
+                        {formatQuantityWithUnit(item.quantity, isKgItem)}
+                      </span>
                       <button 
-                        onClick={() => updateQuantity(item.uid, item.quantity + 1)} 
+                        onClick={() => {
+                          const newQty = Math.round((item.quantity + step) * 1000) / 1000;
+                          updateQuantity(item.uid, newQty);
+                        }} 
                         className="text-white-600 hover:bg-gray-100 transition-colors w-8 h-7 rounded-full flex items-center justify-center border border-gray-200"
                         aria-label="הוסף כמות"
                       >
@@ -150,7 +180,8 @@ const Cart = ({ isOpen, onClose }) => {
                       </svg>
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

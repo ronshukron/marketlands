@@ -262,6 +262,9 @@ const CategoryStore = () => {
               category: productData.category || 'אחר',
               catalogNumber: productData.catalogNumber,
               vatType: productData.vatType ?? 3,
+              // Measurement type and unit size for kg/unit items
+              measurementType: productData.measurementType || 'kg',
+              unitSize: productData.unitSize || 1,
               
               // Order-related fields
               orderId: metadata.orderId,

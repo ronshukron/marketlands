@@ -494,7 +494,11 @@ const OrderConfirmation = () => {
                         productName: item.name,
                         quantity: item.quantity,
                         price: item.price,
-                        selectedOption: item.selectedOption || "None"
+                        selectedOption: item.selectedOption || "None",
+                        catalogNumber: item.catalogNumber || '',
+                        vatType: item.vatType ?? 3,
+                        measurementType: item.measurementType || 'kg',
+                        unitSize: item.unitSize || 1
                     });
                 }
             });
@@ -713,7 +717,11 @@ const OrderConfirmation = () => {
                             productName: item.name,
                             quantity: item.quantity,
                             price: item.price,
-                            selectedOption: item.selectedOption || "None"
+                            selectedOption: item.selectedOption || "None",
+                            catalogNumber: item.catalogNumber || '',
+                            vatType: item.vatType ?? 3,
+                            measurementType: item.measurementType || 'kg',
+                            unitSize: item.unitSize || 1
                         });
                     }
                 });

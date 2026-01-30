@@ -31,9 +31,24 @@ const EditProduct = () => {
     merchantPrice: '',
     vatType: 3,
     thaiName: '',
-    measurementType: 'kg' // 'kg' or 'unit'
+    measurementType: 'kg', // 'kg' or 'unit'
+    unitSize: '1' // kg per cart click (only for measurementType === 'kg')
   });
   const [isIndependent, setIsIndependent] = useState(false);
+
+  // Predefined unit size options (in kg)
+  const UNIT_SIZE_OPTIONS = [
+    { value: '0.1', label: '100 גרם (0.1 ק"ג)' },
+    { value: '0.25', label: '250 גרם (0.25 ק"ג)' },
+    { value: '0.5', label: 'חצי קילו (0.5 ק"ג)' },
+    { value: '1', label: '1 ק"ג' },
+    { value: '1.5', label: '1.5 ק"ג' },
+    { value: '2', label: '2 ק"ג' },
+    { value: '2.5', label: '2.5 ק"ג' },
+    { value: '3', label: '3 ק"ג' },
+    { value: '5', label: '5 ק"ג' },
+    { value: '10', label: '10 ק"ג' },
+  ];
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -70,7 +85,8 @@ const EditProduct = () => {
             merchantPrice: data.merchantPrice != null ? String(data.merchantPrice) : '',
             vatType: data.vatType ?? 3,
             thaiName: data.thaiName || '',
-            measurementType: data.measurementType || 'kg' // default to kg if not set
+            measurementType: data.measurementType || 'kg', // default to kg if not set
+            unitSize: data.unitSize != null ? String(data.unitSize) : '1' // default to 1 kg if not set
           });
           
           // Set existing images if available
@@ -231,6 +247,8 @@ const handleSubmit = async (e) => {
       images: updatedImages, // Update the Firestore with the new images array
       stockAmount: formData.stockAmount, // Include stock amount
       measurementType: formData.measurementType || 'kg',
+      // unitSize: kg per cart click. Only meaningful for kg items, but stored always (default 1).
+      unitSize: formData.measurementType === 'kg' ? parseFloat(formData.unitSize || '1') : 1,
       ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
       ...(formData.category !== '' ? { category: formData.category } : {}),
       ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {})
@@ -283,7 +301,7 @@ const handleSubmit = async (e) => {
           {/* Price */}
           <div>
             <label htmlFor="price" className="block text-sm font-medium text-gray-700 mb-1">
-              מחיר (₪) <span className="text-red-500">*</span>
+              {formData.measurementType === 'kg' ? 'מחיר לק"ג (₪)' : 'מחיר ליחידה (₪)'} <span className="text-red-500">*</span>
             </label>
             <input
               id="price"
@@ -375,7 +393,9 @@ const handleSubmit = async (e) => {
               onChange={(e) => 
                 setFormData({
                   ...formData,
-                  measurementType: e.target.value
+                  measurementType: e.target.value,
+                  // Reset unitSize to 1 when switching to unit
+                  unitSize: e.target.value === 'unit' ? '1' : formData.unitSize
                 })
               }
             >
@@ -388,6 +408,40 @@ const handleSubmit = async (e) => {
                 : 'המוצר נמכר ביחידות/מארזים - לא יישקל, רק ייספר.'}
             </p>
           </div>
+
+          {/* Unit Size - Only for kg items */}
+          {formData.measurementType === 'kg' && (
+            <div className="mb-4">
+              <label htmlFor="unitSize" className="block text-sm font-medium text-gray-700 mb-1">
+                כמות לכל לחיצה בעגלה
+              </label>
+              <select
+                id="unitSize"
+                name="unitSize"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={formData.unitSize}
+                onChange={(e) => 
+                  setFormData({
+                    ...formData,
+                    unitSize: e.target.value
+                  })
+                }
+              >
+                {UNIT_SIZE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                כמה ק"ג יתווספו לעגלה בכל לחיצה. לדוגמה: אם הלקוח לוחץ "+" והגדרת 0.5 ק"ג, יתווסף חצי קילו.
+              </p>
+              {price && formData.unitSize && (
+                <p className="mt-2 text-sm text-blue-600 bg-blue-50 p-2 rounded">
+                  💡 מחיר ללקוח לכל לחיצה: <strong>₪{(parseFloat(price) * parseFloat(formData.unitSize)).toFixed(2)}</strong>
+                  {' '}({formData.unitSize} ק"ג × ₪{parseFloat(price).toFixed(2)}/ק"ג)
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Category */}
           <div className="mb-4">

@@ -6,7 +6,13 @@ import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext';
 
 const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => {
-  const [quantity, setQuantity] = useState(1);
+  // Get measurement type and unit size from product (defaults: kg, 1)
+  const measurementType = product.measurementType || 'kg';
+  const unitSize = product.unitSize || 1;
+  const isKgItem = measurementType === 'kg';
+
+  // For kg items, quantity is in kg (e.g., 0.5), for unit items it's count (e.g., 1)
+  const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
   const [selectedOption, setSelectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
   );
@@ -18,16 +24,39 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       .reduce((sum, item) => sum + item.quantity, 0);
   }, [cartItems, product.id]);
 
+  // Format quantity for display
+  const formatQuantity = (qty) => {
+    if (isKgItem) {
+      // Show 1 decimal for kg items (e.g., "0.5", "1.0", "2.5")
+      return qty % 1 === 0 ? qty.toString() : qty.toFixed(1);
+    }
+    return Math.round(qty).toString();
+  };
+
+  // Format quantity with unit label
+  const formatQuantityWithUnit = (qty) => {
+    if (isKgItem) {
+      return `${formatQuantity(qty)} ק"ג`;
+    }
+    return qty.toString();
+  };
+
   const handleQuantityChange = (increment) => {
+    // For kg items, change by unitSize; for unit items, change by 1
+    const step = isKgItem ? unitSize : 1;
+    const minQuantity = isKgItem ? 0 : 0;
+
     if (increment) {
       // Check if the NEXT quantity would exceed stock
-      const nextQuantity = quantity + 1;
+      const nextQuantity = Math.round((quantity + step) * 1000) / 1000; // Avoid floating point errors
       
       if (product.stockAmount && nextQuantity > product.stockAmount) {
         // Show popup when trying to exceed stock
         Swal.fire({
           title: 'הגעת למלאי המקסימלי',
-          text: `יש רק ${product.stockAmount} יחידות זמינות במלאי`,
+          text: isKgItem 
+            ? `יש רק ${product.stockAmount} ק"ג זמינים במלאי`
+            : `יש רק ${product.stockAmount} יחידות זמינות במלאי`,
           icon: 'info',
           confirmButtonText: 'הבנתי',
           confirmButtonColor: '#3b82f6'
@@ -37,7 +66,8 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       
       setQuantity(nextQuantity);
     } else {
-      setQuantity(Math.max(quantity - 1, 0));
+      const nextQuantity = Math.round((quantity - step) * 1000) / 1000; // Avoid floating point errors
+      setQuantity(Math.max(nextQuantity, minQuantity));
     }
   };
 
@@ -55,7 +85,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     if (product.stockAmount !== undefined && quantity > product.stockAmount) {
       Swal.fire({
         title: 'מלאי לא מספיק',
-        text: `יש רק ${product.stockAmount} יחידות במלאי מתוך ${quantity} שביקשת`,
+        text: isKgItem 
+          ? `יש רק ${product.stockAmount} ק"ג במלאי מתוך ${formatQuantity(quantity)} שביקשת`
+          : `יש רק ${product.stockAmount} יחידות במלאי מתוך ${quantity} שביקשת`,
         icon: 'warning',
         confirmButtonText: 'אישור'
       });
@@ -65,15 +97,17 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     const productToAdd = {
       id: product.id,
       name: product.name,
-      price: product.price,
+      price: product.price, // Price per kg for kg items, price per unit for unit items
       selectedOption: selectedOption,
-      quantity: quantity,
+      quantity: quantity, // In kg for kg items, count for unit items
       images: product.images || [],
       businessId: product.businessId,
       businessName: product.businessName,
       stockAmount: product.stockAmount,
       catalogNumber: product.catalogNumber,
-      vatType: product.vatType ?? 3
+      vatType: product.vatType ?? 3,
+      measurementType: measurementType, // 'kg' or 'unit'
+      unitSize: unitSize // kg per cart increment (only meaningful for kg items)
     };
 
     addItem(
@@ -83,12 +117,14 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       0 // minimumOrderAmount - can be retrieved from order if needed
     );
 
-    // Reset quantity to 1 instead of 0
-    setQuantity(1);
+    // Reset quantity to initial value (unitSize for kg items, 1 for unit items)
+    setQuantity(isKgItem ? unitSize : 1);
 
     Swal.fire({
       title: 'נוסף לסל!',
-      text: `${product.name} נוסף לסל הקניות שלך`,
+      text: isKgItem 
+        ? `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף לסל הקניות שלך`
+        : `${product.name} נוסף לסל הקניות שלך`,
       icon: 'success',
       timer: 1500,
       showConfirmButton: false
@@ -152,7 +188,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              בסל: {quantityInCart}
+              בסל: {formatQuantityWithUnit(quantityInCart)}
             </div>
           )}
         </div>
@@ -162,7 +198,14 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
           <h3 className="text-base font-bold text-gray-900 mb-1">
             {product.name}
           </h3>
-          <p className="text-lg font-semibold text-blue-600 mb-1">₪{product.price}</p>
+          <p className="text-lg font-semibold text-blue-600 mb-1">
+            ₪{product.price}{isKgItem ? '/ק"ג' : ''}
+            {isKgItem && unitSize !== 1 && (
+              <span className="text-xs text-gray-500 mr-1">
+                (₪{(product.price * unitSize).toFixed(2)} ל-{formatQuantity(unitSize)} ק"ג)
+              </span>
+            )}
+          </p>
           <p className="text-xs text-gray-600 line-clamp-2 mb-2">{product.description}</p>
           
           {/* Farmer attribution */}
@@ -208,8 +251,8 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               >
                 -
               </button>
-              <span className="px-4 py-2 text-base text-center min-w-[50px] font-medium">
-                {quantity}
+              <span className="px-4 py-2 text-base text-center min-w-[60px] font-medium">
+                {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
               </span>
               <button 
                 onClick={() => handleQuantityChange(true)}
@@ -279,7 +322,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              {quantityInCart} בסל
+              {formatQuantityWithUnit(quantityInCart)} בסל
             </div>
           )}
         </div>
@@ -289,7 +332,14 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
           <h3 className="text-sm font-bold text-gray-900 mb-0.5">
             {product.name}
           </h3>
-          <p className="text-sm text-gray-500 mb-0.5">₪{product.price}</p>
+          <p className="text-sm text-gray-500 mb-0.5">
+            ₪{product.price}{isKgItem ? '/ק"ג' : ''}
+            {isKgItem && unitSize !== 1 && (
+              <span className="text-xs text-gray-400 mr-1">
+                (₪{(product.price * unitSize).toFixed(2)} ל-{formatQuantity(unitSize)} ק"ג)
+              </span>
+            )}
+          </p>
           <p className="text-xs text-gray-600 line-clamp-2 mb-0.5">{product.description}</p>
           
           {/* Farmer attribution */}
@@ -337,8 +387,8 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
             >
               -
             </button>
-            <span className="px-2.5 py-1 text-sm text-center min-w-[34px]">
-              {quantity}
+            <span className="px-2.5 py-1 text-sm text-center min-w-[50px]">
+              {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
             </span>
             <button 
               onClick={() => handleQuantityChange(true)}

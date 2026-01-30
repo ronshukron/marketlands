@@ -6,6 +6,20 @@ import { useAuth } from '../../contexts/authContext';
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
 
+// Predefined unit size options (in kg)
+const UNIT_SIZE_OPTIONS = [
+  { value: '0.1', label: '0.1 ק"ג' },
+  { value: '0.25', label: '0.25 ק"ג' },
+  { value: '0.5', label: '0.5 ק"ג' },
+  { value: '1', label: '1 ק"ג' },
+  { value: '1.5', label: '1.5 ק"ג' },
+  { value: '2', label: '2 ק"ג' },
+  { value: '2.5', label: '2.5 ק"ג' },
+  { value: '3', label: '3 ק"ג' },
+  { value: '5', label: '5 ק"ג' },
+  { value: '10', label: '10 ק"ג' },
+];
+
 const BulkEditProducts = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
@@ -47,7 +61,8 @@ const BulkEditProducts = () => {
             merchantPrice: product.merchantPrice || '',
             category: product.category || '',
             thaiName: product.thaiName || '',
-            measurementType: product.measurementType || 'kg' // default to kg
+            measurementType: product.measurementType || 'kg', // default to kg
+            unitSize: product.unitSize != null ? String(product.unitSize) : '1' // default to 1 kg
           };
         });
         setEditedProducts(initialEdits);
@@ -87,7 +102,8 @@ const BulkEditProducts = () => {
         (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
         edited.category !== (product.category || '') ||
         edited.thaiName !== (product.thaiName || '') ||
-        edited.measurementType !== (product.measurementType || 'kg')
+        edited.measurementType !== (product.measurementType || 'kg') ||
+        Number(edited.unitSize || 1) !== Number(product.unitSize || 1)
       );
     });
   };
@@ -129,7 +145,8 @@ const BulkEditProducts = () => {
           (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
           edited.category !== (product.category || '') ||
           edited.thaiName !== (product.thaiName || '') ||
-          edited.measurementType !== (product.measurementType || 'kg')
+          edited.measurementType !== (product.measurementType || 'kg') ||
+          Number(edited.unitSize || 1) !== Number(product.unitSize || 1)
         );
 
         if (hasProductChanges) {
@@ -137,7 +154,9 @@ const BulkEditProducts = () => {
           const updates = {
             price: Number(edited.price),
             stockAmount: Number(edited.stockAmount),
-            measurementType: edited.measurementType || 'kg'
+            measurementType: edited.measurementType || 'kg',
+            // unitSize: kg per cart click. Only meaningful for kg items, stored as number (default 1).
+            unitSize: edited.measurementType === 'kg' ? Number(edited.unitSize || 1) : 1
           };
           
           if (edited.merchantPrice !== '') {
@@ -207,7 +226,8 @@ const BulkEditProducts = () => {
         merchantPrice: product.merchantPrice || '',
         category: product.category || '',
         thaiName: product.thaiName || '',
-        measurementType: product.measurementType || 'kg'
+        measurementType: product.measurementType || 'kg',
+        unitSize: product.unitSize != null ? String(product.unitSize) : '1'
       };
     });
     setEditedProducts(initialEdits);
@@ -304,6 +324,9 @@ const BulkEditProducts = () => {
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     נמדד לפי
                   </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    כמות לעגלה
+                  </th>
                   {!isIndependent && (
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       ชื่อภาษาไทย
@@ -326,7 +349,8 @@ const BulkEditProducts = () => {
                     (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
                     edited.category !== (product.category || '') ||
                     edited.thaiName !== (product.thaiName || '') ||
-                    edited.measurementType !== (product.measurementType || 'kg')
+                    edited.measurementType !== (product.measurementType || 'kg') ||
+                    Number(edited.unitSize || 1) !== Number(product.unitSize || 1)
                   );
 
                   return (
@@ -398,12 +422,33 @@ const BulkEditProducts = () => {
                       <td className="px-4 py-4 whitespace-nowrap">
                         <select
                           value={edited.measurementType}
-                          onChange={(e) => handleFieldChange(product.id, 'measurementType', e.target.value)}
+                          onChange={(e) => {
+                            handleFieldChange(product.id, 'measurementType', e.target.value);
+                            // Reset unitSize to 1 when switching to unit
+                            if (e.target.value === 'unit') {
+                              handleFieldChange(product.id, 'unitSize', '1');
+                            }
+                          }}
                           className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         >
                           <option value="kg">ק"ג</option>
                           <option value="unit">יחידה</option>
                         </select>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        {edited.measurementType === 'kg' ? (
+                          <select
+                            value={edited.unitSize || '1'}
+                            onChange={(e) => handleFieldChange(product.id, 'unitSize', e.target.value)}
+                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          >
+                            {UNIT_SIZE_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
                       </td>
                       {!isIndependent && (
                         <td className="px-4 py-4 whitespace-nowrap">

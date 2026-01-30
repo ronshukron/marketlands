@@ -505,7 +505,10 @@ const OrderConfirmationDelayed = () => {
                         // Firestore does not allow undefined values anywhere in the document.
                         catalogNumber: item.catalogNumber || '',
                         vatType: item.vatType ?? 3,
-                        isShipping: item.isShipping === true
+                        isShipping: item.isShipping === true,
+                        // Measurement type and unit size for weighing process
+                        measurementType: item.measurementType || 'kg',
+                        unitSize: item.unitSize || 1
                     });
                 }
             });
@@ -733,7 +736,11 @@ const OrderConfirmationDelayed = () => {
                             productName: item.name,
                             quantity: item.quantity,
                             price: item.price,
-                            selectedOption: item.selectedOption || "None"
+                            selectedOption: item.selectedOption || "None",
+                            catalogNumber: item.catalogNumber || '',
+                            vatType: item.vatType ?? 3,
+                            measurementType: item.measurementType || 'kg',
+                            unitSize: item.unitSize || 1
                         });
                     }
                 });
