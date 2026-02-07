@@ -31,7 +31,7 @@ const EditProduct = () => {
     merchantPrice: '',
     vatType: 3,
     thaiName: '',
-    measurementType: 'kg', // 'kg' or 'unit'
+    measurementType: 'kg', // 'kg', 'unit', or 'package'
     unitSize: '1' // kg per cart click (only for measurementType === 'kg')
   });
   const [isIndependent, setIsIndependent] = useState(false);
@@ -301,7 +301,7 @@ const handleSubmit = async (e) => {
           {/* Price */}
           <div>
             <label htmlFor="price" className="block text-sm font-medium text-gray-700 mb-1">
-              {formData.measurementType === 'kg' ? 'מחיר לק"ג (₪)' : 'מחיר ליחידה (₪)'} <span className="text-red-500">*</span>
+              {formData.measurementType === 'kg' ? 'מחיר לק"ג (₪)' : formData.measurementType === 'unit' ? 'מחיר לק"ג (₪)' : 'מחיר למארז (₪)'} <span className="text-red-500">*</span>
             </label>
             <input
               id="price"
@@ -394,18 +394,21 @@ const handleSubmit = async (e) => {
                 setFormData({
                   ...formData,
                   measurementType: e.target.value,
-                  // Reset unitSize to 1 when switching to unit
-                  unitSize: e.target.value === 'unit' ? '1' : formData.unitSize
+                  // Reset unitSize to 1 when switching away from kg
+                  unitSize: e.target.value !== 'kg' ? '1' : formData.unitSize
                 })
               }
             >
               <option value="kg">ק"ג (משקל)</option>
-              <option value="unit">יחידה / מארז / חבילה</option>
+              <option value="unit">יחידה (נשקל) - למשל אבטיח, מלון</option>
+              <option value="package">מארז (מחיר קבוע) - למשל חסה, צרור</option>
             </select>
             <p className="mt-1 text-xs text-gray-500">
               {formData.measurementType === 'kg' 
                 ? 'המוצר יישקל ביום המשלוח והחיוב יהיה לפי המשקל בפועל.'
-                : 'המוצר נמכר ביחידות/מארזים - לא יישקל, רק ייספר.'}
+                : formData.measurementType === 'unit'
+                ? 'הלקוח מזמין יחידות (1,2,3...) אבל החיוב לפי משקל בפועל - מתאים לפירות/ירקות שנמכרים ביחידה.'
+                : 'המוצר נמכר במארזים/צרורות במחיר קבוע - לא יישקל, רק ייספר.'}
             </p>
           </div>
 

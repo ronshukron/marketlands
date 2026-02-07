@@ -424,15 +424,16 @@ const BulkEditProducts = () => {
                           value={edited.measurementType}
                           onChange={(e) => {
                             handleFieldChange(product.id, 'measurementType', e.target.value);
-                            // Reset unitSize to 1 when switching to unit
-                            if (e.target.value === 'unit') {
+                            // Reset unitSize to 1 when switching away from kg
+                            if (e.target.value !== 'kg') {
                               handleFieldChange(product.id, 'unitSize', '1');
                             }
                           }}
-                          className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          className="w-28 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         >
                           <option value="kg">ק"ג</option>
-                          <option value="unit">יחידה</option>
+                          <option value="unit">יחידה (נשקל)</option>
+                          <option value="package">מארז (קבוע)</option>
                         </select>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">

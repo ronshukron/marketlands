@@ -26,7 +26,7 @@ const AddProduct = () => {
   const [vatType, setVatType] = useState(3);
   const [merchantPrice, setMerchantPrice] = useState('');
   const [thaiName, setThaiName] = useState('');
-  const [measurementType, setMeasurementType] = useState('kg'); // 'kg' or 'unit'
+  const [measurementType, setMeasurementType] = useState('kg'); // 'kg', 'unit', or 'package'
   const [unitSize, setUnitSize] = useState('1'); // kg per cart click (only for measurementType === 'kg')
   const [isIndependent, setIsIndependent] = useState(false);
 
@@ -197,7 +197,7 @@ const AddProduct = () => {
         createdAt: new Date(),
         catalogNumber: response.data.catalogNumber,
         vatType: Number(vatType),
-        measurementType: measurementType, // 'kg' or 'unit'
+        measurementType: measurementType, // 'kg', 'unit', or 'package'
         // unitSize: kg per cart click. Only meaningful for kg items, but stored always (default 1).
         unitSize: measurementType === 'kg' ? parseFloat(unitSize) : 1,
         ...(merchantPrice !== '' ? { merchantPrice: parseFloat(merchantPrice) } : {}),
@@ -259,7 +259,7 @@ const AddProduct = () => {
             {/* Price field */}
             <div>
               <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="price">
-                {measurementType === 'kg' ? 'מחיר לק"ג' : 'מחיר ליחידה'} <span className="text-red-500">*</span>
+                {measurementType === 'kg' ? 'מחיר לק"ג' : measurementType === 'unit' ? 'מחיר לק"ג' : 'מחיר למארז'} <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <input
@@ -352,19 +352,22 @@ const AddProduct = () => {
               value={measurementType}
               onChange={(e) => {
                 setMeasurementType(e.target.value);
-                // Reset unitSize to 1 when switching to unit
-                if (e.target.value === 'unit') {
+                // Reset unitSize to 1 when switching away from kg
+                if (e.target.value !== 'kg') {
                   setUnitSize('1');
                 }
               }}
             >
               <option value="kg">ק"ג (משקל)</option>
-              <option value="unit">יחידה / מארז / חבילה</option>
+              <option value="unit">יחידה (נשקל) - למשל אבטיח, מלון</option>
+              <option value="package">מארז (מחיר קבוע) - למשל חסה, צרור</option>
             </select>
             <p className="mt-1 text-xs text-gray-500">
               {measurementType === 'kg' 
                 ? 'המוצר יישקל ביום המשלוח והחיוב יהיה לפי המשקל בפועל.'
-                : 'המוצר נמכר ביחידות/מארזים - לא יישקל, רק ייספר.'}
+                : measurementType === 'unit'
+                ? 'הלקוח מזמין יחידות (1,2,3...) אבל החיוב לפי משקל בפועל - מתאים לפירות/ירקות שנמכרים ביחידה.'
+                : 'המוצר נמכר במארזים/צרורות במחיר קבוע - לא יישקל, רק ייספר.'}
             </p>
           </div>
 

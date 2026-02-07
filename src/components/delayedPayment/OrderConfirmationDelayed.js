@@ -934,8 +934,8 @@ const OrderConfirmationDelayed = () => {
     const checkAndUpdateStock = async (orderItems) => {
         try {
             // Production: Always use production endpoint
-            const url = functionsEndpoint('checkAndUpdateStock');
-            
+            // const url = functionsEndpoint('checkAndUpdateStock');
+            const url = 'https://us-central1-auth-development-323c3.cloudfunctions.net/checkAndUpdateStock';
             // Local testing (uncomment to use emulator):
             // const forceLocal = process.env.REACT_APP_FORCE_FUNCTIONS_LOCAL === 'true';
             // const url = forceLocal

@@ -10,18 +10,23 @@ const Cart = ({ isOpen, onClose }) => {
   const [checkingRoute, setCheckingRoute] = useState(false);
 
   // Helper functions for formatting quantities
-  const formatQuantity = (qty, isKgItem) => {
-    if (isKgItem) {
+  // measurementType: 'kg' | 'unit' | 'package'
+  const formatQuantity = (qty, measurementType) => {
+    if (measurementType === 'kg') {
       return qty % 1 === 0 ? qty.toString() : qty.toFixed(1);
     }
     return Math.round(qty).toString();
   };
 
-  const formatQuantityWithUnit = (qty, isKgItem) => {
-    if (isKgItem) {
-      return `${formatQuantity(qty, true)} ק"ג`;
+  const formatQuantityWithUnit = (qty, measurementType) => {
+    if (measurementType === 'kg') {
+      return `${formatQuantity(qty, 'kg')} ק"ג`;
     }
-    return qty.toString();
+    if (measurementType === 'unit') {
+      return `${Math.round(qty)} יח'`;
+    }
+    // package
+    return `${Math.round(qty)} מארז`;
   };
 
   const handleCheckout = async () => {
@@ -103,7 +108,10 @@ const Cart = ({ isOpen, onClose }) => {
             ) : (
               <div className="divide-y divide-gray-100">
                 {cartItems.map((item) => {
-                  const isKgItem = item.measurementType === 'kg';
+                  const measurementType = item.measurementType || 'kg';
+                  const isKgItem = measurementType === 'kg';
+                  const isUnitItem = measurementType === 'unit';
+                  const isPackageItem = measurementType === 'package';
                   const unitSize = item.unitSize || 1;
                   const step = isKgItem ? unitSize : 1;
                   
@@ -133,7 +141,10 @@ const Cart = ({ isOpen, onClose }) => {
                         </p>
                       )}
                       <p className="text-[11px] font-medium text-blue-600 mt-0.5">
-                        ₪{item.price.toFixed(2)}{isKgItem ? '/ק"ג' : ''}
+                        ₪{item.price.toFixed(2)}
+                        {isKgItem && '/ק"ג'}
+                        {isUnitItem && '/ק"ג'}
+                        {isPackageItem && '/מארז'}
                       </p>
                     </div>
                     
@@ -152,7 +163,7 @@ const Cart = ({ isOpen, onClose }) => {
                         </svg>
                       </button>
                       <span className="text-[11px] font-medium text-gray-700 min-w-[40px] text-center">
-                        {formatQuantityWithUnit(item.quantity, isKgItem)}
+                        {formatQuantityWithUnit(item.quantity, measurementType)}
                       </span>
                       <button 
                         onClick={() => {

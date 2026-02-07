@@ -14,8 +14,8 @@ import { functionsEndpoint } from '../../utils/functionsClient';
  */
 export async function createGrowSuspendedPaymentProcess(payload) {
   // Production: Always use production endpoint
-  const url = functionsEndpoint('createGrowSuspendedPayment');
-  
+  // const url = functionsEndpoint('createGrowSuspendedPayment');
+  const url = 'https://us-central1-auth-development-323c3.cloudfunctions.net/createGrowSuspendedPayment';
   // Local testing (uncomment to use emulator):
   // const forceLocal = process.env.REACT_APP_FORCE_FUNCTIONS_LOCAL === 'true';
   // const url = forceLocal

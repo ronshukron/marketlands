@@ -447,6 +447,11 @@ export default function DeliveryManagementV5() {
           const linePrice = actualQty * (it.pricePerUnit || 0); // NO ROUNDING - backend rounds
           const measurementType = it.measurementType || 'kg'; // default to kg
           const weighSource = weighed?.source || 'manual'; // track source for description logic
+          
+          // For 'unit' items (melon etc), the actualQty is the weighed kg, not the count
+          // The linePrice is still qty * pricePerKg (same as kg items)
+          // For 'package' items, actualQty is the count, linePrice is count * pricePerPackage
+          
           return {
             lineId: it.lineId,
             productId: it.productId,
@@ -457,8 +462,8 @@ export default function DeliveryManagementV5() {
             actualQuantity: actualQty,
             pricePerUnit: it.pricePerUnit || 0,
             linePrice,
-            measurementType, // 'kg' or 'unit'
-            weighSource, // 'manual' | 'scale' | 'scale_placeholder' | 'unit' | 'ordered_default'
+            measurementType, // 'kg', 'unit', or 'package'
+            weighSource, // 'manual' | 'scale' | 'scale_placeholder' | 'package' | 'ordered_default'
           };
         });
 
@@ -475,12 +480,16 @@ export default function DeliveryManagementV5() {
       const productDataForGrow = {};
       finalInvoiceLines.forEach((li, idx) => {
         let descriptionWithQty;
-        if (li.measurementType === 'unit') {
-          // Unit items: show as "productName X יח'"
-          descriptionWithQty = `${li.productName} ${Number(li.actualQuantity)} יח'`;
+        if (li.measurementType === 'package') {
+          // Package items: show as "productName X מארז"
+          descriptionWithQty = `${li.productName} ${Number(li.actualQuantity)} מארז`;
+        } else if (li.measurementType === 'unit') {
+          // Unit items (weighed by unit): show actual weight in kg
+          const weightStr = Number(li.actualQuantity).toFixed(3);
+          descriptionWithQty = `${li.productName} ${weightStr} ק\"ג`;
         } else {
-          // Weight items: check if it was actually weighed or used ordered quantity
-          const usedOrderedQty = li.weighSource === 'ordered_default' || li.weighSource === 'unit';
+          // kg items: check if it was actually weighed or used ordered quantity
+          const usedOrderedQty = li.weighSource === 'ordered_default' || li.weighSource === 'package';
           if (usedOrderedQty) {
             // Item used "השתמש בכמות שהוזמנה" - don't show weight in description
             descriptionWithQty = li.productName;
@@ -837,11 +846,17 @@ export default function DeliveryManagementV5() {
                                     <div className={`text-xs mt-0.5 ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-500'}`}>{it.productName}</div>
                                   )}
                                   <div className={`text-xs mt-1 ${isRemoved ? 'text-gray-400' : 'text-gray-600'}`}>
-                                    {it.measurementType === 'unit' ? (
+                                    {it.measurementType === 'package' ? (
+                                      <>
+                                        הוזמן: <span className="font-semibold">{Number(it.requestedQuantity || 0)}</span> מארז
+                                        {' '}• מחיר למארז: <span className="font-semibold">₪{Number(it.pricePerUnit || 0).toFixed(2)}</span>
+                                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">מארז</span>
+                                      </>
+                                    ) : it.measurementType === 'unit' ? (
                                       <>
                                         הוזמן: <span className="font-semibold">{Number(it.requestedQuantity || 0)}</span> יח'
-                                        {' '}• מחיר ליחידה: <span className="font-semibold">₪{Number(it.pricePerUnit || 0).toFixed(2)}</span>
-                                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">יחידה</span>
+                                        {' '}• מחיר לק"ג: <span className="font-semibold">₪{Number(it.pricePerUnit || 0).toFixed(2)}</span>
+                                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">יחידה (נשקל)</span>
                                       </>
                                     ) : (
                                       <>
@@ -860,10 +875,10 @@ export default function DeliveryManagementV5() {
                                   <>
                                     <div className={`text-sm font-bold ${weighed ? 'text-green-700' : 'text-gray-500'}`}>
                                       {weighed 
-                                        ? (it.measurementType === 'unit' 
-                                            ? `${Number(weighed)} יח'` 
+                                        ? (it.measurementType === 'package' 
+                                            ? `${Number(weighed)} מארז` 
                                             : `${Number(weighed).toFixed(3)} ק"ג`)
-                                        : (it.measurementType === 'unit' ? 'לא אושר' : 'לא נשקל')}
+                                        : (it.measurementType === 'package' ? 'לא אושר' : 'לא נשקל')}
                                     </div>
                                     <div className="text-xs text-gray-500">
                                       {weighed ? (
@@ -871,8 +886,8 @@ export default function DeliveryManagementV5() {
                                           ? 'סקייל (placeholder)'
                                           : weightsByLineId?.[it.lineId]?.source === 'ordered_default'
                                             ? 'כמות שהוזמנה'
-                                            : weightsByLineId?.[it.lineId]?.source === 'unit'
-                                              ? 'יחידה (אושר)'
+                                            : weightsByLineId?.[it.lineId]?.source === 'package'
+                                              ? 'מארז (אושר)'
                                               : 'ידני'
                                       ) : ''}
                                     </div>

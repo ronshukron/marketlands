@@ -7,11 +7,17 @@ import { useCart } from '../../contexts/CartContext';
 
 const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => {
   // Get measurement type and unit size from product (defaults: kg, 1)
+  // measurementType: 'kg' | 'unit' | 'package'
+  // - kg: ordered by weight (unitSize kg per click), charged by actual weight
+  // - unit: ordered by count (1,2,3), charged by actual weight (e.g., melon)
+  // - package: ordered by count (1,2,3), fixed price per package (e.g., lettuce pack)
   const measurementType = product.measurementType || 'kg';
   const unitSize = product.unitSize || 1;
   const isKgItem = measurementType === 'kg';
+  const isUnitItem = measurementType === 'unit';
+  const isPackageItem = measurementType === 'package';
 
-  // For kg items, quantity is in kg (e.g., 0.5), for unit items it's count (e.g., 1)
+  // For kg items, quantity is in kg (e.g., 0.5); for unit/package items it's count (e.g., 1)
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
   const [selectedOption, setSelectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
@@ -38,13 +44,16 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     if (isKgItem) {
       return `${formatQuantity(qty)} ק"ג`;
     }
-    return qty.toString();
+    if (isUnitItem) {
+      return `${Math.round(qty)} יח'`;
+    }
+    // package
+    return `${Math.round(qty)} מארז`;
   };
 
   const handleQuantityChange = (increment) => {
-    // For kg items, change by unitSize; for unit items, change by 1
+    // For kg items, change by unitSize; for unit/package items, change by 1
     const step = isKgItem ? unitSize : 1;
-    const minQuantity = isKgItem ? 0 : 0;
 
     if (increment) {
       // Check if the NEXT quantity would exceed stock
@@ -52,11 +61,14 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       
       if (product.stockAmount && nextQuantity > product.stockAmount) {
         // Show popup when trying to exceed stock
+        const stockText = isKgItem 
+          ? `יש רק ${product.stockAmount} ק"ג זמינים במלאי`
+          : isUnitItem
+          ? `יש רק ${product.stockAmount} יחידות זמינות במלאי`
+          : `יש רק ${product.stockAmount} מארזים זמינים במלאי`;
         Swal.fire({
           title: 'הגעת למלאי המקסימלי',
-          text: isKgItem 
-            ? `יש רק ${product.stockAmount} ק"ג זמינים במלאי`
-            : `יש רק ${product.stockAmount} יחידות זמינות במלאי`,
+          text: stockText,
           icon: 'info',
           confirmButtonText: 'הבנתי',
           confirmButtonColor: '#3b82f6'
@@ -67,7 +79,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       setQuantity(nextQuantity);
     } else {
       const nextQuantity = Math.round((quantity - step) * 1000) / 1000; // Avoid floating point errors
-      setQuantity(Math.max(nextQuantity, minQuantity));
+      setQuantity(Math.max(nextQuantity, 0));
     }
   };
 
@@ -83,11 +95,14 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     }
 
     if (product.stockAmount !== undefined && quantity > product.stockAmount) {
+      const stockText = isKgItem 
+        ? `יש רק ${product.stockAmount} ק"ג במלאי מתוך ${formatQuantity(quantity)} שביקשת`
+        : isUnitItem
+        ? `יש רק ${product.stockAmount} יחידות במלאי מתוך ${quantity} שביקשת`
+        : `יש רק ${product.stockAmount} מארזים במלאי מתוך ${quantity} שביקשת`;
       Swal.fire({
         title: 'מלאי לא מספיק',
-        text: isKgItem 
-          ? `יש רק ${product.stockAmount} ק"ג במלאי מתוך ${formatQuantity(quantity)} שביקשת`
-          : `יש רק ${product.stockAmount} יחידות במלאי מתוך ${quantity} שביקשת`,
+        text: stockText,
         icon: 'warning',
         confirmButtonText: 'אישור'
       });
@@ -97,16 +112,16 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     const productToAdd = {
       id: product.id,
       name: product.name,
-      price: product.price, // Price per kg for kg items, price per unit for unit items
+      price: product.price, // Price per kg for kg/unit items, price per package for package items
       selectedOption: selectedOption,
-      quantity: quantity, // In kg for kg items, count for unit items
+      quantity: quantity, // In kg for kg items, count for unit/package items
       images: product.images || [],
       businessId: product.businessId,
       businessName: product.businessName,
       stockAmount: product.stockAmount,
       catalogNumber: product.catalogNumber,
       vatType: product.vatType ?? 3,
-      measurementType: measurementType, // 'kg' or 'unit'
+      measurementType: measurementType, // 'kg', 'unit', or 'package'
       unitSize: unitSize // kg per cart increment (only meaningful for kg items)
     };
 
@@ -117,14 +132,12 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       0 // minimumOrderAmount - can be retrieved from order if needed
     );
 
-    // Reset quantity to initial value (unitSize for kg items, 1 for unit items)
+    // Reset quantity to initial value (unitSize for kg items, 1 for unit/package items)
     setQuantity(isKgItem ? unitSize : 1);
 
     Swal.fire({
       title: 'נוסף לסל!',
-      text: isKgItem 
-        ? `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף לסל הקניות שלך`
-        : `${product.name} נוסף לסל הקניות שלך`,
+      text: `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף לסל הקניות שלך`,
       icon: 'success',
       timer: 1500,
       showConfirmButton: false
@@ -199,11 +212,17 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
             {product.name}
           </h3>
           <p className="text-lg font-semibold text-blue-600 mb-1">
-            ₪{product.price}{isKgItem ? '/ק"ג' : ''}
+            ₪{product.price}
+            {isKgItem && '/ק"ג'}
+            {isUnitItem && '/ק"ג'}
+            {isPackageItem && '/מארז'}
             {isKgItem && unitSize !== 1 && (
               <span className="text-xs text-gray-500 mr-1">
                 (₪{(product.price * unitSize).toFixed(2)} ל-{formatQuantity(unitSize)} ק"ג)
               </span>
+            )}
+            {isUnitItem && (
+              <span className="text-xs text-gray-500 mr-1">(נשקל)</span>
             )}
           </p>
           <p className="text-xs text-gray-600 line-clamp-2 mb-2">{product.description}</p>
@@ -333,11 +352,17 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
             {product.name}
           </h3>
           <p className="text-sm text-gray-500 mb-0.5">
-            ₪{product.price}{isKgItem ? '/ק"ג' : ''}
+            ₪{product.price}
+            {isKgItem && '/ק"ג'}
+            {isUnitItem && '/ק"ג'}
+            {isPackageItem && '/מארז'}
             {isKgItem && unitSize !== 1 && (
               <span className="text-xs text-gray-400 mr-1">
                 (₪{(product.price * unitSize).toFixed(2)} ל-{formatQuantity(unitSize)} ק"ג)
               </span>
+            )}
+            {isUnitItem && (
+              <span className="text-xs text-gray-400 mr-1">(נשקל)</span>
             )}
           </p>
           <p className="text-xs text-gray-600 line-clamp-2 mb-0.5">{product.description}</p>

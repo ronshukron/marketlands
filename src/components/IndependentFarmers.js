@@ -17,6 +17,7 @@ const IndependentFarmers = () => {
   const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
     return localStorage.getItem('selectedPickupSpot') || '';
   });
+  const [communityQuery, setCommunityQuery] = useState('');
   const navigate = useNavigate();
 
   // Default to user's community if logged in and no explicit selection
@@ -179,6 +180,13 @@ const IndependentFarmers = () => {
     return orders.filter(o => Array.isArray(o.pickupSpots) && o.pickupSpots.includes(selectedPickupSpot));
   }, [orders, selectedPickupSpot, isMerchant]);
 
+  const filteredCommunities = useMemo(() => {
+    const query = communityQuery.trim().toLowerCase();
+    const list = isMerchant ? regions : pickupSpots;
+    if (!query) return list;
+    return list.filter((spot) => spot.toLowerCase().includes(query));
+  }, [communityQuery, isMerchant]);
+
   return (
     <div className="bg-white" dir="rtl">
       <div className="relative bg-gradient-to-r from-green-600 to-green-800 text-white overflow-hidden rounded-xl mb-8">
@@ -192,26 +200,30 @@ const IndependentFarmers = () => {
             <label className="block text-green-100 text-sm font-medium mb-2 text-center">
               {isMerchant ? 'אזור משלוח:' : 'אזור איסוף:'}
             </label>
-            <div className="relative">
-              <select
-                value={selectedPickupSpot}
-                onChange={(e) => setSelectedPickupSpot(e.target.value)}
-                className="block w-full p-3 pr-10 text-right text-sm text-gray-900 bg-white bg-opacity-95 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-md appearance-none"
+            <div>
+              <input
+                type="text"
+                value={communityQuery}
+                onChange={(e) => setCommunityQuery(e.target.value)}
+                placeholder={isMerchant ? 'חיפוש אזור...' : 'חיפוש קהילה...'}
+                className="block w-full mb-2 p-3 pr-4 text-right text-sm text-gray-900 bg-white bg-opacity-95 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-md"
                 dir="rtl"
-              >
-                <option value="הכל">הכל</option>
-                {isMerchant ? (
-                  regions.map((region) => (
-                    <option key={region} value={region}>{region}</option>
-                  ))
-                ) : (
-                  pickupSpots.map((spot) => (
+              />
+              <div className="relative">
+                <select
+                  value={selectedPickupSpot}
+                  onChange={(e) => setSelectedPickupSpot(e.target.value)}
+                  className="block w-full p-3 pr-10 text-right text-sm text-gray-900 bg-white bg-opacity-95 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-md appearance-none"
+                  dir="rtl"
+                >
+                  <option value="הכל">הכל</option>
+                  {filteredCommunities.map((spot) => (
                     <option key={spot} value={spot}>{spot}</option>
-                  ))
-                )}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-3 text-gray-700">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-3 text-gray-700">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                </div>
               </div>
             </div>
           </div>

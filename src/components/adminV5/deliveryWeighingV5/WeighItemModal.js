@@ -26,7 +26,7 @@ export default function WeighItemModal({
 }) {
   const [manualValue, setManualValue] = useState('');
   const [readingValue, setReadingValue] = useState(null);
-  const [source, setSource] = useState('manual'); // manual | scale | scale_placeholder | unit
+  const [source, setSource] = useState('manual'); // manual | scale | scale_placeholder | package | ordered_default
 
   // Scale integration
   const {
@@ -38,16 +38,23 @@ export default function WeighItemModal({
   } = useWeightScale();
 
   const requested = useMemo(() => Number(item?.requestedQuantity || 0), [item]);
-  const isUnitItem = item?.measurementType === 'unit';
+  // measurementType: 'kg' | 'unit' | 'package'
+  // - kg: weighed in kg, charged by weight
+  // - unit: weighed in kg (e.g., melon), but ordered/displayed as count, charged by weight
+  // - package: no weighing, just confirm count, fixed price per package
+  const measurementType = item?.measurementType || 'kg';
+  const isPackageItem = measurementType === 'package';
+  const isUnitItem = measurementType === 'unit';
+  const needsWeighing = !isPackageItem; // kg and unit items need weighing
 
   // Auto-update reading when scale provides stable weight
   useEffect(() => {
-    if (!open || isUnitItem) return;
+    if (!open || isPackageItem) return; // Package items don't use scale
     if (lastStableWeight && lastStableWeight.stable && lastStableWeight.value > 0) {
       // Only auto-update if we haven't manually entered something
       // This provides live weight display but doesn't override manual entry
     }
-  }, [lastStableWeight, open, isUnitItem]);
+  }, [lastStableWeight, open, isPackageItem]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,17 +72,19 @@ export default function WeighItemModal({
 
   if (!open || !item) return null;
 
-  const labels = isUnitItem ? {
-    titleHe: 'אישור כמות',
-    titleTh: 'ยืนยันจำนวน',
+  // Labels based on measurement type
+  const labels = isPackageItem ? {
+    // Package items: just confirm count, no weighing
+    titleHe: 'אישור כמות מארזים',
+    titleTh: 'ยืนยันจำนวนแพ็ก',
     orderedHe: 'כמות שהוזמנה',
     orderedTh: 'จำนวนที่สั่ง',
     currentHe: 'כמות בפועל',
     currentTh: 'จำนวนจริง',
     sourceHe: 'מקור',
     sourceTh: 'แหล่งที่มา',
-    manualHe: 'כמות (יחידות):',
-    manualTh: 'จำนวน (ชิ้น):',
+    manualHe: 'כמות (מארזים):',
+    manualTh: 'จำนวน (แพ็ก):',
     useOrderedBtnHe: 'השתמש בכמות שהוזמנה',
     useOrderedBtnTh: 'ใช้จำนวนที่สั่ง',
     cancelHe: 'ביטול',
@@ -84,11 +93,38 @@ export default function WeighItemModal({
     confirmTh: 'ตกลงและต่อไป',
     sourceManualTh: 'กรอกเอง',
     sourceManualHe: 'ידני',
-    sourceUnitHe: 'כמות שהוזמנה',
-    sourceUnitTh: 'จำนวนที่สั่ง',
-    unitLabel: 'יח\'',
-    unitLabelTh: 'ชิ้น',
+    sourcePackageHe: 'כמות שהוזמנה',
+    sourcePackageTh: 'จำนวนที่สั่ง',
+    unitLabel: 'מארז',
+    unitLabelTh: 'แพ็ก',
+  } : isUnitItem ? {
+    // Unit items: weighed like kg, but ordered/displayed as count (e.g., melon)
+    titleHe: 'שקילת פריט (יחידה)',
+    titleTh: 'ชั่งน้ำหนักสินค้า (ชิ้น)',
+    orderedHe: 'כמות שהוזמנה',
+    orderedTh: 'จำนวนที่สั่ง',
+    currentHe: 'משקל בפועל (ק"ג)',
+    currentTh: 'น้ำหนักจริง (กก.)',
+    sourceHe: 'מקור',
+    sourceTh: 'แหล่งที่มา',
+    manualHe: 'משקל ידני (ק"ג):',
+    manualTh: 'กรอกน้ำหนัก (กก.):',
+    scaleBtnHe: 'קבל קריאה מהמשקל (Placeholder)',
+    scaleBtnTh: 'อ่านค่าจากตาชั่ง (ชั่วคราว)',
+    cancelHe: 'ביטול',
+    cancelTh: 'ยกเลิก',
+    confirmHe: 'אישור והמשך',
+    confirmTh: 'ตกลงและต่อไป',
+    sourceManualTh: 'กรอกเอง',
+    sourceManualHe: 'ידני',
+    sourceScaleTh: 'ตาชั่ง (ชั่วคราว)',
+    sourceScaleHe: 'סקייל (placeholder)',
+    unitLabel: 'ק"ג',
+    unitLabelTh: 'กก.',
+    orderedUnitLabel: 'יח\'',
+    orderedUnitLabelTh: 'ชิ้น',
   } : {
+    // kg items: standard weighing
     titleHe: 'שקילת פריט',
     titleTh: 'ชั่งน้ำหนักสินค้า',
     orderedHe: 'כמות שהוזמנה',
@@ -111,8 +147,8 @@ export default function WeighItemModal({
     sourceManualHe: 'ידני',
     sourceScaleTh: 'ตาชั่ง (ชั่วคราว)',
     sourceScaleHe: 'סקייל (placeholder)',
-    sourceUnitHe: 'יחידה',
-    sourceUnitTh: 'จำนวน (ไม่ชั่ง)',
+    sourceOrderedHe: 'כמות שהוזמנה',
+    sourceOrderedTh: 'จำนวนที่สั่ง',
     unitLabel: 'ק"ג',
     unitLabelTh: 'กก.',
   };
@@ -143,17 +179,25 @@ export default function WeighItemModal({
   };
 
   const applyOrderedQuantity = () => {
-    // Use the ordered quantity as-is
+    // Use the ordered quantity as-is (for package items or as fallback for kg items)
     const qty = requested > 0 ? requested : 1;
-    setReadingValue(isUnitItem ? Math.floor(qty) : qty);
-    setManualValue(String(isUnitItem ? Math.floor(qty) : qty));
-    setSource('unit');
+    if (isPackageItem) {
+      // Package items: use integer count
+      setReadingValue(Math.floor(qty));
+      setManualValue(String(Math.floor(qty)));
+      setSource('package');
+    } else {
+      // kg items: use ordered kg quantity
+      setReadingValue(qty);
+      setManualValue(String(qty));
+      setSource('ordered_default');
+    }
   };
 
   const confirm = () => {
     const n = Number(manualValue);
     if (!Number.isFinite(n) || n <= 0) {
-      if (isUnitItem) {
+      if (isPackageItem) {
         alert('אנא הזן כמות תקינה (מספר שלם גדול מ-0).\nกรุณากรอกจำนวนเป็นตัวเลขมากกว่า 0');
       } else {
         alert('אנא הזן משקל תקין בק"ג (מספר גדול מ-0).\nกรุณากรอกน้ำหนักเป็นตัวเลขมากกว่า 0');
@@ -161,7 +205,8 @@ export default function WeighItemModal({
       return;
     }
     onConfirm({
-      actualQuantity: isUnitItem ? Math.floor(n) : Math.round(n * 1000) / 1000,
+      // Package items: integer count; kg and unit items: weight in kg (3 decimal places)
+      actualQuantity: isPackageItem ? Math.floor(n) : Math.round(n * 1000) / 1000,
       source,
     });
   };
@@ -169,7 +214,8 @@ export default function WeighItemModal({
   const getSourceLabel = () => {
     if (source === 'scale') return { he: 'משקל (BEP)', th: 'ตาชั่ง (BEP)' };
     if (source === 'scale_placeholder') return { he: labels.sourceScaleHe || labels.sourceManualHe, th: labels.sourceScaleTh || labels.sourceManualTh };
-    if (source === 'unit') return { he: labels.sourceUnitHe, th: labels.sourceUnitTh };
+    if (source === 'package') return { he: labels.sourcePackageHe || 'מארז', th: labels.sourcePackageTh || 'แพ็ก' };
+    if (source === 'ordered_default') return { he: labels.sourceOrderedHe || 'כמות שהוזמנה', th: labels.sourceOrderedTh || 'จำนวนที่สั่ง' };
     return { he: labels.sourceManualHe, th: labels.sourceManualTh };
   };
 
@@ -183,16 +229,21 @@ export default function WeighItemModal({
       }}
     >
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden">
-        <div className={`px-6 py-4 text-white ${isUnitItem ? 'bg-purple-800' : 'bg-gray-900'}`}>
+        <div className={`px-6 py-4 text-white ${isPackageItem ? 'bg-purple-800' : isUnitItem ? 'bg-yellow-700' : 'bg-gray-900'}`}>
           <div className="text-lg font-bold">{labels.titleHe}</div>
           <div className="text-xs text-gray-300">{labels.titleTh}</div>
           <div className="mt-2 text-base font-bold text-white" dir="ltr">{item.thaiName || item.productName}</div>
           {item.thaiName && (
             <div className="text-xs text-gray-300 mt-0.5" dir="rtl">{item.productName}</div>
           )}
-          {isUnitItem && (
+          {isPackageItem && (
             <div className="mt-2 inline-block text-xs px-2 py-1 bg-purple-600 rounded">
-              מוצר נמכר ביחידות / ผลิตภัณฑ์ขายเป็นชิ้น
+              מוצר נמכר במארזים - מחיר קבוע / ผลิตภัณฑ์ขายเป็นแพ็ก - ราคาคงที่
+            </div>
+          )}
+          {isUnitItem && (
+            <div className="mt-2 inline-block text-xs px-2 py-1 bg-yellow-600 rounded">
+              מוצר נמכר ביחידות - נשקל לחיוב / ผลิตภัณฑ์ขายเป็นชิ้น - ต้องชั่งน้ำหนัก
             </div>
           )}
         </div>
@@ -212,14 +263,20 @@ export default function WeighItemModal({
               <div className="text-xs text-gray-500">{labels.orderedHe}</div>
               <div className="text-[11px] text-gray-400" dir="ltr">{labels.orderedTh}</div>
               <div className="text-2xl font-bold text-gray-900">
-                {isUnitItem ? formatUnit(requested) : formatKg(requested)} {labels.unitLabel}
+                {isPackageItem 
+                  ? `${formatUnit(requested)} ${labels.unitLabel}`
+                  : isUnitItem
+                    ? `${formatUnit(requested)} ${labels.orderedUnitLabel || 'יח\''}`
+                    : `${formatKg(requested)} ${labels.unitLabel}`}
               </div>
             </div>
             <div className="bg-gray-50 border rounded-lg p-3">
               <div className="text-xs text-gray-500">{labels.currentHe}</div>
               <div className="text-[11px] text-gray-400" dir="ltr">{labels.currentTh}</div>
-              <div className={`text-2xl font-bold ${isUnitItem ? 'text-purple-700' : 'text-blue-700'}`}>
-                {isUnitItem ? formatUnit(readingValue) : formatKg(readingValue)} {labels.unitLabel}
+              <div className={`text-2xl font-bold ${isPackageItem ? 'text-purple-700' : isUnitItem ? 'text-yellow-700' : 'text-blue-700'}`}>
+                {isPackageItem 
+                  ? `${formatUnit(readingValue)} ${labels.unitLabel}`
+                  : `${formatKg(readingValue)} ${labels.unitLabel}`}
               </div>
               <div className="text-xs text-gray-500 mt-1">
                 {labels.sourceHe}: {sourceLabel.he}
@@ -231,8 +288,8 @@ export default function WeighItemModal({
           </div>
 
           <div className="flex flex-col gap-3">
-            {/* For unit items: show "Use ordered quantity" prominently */}
-            {isUnitItem ? (
+            {/* For package items: show "Use ordered quantity" prominently, no scale */}
+            {isPackageItem ? (
               <>
                 <button
                   type="button"
@@ -262,7 +319,7 @@ export default function WeighItemModal({
               </>
             ) : (
               <>
-                {/* For weight items: show scale button and unit button */}
+                {/* For kg and unit items: show scale controls - both need weighing */}
                 {/* Scale status indicator */}
                 {isElectron && (
                   <div className={`mb-2 text-center text-sm py-2 rounded-lg ${scaleConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
@@ -270,7 +327,7 @@ export default function WeighItemModal({
                       <>
                         <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
                         משקל מחובר / ตาชั่งเชื่อมต่อแล้ว
-                        {liveWeight && (
+                        {liveWeight && liveWeight.value != null && (
                           <span className="ml-2 font-bold">
                             {liveWeight.value.toFixed(3)} {liveWeight.unit}
                             {!liveWeight.stable && <span className="text-yellow-600 ml-1">(לא יציב)</span>}
@@ -293,7 +350,7 @@ export default function WeighItemModal({
                     onClick={captureFromScale}
                     className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg mb-2"
                   >
-                    📥 קלוט משקל מהמאזניים ({lastStableWeight ? `${lastStableWeight.value.toFixed(3)} kg` : 'ממתין...'})
+                    📥 קלוט משקל מהמאזניים ({lastStableWeight && lastStableWeight.value != null ? `${lastStableWeight.value.toFixed(3)} kg` : 'ממתין...'})
                     <div className="text-xs font-normal mt-0.5" dir="ltr">อ่านค่าจากตาชั่ง (BEP)</div>
                   </button>
                 )}
@@ -308,14 +365,17 @@ export default function WeighItemModal({
                   <div className="text-xs font-normal mt-0.5" dir="ltr">{scaleConnected ? 'For testing only' : labels.scaleBtnTh}</div>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={applyOrderedQuantity}
-                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-lg"
-                >
-                  {labels.unitBtnHe}
-                  <div className="text-xs font-normal mt-0.5" dir="ltr">{labels.unitBtnTh}</div>
-                </button>
+                {/* Only for kg items: option to use ordered quantity without weighing */}
+                {!isUnitItem && (
+                  <button
+                    type="button"
+                    onClick={applyOrderedQuantity}
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-lg"
+                  >
+                    {labels.unitBtnHe}
+                    <div className="text-xs font-normal mt-0.5" dir="ltr">{labels.unitBtnTh}</div>
+                  </button>
+                )}
 
                 <div className="flex items-center gap-3">
                   <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">

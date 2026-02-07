@@ -208,9 +208,8 @@ const WeeklyOrderSummaryV3 = () => {
         const orderData = doc.data();
         const isDelayed = source === 'customerOrdersDelayed';
         
-        // For regular orders, require completed. For delayed, exclude completed.
+        // For regular orders, require completed. For delayed, include both pending and completed (exclude only abandoned).
         if (!isDelayed && orderData.paymentStatus !== 'completed') return;
-        if (isDelayed && orderData.paymentStatus === 'completed') return;
         if (isDelayed && orderData.delayedOrderStatus === 'abandoned') return;
         
         // Parse the createdAt date
