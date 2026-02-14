@@ -17,7 +17,10 @@ const CategoryStore = () => {
   const [categoryCounts, setCategoryCounts] = useState({});
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
-  const [selectedCommunity, setSelectedCommunity] = useState('');
+  const [selectedCommunity, setSelectedCommunity] = useState(() => {
+    const saved = localStorage.getItem('selectedPickupSpot');
+    return saved && saved !== 'הכל' ? saved : '';
+  });
   const location = useLocation();
   const navigate = useNavigate();
   const sliderRef = useRef(null);
@@ -265,6 +268,7 @@ const CategoryStore = () => {
               // Measurement type and unit size for kg/unit items
               measurementType: productData.measurementType || 'kg',
               unitSize: productData.unitSize || 1,
+              averageWeightKg: productData.averageWeightKg || 1,
               
               // Order-related fields
               orderId: metadata.orderId,

@@ -94,8 +94,12 @@ function setupMenu() {
           click: () => navigateTo('/admin')
         },
         {
-          label: 'Delivery V5 (Weighing)',
+          label: 'Delivery V6 (Weighing) / จัดการจัดส่ง V6',
           accelerator: 'CmdOrCtrl+Shift+D',
+          click: () => navigateTo('/admin/delivery-v6')
+        },
+        {
+          label: 'Delivery V5 (Weighing - old)',
           click: () => navigateTo('/admin/delivery-v5')
         },
         {

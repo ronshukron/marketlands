@@ -141,6 +141,97 @@ export async function fetchDelayedOrdersFromCustomerOrders({
   return orders;
 }
 
+export async function fetchCompletedOrdersForWeek({
+  weekKey,
+  communities = [],
+}) {
+  const window = weekWindowFromKey(weekKey);
+  if (!window) return [];
+
+  const allowedCommunities = Array.isArray(communities) ? communities.filter(Boolean) : [];
+  const hasCommunityFilter = allowedCommunities.length > 0;
+
+  const snapshot = await getDocs(collection(db, 'customerOrdersDelayed'));
+
+  const orders = [];
+  snapshot.forEach((docSnap) => {
+    const d = docSnap.data() || {};
+
+    const isDelayed = d.isDelayedOrder === true || d.delayedOrder === true;
+    if (!isDelayed) return;
+
+    // Completed orders: payment was already settled / charged (NOT 'held' + 'pending_weighing')
+    // We look for any delayed order in this week that is no longer pending_weighing.
+    const isPending = d.paymentStatus === 'held' && d.delayedOrderStatus === 'pending_weighing';
+    if (isPending) return; // skip — these are fetched by fetchDelayedOrdersFromCustomerOrders
+
+    // Must have been processed at some point (has a recognizable status)
+    const status = d.delayedOrderStatus || '';
+    const payStatus = d.paymentStatus || '';
+    const isCompleted = status === 'settled' || status === 'completed' || status === 'charged'
+      || payStatus === 'charged' || payStatus === 'completed' || payStatus === 'settled';
+    if (!isCompleted) return;
+
+    const createdAt = toDateSafe(d.createdAt) || toDateSafe(d.createdAtIso) || toDateSafe(d.updatedAt);
+    if (!createdAt) return;
+    if (createdAt < window.start || createdAt > window.end) return;
+
+    const pickupSpot = d.customerDetails?.pickupSpot || 'לא צוין';
+    if (hasCommunityFilter && !allowedCommunities.includes(pickupSpot)) return;
+
+    const rawItems = d.items && Array.isArray(d.items) ? d.items : flattenOrderBreakdown(d.orderBreakdown);
+    const items = (rawItems || [])
+      .filter((it) => it && (it.quantity || it.quantity === 0))
+      .filter((it) => !it.isShipping && it.productId !== 'Mdean61FIezxRcMUZjVn')
+      .map((it, idx) => {
+        const productId = it.productId || it.id || '';
+        const selectedOption = it.selectedOption || '';
+        const lineId = it.lineId || `${docSnap.id}::${productId || it.productName || it.name || idx}::${selectedOption}::${idx}`;
+        return {
+          lineId,
+          productId,
+          productName: it.productName || it.name || 'פריט',
+          unit: 'kg',
+          requestedQuantity: Number(it.quantity) || 0,
+          pricePerUnit: Number(it.price) || 0,
+          selectedOption,
+          businessName: it.businessName || '',
+          vatType: it.vatType,
+          catalogNumber: it.catalogNumber || '',
+        };
+      });
+
+    if (items.length === 0) return;
+
+    orders.push({
+      id: docSnap.id,
+      source: 'customerOrdersDelayed',
+      status: 'completed',
+      weekKey,
+      pickupSpot,
+      customerDetails: {
+        name: d.customerDetails?.name || 'לקוח',
+        phone: d.customerDetails?.phone || '',
+        pickupSpot,
+      },
+      delayedMeta: {
+        isDelayed,
+        paymentStatus: payStatus,
+        delayedOrderStatus: status,
+      },
+      items,
+      createdAtIso: createdAt.toISOString(),
+    });
+  });
+
+  orders.sort((a, b) => {
+    const s1 = (a.pickupSpot || '').localeCompare(b.pickupSpot || '');
+    if (s1 !== 0) return s1;
+    return (a.customerDetails?.name || '').localeCompare(b.customerDetails?.name || '');
+  });
+  return orders;
+}
+
 export async function fetchDelayedOrdersForDeliveryV5({
   weekKey,
   communities = [],
@@ -169,18 +260,31 @@ export async function handleSuspendedPaymentV5({
   const url = 'https://us-central1-auth-development-323c3.cloudfunctions.net/handleSuspendedPayment';
   const token = await getIdTokenIfAvailable();
   console.log('handleSuspendedPaymentV5 url', url);
-  const { data } = await axios.post(
-    url,
-    { orderId, weightsByLineId, removedLineIds, finalInvoiceLines, finalSum, productDataForGrow },
-    {
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        'Content-Type': 'application/json',
-      },
-      timeout: 30000,
-    }
-  );
-  return data;
+  console.log('handleSuspendedPaymentV5 orderId:', orderId, 'finalSum:', finalSum, 'lines:', finalInvoiceLines?.length);
+  try {
+    const { data } = await axios.post(
+      url,
+      { orderId, weightsByLineId, removedLineIds, finalInvoiceLines, finalSum, productDataForGrow },
+      {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    return data;
+  } catch (err) {
+    console.error('handleSuspendedPaymentV5 FAILED:', {
+      status: err?.response?.status,
+      serverMessage: err?.response?.data,
+      orderId,
+      finalSum,
+      linesCount: finalInvoiceLines?.length,
+      hasToken: !!token,
+    });
+    throw err;
+  }
 }
 
 

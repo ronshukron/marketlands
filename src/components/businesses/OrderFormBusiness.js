@@ -163,7 +163,10 @@ const OrderFormBusiness = () => {
       businessName: businessInfo.name,
       stockAmount: product.stockAmount,
       catalogNumber: product.catalogNumber,
-      vatType: product.vatType ?? 3
+      vatType: product.vatType ?? 3,
+      measurementType: product.measurementType || 'kg',
+      unitSize: product.unitSize || 1,
+      averageWeightKg: product.averageWeightKg || 1
     };
     console.log('productToAdd', productToAdd);
     // Add to global cart only

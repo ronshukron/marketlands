@@ -33,6 +33,11 @@ const ScaleConnectionPanel = ({ onWeightChange, className = '' }) => {
     clearError,
   } = useWeightScale();
 
+  const safeWeightNumber = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+
   // Local state for connection form
   const [connectionMode, setConnectionMode] = useState('serial'); // 'serial' or 'tcp'
   const [selectedPort, setSelectedPort] = useState('');
@@ -112,7 +117,7 @@ const ScaleConnectionPanel = ({ onWeightChange, className = '' }) => {
           {weight ? (
             weight.status === 'overweight' ? 'H' :
             weight.status === 'underweight' ? 'L' :
-            weight.value !== null ? weight.value.toFixed(3) : '---'
+            safeWeightNumber(weight.value) !== null ? safeWeightNumber(weight.value).toFixed(3) : '---'
           ) : '---'}
         </div>
         <div style={styles.weightUnit}>
@@ -138,7 +143,7 @@ const ScaleConnectionPanel = ({ onWeightChange, className = '' }) => {
       {/* Last Stable Weight */}
       {lastStableWeight && (
         <div style={styles.lastStable}>
-          משקל יציב אחרון: {lastStableWeight.value.toFixed(2)} {lastStableWeight.unit}
+          משקל יציב אחרון: {safeWeightNumber(lastStableWeight.value) !== null ? safeWeightNumber(lastStableWeight.value).toFixed(2) : '---'} {lastStableWeight.unit}
         </div>
       )}
 

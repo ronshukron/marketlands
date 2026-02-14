@@ -1,7 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWeightScale } from '../../../hooks/useWeightScale';
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+// Thresholds for auto-weigh state machine
+const ZERO_THRESHOLD = 0.020;   // kg – below this we consider scale "empty"
+const ITEM_THRESHOLD = 0.020;   // kg – above this we consider "item placed"
 
 function formatKg(n) {
   if (n === null || n === undefined || n === '') return '';
@@ -47,15 +51,63 @@ export default function WeighItemModal({
   const isUnitItem = measurementType === 'unit';
   const needsWeighing = !isPackageItem; // kg and unit items need weighing
 
-  // Auto-update reading when scale provides stable weight
-  useEffect(() => {
-    if (!open || isPackageItem) return; // Package items don't use scale
-    if (lastStableWeight && lastStableWeight.stable && lastStableWeight.value > 0) {
-      // Only auto-update if we haven't manually entered something
-      // This provides live weight display but doesn't override manual entry
-    }
-  }, [lastStableWeight, open, isPackageItem]);
+  // ─── Auto-weigh state machine ───
+  // States: 'waiting' → 'item_on' → (auto-confirm when back to ~0)
+  const [scalePhase, setScalePhase] = useState('waiting'); // 'waiting' | 'item_on'
+  const candidateWeightRef = useRef(null);
+  const autoConfirmFiredRef = useRef(false);
 
+  // Reset state machine when modal opens / closes or item changes
+  useEffect(() => {
+    if (open && needsWeighing && scaleConnected) {
+      setScalePhase('waiting');
+      candidateWeightRef.current = null;
+      autoConfirmFiredRef.current = false;
+    }
+  }, [open, item?.lineId, needsWeighing, scaleConnected]);
+
+  // Main state-machine effect: reacts to every weight update (live, not just stable)
+  useEffect(() => {
+    if (!open || isPackageItem || !scaleConnected || autoConfirmFiredRef.current) return;
+
+    const w = liveWeight; // { value, stable, unit, status }
+    if (!w || w.value == null) return;
+
+    if (scalePhase === 'waiting') {
+      // Transition → item_on: stable reading above threshold
+      if (w.stable && w.value > ITEM_THRESHOLD) {
+        const rounded = Math.round(w.value * 1000) / 1000;
+        candidateWeightRef.current = rounded;
+        setReadingValue(rounded);
+        setManualValue(String(rounded));
+        setSource('scale');
+        setScalePhase('item_on');
+      }
+    } else if (scalePhase === 'item_on') {
+      // While item is on the scale, keep updating candidate if we get a better stable reading
+      if (w.stable && w.value > ITEM_THRESHOLD) {
+        const rounded = Math.round(w.value * 1000) / 1000;
+        candidateWeightRef.current = rounded;
+        setReadingValue(rounded);
+        setManualValue(String(rounded));
+        setSource('scale');
+      }
+      // Transition → auto-confirm: scale returned to ~0 (item removed)
+      if (w.stable && w.value < ZERO_THRESHOLD && candidateWeightRef.current > ITEM_THRESHOLD) {
+        autoConfirmFiredRef.current = true;
+        // Use the candidate weight we captured
+        const qty = candidateWeightRef.current;
+        onConfirm({
+          actualQuantity: Math.round(qty * 1000) / 1000,
+          source: 'scale',
+        });
+      }
+    }
+  // We intentionally depend on liveWeight (object ref changes each update)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveWeight, open, isPackageItem, scaleConnected, scalePhase]);
+
+  // Reset form values when modal opens with existing / empty values
   useEffect(() => {
     if (!open) return;
     const existing = existingValue?.actualQuantity;
@@ -153,17 +205,24 @@ export default function WeighItemModal({
     unitLabelTh: 'กก.',
   };
 
-  // Capture weight from real scale
+  // Capture weight from real scale (manual button press backup)
   const captureFromScale = () => {
-    if (!scaleConnected || !lastStableWeight) {
-      alert('המשקל לא מחובר או אין קריאה יציבה.\nตาชั่งไม่ได้เชื่อมต่อหรือไม่มีค่าคงที่');
+    // First try live weight if stable, then fall back to lastStableWeight
+    if (scaleConnected && liveWeight && liveWeight.stable && liveWeight.value > ITEM_THRESHOLD) {
+      const rounded = Math.round(liveWeight.value * 1000) / 1000;
+      setReadingValue(rounded);
+      setManualValue(String(rounded));
+      setSource('scale');
       return;
     }
-    const value = lastStableWeight.value;
-    const rounded = Math.round(value * 1000) / 1000;
-    setReadingValue(rounded);
-    setManualValue(String(rounded));
-    setSource('scale');
+    if (scaleConnected && lastStableWeight && lastStableWeight.value > ITEM_THRESHOLD) {
+      const rounded = Math.round(lastStableWeight.value * 1000) / 1000;
+      setReadingValue(rounded);
+      setManualValue(String(rounded));
+      setSource('scale');
+      return;
+    }
+    alert('המשקל לא מחובר או אין קריאה יציבה.\nตาชั่งไม่ได้เชื่อมต่อหรือไม่มีค่าคงที่');
   };
 
   const applyPlaceholderReading = () => {
@@ -195,7 +254,23 @@ export default function WeighItemModal({
   };
 
   const confirm = () => {
-    const n = Number(manualValue);
+    let n = Number(manualValue);
+    let confirmSource = source;
+
+    // If no value entered yet but scale is connected with a stable weight, use it directly
+    if ((!Number.isFinite(n) || n <= 0) && needsWeighing && scaleConnected) {
+      if (liveWeight && liveWeight.stable && liveWeight.value > ITEM_THRESHOLD) {
+        n = Math.round(liveWeight.value * 1000) / 1000;
+        confirmSource = 'scale';
+      } else if (candidateWeightRef.current > ITEM_THRESHOLD) {
+        n = candidateWeightRef.current;
+        confirmSource = 'scale';
+      } else if (lastStableWeight && lastStableWeight.value > ITEM_THRESHOLD) {
+        n = Math.round(lastStableWeight.value * 1000) / 1000;
+        confirmSource = 'scale';
+      }
+    }
+
     if (!Number.isFinite(n) || n <= 0) {
       if (isPackageItem) {
         alert('אנא הזן כמות תקינה (מספר שלם גדול מ-0).\nกรุณากรอกจำนวนเป็นตัวเลขมากกว่า 0');
@@ -204,10 +279,11 @@ export default function WeighItemModal({
       }
       return;
     }
+    autoConfirmFiredRef.current = true; // prevent auto-confirm from firing after manual OK
     onConfirm({
       // Package items: integer count; kg and unit items: weight in kg (3 decimal places)
       actualQuantity: isPackageItem ? Math.floor(n) : Math.round(n * 1000) / 1000,
-      source,
+      source: confirmSource,
     });
   };
 
@@ -320,19 +396,41 @@ export default function WeighItemModal({
             ) : (
               <>
                 {/* For kg and unit items: show scale controls - both need weighing */}
-                {/* Scale status indicator */}
+                {/* Scale status indicator + auto-weigh phase */}
                 {isElectron && (
-                  <div className={`mb-2 text-center text-sm py-2 rounded-lg ${scaleConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                  <div className={`mb-2 text-center text-sm rounded-lg overflow-hidden ${scaleConnected ? '' : 'bg-red-100 text-red-800 py-2'}`}>
                     {scaleConnected ? (
                       <>
-                        <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
-                        משקל מחובר / ตาชั่งเชื่อมต่อแล้ว
-                        {liveWeight && liveWeight.value != null && (
-                          <span className="ml-2 font-bold">
-                            {liveWeight.value.toFixed(3)} {liveWeight.unit}
-                            {!liveWeight.stable && <span className="text-yellow-600 ml-1">(לא יציב)</span>}
-                          </span>
-                        )}
+                        {/* Live weight display */}
+                        <div className="bg-green-100 text-green-800 py-2 px-3">
+                          <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
+                          משקל מחובר / ตาชั่งเชื่อมต่อแล้ว
+                          {liveWeight && liveWeight.value != null && (
+                            <span className="ml-2 font-bold font-mono text-lg">
+                              {liveWeight.value.toFixed(3)} {liveWeight.unit}
+                              {!liveWeight.stable && <span className="text-yellow-600 ml-1 text-sm">(לא יציב)</span>}
+                            </span>
+                          )}
+                        </div>
+                        {/* Auto-weigh phase indicator */}
+                        <div className={`py-2 px-3 text-sm font-semibold ${
+                          scalePhase === 'waiting' 
+                            ? 'bg-blue-50 text-blue-700' 
+                            : 'bg-amber-50 text-amber-700'
+                        }`}>
+                          {scalePhase === 'waiting' ? (
+                            <>
+                              ⏳ הנח את הפריט על המשקל / วางสินค้าบนตาชั่ง
+                            </>
+                          ) : (
+                            <>
+                              ✅ נקלט {candidateWeightRef.current?.toFixed(3)} ק"ג — הסר מהמשקל להמשך
+                              <div className="text-xs font-normal mt-0.5">
+                                จับน้ำหนักได้ {candidateWeightRef.current?.toFixed(3)} กก. — ยกออกเพื่อบันทึก
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </>
                     ) : (
                       <>
@@ -343,15 +441,20 @@ export default function WeighItemModal({
                   </div>
                 )}
 
-                {/* Real scale capture button (when connected) */}
+                {/* Real scale capture button (manual backup when connected) */}
                 {scaleConnected && (
                   <button
                     type="button"
-                    onClick={captureFromScale}
+                    onClick={() => {
+                      captureFromScale();
+                    }}
                     className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg mb-2"
                   >
-                    📥 קלוט משקל מהמאזניים ({lastStableWeight && lastStableWeight.value != null ? `${lastStableWeight.value.toFixed(3)} kg` : 'ממתין...'})
-                    <div className="text-xs font-normal mt-0.5" dir="ltr">อ่านค่าจากตาชั่ง (BEP)</div>
+                    📥 קלוט וסיים (גיבוי ידני)
+                    {liveWeight && liveWeight.value != null && (
+                      <span className="ml-2 font-mono">({liveWeight.value.toFixed(3)} kg{liveWeight.stable ? ' ✓' : ''})</span>
+                    )}
+                    <div className="text-xs font-normal mt-0.5" dir="ltr">กดเพื่อบันทึกน้ำหนัก (สำรอง)</div>
                   </button>
                 )}
 

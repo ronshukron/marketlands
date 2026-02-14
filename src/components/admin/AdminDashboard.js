@@ -47,6 +47,18 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'סיכום הכנסות V4',
+    description: 'סיכום כספי — סכומים ששולמו בפועל ומה שקיבלתי, כולל שקילה',
+    to: '/admin/weekly-summary-v4',
+    featured: true
+  },
+  {
+    title: 'הזמנות מספקים',
+    description: 'סיכום הזמנות לפי ספקים — העתקה, התאמה וחישוב עלויות',
+    to: '/admin/order-from-suppliers',
+    featured: true
+  },
+  {
     title: 'ניהול משלוחים V2',
     description: 'ניהול משלוחים עם בחירת שבוע וקהילות',
     to: '/admin/delivery-v2',
@@ -65,9 +77,21 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'ניהול משלוחים V4.5 (דחוי)',
+    description: 'גרסה V4 לעבודה עם הזמנות תשלום מושהה',
+    to: '/admin/delivery-v4-5',
+    featured: true
+  },
+  {
     title: 'ניהול משלוחים V5 (משקלים)',
     description: 'גרסת שקילה וניהול חלוקה מתקדמת',
     to: '/admin/delivery-v5',
+    featured: true
+  },
+  {
+    title: 'ניהול משלוחים V6 / จัดการจัดส่ง V6',
+    description: 'גרסה משופרת: שקילה אוטומטית, עברית/תאילנדית, אופליין — เวอร์ชันปรับปรุง: ชั่งอัตโนมัติ, ฮิบรู/ไทย, ออฟไลน์',
+    to: '/admin/delivery-v6',
     featured: true
   },
   {
@@ -98,6 +122,18 @@ const initialCards = [
     title: 'הגדרות תשלום',
     description: 'הגדרת נקודות איסוף לתשלום מושהה (J5) או רגיל',
     to: '/admin/payment-config',
+    featured: true
+  },
+  {
+    title: 'הנחות קהילה',
+    description: 'הגדרת רמות הנחה לפי סכום הזמנות שבועי של קהילה (סף תצוגה + סף אמיתי)',
+    to: '/admin/community-discount',
+    featured: true
+  },
+  {
+    title: 'ניהול מרכז קהילה',
+    description: 'הפעלה/כיבוי רכיבים בעמוד הקהילה, שינוי סדר תצוגה',
+    to: '/admin/community-hub',
     featured: true
   }
 ];

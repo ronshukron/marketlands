@@ -32,7 +32,8 @@ const EditProduct = () => {
     vatType: 3,
     thaiName: '',
     measurementType: 'kg', // 'kg', 'unit', or 'package'
-    unitSize: '1' // kg per cart click (only for measurementType === 'kg')
+    unitSize: '1', // kg per cart click (only for measurementType === 'kg')
+    averageWeightKg: '1' // For 'unit' items: estimated kg per unit
   });
   const [isIndependent, setIsIndependent] = useState(false);
 
@@ -86,7 +87,8 @@ const EditProduct = () => {
             vatType: data.vatType ?? 3,
             thaiName: data.thaiName || '',
             measurementType: data.measurementType || 'kg', // default to kg if not set
-            unitSize: data.unitSize != null ? String(data.unitSize) : '1' // default to 1 kg if not set
+            unitSize: data.unitSize != null ? String(data.unitSize) : '1', // default to 1 kg if not set
+            averageWeightKg: data.averageWeightKg != null ? String(data.averageWeightKg) : '1'
           });
           
           // Set existing images if available
@@ -249,6 +251,12 @@ const handleSubmit = async (e) => {
       measurementType: formData.measurementType || 'kg',
       // unitSize: kg per cart click. Only meaningful for kg items, but stored always (default 1).
       unitSize: formData.measurementType === 'kg' ? parseFloat(formData.unitSize || '1') : 1,
+      averageWeightKg: formData.measurementType === 'unit'
+        ? (() => {
+            const parsed = parseFloat(formData.averageWeightKg || '1');
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+          })()
+        : 1,
       ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
       ...(formData.category !== '' ? { category: formData.category } : {}),
       ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {})
@@ -395,7 +403,8 @@ const handleSubmit = async (e) => {
                   ...formData,
                   measurementType: e.target.value,
                   // Reset unitSize to 1 when switching away from kg
-                  unitSize: e.target.value !== 'kg' ? '1' : formData.unitSize
+                  unitSize: e.target.value !== 'kg' ? '1' : formData.unitSize,
+                  averageWeightKg: e.target.value !== 'unit' ? '1' : formData.averageWeightKg
                 })
               }
             >
@@ -441,6 +450,38 @@ const handleSubmit = async (e) => {
                 <p className="mt-2 text-sm text-blue-600 bg-blue-50 p-2 rounded">
                   💡 מחיר ללקוח לכל לחיצה: <strong>₪{(parseFloat(price) * parseFloat(formData.unitSize)).toFixed(2)}</strong>
                   {' '}({formData.unitSize} ק"ג × ₪{parseFloat(price).toFixed(2)}/ק"ג)
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Average Weight - Only for unit items */}
+          {formData.measurementType === 'unit' && (
+            <div className="mb-4">
+              <label htmlFor="averageWeightKg" className="block text-sm font-medium text-gray-700 mb-1">
+                משקל ממוצע ליחידה (ק"ג)
+              </label>
+              <input
+                id="averageWeightKg"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={formData.averageWeightKg || '1'}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    averageWeightKg: e.target.value
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                משמש להערכת המחיר ללקוח בסל ובעמוד התשלום (עד לשקילה בפועל).
+              </p>
+              {price && formData.averageWeightKg && (
+                <p className="mt-2 text-sm text-blue-600 bg-blue-50 p-2 rounded">
+                  מחיר משוער ליחידה ללקוח: <strong>₪{(parseFloat(price) * parseFloat(formData.averageWeightKg)).toFixed(2)}</strong>
+                  {' '}({formData.averageWeightKg} ק"ג × ₪{parseFloat(price).toFixed(2)}/ק"ג)
                 </p>
               )}
             </div>

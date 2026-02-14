@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useMemo, useEffect } from '
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
+import { getEstimatedLineTotal } from '../utils/pricing';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -301,8 +302,8 @@ export const CartProvider = ({ children }) => {
   // Calculate the total monetary value of all items in the cart.
   // useMemo ensures this calculation is only re-run when cartItems changes.
   const cartTotal = useMemo(() => {
-    // Sum the price * quantity for each item.
-    return cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    // For unit-based weighed items, estimate by averageWeightKg.
+    return cartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0);
   }, [cartItems]); // Dependency array: recalculate only if cartItems changes
 
   // Calculate the total number of individual items in the cart (sum of quantities).
@@ -336,7 +337,7 @@ export const CartProvider = ({ children }) => {
     // Calculate the total price for each individual order group.
     Object.keys(grouped).forEach(orderId => {
       grouped[orderId].total = grouped[orderId].items.reduce(
-        (sum, item) => sum + item.price * item.quantity, 0 // Sum price * quantity for items in this group
+        (sum, item) => sum + getEstimatedLineTotal(item), 0 // Sum estimated line totals for items in this group
       );
     });
 

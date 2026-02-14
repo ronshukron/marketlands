@@ -7,7 +7,12 @@ import LoadingSpinner from '../../LoadingSpinner';
 import { pickupSpots } from '../../../data/pickupSpots';
 import { fetchDelayedOrdersForDeliveryV5, handleSuspendedPaymentV5 } from './api';
 import WeighItemModal from './WeighItemModal';
-import { loadWeighingState, upsertOrderWeighing } from './storage';
+import {
+  loadWeighingState,
+  loadWeighingStateWithRecovery,
+  reconcileWeighingStateWithOrders,
+  upsertOrderWeighing,
+} from './storage';
 import ScaleConnectionPanel from '../../scale/ScaleConnectionPanel';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -209,14 +214,19 @@ export default function DeliveryManagementV5() {
         const communities = Array.from(selectedCommunities);
         const fetched = await fetchDelayedOrdersForDeliveryV5({ weekKey: selectedWeek, communities });
 
-        const persisted = loadWeighingState({ weekKey: selectedWeek });
-        setWeighingState(persisted);
+        const persisted = loadWeighingStateWithRecovery({
+          weekKey: selectedWeek,
+          orderIds: (Array.isArray(fetched) ? fetched : []).map((o) => o?.id).filter(Boolean),
+        });
 
         const hydrated = (Array.isArray(fetched) ? fetched : []).map((o) => {
           const saved = persisted.byOrderId?.[o.id] || {};
           const savedStatus = saved.status || o.status || 'pending';
           return { ...o, status: savedStatus };
         });
+
+        const reconciled = reconcileWeighingStateWithOrders({ weekKey: selectedWeek, state: persisted, orders: hydrated });
+        setWeighingState(reconciled);
 
         setOrders(hydrated);
         if (hydrated.length > 0 && (!selectedOrderId || !hydrated.some((o) => o.id === selectedOrderId))) {

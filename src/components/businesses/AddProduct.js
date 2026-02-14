@@ -28,6 +28,7 @@ const AddProduct = () => {
   const [thaiName, setThaiName] = useState('');
   const [measurementType, setMeasurementType] = useState('kg'); // 'kg', 'unit', or 'package'
   const [unitSize, setUnitSize] = useState('1'); // kg per cart click (only for measurementType === 'kg')
+  const [averageWeightKg, setAverageWeightKg] = useState('1'); // For 'unit' items: estimated kg per unit
   const [isIndependent, setIsIndependent] = useState(false);
 
   // Predefined unit size options (in kg)
@@ -200,6 +201,13 @@ const AddProduct = () => {
         measurementType: measurementType, // 'kg', 'unit', or 'package'
         // unitSize: kg per cart click. Only meaningful for kg items, but stored always (default 1).
         unitSize: measurementType === 'kg' ? parseFloat(unitSize) : 1,
+        // averageWeightKg: estimated kg per unit for unit-based weighed products.
+        averageWeightKg: measurementType === 'unit'
+          ? (() => {
+              const parsed = parseFloat(averageWeightKg);
+              return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+            })()
+          : 1,
         ...(merchantPrice !== '' ? { merchantPrice: parseFloat(merchantPrice) } : {}),
         ...(thaiName !== '' ? { thaiName: thaiName } : {}),
         verified: false,
@@ -356,6 +364,10 @@ const AddProduct = () => {
                 if (e.target.value !== 'kg') {
                   setUnitSize('1');
                 }
+                // Reset average weight when switching away from unit
+                if (e.target.value !== 'unit') {
+                  setAverageWeightKg('1');
+                }
               }}
             >
               <option value="kg">ק"ג (משקל)</option>
@@ -395,6 +407,34 @@ const AddProduct = () => {
                 <p className="mt-2 text-sm text-blue-600 bg-blue-50 p-2 rounded">
                   💡 מחיר ללקוח לכל לחיצה: <strong>₪{(parseFloat(price) * parseFloat(unitSize)).toFixed(2)}</strong>
                   {' '}({unitSize} ק"ג × ₪{parseFloat(price).toFixed(2)}/ק"ג)
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Average Weight - Only for unit items */}
+          {measurementType === 'unit' && (
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-2" htmlFor="averageWeightKg">
+                משקל ממוצע ליחידה (ק"ג)
+              </label>
+              <input
+                id="averageWeightKg"
+                name="averageWeightKg"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={averageWeightKg}
+                onChange={(e) => setAverageWeightKg(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                הערכה לחיוב צפוי ללקוח. לדוגמה: אם אבטיח ממוצע שוקל 2 ק"ג - הזן 2.
+              </p>
+              {price && averageWeightKg && (
+                <p className="mt-2 text-sm text-blue-600 bg-blue-50 p-2 rounded">
+                  מחיר משוער ליחידה ללקוח: <strong>₪{(parseFloat(price) * parseFloat(averageWeightKg)).toFixed(2)}</strong>
+                  {' '}({averageWeightKg} ק"ג × ₪{parseFloat(price).toFixed(2)}/ק"ג)
                 </p>
               )}
             </div>

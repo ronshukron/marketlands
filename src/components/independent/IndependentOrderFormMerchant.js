@@ -182,6 +182,9 @@ const IndependentOrderFormMerchant = () => {
       vatType: product.vatType ?? 3,
       stockAmount: product.stockAmount,
       uid: `${product.id}_${Math.random().toString(36).substr(2, 9)}`,
+      measurementType: product.measurementType || 'kg',
+      unitSize: product.unitSize || 1,
+      averageWeightKg: product.averageWeightKg || 1,
       // Add merchant-specific metadata
       isMerchantOrder: true,
       selectedRegion: selectedRegion,

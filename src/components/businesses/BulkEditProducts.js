@@ -62,7 +62,8 @@ const BulkEditProducts = () => {
             category: product.category || '',
             thaiName: product.thaiName || '',
             measurementType: product.measurementType || 'kg', // default to kg
-            unitSize: product.unitSize != null ? String(product.unitSize) : '1' // default to 1 kg
+            unitSize: product.unitSize != null ? String(product.unitSize) : '1', // default to 1 kg
+            averageWeightKg: product.averageWeightKg != null ? String(product.averageWeightKg) : '1'
           };
         });
         setEditedProducts(initialEdits);
@@ -103,7 +104,8 @@ const BulkEditProducts = () => {
         edited.category !== (product.category || '') ||
         edited.thaiName !== (product.thaiName || '') ||
         edited.measurementType !== (product.measurementType || 'kg') ||
-        Number(edited.unitSize || 1) !== Number(product.unitSize || 1)
+        Number(edited.unitSize || 1) !== Number(product.unitSize || 1) ||
+        Number(edited.averageWeightKg || 1) !== Number(product.averageWeightKg || 1)
       );
     });
   };
@@ -146,7 +148,8 @@ const BulkEditProducts = () => {
           edited.category !== (product.category || '') ||
           edited.thaiName !== (product.thaiName || '') ||
           edited.measurementType !== (product.measurementType || 'kg') ||
-          Number(edited.unitSize || 1) !== Number(product.unitSize || 1)
+          Number(edited.unitSize || 1) !== Number(product.unitSize || 1) ||
+          Number(edited.averageWeightKg || 1) !== Number(product.averageWeightKg || 1)
         );
 
         if (hasProductChanges) {
@@ -156,7 +159,13 @@ const BulkEditProducts = () => {
             stockAmount: Number(edited.stockAmount),
             measurementType: edited.measurementType || 'kg',
             // unitSize: kg per cart click. Only meaningful for kg items, stored as number (default 1).
-            unitSize: edited.measurementType === 'kg' ? Number(edited.unitSize || 1) : 1
+            unitSize: edited.measurementType === 'kg' ? Number(edited.unitSize || 1) : 1,
+            averageWeightKg: edited.measurementType === 'unit'
+              ? (() => {
+                  const parsed = Number(edited.averageWeightKg || 1);
+                  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+                })()
+              : 1
           };
           
           if (edited.merchantPrice !== '') {
@@ -227,7 +236,8 @@ const BulkEditProducts = () => {
         category: product.category || '',
         thaiName: product.thaiName || '',
         measurementType: product.measurementType || 'kg',
-        unitSize: product.unitSize != null ? String(product.unitSize) : '1'
+        unitSize: product.unitSize != null ? String(product.unitSize) : '1',
+        averageWeightKg: product.averageWeightKg != null ? String(product.averageWeightKg) : '1'
       };
     });
     setEditedProducts(initialEdits);
@@ -325,7 +335,7 @@ const BulkEditProducts = () => {
                     נמדד לפי
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    כמות לעגלה
+                    קפיצת כמות / ממוצע יח'
                   </th>
                   {!isIndependent && (
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -350,7 +360,8 @@ const BulkEditProducts = () => {
                     edited.category !== (product.category || '') ||
                     edited.thaiName !== (product.thaiName || '') ||
                     edited.measurementType !== (product.measurementType || 'kg') ||
-                    Number(edited.unitSize || 1) !== Number(product.unitSize || 1)
+                    Number(edited.unitSize || 1) !== Number(product.unitSize || 1) ||
+                    Number(edited.averageWeightKg || 1) !== Number(product.averageWeightKg || 1)
                   );
 
                   return (
@@ -428,6 +439,9 @@ const BulkEditProducts = () => {
                             if (e.target.value !== 'kg') {
                               handleFieldChange(product.id, 'unitSize', '1');
                             }
+                            if (e.target.value !== 'unit') {
+                              handleFieldChange(product.id, 'averageWeightKg', '1');
+                            }
                           }}
                           className="w-28 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         >
@@ -447,6 +461,16 @@ const BulkEditProducts = () => {
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                           </select>
+                        ) : edited.measurementType === 'unit' ? (
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={edited.averageWeightKg || '1'}
+                            onChange={(e) => handleFieldChange(product.id, 'averageWeightKg', e.target.value)}
+                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            title="משקל ממוצע ליחידה בק״ג"
+                          />
                         ) : (
                           <span className="text-xs text-gray-400">—</span>
                         )}

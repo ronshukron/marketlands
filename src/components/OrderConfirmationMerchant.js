@@ -10,6 +10,7 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
 import { cityToRegion, getRegionByCity } from '../utils/israelRegions';
+import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../utils/pricing';
 
 const OrderConfirmationMerchant = () => {
     const location = useLocation();
@@ -207,8 +208,15 @@ const OrderConfirmationMerchant = () => {
                         productId: item.id,
                         productName: item.name,
                         quantity: item.quantity,
+                        estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
+                        estimatedLineTotal: getEstimatedLineTotal(item),
                         price: item.price,
-                        selectedOption: item.selectedOption || "None"
+                        selectedOption: item.selectedOption || "None",
+                        catalogNumber: item.catalogNumber || '',
+                        vatType: item.vatType ?? 3,
+                        measurementType: item.measurementType || 'kg',
+                        unitSize: item.unitSize || 1,
+                        averageWeightKg: item.averageWeightKg || 1
                     });
                 }
             });
@@ -294,7 +302,7 @@ const OrderConfirmationMerchant = () => {
                     if (item.quantity > 0) {
                         paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
                         paymentData[`productData[${productIndex}][quantity]`] = item.quantity;
-                        paymentData[`productData[${productIndex}][price]`] = item.quantity * item.price;
+                        paymentData[`productData[${productIndex}][price]`] = getEstimatedLineTotal(item);
                         paymentData[`productData[${productIndex}][itemDescription]`] = item.name || item.productName || 'Unknown Item';
                         paymentData[`productData[${productIndex}][vatType]`] = item.vatType ?? 3;
                         productIndex++;
@@ -637,8 +645,12 @@ const OrderConfirmationMerchant = () => {
                                                         )}
                                                     </div>
                                                     <div className="text-left">
-                                                        <span className="text-gray-600">{item.quantity} × {item.price}₪</span>
-                                                        <span className="font-medium text-gray-800 mr-2">= {(item.quantity * item.price).toFixed(2)}₪</span>
+                                                        <span className="text-gray-600">
+                                                          {item.measurementType === 'unit'
+                                                            ? `${item.quantity} יח' (~${getEstimatedChargeableQuantity(item).toFixed(2)} ק"ג) × ${item.price}₪/ק"ג`
+                                                            : `${item.quantity} × ${item.price}₪`}
+                                                        </span>
+                                                        <span className="font-medium text-gray-800 mr-2">= {getEstimatedLineTotal(item).toFixed(2)}₪</span>
                                                     </div>
                                                 </div>
                                             ))}

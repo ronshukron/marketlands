@@ -54,10 +54,14 @@ import DeliveryManagement from './components/admin/DeliveryManagement';
 import DeliveryManagement80 from './components/admin/DeliveryManagement80';
 import WeeklyOrderSummaryV2 from './components/admin/WeeklyOrderSummaryV2';
 import WeeklyOrderSummaryV3 from './components/admin/WeeklyOrderSummaryV3';
+import WeeklyOrderSummaryV4 from './components/admin/WeeklyOrderSummaryV4';
+import WeeklyOrderFromSuppliersV1 from './components/admin/WeeklyOrderFromSuppliersV1';
 import DeliveryManagementV2 from './components/admin/DeliveryManagementV2';
 import DeliveryManagementV3 from './components/admin/DeliveryManagementV3';
 import DeliveryManagementV4 from './components/admin/DeliveryManagmentV4';
+import DeliveryManagementV45 from './components/admin/DeliveryManagmentV4.5';
 import DeliveryManagementV5 from './components/adminV5/deliveryWeighingV5/DeliveryManagementV5';
+import DeliveryManagementV6 from './components/adminV5/deliveryWeighingV5/DeliveryManagementV6';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
 import { SaleModeProvider } from './contexts/SaleModeContext';
 import CreateIndependentOrderForm from './components/independent/CreateIndependentOrderForm';
@@ -77,6 +81,9 @@ import AbandonedCarts from './components/admin/AbandonedCarts';
 import AnalyticsDashboard from './components/admin/AnalyticsDashboard';
 import CustomerInsights from './components/admin/CustomerInsights';
 import PaymentConfigAdmin from './components/admin/PaymentConfigAdmin';
+import CommunityHub from './components/communityHub/CommunityHub';
+import CommunityDiscountConfig from './components/admin/CommunityDiscountConfig';
+import CommunityHubAdmin from './components/admin/CommunityHubAdmin';
 
 const App = () => {
   return (
@@ -138,10 +145,14 @@ const App = () => {
                   <Route path="/admin/delivery-80" element={<DeliveryManagement80 />} />
                   <Route path="/admin/weekly-summary-v2" element={<WeeklyOrderSummaryV2 />} />
                   <Route path="/admin/weekly-summary-v3" element={<WeeklyOrderSummaryV3 />} />
+                  <Route path="/admin/weekly-summary-v4" element={<WeeklyOrderSummaryV4 />} />
+                  <Route path="/admin/order-from-suppliers" element={<WeeklyOrderFromSuppliersV1 />} />
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
                   <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />
                   <Route path="/admin/delivery-v4" element={<DeliveryManagementV4 />} />
+                  <Route path="/admin/delivery-v4-5" element={<DeliveryManagementV45 />} />
                   <Route path="/admin/delivery-v5" element={<DeliveryManagementV5 />} />
+                  <Route path="/admin/delivery-v6" element={<DeliveryManagementV6 />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
                   <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
                   <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />
@@ -161,6 +172,11 @@ const App = () => {
                   <Route path="/admin/analytics" element={<AnalyticsDashboard />} />
                   <Route path="/admin/customers" element={<CustomerInsights />} />
                   <Route path="/admin/payment-config" element={<PaymentConfigAdmin />} />
+                  <Route path="/admin/community-discount" element={<CommunityDiscountConfig />} />
+                  <Route path="/admin/community-hub" element={<CommunityHubAdmin />} />
+                  {/* Community Hub */}
+                  <Route path="/community" element={<CommunityHub />} />
+                  <Route path="/community/:communityId" element={<CommunityHub />} />
                 </Routes>
               </main>
               <Footer />

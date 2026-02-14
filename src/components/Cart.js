@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 import { getCheckoutRoute } from '../services/paymentConfigService';
 import Swal from 'sweetalert2';
+import { getEstimatedChargeableQuantity } from '../utils/pricing';
 
 const Cart = ({ isOpen, onClose }) => {
   const { cartItems, removeItem, updateQuantity, cartTotal } = useCart();
@@ -114,6 +115,7 @@ const Cart = ({ isOpen, onClose }) => {
                   const isPackageItem = measurementType === 'package';
                   const unitSize = item.unitSize || 1;
                   const step = isKgItem ? unitSize : 1;
+                  const estimatedChargeKg = isUnitItem ? getEstimatedChargeableQuantity(item) : 0;
                   
                   return (
                   <div key={item.uid} className="flex items-center py-2 px-2 hover:bg-gray-50 transition-colors">
@@ -146,6 +148,11 @@ const Cart = ({ isOpen, onClose }) => {
                         {isUnitItem && '/ק"ג'}
                         {isPackageItem && '/מארז'}
                       </p>
+                      {isUnitItem && (
+                        <p className="text-[10px] text-gray-500 mt-0.5">
+                          הערכת חיוב: ~{estimatedChargeKg.toFixed(2)} ק"ג
+                        </p>
+                      )}
                     </div>
                     
                     {/* Improved quantity controls with more visible icons */}

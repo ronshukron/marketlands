@@ -14,6 +14,7 @@ import { createGrowSuspendedPaymentProcess } from './delayedPaymentService';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
 import { isDelayedPaymentSpot } from '../../services/paymentConfigService';
+import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../utils/pricing';
 
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
@@ -23,9 +24,9 @@ const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
 
 // ------------------------------------------------------------------
 // HOLD BUFFER: % extra to hold on the customer's credit card (J5).
-// e.g. 15 means hold 115% of order total so final weighing can go up.
+// e.g. 5 means hold 105% of order total so final weighing can go up.
 // ------------------------------------------------------------------
-const HOLD_BUFFER_PERCENT = 15;
+const HOLD_BUFFER_PERCENT = 5;
 // Catalog number for the buffer line item (weighing safety margin)
 const BUFFER_LINE_CATALOG_NUMBER = process.env.REACT_APP_BUFFER_LINE_CATALOG_NUMBER || '999003';
 
@@ -235,14 +236,24 @@ const OrderConfirmationDelayed = () => {
             // Convert Set to Array
             setAvailablePickupSpots(Array.from(orderSpots));
             
-            // Set default selection if there's only one pickup spot
-            if (orderSpots.size === 1) {
+            // Auto-select: prefer the saved spot from localStorage, then fallback to single-spot auto-select
+            const savedSpot = localStorage.getItem('selectedPickupSpot');
+            if (savedSpot && orderSpots.has(savedSpot)) {
+                setSelectedPickupSpot(savedSpot);
+            } else if (orderSpots.size === 1) {
                 setSelectedPickupSpot(Array.from(orderSpots)[0]);
             }
         };
         
         collectPickupSpots();
     }, [userLoggedIn, currentUser, itemsByOrder]);
+
+    // Persist selected pickup spot to localStorage whenever it changes
+    useEffect(() => {
+        if (selectedPickupSpot && selectedPickupSpot !== 'הכל') {
+            localStorage.setItem('selectedPickupSpot', selectedPickupSpot);
+        }
+    }, [selectedPickupSpot]);
 
     // Save userName and userPhone to localStorage whenever they change
     useEffect(() => {
@@ -500,6 +511,8 @@ const OrderConfirmationDelayed = () => {
                         productId: item.id,
                         productName: item.name,
                         quantity: item.quantity,
+                        estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
+                        estimatedLineTotal: getEstimatedLineTotal(item),
                         price: item.price,
                         selectedOption: item.selectedOption || "None",
                         // Firestore does not allow undefined values anywhere in the document.
@@ -508,7 +521,8 @@ const OrderConfirmationDelayed = () => {
                         isShipping: item.isShipping === true,
                         // Measurement type and unit size for weighing process
                         measurementType: item.measurementType || 'kg',
-                        unitSize: item.unitSize || 1
+                        unitSize: item.unitSize || 1,
+                        averageWeightKg: item.averageWeightKg || 1
                     });
                 }
             });
@@ -606,7 +620,7 @@ const OrderConfirmationDelayed = () => {
             Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
                 orderData.items.forEach(item => {
                     if (item.quantity > 0) {
-                        const linePrice = Math.round(item.quantity * item.price * 100) / 100;
+                        const linePrice = getEstimatedLineTotal(item);
                         paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
                         paymentData[`productData[${productIndex}][quantity]`] = item.quantity;
                         paymentData[`productData[${productIndex}][price]`] = linePrice;
@@ -735,12 +749,15 @@ const OrderConfirmationDelayed = () => {
                             productId: item.id,
                             productName: item.name,
                             quantity: item.quantity,
+                            estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
+                            estimatedLineTotal: getEstimatedLineTotal(item),
                             price: item.price,
                             selectedOption: item.selectedOption || "None",
                             catalogNumber: item.catalogNumber || '',
                             vatType: item.vatType ?? 3,
                             measurementType: item.measurementType || 'kg',
-                            unitSize: item.unitSize || 1
+                            unitSize: item.unitSize || 1,
+                            averageWeightKg: item.averageWeightKg || 1
                         });
                     }
                 });

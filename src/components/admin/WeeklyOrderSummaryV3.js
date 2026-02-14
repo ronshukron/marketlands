@@ -5,9 +5,8 @@ import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import { format } from 'date-fns';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import { pickupSpots } from '../../data/pickupSpots';
+import { getEstimatedLineTotal } from '../../utils/pricing';
 
 // Helper to identify the "basic products" vendor
 const BASIC_VENDOR_NAME_SUBSTRINGS = ['basic', 'basic products', 'מוצרים בסיסיים', 'בסיס',"הבסקט של בסטה"];
@@ -43,8 +42,6 @@ const WeeklyOrderSummaryV3 = () => {
   const [tempSelectedWeek, setTempSelectedWeek] = useState('');
   const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
   
-  // Refs for PDF generation
-  const pdfRefs = useRef({});
   const communityDropdownRef = useRef(null);
   // Message settings for per-business copy
   const [orderMessageName, setOrderMessageName] = useState('');
@@ -54,6 +51,12 @@ const WeeklyOrderSummaryV3 = () => {
   const [costModalBusinessId, setCostModalBusinessId] = useState('');
   const [costModalBusinessName, setCostModalBusinessName] = useState('');
   const [costModalItems, setCostModalItems] = useState([]); // [{key, productName, selectedOption, quantity, price}]
+  
+  // Custom order copy modal state
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [customModalBusinessName, setCustomModalBusinessName] = useState('');
+  const [customModalItems, setCustomModalItems] = useState([]);
+  // Each item: { key, productName, selectedOption, quantity, unitSize, measurementType, mode: 'unit'|'kg', included: true }
   
   // Admin UIDs
   const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -208,7 +211,8 @@ const WeeklyOrderSummaryV3 = () => {
         const orderData = doc.data();
         const isDelayed = source === 'customerOrdersDelayed';
         
-        // For regular orders, require completed. For delayed, include both pending and completed (exclude only abandoned).
+        // For regular orders, require completed payment.
+        // For delayed orders, include completed ones too — only exclude abandoned.
         if (!isDelayed && orderData.paymentStatus !== 'completed') return;
         if (isDelayed && orderData.delayedOrderStatus === 'abandoned') return;
         
@@ -266,8 +270,12 @@ const WeeklyOrderSummaryV3 = () => {
               const productName = item.productName;
               const quantity = item.quantity;
               const price = item.price;
-              const totalPrice = price * quantity;
+              const totalPrice = item.estimatedLineTotal != null
+                ? Number(item.estimatedLineTotal)
+                : getEstimatedLineTotal(item);
               const selectedOption = item.selectedOption;
+              const unitSize = item.unitSize || 1; // kg per cart click
+              const measurementType = item.measurementType || 'kg';
               
               const productKey = `${productId}_${selectedOption}`;
               
@@ -276,7 +284,9 @@ const WeeklyOrderSummaryV3 = () => {
                   productName,
                   selectedOption,
                   quantity: 0,
-                  totalRevenue: 0
+                  totalRevenue: 0,
+                  unitSize, // Store unitSize for calculating unit count
+                  measurementType
                 };
               }
               
@@ -313,7 +323,7 @@ const WeeklyOrderSummaryV3 = () => {
     return trimmed;
   };
 
-  const buildBusinessOrderMessage = (business) => {
+  const buildBusinessOrderMessage = (business, useKgFormat = false) => {
     if (!business) return '';
     const dateForHeader = orderMessageDate
       ? format(new Date(orderMessageDate), 'dd.MM.yy')
@@ -325,16 +335,34 @@ const WeeklyOrderSummaryV3 = () => {
       .sort((a, b) => b.totalRevenue - a.totalRevenue)
       .map((product) => {
         const opt = normalizeOption(product.selectedOption);
-        const optPart = opt ? ` *${opt}*` : '';
-        return `* ${product.productName}${optPart} – ${product.quantity} יח'`;
+        // For kg items in kg format, don't show option; otherwise show it
+        const isKgInKgFormat = (product.measurementType === 'kg' || !product.measurementType) && useKgFormat;
+        const optPart = (opt && !isKgInKgFormat) ? ` *${opt}*` : '';
+        
+        // 'package' and 'unit' items are always displayed as units (יח')
+        // 'kg' items: useKgFormat determines whether to show in kg or units
+        const isUnitBased = product.measurementType === 'package' || product.measurementType === 'unit';
+        
+        if (isUnitBased) {
+          // Package/Unit items always show as units
+          return `* ${product.productName}${optPart} – ${Math.round(product.quantity)} יח'`;
+        } else if (useKgFormat) {
+          // Kg items in kg format: show total kg ordered (no option)
+          return `* ${product.productName} – ${Number(product.quantity).toFixed(1)} ק"ג`;
+        } else {
+          // Kg items in unit format: divide by unitSize to get number of clicks
+          const unitSize = product.unitSize || 1;
+          const unitCount = Math.round(product.quantity / unitSize);
+          return `* ${product.productName}${optPart} – ${unitCount} יח'`;
+        }
       });
 
     return [header, '', ...items].join('\n');
   };
 
-  const handleCopyBusinessOrder = async (business) => {
+  const handleCopyBusinessOrder = async (business, useKgFormat = false) => {
     try {
-      const text = buildBusinessOrderMessage(business);
+      const text = buildBusinessOrderMessage(business, useKgFormat);
       if (!text) return;
       if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
@@ -348,13 +376,154 @@ const WeeklyOrderSummaryV3 = () => {
         document.execCommand('copy');
         document.body.removeChild(textarea);
       }
-      alert('ההזמנה הועתקה ללוח העריכה');
+      alert(useKgFormat ? 'ההזמנה הועתקה (בק"ג)' : 'ההזמנה הועתקה (ביחידות)');
     } catch (e) {
       console.error('Failed to copy order text', e);
       alert('שגיאה בהעתקת ההזמנה');
     }
   };
-  
+
+  // --- Custom order copy modal ---
+  const openCustomModal = (business) => {
+    if (!business) return;
+    setCustomModalBusinessName(business.businessName || '');
+    const items = Object.entries(business.products || {})
+      .sort(([, a], [, b]) => b.totalRevenue - a.totalRevenue)
+      .map(([key, p]) => {
+        const isUnitBased = p.measurementType === 'package' || p.measurementType === 'unit';
+        const unitSize = p.unitSize || 1;
+        // Default quantity: for unit-based items show raw qty; for kg items show unit count
+        const defaultQty = isUnitBased
+          ? Math.round(p.quantity)
+          : Math.round(p.quantity / unitSize);
+        return {
+          key,
+          productName: p.productName,
+          selectedOption: normalizeOption(p.selectedOption),
+          rawQuantity: p.quantity, // total kg from all orders
+          unitSize,
+          measurementType: p.measurementType || 'kg',
+          // Default mode: unit-based items locked to 'unit', kg items default to 'unit'
+          mode: 'unit',
+          isUnitBased,
+          quantity: defaultQty,
+          included: true,
+        };
+      });
+    setCustomModalItems(items);
+    setCustomModalOpen(true);
+  };
+
+  const closeCustomModal = () => {
+    setCustomModalOpen(false);
+    setCustomModalBusinessName('');
+    setCustomModalItems([]);
+  };
+
+  const updateCustomItem = (idx, field, value) => {
+    setCustomModalItems(prev => {
+      const next = [...prev];
+      const item = { ...next[idx] };
+      if (field === 'mode') {
+        item.mode = value;
+        // Recalculate default quantity when switching mode
+        if (value === 'kg') {
+          item.quantity = Number(item.rawQuantity.toFixed(1));
+        } else {
+          const unitSize = item.unitSize || 1;
+          item.quantity = Math.round(item.rawQuantity / unitSize);
+        }
+      } else if (field === 'quantity') {
+        item.quantity = value === '' ? '' : Number(value);
+      } else if (field === 'included') {
+        item.included = value;
+      }
+      next[idx] = item;
+      return next;
+    });
+  };
+
+  const buildCustomOrderText = () => {
+    const dateForHeader = orderMessageDate
+      ? format(new Date(orderMessageDate), 'dd.MM.yy')
+      : (dateRange?.end ? String(dateRange.end).replace(/\//g, '.').slice(0, 8) : '');
+    const greetingName = orderMessageName ? `${orderMessageName} ` : '';
+    const header = `${greetingName}צהריים טובים, הזמנה ל${dateForHeader}:`;
+
+    const included = customModalItems.filter(it => it.included && (Number(it.quantity) || 0) > 0);
+
+    const formatLine = (it) => {
+      const opt = normalizeOption(it.selectedOption);
+      const isKgMode = it.mode === 'kg' && !it.isUnitBased;
+      const showOpt = isKgMode ? false : !!opt;
+      const optPart = showOpt ? ` *${opt}*` : '';
+      const qty = Number(it.quantity) || 0;
+      const suffix = isKgMode ? 'ק"ג' : "יח'";
+      const qtyDisplay = isKgMode ? qty.toFixed(1) : String(Math.round(qty));
+      return `* ${it.productName}${optPart} – ${qtyDisplay} ${suffix}`;
+    };
+
+    // Split into kg (wholesale) and unit (packed) groups
+    const kgItems = included.filter(it => it.mode === 'kg' && !it.isUnitBased);
+    const unitItems = included.filter(it => it.mode !== 'kg' || it.isUnitBased);
+
+    const parts = [header, ''];
+
+    if (kgItems.length > 0) {
+      parts.push('הזמנה סיטונאית לא ארוז:');
+      parts.push(...kgItems.map(formatLine));
+    }
+
+    if (kgItems.length > 0 && unitItems.length > 0) {
+      parts.push('');
+    }
+
+    if (unitItems.length > 0) {
+      parts.push('הזמנה ארוז:');
+      parts.push(...unitItems.map(formatLine));
+    }
+
+    return parts.join('\n');
+  };
+
+  const handleCopyCustomOrder = async () => {
+    try {
+      const text = buildCustomOrderText();
+      if (!text) return;
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      alert('ההזמנה המותאמת הועתקה!');
+      closeCustomModal();
+    } catch (e) {
+      console.error('Failed to copy custom order text', e);
+      alert('שגיאה בהעתקה');
+    }
+  };
+
+  const setAllCustomMode = (mode) => {
+    setCustomModalItems(prev => prev.map(item => {
+      if (item.isUnitBased) return item; // can't switch unit-based items
+      const updated = { ...item, mode };
+      if (mode === 'kg') {
+        updated.quantity = Number(item.rawQuantity.toFixed(1));
+      } else {
+        const unitSize = item.unitSize || 1;
+        updated.quantity = Math.round(item.rawQuantity / unitSize);
+      }
+      return updated;
+    }));
+  };
+
   // Cost calculator logic
   const getSafeDocId = (businessId, businessName) => {
     const sanitize = (s) => String(s || '')
@@ -522,213 +691,6 @@ const WeeklyOrderSummaryV3 = () => {
     setSelectedCommunities(tempSelectedCommunities);
   };
   
-  // PDF generation function (same as original)
-  const generatePDF = async (pickupSpot, orders) => {
-    try {
-      const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4',
-        putOnlyUsedFonts: true
-      });
-      
-      const customerBasicTotals = {};
-      orders.forEach(order => {
-        const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
-        const normalizedCustomerName = rawCustomerName.trim();
-        if (!customerBasicTotals[normalizedCustomerName]) {
-          customerBasicTotals[normalizedCustomerName] = {
-            displayName: rawCustomerName,
-            totalPrice: 0,
-            totalQty: 0
-          };
-        }
-        if (order.orderBreakdown) {
-          Object.values(order.orderBreakdown).forEach(businessOrder => {
-            if (isBasicVendor(businessOrder)) {
-              (businessOrder.items || []).forEach(item => {
-                const qty = Number(item.quantity) || 0;
-                const price = Number(item.price) || 0;
-                customerBasicTotals[normalizedCustomerName].totalQty += qty;
-                customerBasicTotals[normalizedCustomerName].totalPrice += price * qty;
-              });
-            }
-          });
-        }
-      });
-      
-      const isCustomerEligibleForCrate = (normalizedName) => {
-        const t = customerBasicTotals[normalizedName];
-        return !!t && (t.totalPrice > 50 || t.totalQty > 7);
-      };
-      
-      const customerItems = {};
-      
-      orders.forEach(order => {
-        const rawCustomerName = order.customerDetails?.name || 'לקוח לא ידוע';
-        const normalizedCustomerName = rawCustomerName.trim();
-
-        if (!customerItems[normalizedCustomerName]) {
-          customerItems[normalizedCustomerName] = {
-            displayName: rawCustomerName,
-            items: [],
-            needsCrate: false
-          };
-        }
-        
-        if (order.orderBreakdown) {
-          Object.values(order.orderBreakdown).forEach(businessOrder => {
-            const isBasic = isBasicVendor(businessOrder);
-            const eligible = isCustomerEligibleForCrate(normalizedCustomerName);
-            (businessOrder.items || []).forEach(item => {
-              if (isBasic && eligible) {
-                customerItems[normalizedCustomerName].needsCrate = true;
-              } else {
-                customerItems[normalizedCustomerName].items.push({
-                  productName: item.productName,
-                  quantity: item.quantity,
-                  option: item.selectedOption,
-                  businessName: businessOrder.businessName
-                });
-              }
-            });
-          });
-        }
-      });
-      
-      Object.values(customerItems).forEach(cust => {
-        if (cust.needsCrate) {
-          cust.items.push({ isCrate: true, label: BASIC_CRATE_LABEL });
-        }
-      });
-      
-      const CHARS_PER_PAGE = 1300;
-      let currentPage = 1;
-      let currentChars = 0;
-      let pagesContent = [[]];
-      
-      Object.entries(customerItems).forEach(([normalizedName, customerData]) => {
-        const displayNameForPdf = customerData.displayName;
-        const aggregatedItemsList = customerData.items;
-
-        const itemsText = aggregatedItemsList.map(item => {
-          if (item.isCrate) {
-            return BASIC_CRATE_LABEL;
-          }
-          let text = `${item.quantity}× ${item.productName}`;
-          if (item.option && item.option !== 'ללא אופציות' && item.option !== 'None') {
-            text += ` (${item.option})`;
-          }
-          return text;
-        }).join(', ');
-        
-        const rowChars = displayNameForPdf.length + itemsText.length;
-        
-        if (rowChars > CHARS_PER_PAGE) {
-          if (pagesContent[currentPage - 1].length > 0) {
-            currentPage++;
-            currentChars = 0;
-            pagesContent.push([]);
-          }
-        }
-        else if (currentChars + rowChars > CHARS_PER_PAGE && pagesContent[currentPage - 1].length > 0) {
-          currentPage++;
-          currentChars = 0;
-          pagesContent.push([]);
-        }
-        
-        pagesContent[currentPage - 1].push({
-          type: 'row',
-          name: displayNameForPdf,
-          items: itemsText,
-          chars: rowChars
-        });
-        
-        currentChars += rowChars;
-      });
-      
-      const renderPage = (pageContent) => {
-        const element = document.createElement('div');
-        element.style.width = '595px';
-        element.style.fontFamily = 'Arial, sans-serif';
-        element.style.direction = 'rtl';
-        element.style.textAlign = 'right';
-        element.style.padding = '10px 20px 30px 20px';
-        element.style.boxSizing = 'border-box';
-        
-        let htmlContent = `
-          <div style="text-align: center; margin-bottom: 5px;">
-            <h1 style="font-size: 14px; color: #2563EB; margin: 0;">נקודת איסוף: ${pickupSpot}</h1>
-            <p style="font-size: 10px; margin: 2px 0 0 0;">עמוד ${pageContent.pageNum} מתוך ${pageContent.totalPages}</p>
-          </div>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 5px;">
-            <thead>
-              <tr style="background-color: #f3f4f6; border-bottom: 1px solid #e5e7eb;">
-                <th style="padding: 3px; text-align: right; font-size: 14px; font-weight: bold;">שם</th>
-                <th style="padding: 3px; text-align: right; font-size: 14px; font-weight: bold;">פריטים</th>
-              </tr>
-            </thead>
-            <tbody>
-        `;
-        
-        pageContent.rows.forEach(row => {
-          if (row.type === 'row') {
-            htmlContent += `
-              <tr style="border-bottom: 2px solid #666666;">
-                <td style="padding: 4px 3px; font-size: 16px; font-weight: bold; vertical-align: top; width: 22%;">${row.name}</td>
-                <td style="padding: 4px 3px; font-size: 14px;">${row.items}</td>
-              </tr>
-            `;
-          }
-        });
-        
-        htmlContent += `
-            </tbody>
-          </table>
-        `;
-        
-        element.innerHTML = htmlContent;
-        return element;
-      };
-      
-      const totalPages = pagesContent.length;
-      const numberedPages = pagesContent.map((content, i) => ({
-        rows: content,
-        pageNum: i + 1,
-        totalPages
-      }));
-      
-      for (let i = 0; i < numberedPages.length; i++) {
-        const pageElement = renderPage(numberedPages[i]);
-        document.body.appendChild(pageElement);
-        
-        const canvas = await html2canvas(pageElement, {
-          scale: 1.5,
-          useCORS: true,
-          logging: false,
-          windowWidth: 595,
-        });
-        
-        if (i > 0) {
-          pdf.addPage();
-        }
-        
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        const imgWidth = 210;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
-        
-        document.body.removeChild(pageElement);
-      }
-      
-      pdf.save(`נקודת_איסוף_${pickupSpot.replace(/\s+/g, '_')}.pdf`);
-      
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('אירעה שגיאה ביצירת ה-PDF');
-    }
-  };
-  
   if (loading) {
     return <LoadingSpinner />;
   }
@@ -860,21 +822,11 @@ const WeeklyOrderSummaryV3 = () => {
               <div 
                 key={pickupSpot} 
                 className="mb-8 bg-white p-6 rounded-lg shadow"
-                ref={el => pdfRefs.current[pickupSpot] = el}
               >
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-semibold text-gray-800">
                     נקודת איסוף: {pickupSpot}
                   </h3>
-                  <button
-                    onClick={() => generatePDF(pickupSpot, spotOrders)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm flex items-center"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    הורד PDF
-                  </button>
                 </div>
                 
                 <div className="overflow-x-auto">
@@ -994,15 +946,23 @@ const WeeklyOrderSummaryV3 = () => {
                             <ul className="list-disc list-inside">
                               {Object.values(business.products)
                                 .sort((a, b) => b.totalRevenue - a.totalRevenue)
-                                .map((product, idx) => (
-                                  <li key={idx} className="mb-1">
-                                    <span className="font-medium">{product.productName}</span>
-                                    {product.selectedOption && product.selectedOption !== "ללא אופציות" && product.selectedOption !== "None" && (
-                                      <span className="text-gray-500"> ({product.selectedOption})</span>
-                                    )}
-                                    <span> - {product.quantity} יח' - ₪{product.totalRevenue.toFixed(2)}</span>
-                                  </li>
-                                ))}
+                                .map((product, idx) => {
+                                  // Package/Unit items show raw quantity; kg items divide by unitSize
+                                  const isUnitBased = product.measurementType === 'package' || product.measurementType === 'unit';
+                                  const unitSize = product.unitSize || 1;
+                                  const unitCount = isUnitBased
+                                    ? Math.round(product.quantity)
+                                    : Math.round(product.quantity / unitSize);
+                                  return (
+                                    <li key={idx} className="mb-1">
+                                      <span className="font-medium">{product.productName}</span>
+                                      {product.selectedOption && product.selectedOption !== "ללא אופציות" && product.selectedOption !== "None" && (
+                                        <span className="text-gray-500"> ({product.selectedOption})</span>
+                                      )}
+                                      <span> - {unitCount} יח' - ₪{product.totalRevenue.toFixed(2)}</span>
+                                    </li>
+                                  );
+                                })}
                             </ul>
                           </div>
                         </td>
@@ -1011,15 +971,29 @@ const WeeklyOrderSummaryV3 = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <button
-                            onClick={() => handleCopyBusinessOrder(business)}
+                            onClick={() => handleCopyBusinessOrder(business, false)}
                             className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                            title="העתק הזמנה לעסק זה"
+                            title="העתק הזמנה (ביחידות)"
                           >
-                            העתק הזמנה
+                            העתק יח'
+                          </button>
+                          <button
+                            onClick={() => handleCopyBusinessOrder(business, true)}
+                            className="mr-2 px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                            title="העתק הזמנה (בק״ג)"
+                          >
+                            העתק ק"ג
+                          </button>
+                          <button
+                            onClick={() => openCustomModal(business)}
+                            className="mr-2 px-3 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                            title="בחר פורמט לכל מוצר"
+                          >
+                            מותאם
                           </button>
                           <button
                             onClick={() => openCostModal(businessId, business)}
-                            className="ml-2 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                            className="mr-2 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
                             title="חשב עלות ושמור מחירים"
                           >
                             חשב עלות
@@ -1031,6 +1005,129 @@ const WeeklyOrderSummaryV3 = () => {
               </table>
             </div>
             
+            {/* Custom Order Copy Modal */}
+            {customModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+                <div className="absolute inset-0 bg-black bg-opacity-50" onClick={closeCustomModal}></div>
+                <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-11/12 max-w-2xl max-h-[90vh] flex flex-col">
+                  {/* Header */}
+                  <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200">
+                    <h3 className="text-xl font-bold text-gray-800">הזמנה מותאמת – {customModalBusinessName}</h3>
+                    <button onClick={closeCustomModal} className="text-2xl text-gray-400 hover:text-gray-700 leading-none">✕</button>
+                  </div>
+
+                  {/* Bulk mode toggles */}
+                  <div className="flex gap-2 px-5 py-3 bg-gray-50 border-b border-gray-100">
+                    <span className="text-sm text-gray-600 self-center ml-2">הכל:</span>
+                    <button
+                      onClick={() => setAllCustomMode('unit')}
+                      className="px-4 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                    >
+                      יח'
+                    </button>
+                    <button
+                      onClick={() => setAllCustomMode('kg')}
+                      className="px-4 py-1.5 rounded-full text-sm font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                    >
+                      ק"ג
+                    </button>
+                  </div>
+
+                  {/* Items list */}
+                  <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+                    {customModalItems.map((it, idx) => (
+                      <div
+                        key={it.key}
+                        className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border transition-all ${
+                          it.included 
+                            ? 'bg-white border-gray-200 shadow-sm' 
+                            : 'bg-gray-50 border-gray-100 opacity-50'
+                        }`}
+                      >
+                        {/* Include checkbox + name */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={it.included}
+                            onChange={(e) => updateCustomItem(idx, 'included', e.target.checked)}
+                            className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-gray-800 text-base block truncate">{it.productName}</span>
+                            {it.selectedOption && (
+                              <span className="text-sm text-gray-500">{it.selectedOption}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Mode toggle + quantity */}
+                        <div className="flex items-center gap-2 pr-8 sm:pr-0">
+                          {/* Mode toggle - only for kg items */}
+                          {!it.isUnitBased ? (
+                            <div className="inline-flex rounded-full overflow-hidden border border-gray-300">
+                              <button
+                                onClick={() => updateCustomItem(idx, 'mode', 'unit')}
+                                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                                  it.mode === 'unit' 
+                                    ? 'bg-blue-600 text-white' 
+                                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                                }`}
+                              >
+                                יח'
+                              </button>
+                              <button
+                                onClick={() => updateCustomItem(idx, 'mode', 'kg')}
+                                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                                  it.mode === 'kg' 
+                                    ? 'bg-purple-600 text-white' 
+                                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                                }`}
+                              >
+                                ק"ג
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 w-[88px] text-center">יח' (קבוע)</span>
+                          )}
+
+                          {/* Quantity input */}
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              step={it.mode === 'kg' && !it.isUnitBased ? '0.1' : '1'}
+                              value={it.quantity}
+                              onChange={(e) => updateCustomItem(idx, 'quantity', e.target.value)}
+                              disabled={!it.included}
+                              className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-center text-base font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                            />
+                            <span className="text-sm text-gray-500 w-8">
+                              {it.mode === 'kg' && !it.isUnitBased ? 'ק"ג' : "יח'"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Preview + copy button */}
+                  <div className="border-t border-gray-200 px-5 py-4 bg-gray-50 rounded-b-2xl">
+                    <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                      <span className="text-sm text-gray-500">
+                        {customModalItems.filter(it => it.included && (Number(it.quantity) || 0) > 0).length} מוצרים נבחרו
+                      </span>
+                      <button
+                        onClick={handleCopyCustomOrder}
+                        className="w-full sm:w-auto px-6 py-3 bg-orange-500 text-white font-bold rounded-xl text-lg hover:bg-orange-600 active:bg-orange-700 transition-colors shadow-md"
+                      >
+                        העתק הזמנה
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Cost Calculator Modal */}
             {costModalOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center">

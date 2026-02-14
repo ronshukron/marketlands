@@ -13,6 +13,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
   // - package: ordered by count (1,2,3), fixed price per package (e.g., lettuce pack)
   const measurementType = product.measurementType || 'kg';
   const unitSize = product.unitSize || 1;
+  const averageWeightKg = Number(product.averageWeightKg) > 0 ? Number(product.averageWeightKg) : 1;
   const isKgItem = measurementType === 'kg';
   const isUnitItem = measurementType === 'unit';
   const isPackageItem = measurementType === 'package';
@@ -122,7 +123,8 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       catalogNumber: product.catalogNumber,
       vatType: product.vatType ?? 3,
       measurementType: measurementType, // 'kg', 'unit', or 'package'
-      unitSize: unitSize // kg per cart increment (only meaningful for kg items)
+      unitSize: unitSize, // kg per cart increment (only meaningful for kg items)
+      averageWeightKg: averageWeightKg // estimated kg per unit for unit items
     };
 
     addItem(
@@ -222,7 +224,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               </span>
             )}
             {isUnitItem && (
-              <span className="text-xs text-gray-500 mr-1">(נשקל)</span>
+              <span className="text-xs text-gray-500 mr-1">(נשקל ~{averageWeightKg} ק"ג ליח')</span>
             )}
           </p>
           <p className="text-xs text-gray-600 line-clamp-2 mb-2">{product.description}</p>
@@ -362,7 +364,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               </span>
             )}
             {isUnitItem && (
-              <span className="text-xs text-gray-400 mr-1">(נשקל)</span>
+              <span className="text-xs text-gray-400 mr-1">(נשקל ~{averageWeightKg} ק"ג ליח')</span>
             )}
           </p>
           <p className="text-xs text-gray-600 line-clamp-2 mb-0.5">{product.description}</p>
