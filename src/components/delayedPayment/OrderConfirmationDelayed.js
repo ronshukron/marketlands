@@ -10,7 +10,7 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
 import { useCart } from '../../contexts/CartContext';
 import { pickupSpots, pickupSpotsData } from '../../data/pickupSpots';
-import { createGrowSuspendedPaymentProcess } from './delayedPaymentService';
+import { createDelayedPaymentCheckout, DELAYED_PAYMENT_GATEWAYS } from '../../services/delayedPaymentGatewayService';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
 import { isDelayedPaymentSpot } from '../../services/paymentConfigService';
@@ -559,15 +559,15 @@ const OrderConfirmationDelayed = () => {
             businessIds: businessIds,
             createdAt: new Date().toISOString(),
             paymentStatus: 'pending_payment',
-            paymentMethod: 'grow_j5',
+            paymentMethod: 'grow_delayed',
             grandTotal: totalWithDelivery,
             // Delayed-order fields (safe client-side fields)
             isDelayedOrder: true,
             delayedOrderStatus: 'created_in_fe', // later: you will refine statuses
             delayedPayment: {
                 provider: 'grow',
-                chargeType: 2, // suspended charge (J5)
                 status: 'created',
+                checkoutFlow: 'dynamic_frontend_gateway',
                 holdBufferPercent: HOLD_BUFFER_PERCENT,
                 holdSum: Math.round(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100
             },
@@ -645,19 +645,21 @@ const OrderConfirmationDelayed = () => {
 
             console.log('paymentData', paymentData);
     
-            const paymentResponse = await createGrowSuspendedPaymentProcess(paymentData);
-    
-            // Expecting { status: 1, data: { url } } (similar to independent flow)
-            const url = paymentResponse?.data?.url || paymentResponse?.url;
-            if (paymentResponse?.status === 1 && url) {
+            const checkoutResult = await createDelayedPaymentCheckout(paymentData);
+            const url = checkoutResult?.url;
+
+            // Do not update customerOrdersDelayed from client after create:
+            // Firestore rules allow create for guests but block updates.
+
+            if (url) {
                 window.location.href = url;
             } else {
-                console.error('Failed to create suspended payment', paymentResponse);
-                Swal.fire('שגיאה', 'לא ניתן היה ליצור תשלום מושהה. נסו שוב מאוחר יותר.', 'error');
+                console.error('Failed to create delayed payment checkout', checkoutResult);
+                Swal.fire('שגיאה', 'לא ניתן היה ליצור דף תשלום. נסו שוב מאוחר יותר.', 'error');
             }
         } catch (error) {
             console.error("Failed to create delayed payment:", error);
-            Swal.fire('שגיאה', 'אירעה שגיאה בעת יצירת התשלום המושהה. נסו שוב מאוחר יותר.', 'error');
+            Swal.fire('שגיאה', 'אירעה שגיאה בעת יצירת דף התשלום. נסו שוב מאוחר יותר.', 'error');
         } finally {
             setLoading(false);
         }

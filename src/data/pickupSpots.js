@@ -104,6 +104,11 @@ const pickupSpotsData = {
     options: ["pickup", "homeDelivery"],
     deliveryFee: 25,
   },
+  "פרקליטות מחוז דרום באר שבע": {
+    name: "פרקליטות מחוז דרום באר שבע",
+    options: ["pickup"],
+    deliveryFee: 25,
+  },
 };
 
 // For backwards compatibility and simple listing

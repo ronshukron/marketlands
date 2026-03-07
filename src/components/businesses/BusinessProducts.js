@@ -63,7 +63,7 @@ const BusinessProducts = () => {
         ordersRef,
         where('businessId', '==', currentUser.uid),
         orderBy('Order_Time', 'desc'),
-        limit(1)
+        limit(30)
       );
 
       const snapshot = await getDocs(previousOrderQuery);
@@ -76,26 +76,54 @@ const BusinessProducts = () => {
         return;
       }
 
-      const lastOrder = snapshot.docs[0].data();
-      const lastOrderDate = toDate(lastOrder?.Order_Time || lastOrder?.createdAt || lastOrder?.updatedAt);
-      const previousIds = Array.isArray(lastOrder.selectedProducts) ? [...new Set(lastOrder.selectedProducts)] : [];
+      const allOrders = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data();
+        const orderDate = toDate(data?.Order_Time || data?.createdAt || data?.updatedAt);
+        const selectedIds = Array.isArray(data.selectedProducts) ? [...new Set(data.selectedProducts)] : [];
+        return { id: docSnap.id, date: orderDate, productIds: selectedIds, name: data.orderName || data.name || '' };
+      }).filter(o => o.productIds.length > 0);
 
-      if (previousIds.length === 0) {
+      if (allOrders.length === 0) {
         Swal.fire({
           icon: 'info',
           title: 'אין מוצרים להזמנה',
-          text: 'ההזמנה הקודמת לא הכילה מוצרים שניתן להעתיק.',
+          text: 'ההזמנות הקודמות לא הכילו מוצרים שניתן להעתיק.',
         });
         return;
       }
 
-      const validIds = previousIds.filter((id) => products.some((product) => product.id === id));
+      const inputOptions = {};
+      allOrders.forEach((o) => {
+        const dateStr = o.date ? o.date.toLocaleDateString('he-IL') : 'ללא תאריך';
+        const label = o.name ? `${o.name} — ` : '';
+        inputOptions[o.id] = `${label}${dateStr}  (${o.productIds.length} מוצרים)`;
+      });
+
+      const { value: chosenId } = await Swal.fire({
+        title: 'בחר הזמנה קודמת',
+        input: 'select',
+        inputOptions,
+        inputPlaceholder: 'בחרו הזמנה מהרשימה',
+        showCancelButton: true,
+        confirmButtonText: 'בחר',
+        cancelButtonText: 'ביטול',
+        inputValidator: (value) => {
+          if (!value) return 'אנא בחרו הזמנה';
+        },
+      });
+
+      if (!chosenId) return;
+
+      const chosen = allOrders.find(o => o.id === chosenId);
+      if (!chosen) return;
+
+      const validIds = chosen.productIds.filter((id) => products.some((product) => product.id === id));
       setSelectedProducts(validIds);
 
-      const missingCount = previousIds.length - validIds.length;
-      const baseMessage = `${validIds.length} מוצרים נבחרו אוטומטית מההזמנה הקודמת`;
+      const missingCount = chosen.productIds.length - validIds.length;
+      const baseMessage = `${validIds.length} מוצרים נבחרו מההזמנה`;
       const missingMessage = missingCount > 0 ? ` (${missingCount} מוצרים כבר לא קיימים בחנות).` : '.';
-      const dateMessage = lastOrderDate ? ` תאריך ההזמנה: ${lastOrderDate.toLocaleDateString('he-IL')}` : '';
+      const dateMessage = chosen.date ? ` תאריך: ${chosen.date.toLocaleDateString('he-IL')}` : '';
 
       Swal.fire({
         icon: 'success',
@@ -109,7 +137,7 @@ const BusinessProducts = () => {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
-        text: 'לא הצלחנו לטעון את ההזמנה הקודמת. נסו שוב מאוחר יותר.',
+        text: 'לא הצלחנו לטעון את ההזמנות הקודמות. נסו שוב מאוחר יותר.',
       });
     } finally {
       setLoadingPreviousOrder(false);

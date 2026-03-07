@@ -17,6 +17,8 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
   const isKgItem = measurementType === 'kg';
   const isUnitItem = measurementType === 'unit';
   const isPackageItem = measurementType === 'package';
+  const isSoldByWeight = isKgItem || isUnitItem;
+  const pricePer100g = isSoldByWeight ? (product.price / 10).toFixed(2) : null;
 
   // For kg items, quantity is in kg (e.g., 0.5); for unit/package items it's count (e.g., 1)
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
@@ -224,9 +226,12 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               </span>
             )}
             {isUnitItem && (
-              <span className="text-xs text-gray-500 mr-1">(נשקל ~{averageWeightKg} ק"ג ליח')</span>
+              <span className="text-xs text-gray-500 mr-1">(נשקל - יחידה)</span>
             )}
           </p>
+          {isSoldByWeight && (
+            <p className="text-xs text-gray-400 mb-1">₪{pricePer100g} ל-100 גרם</p>
+          )}
           <p className="text-xs text-gray-600 line-clamp-2 mb-2">{product.description}</p>
           
           {/* Farmer attribution */}
@@ -246,55 +251,39 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
         </div>
         
         {/* Controls Section - Desktop */}
-        <div className="p-3 space-y-2 border-t">
-          {/* Options Select - COMMENTED OUT for desktop */}
-          {/* {product.options.length > 0 && (
-            <select
-              value={selectedOption}
-              onChange={(e) => setSelectedOption(e.target.value)}
-              className={`block w-full px-2 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 ${isOutOfStock ? 'opacity-50 cursor-not-allowed' : ''}`}
+        <div className="p-2.5 space-y-2 border-t">
+          {/* Quantity selector */}
+          <div className={`flex items-center border border-gray-300 rounded-md w-full ${isOutOfStock ? 'opacity-50' : ''}`}>
+            <button 
+              onClick={() => handleQuantityChange(false)}
+              className="flex-shrink-0 w-9 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium text-center text-lg"
               disabled={isOutOfStock}
             >
-              <option value="" disabled>בחר אפשרות</option>
-              {product.options.map((option, idx) => (
-                <option key={idx} value={option}>{option}</option>
-              ))}
-            </select>
-          )} */}
-          
-          {/* Quantity and Add to Cart */}
-          <div className="flex items-center gap-2">
-            <div className={`flex items-center border border-gray-300 rounded-md overflow-hidden ${isOutOfStock ? 'opacity-50' : ''}`}>
-              <button 
-                onClick={() => handleQuantityChange(false)}
-                className="px-3 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium"
-                disabled={isOutOfStock}
-              >
-                -
-              </button>
-              <span className="px-4 py-2 text-base text-center min-w-[60px] font-medium">
-                {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
-              </span>
-              <button 
-                onClick={() => handleQuantityChange(true)}
-                className="px-3 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium"
-                disabled={isOutOfStock}
-              >
-                +
-              </button>
-            </div>
-            
-            <button
-              onClick={addToCart}
+              -
+            </button>
+            <span className="flex-1 py-1.5 text-sm text-center font-medium truncate">
+              {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
+            </span>
+            <button 
+              onClick={() => handleQuantityChange(true)}
+              className="flex-shrink-0 w-9 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium text-center text-lg"
               disabled={isOutOfStock}
-              className={`flex-1 ${isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'} text-white py-2.5 px-4 rounded-md text-sm font-medium flex items-center justify-center gap-2`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              הוסף לסל
+              +
             </button>
           </div>
+          
+          {/* Add to cart */}
+          <button
+            onClick={addToCart}
+            disabled={isOutOfStock}
+            className={`w-full ${isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'} text-white py-2 rounded-md text-sm font-medium flex items-center justify-center gap-1.5`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            הוסף לסל
+          </button>
         </div>
       </div>
 
@@ -367,6 +356,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <span className="text-xs text-gray-400 mr-1">(נשקל ~{averageWeightKg} ק"ג ליח')</span>
             )}
           </p>
+          {isSoldByWeight && (
+            <p className="text-[11px] text-gray-400 mb-0.5">₪{pricePer100g} ל-100 גרם</p>
+          )}
           <p className="text-xs text-gray-600 line-clamp-2 mb-0.5">{product.description}</p>
           
           {/* Farmer attribution */}

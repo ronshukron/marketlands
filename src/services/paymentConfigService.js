@@ -2,6 +2,8 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 
 const CONFIG_DOC_PATH = 'settings/paymentConfig';
+export const REGULAR_PAYMENT_PROVIDERS = ['bit_legacy', 'grow_payment_link'];
+export const DELAYED_PAYMENT_GATEWAYS = ['grow_j5_legacy', 'grow_payment_link'];
 
 /**
  * Get the list of pickup spots configured for delayed payment
@@ -49,6 +51,60 @@ export const setDelayedPaymentSpots = async (spots) => {
     return true;
   } catch (error) {
     console.error('Error setting delayed payment spots:', error);
+    return false;
+  }
+};
+
+/**
+ * Get payment provider routing config for regular + delayed flows.
+ * @returns {Promise<{regularPaymentProvider: string, delayedPaymentGateway: string}>}
+ */
+export const getPaymentRoutingConfig = async () => {
+  try {
+    const configRef = doc(db, CONFIG_DOC_PATH);
+    const configSnap = await getDoc(configRef);
+    const data = configSnap.exists() ? configSnap.data() : {};
+
+    const regularPaymentProvider = REGULAR_PAYMENT_PROVIDERS.includes(data?.regularPaymentProvider)
+      ? data.regularPaymentProvider
+      : 'bit_legacy';
+    const delayedPaymentGateway = DELAYED_PAYMENT_GATEWAYS.includes(data?.delayedPaymentGateway)
+      ? data.delayedPaymentGateway
+      : 'grow_j5_legacy';
+
+    return { regularPaymentProvider, delayedPaymentGateway };
+  } catch (error) {
+    console.error('Error fetching payment routing config:', error);
+    return {
+      regularPaymentProvider: 'bit_legacy',
+      delayedPaymentGateway: 'grow_j5_legacy'
+    };
+  }
+};
+
+/**
+ * Save payment provider routing config for regular + delayed flows.
+ * @param {{regularPaymentProvider: string, delayedPaymentGateway: string}} config
+ * @returns {Promise<boolean>} True if successful
+ */
+export const setPaymentRoutingConfig = async (config) => {
+  try {
+    const regularPaymentProvider = REGULAR_PAYMENT_PROVIDERS.includes(config?.regularPaymentProvider)
+      ? config.regularPaymentProvider
+      : 'bit_legacy';
+    const delayedPaymentGateway = DELAYED_PAYMENT_GATEWAYS.includes(config?.delayedPaymentGateway)
+      ? config.delayedPaymentGateway
+      : 'grow_j5_legacy';
+
+    const configRef = doc(db, CONFIG_DOC_PATH);
+    await setDoc(configRef, {
+      regularPaymentProvider,
+      delayedPaymentGateway,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error setting payment routing config:', error);
     return false;
   }
 };

@@ -766,21 +766,29 @@ export default function DeliveryManagementV6() {
       list = list.filter((o) => o.status !== 'completed' && o.status !== 'pending_sync');
     }
 
-    // Sort: pending orders first (by community order, then name), completed at bottom
+    // Sort by community first (clustered), then pending/completed, then customer number (asc)
     list.sort((a, b) => {
-      const aDone = a.status === 'completed' || a.status === 'pending_sync' ? 1 : 0;
-      const bDone = b.status === 'completed' || b.status === 'pending_sync' ? 1 : 0;
-      if (aDone !== bDone) return aDone - bDone;
       const ca = a?.customerDetails?.pickupSpot || a?.pickupSpot || '';
       const cb = b?.customerDetails?.pickupSpot || b?.pickupSpot || '';
       const ra = rankMap[ca] ?? 9999;
       const rb = rankMap[cb] ?? 9999;
       if (ra !== rb) return ra - rb;
+      const aDone = a.status === 'completed' || a.status === 'pending_sync' ? 1 : 0;
+      const bDone = b.status === 'completed' || b.status === 'pending_sync' ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      const aCid = a?.customerDetails?.phone || a?.customerDetails?.email || '';
+      const bCid = b?.customerDetails?.phone || b?.customerDetails?.email || '';
+      const aNum = Number(permanentNumbersMap[aCid]);
+      const bNum = Number(permanentNumbersMap[bCid]);
+      const aHasNum = Number.isFinite(aNum) && aNum > 0;
+      const bHasNum = Number.isFinite(bNum) && bNum > 0;
+      if (aHasNum && bHasNum && aNum !== bNum) return aNum - bNum;
+      if (aHasNum !== bHasNum) return aHasNum ? -1 : 1;
       return (a.customerDetails?.name || '').localeCompare(b.customerDetails?.name || '');
     });
 
     return list;
-  }, [orders, communityFilter, orderCommunities, showCompleted]);
+  }, [orders, communityFilter, orderCommunities, showCompleted, permanentNumbersMap]);
 
   // Set active item index when selected order changes
   useEffect(() => {

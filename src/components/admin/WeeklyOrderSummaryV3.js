@@ -33,6 +33,8 @@ const WeeklyOrderSummaryV3 = () => {
   // New state for week selection
   const [availableWeeks, setAvailableWeeks] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState('');
+  const [selectedSpecificStartDate, setSelectedSpecificStartDate] = useState('');
+  const [selectedSpecificEndDate, setSelectedSpecificEndDate] = useState('');
   
   // New state for community selection
   const [selectedCommunities, setSelectedCommunities] = useState(new Set());
@@ -41,6 +43,8 @@ const WeeklyOrderSummaryV3 = () => {
   // Temporary filter states (before submit)
   const [tempSelectedWeek, setTempSelectedWeek] = useState('');
   const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
+  const [tempSpecificStartDate, setTempSpecificStartDate] = useState('');
+  const [tempSpecificEndDate, setTempSpecificEndDate] = useState('');
   
   const communityDropdownRef = useRef(null);
   // Message settings for per-business copy
@@ -92,10 +96,10 @@ const WeeklyOrderSummaryV3 = () => {
   }, [orderMessageDate]);
   
   useEffect(() => {
-    if (selectedWeek) {
+    if (selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate) {
       fetchWeeklyOrders();
     }
-  }, [selectedWeek, selectedCommunities]);
+  }, [selectedWeek, selectedCommunities, selectedSpecificStartDate, selectedSpecificEndDate]);
   
   const fetchAvailableWeeks = async () => {
     setLoading(true);
@@ -171,23 +175,47 @@ const WeeklyOrderSummaryV3 = () => {
   const fetchWeeklyOrders = async () => {
     setLoading(true);
     try {
-      // Parse selected week to get date range (Sunday to Friday)
-      const sunday = new Date(selectedWeek);
-      const friday = new Date(sunday);
-      friday.setDate(sunday.getDate() + 5); // Sunday + 5 = Friday
-      friday.setHours(23, 59, 59, 999);
-      
+      const hasSpecificDates = Boolean(selectedSpecificStartDate || selectedSpecificEndDate);
+      let startDate;
+      let endDate;
+
+      if (hasSpecificDates) {
+        const rawStart = selectedSpecificStartDate || selectedSpecificEndDate;
+        const rawEnd = selectedSpecificEndDate || selectedSpecificStartDate;
+        const parsedStart = new Date(rawStart);
+        const parsedEnd = new Date(rawEnd);
+
+        // Normalize to full-day boundaries in local time.
+        parsedStart.setHours(0, 0, 0, 0);
+        parsedEnd.setHours(23, 59, 59, 999);
+
+        if (parsedStart <= parsedEnd) {
+          startDate = parsedStart;
+          endDate = parsedEnd;
+        } else {
+          startDate = new Date(parsedEnd);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(parsedStart);
+          endDate.setHours(23, 59, 59, 999);
+        }
+      } else {
+        // Parse selected week to get date range (Sunday to Friday)
+        const sunday = new Date(selectedWeek);
+        const friday = new Date(sunday);
+        friday.setDate(sunday.getDate() + 5); // Sunday + 5 = Friday
+        friday.setHours(23, 59, 59, 999);
+        startDate = sunday;
+        endDate = friday;
+      }
+
       setDateRange({
-        start: format(sunday, 'dd/MM/yyyy'),
-        end: format(friday, 'dd/MM/yyyy')
+        start: format(startDate, 'dd/MM/yyyy'),
+        end: format(endDate, 'dd/MM/yyyy')
       });
       // Default the order message date to tomorrow (input format yyyy-MM-dd)
       const t = new Date();
       t.setDate(t.getDate() + 1);
       setOrderMessageDate(t.toISOString().split('T')[0]);
-      
-      const startDateISO = sunday.toISOString();
-      const endDateISO = friday.toISOString();
       
       // Query for completed orders from the selected week (including delayed orders)
       const ordersRef = collection(db, 'customerOrders');
@@ -212,9 +240,15 @@ const WeeklyOrderSummaryV3 = () => {
         const isDelayed = source === 'customerOrdersDelayed';
         
         // For regular orders, require completed payment.
-        // For delayed orders, include completed ones too — only exclude abandoned.
+        // For delayed orders, exclude abandoned/cancelled orders so they are not counted in totals.
         if (!isDelayed && orderData.paymentStatus !== 'completed') return;
-        if (isDelayed && orderData.delayedOrderStatus === 'abandoned') return;
+        if (isDelayed) {
+          const delayedStatus = String(orderData.delayedOrderStatus || '').toLowerCase();
+          const paymentStatus = String(orderData.paymentStatus || '').toLowerCase();
+          if (delayedStatus === 'abandoned') return;
+          if (delayedStatus === 'cancelled_by_admin' || delayedStatus === 'cancelled') return;
+          if (paymentStatus === 'abandoned' || paymentStatus === 'cancelled') return;
+        }
         
         // Parse the createdAt date
         const createdAt = orderData.createdAt;
@@ -228,8 +262,7 @@ const WeeklyOrderSummaryV3 = () => {
         }
         
         // Check if within date range
-        const createdDateISO = createdDate.toISOString();
-        if (createdDateISO < startDateISO || createdDateISO > endDateISO) return;
+        if (createdDate < startDate || createdDate > endDate) return;
         
         // Filter by selected communities
         const pickupSpot = orderData.customerDetails?.pickupSpot || 'לא צוין';
@@ -687,7 +720,10 @@ const WeeklyOrderSummaryV3 = () => {
   };
   
   const handleSubmitFilters = () => {
-    setSelectedWeek(tempSelectedWeek);
+    const hasSpecificDates = Boolean(tempSpecificStartDate || tempSpecificEndDate);
+    setSelectedWeek(hasSpecificDates ? '' : tempSelectedWeek);
+    setSelectedSpecificStartDate(tempSpecificStartDate);
+    setSelectedSpecificEndDate(tempSpecificEndDate);
     setSelectedCommunities(tempSelectedCommunities);
   };
   
@@ -768,6 +804,46 @@ const WeeklyOrderSummaryV3 = () => {
             </div>
           </div>
         </div>
+
+        {/* Specific Date Range Selection */}
+        <div className="mt-6 border-t pt-6">
+          <p className="text-gray-700 text-sm font-medium mb-3">או בחר תאריכים ספציפיים:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-gray-700 text-sm mb-2">מתאריך:</label>
+              <input
+                type="date"
+                value={tempSpecificStartDate}
+                onChange={(e) => setTempSpecificStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-700 text-sm mb-2">עד תאריך:</label>
+              <input
+                type="date"
+                value={tempSpecificEndDate}
+                onChange={(e) => setTempSpecificEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              אם נבחר לפחות תאריך אחד, הסינון יהיה לפי תאריכים ספציפיים (במקום שבוע).
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setTempSpecificStartDate('');
+                setTempSpecificEndDate('');
+              }}
+              className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+            >
+              נקה תאריכים
+            </button>
+          </div>
+        </div>
         
         {/* Submit Button */}
         <div className="mt-6 text-center">
@@ -785,11 +861,17 @@ const WeeklyOrderSummaryV3 = () => {
             {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
           </p>
         )}
+        {!selectedWeek && (selectedSpecificStartDate || selectedSpecificEndDate) && (
+          <p className="text-center text-gray-600 mt-4">
+            מציג הזמנות בתאריכים {dateRange.start} - {dateRange.end}
+            {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
+          </p>
+        )}
       </div>
       
       {customerOrders.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 p-4 rounded text-center">
-          לא נמצאו הזמנות עבור השבוע והקהילות שנבחרו
+          לא נמצאו הזמנות עבור טווח התאריכים והקהילות שנבחרו
         </div>
       ) : (
         <>

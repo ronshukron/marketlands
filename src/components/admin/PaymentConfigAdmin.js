@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { pickupSpots } from '../../data/pickupSpots';
-import { getDelayedPaymentSpots, setDelayedPaymentSpots } from '../../services/paymentConfigService';
+import {
+  getDelayedPaymentSpots,
+  setDelayedPaymentSpots,
+  getPaymentRoutingConfig,
+  setPaymentRoutingConfig
+} from '../../services/paymentConfigService';
 import Swal from 'sweetalert2';
 
 const PaymentConfigAdmin = () => {
   const navigate = useNavigate();
   const [delayedSpots, setDelayedSpots] = useState([]);
+  const [regularPaymentProvider, setRegularPaymentProvider] = useState('bit_legacy');
+  const [delayedPaymentGateway, setDelayedPaymentGateway] = useState('grow_j5_legacy');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -18,8 +25,13 @@ const PaymentConfigAdmin = () => {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const spots = await getDelayedPaymentSpots();
+      const [spots, routingConfig] = await Promise.all([
+        getDelayedPaymentSpots(),
+        getPaymentRoutingConfig()
+      ]);
       setDelayedSpots(spots);
+      setRegularPaymentProvider(routingConfig.regularPaymentProvider);
+      setDelayedPaymentGateway(routingConfig.delayedPaymentGateway);
     } catch (error) {
       console.error('Error loading config:', error);
       Swal.fire('שגיאה', 'שגיאה בטעינת ההגדרות', 'error');
@@ -59,12 +71,19 @@ const PaymentConfigAdmin = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const success = await setDelayedPaymentSpots(delayedSpots);
-      if (success) {
+      const [spotsSaved, routingSaved] = await Promise.all([
+        setDelayedPaymentSpots(delayedSpots),
+        setPaymentRoutingConfig({
+          regularPaymentProvider,
+          delayedPaymentGateway
+        })
+      ]);
+
+      if (spotsSaved && routingSaved) {
         Swal.fire({
           icon: 'success',
           title: 'נשמר בהצלחה',
-          text: 'הגדרות התשלום המושהה עודכנו',
+          text: 'הגדרות התשלום עודכנו',
           timer: 2000,
           showConfirmButton: false
         });
@@ -116,6 +135,45 @@ const PaymentConfigAdmin = () => {
               >
                 חזרה לניהול
               </button>
+            </div>
+          </div>
+
+          {/* Provider Routing */}
+          <div className="p-6 border-t border-gray-100 bg-white">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">ניתוב ספק תשלום</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  תשלום רגיל
+                </label>
+                <select
+                  value={regularPaymentProvider}
+                  onChange={(e) => setRegularPaymentProvider(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                >
+                  <option value="bit_legacy">Bit (legacy)</option>
+                  <option value="grow_payment_link">Grow Payment Link (wallets)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  קובע את ספק התשלום בעמוד התשלום הרגיל.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  תשלום מושהה
+                </label>
+                <select
+                  value={delayedPaymentGateway}
+                  onChange={(e) => setDelayedPaymentGateway(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                >
+                  <option value="grow_j5_legacy">Grow J5 (legacy)</option>
+                  <option value="grow_payment_link">Grow Payment Link (wallets)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  קובע את ספק התשלום בעמוד התשלום המושהה.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -244,8 +302,8 @@ const PaymentConfigAdmin = () => {
             <div className="text-sm text-blue-800">
               <p className="font-medium mb-1">איך זה עובד?</p>
               <ul className="list-disc list-inside space-y-1 text-blue-700">
-                <li>לקוחות שבוחרים נקודת איסוף עם תשלום מושהה יועברו לדף תשלום J5</li>
-                <li>לקוחות שבוחרים נקודת איסוף רגילה יועברו לדף תשלום רגיל</li>
+                <li>הבחירה בנקודת איסוף קובעת אם הלקוח הולך לתשלום רגיל או מושהה</li>
+                <li>רשימות הספקים למעלה קובעות איזה endpoint יופעל בכל זרימה</li>
                 <li>אם הלקוח משנה נקודת איסוף בדף התשלום, הוא יועבר אוטומטית לדף הנכון</li>
                 <li>לקוחות שלא בחרו נקודת איסוף יועברו לתשלום רגיל כברירת מחדל</li>
               </ul>

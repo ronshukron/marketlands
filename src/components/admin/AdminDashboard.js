@@ -47,6 +47,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'ניהול הזמנות לקוחות',
+    description: 'צפייה לפי שבוע וקהילה + ביטול הזמנה, הסרת פריט ושינוי קהילה',
+    to: '/admin/weekly-customer-orders',
+    featured: true
+  },
+  {
     title: 'סיכום הכנסות V4',
     description: 'סיכום כספי — סכומים ששולמו בפועל ומה שקיבלתי, כולל שקילה',
     to: '/admin/weekly-summary-v4',

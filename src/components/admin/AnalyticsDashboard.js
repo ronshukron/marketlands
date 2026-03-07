@@ -33,26 +33,33 @@ const AnalyticsDashboard = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch all customer orders
       const ordersRef = collection(db, 'customerOrders');
-      const q = query(ordersRef, orderBy('createdAt', 'desc')); 
-      const snap = await getDocs(q);
-      
-      const fetchedOrders = snap.docs.map(doc => {
+      const delayedOrdersRef = collection(db, 'customerOrdersDelayed');
+      const refundsRef = collection(db, 'refunds');
+
+      const [ordersSnap, delayedSnap, refundSnap] = await Promise.all([
+        getDocs(query(ordersRef, orderBy('createdAt', 'desc'))),
+        getDocs(delayedOrdersRef),
+        getDocs(refundsRef)
+      ]);
+
+      const parseOrder = (doc, source) => {
         const data = doc.data();
         return {
           id: doc.id,
           ...data,
+          _source: source,
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
           grandTotal: Number(data.grandTotal || 0)
         };
-      });
+      };
 
-      setOrders(fetchedOrders);
+      const regularOrders = ordersSnap.docs.map(doc => parseOrder(doc, 'customerOrders'));
+      const delayedOrders = delayedSnap.docs.map(doc => parseOrder(doc, 'customerOrdersDelayed'));
 
-      // 2. Fetch refunds
-      const refundsRef = collection(db, 'refunds');
-      const refundSnap = await getDocs(refundsRef);
+      const allOrders = [...regularOrders, ...delayedOrders];
+      setOrders(allOrders);
+
       const fetchedRefunds = refundSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRefunds(fetchedRefunds);
 
@@ -70,16 +77,16 @@ const AnalyticsDashboard = () => {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8" dir="rtl">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-6" dir="rtl">
+      <div className="w-full">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">ניתוח נתונים וסטטיסטיקות</h1>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            {/* 1. Revenue & Orders */}
-            <div className="h-full">
-                <RevenueChart orders={orders} communities={pickupSpots} />
-            </div>
+        {/* Revenue Chart - Full Width */}
+        <div className="mb-8">
+          <RevenueChart orders={orders} communities={pickupSpots} />
+        </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             {/* 6. Community Growth */}
             <div className="h-full">
                 <CommunityGrowthChart orders={orders} communities={pickupSpots} />

@@ -1870,6 +1870,7 @@ const communityToRegion = {
     'תרמוסעיא': 'מרכז',
     'תרפת אל קדר': 'מרכז',
     'תרקומיא': 'מרכז',
+    'פרקליטות מחוז דרום באר שבע': 'דרום',
     // Continue with the next community names in the list...
 };
 

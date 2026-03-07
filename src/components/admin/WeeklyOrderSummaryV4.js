@@ -285,10 +285,94 @@ const WeeklyOrderSummaryV4 = () => {
     setSelectedCommunities(tempSelectedCommunities);
   };
 
+  const getOrderAnalysis = (order) => {
+    const empty = { estimatedFulfilled: 0, actual: 0, missingEstimated: 0, missingItems: [] };
+    if (!order.orderBreakdown) return empty;
+
+    if (!order.isDelayed || !order.weighing?.finalInvoiceLines) {
+      let est = 0;
+      Object.values(order.orderBreakdown).forEach((bo) => {
+        (bo.items || []).forEach((item) => {
+          est += item.estimatedLineTotal != null
+            ? Number(item.estimatedLineTotal)
+            : getEstimatedLineTotal(item);
+        });
+      });
+      return { estimatedFulfilled: est, actual: est, missingEstimated: 0, missingItems: [] };
+    }
+
+    const weighLookup = {};
+    order.weighing.finalInvoiceLines.forEach((line) => {
+      const parts = (line.lineId || '').split('::');
+      const pId = parts[1] || line.productId || '';
+      const opt = parts[2] || '';
+      const key = `${pId}_${opt}`;
+      if (!weighLookup[key]) weighLookup[key] = [];
+      weighLookup[key].push(line);
+    });
+
+    let estimatedFulfilled = 0;
+    let actual = 0;
+    let missingEstimated = 0;
+    const missingItems = [];
+
+    Object.values(order.orderBreakdown).forEach((bo) => {
+      (bo.items || []).forEach((item) => {
+        const key = `${item.productId}_${item.selectedOption || ''}`;
+        const wls = weighLookup[key];
+        const itemEst = item.estimatedLineTotal != null
+          ? Number(item.estimatedLineTotal)
+          : getEstimatedLineTotal(item);
+
+        if (wls && wls.length > 0) {
+          const wl = wls.shift();
+          estimatedFulfilled += itemEst;
+          actual += Number(wl.linePrice) || 0;
+        } else {
+          missingEstimated += itemEst;
+          missingItems.push({
+            productName: item.productName,
+            selectedOption: item.selectedOption,
+            quantity: item.quantity,
+            estimated: itemEst,
+          });
+        }
+      });
+    });
+
+    return { estimatedFulfilled, actual, missingEstimated, missingItems };
+  };
+
   // ─── Computed totals ─────────────────────────────────────────────────
   const totalPaid = customerOrders.reduce((s, o) => s + o.amountPaid, 0);
   const totalDeliveryFees = customerOrders.reduce((s, o) => s + o.deliveryFee, 0);
   const totalProductRevenue = Object.values(businessSummary).reduce((s, b) => s + b.totalRevenue, 0);
+  const analysisTotals = customerOrders.reduce(
+    (acc, o) => {
+      const r = getOrderAnalysis(o);
+      return {
+        estimatedFulfilled: acc.estimatedFulfilled + r.estimatedFulfilled,
+        actual: acc.actual + r.actual,
+        missingEstimated: acc.missingEstimated + r.missingEstimated,
+        missingItems: [...acc.missingItems, ...r.missingItems],
+      };
+    },
+    { estimatedFulfilled: 0, actual: 0, missingEstimated: 0, missingItems: [] }
+  );
+  const weighingGap = analysisTotals.actual - analysisTotals.estimatedFulfilled;
+  const weighingGapPct = analysisTotals.estimatedFulfilled > 0
+    ? (weighingGap / analysisTotals.estimatedFulfilled) * 100
+    : 0;
+
+  const missingAggregated = {};
+  analysisTotals.missingItems.forEach((m) => {
+    const key = `${m.productName}_${m.selectedOption || ''}`;
+    if (!missingAggregated[key]) {
+      missingAggregated[key] = { ...m, count: 0, totalEstimated: 0 };
+    }
+    missingAggregated[key].count += m.quantity;
+    missingAggregated[key].totalEstimated += m.estimated;
+  });
 
   // ─── Render ──────────────────────────────────────────────────────────
   if (loading) return <LoadingSpinner />;
@@ -426,6 +510,54 @@ const WeeklyOrderSummaryV4 = () => {
               </div>
             </div>
 
+            {/* ── Weighing analysis row ──────────────────────────────── */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div className="bg-white p-4 rounded-lg shadow border-r-4 border-blue-500">
+                <p className="text-gray-500 text-sm">הכנסות צפויות (ללא חסרים)</p>
+                <p className="text-2xl font-bold text-blue-700">₪{analysisTotals.estimatedFulfilled.toFixed(2)}</p>
+                <p className="text-xs text-gray-500 mt-1">סה"כ הערכה עבור פריטים שנמכרו בפועל</p>
+              </div>
+              <div className="bg-white p-4 rounded-lg shadow border-r-4 border-amber-500">
+                <p className="text-gray-500 text-sm">שקילה מול הערכה</p>
+                <p className="text-xs text-gray-500">
+                  הערכה: ₪{analysisTotals.estimatedFulfilled.toFixed(2)} → בפועל: ₪{analysisTotals.actual.toFixed(2)}
+                </p>
+                <p className={`text-2xl font-bold ${weighingGap >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  {weighingGap >= 0 ? '+' : '-'}₪{Math.abs(weighingGap).toFixed(2)} ({weighingGap >= 0 ? '+' : ''}{weighingGapPct.toFixed(1)}%)
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {weighingGap >= 0 ? 'קיבלתי יותר מהצפוי' : 'קיבלתי פחות מהצפוי'}
+                </p>
+              </div>
+              <div className="bg-white p-4 rounded-lg shadow border-r-4 border-red-400">
+                <p className="text-gray-500 text-sm">פריטים חסרים</p>
+                <p className="text-2xl font-bold text-red-600">₪{analysisTotals.missingEstimated.toFixed(2)}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {analysisTotals.missingItems.length} פריטים לא סופקו
+                </p>
+                {Object.keys(missingAggregated).length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-xs text-red-500 cursor-pointer hover:underline">
+                      הצג פריטים חסרים
+                    </summary>
+                    <ul className="mt-1 text-xs text-gray-600 max-h-40 overflow-auto">
+                      {Object.values(missingAggregated)
+                        .sort((a, b) => b.totalEstimated - a.totalEstimated)
+                        .map((m, i) => (
+                          <li key={i} className="py-0.5 border-b border-gray-100">
+                            {m.count}× {m.productName}
+                            {m.selectedOption && m.selectedOption !== 'ללא אופציות' && m.selectedOption !== 'None' && (
+                              <span className="text-gray-400"> ({m.selectedOption})</span>
+                            )}
+                            <span className="text-red-500 font-medium mr-1">₪{m.totalEstimated.toFixed(2)}</span>
+                          </li>
+                        ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            </div>
+
             {/* Mini breakdown */}
             <div className="mt-4 p-3 bg-white rounded-lg border border-green-200">
               <div className="flex flex-wrap gap-6 text-sm text-gray-600">
@@ -478,22 +610,50 @@ const WeeklyOrderSummaryV4 = () => {
                             {/* Items */}
                             <td className="px-4 py-3">
                               <div className="text-sm text-gray-700">
-                                {order.orderBreakdown ? (
-                                  <ul className="list-disc list-inside">
-                                    {Object.values(order.orderBreakdown).flatMap((bo, bi) =>
-                                      (bo.items || []).map((item, ii) => (
-                                        <li key={`${bi}-${ii}`} className="mb-0.5">
-                                          <span className="font-medium">{item.quantity}× {item.productName}</span>
-                                          {item.selectedOption
-                                            && item.selectedOption !== 'ללא אופציות'
-                                            && item.selectedOption !== 'None' && (
-                                              <span className="text-gray-400"> ({item.selectedOption})</span>
-                                            )}
-                                        </li>
-                                      ))
-                                    )}
-                                  </ul>
-                                ) : '-'}
+                                {order.orderBreakdown ? (() => {
+                                  // Build weighing lookup for delayed orders
+                                  const wLookup = {};
+                                  if (order.isDelayed && order.weighing?.finalInvoiceLines) {
+                                    order.weighing.finalInvoiceLines.forEach(line => {
+                                      const parts = (line.lineId || '').split('::');
+                                      const pId = parts[1] || line.productId || '';
+                                      const opt = parts[2] || '';
+                                      const key = `${pId}_${opt}`;
+                                      if (!wLookup[key]) wLookup[key] = [];
+                                      wLookup[key].push(line);
+                                    });
+                                  }
+                                  return (
+                                    <ul className="list-disc list-inside">
+                                      {Object.values(order.orderBreakdown).flatMap((bo, bi) =>
+                                        (bo.items || []).map((item, ii) => {
+                                          // Determine per-item paid amount
+                                          const lk = `${item.productId}_${item.selectedOption || ''}`;
+                                          const wls = wLookup[lk];
+                                          let itemPaid;
+                                          if (wls && wls.length > 0) {
+                                            itemPaid = Number(wls.shift().linePrice) || 0;
+                                          } else {
+                                            itemPaid = item.estimatedLineTotal != null
+                                              ? Number(item.estimatedLineTotal)
+                                              : getEstimatedLineTotal(item);
+                                          }
+                                          return (
+                                            <li key={`${bi}-${ii}`} className="mb-0.5">
+                                              <span className="font-medium">{item.quantity}× {item.productName}</span>
+                                              {item.selectedOption
+                                                && item.selectedOption !== 'ללא אופציות'
+                                                && item.selectedOption !== 'None' && (
+                                                  <span className="text-gray-400"> ({item.selectedOption})</span>
+                                                )}
+                                              <span className="text-green-700 font-semibold mr-1">₪{itemPaid.toFixed(2)}</span>
+                                            </li>
+                                          );
+                                        })
+                                      )}
+                                    </ul>
+                                  );
+                                })() : '-'}
                               </div>
                             </td>
 

@@ -56,6 +56,7 @@ import WeeklyOrderSummaryV2 from './components/admin/WeeklyOrderSummaryV2';
 import WeeklyOrderSummaryV3 from './components/admin/WeeklyOrderSummaryV3';
 import WeeklyOrderSummaryV4 from './components/admin/WeeklyOrderSummaryV4';
 import WeeklyOrderFromSuppliersV1 from './components/admin/WeeklyOrderFromSuppliersV1';
+import WeeklyCustomerOrderManager from './components/admin/WeeklyCustomerOrderManager';
 import DeliveryManagementV2 from './components/admin/DeliveryManagementV2';
 import DeliveryManagementV3 from './components/admin/DeliveryManagementV3';
 import DeliveryManagementV4 from './components/admin/DeliveryManagmentV4';
@@ -146,6 +147,7 @@ const App = () => {
                   <Route path="/admin/weekly-summary-v2" element={<WeeklyOrderSummaryV2 />} />
                   <Route path="/admin/weekly-summary-v3" element={<WeeklyOrderSummaryV3 />} />
                   <Route path="/admin/weekly-summary-v4" element={<WeeklyOrderSummaryV4 />} />
+                  <Route path="/admin/weekly-customer-orders" element={<WeeklyCustomerOrderManager />} />
                   <Route path="/admin/order-from-suppliers" element={<WeeklyOrderFromSuppliersV1 />} />
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
                   <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />
