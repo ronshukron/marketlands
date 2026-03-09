@@ -101,6 +101,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'ניהול משלוחים V7 (Realtime)',
+    description: 'גרסה מבודדת חדשה: עבודה בכמה תחנות עם סנכרון בזמן אמת, Claim להזמנה, הוספת פריטים ועדכון מחיר',
+    to: '/admin/delivery-v7',
+    featured: true
+  },
+  {
     title: 'משלוחים וחלוקה (חדש)',
     description: 'ממשק נוח לניהול חלוקה ומשלוחים לפי קהילות',
     to: '/admin/deliveries',

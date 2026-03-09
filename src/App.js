@@ -63,6 +63,7 @@ import DeliveryManagementV4 from './components/admin/DeliveryManagmentV4';
 import DeliveryManagementV45 from './components/admin/DeliveryManagmentV4.5';
 import DeliveryManagementV5 from './components/adminV5/deliveryWeighingV5/DeliveryManagementV5';
 import DeliveryManagementV6 from './components/adminV5/deliveryWeighingV5/DeliveryManagementV6';
+import DeliveryManagementV7 from './components/adminV5/deliveryWeighingV5/DeliveryManagementV7';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
 import { SaleModeProvider } from './contexts/SaleModeContext';
 import CreateIndependentOrderForm from './components/independent/CreateIndependentOrderForm';
@@ -155,6 +156,7 @@ const App = () => {
                   <Route path="/admin/delivery-v4-5" element={<DeliveryManagementV45 />} />
                   <Route path="/admin/delivery-v5" element={<DeliveryManagementV5 />} />
                   <Route path="/admin/delivery-v6" element={<DeliveryManagementV6 />} />
+                  <Route path="/admin/delivery-v7" element={<DeliveryManagementV7 />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
                   <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
                   <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />
