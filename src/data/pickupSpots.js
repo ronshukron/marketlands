@@ -1,6 +1,11 @@
 // A list of pickup locations with their delivery options
 const pickupSpotsData = {
-  "ניצנים": {
+  "ניצנים ה": {
+    name: "ניצנים",
+    options: ["pickup"],
+    deliveryFee: 20, // Fee for home delivery if applicable
+  },
+  "ניצנים ג": {
     name: "ניצנים",
     options: ["pickup"],
     deliveryFee: 20, // Fee for home delivery if applicable
@@ -64,6 +69,11 @@ const pickupSpotsData = {
     options: ["pickup","homeDelivery"],
     deliveryFee: 25,
   },
+  "גבים": {
+    name: "גבים",
+    options: ["pickup","homeDelivery"],
+    deliveryFee: 25,
+  },
   "אלתא": {
     name: "אלתא",
     options: ["pickup"],
@@ -71,7 +81,8 @@ const pickupSpotsData = {
   },
   "בית קמה": {
     name: "בית קמה",
-    options: ["pickup"],
+    options: ["pickup","homeDelivery"],
+    deliveryFee: 25,
   },
   "ארז": {
     name: "ארז",

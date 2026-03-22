@@ -6,15 +6,9 @@ import { useAuth } from '../../../contexts/authContext';
 import LoadingSpinner from '../../LoadingSpinner';
 import { pickupSpots } from '../../../data/pickupSpots';
 import { fetchDelayedOrdersForDeliveryV5, fetchCompletedOrdersForWeek, handleSuspendedPaymentV5 } from './api';
-import {
-  loadWeighingState,
-  loadWeighingStateWithRecovery,
-  reconcileWeighingStateWithOrders,
-  upsertOrderWeighing,
-} from './storage';
+import { loadWeighingState, upsertOrderWeighing } from './storage';
 import { useWeightScale } from '../../../hooks/useWeightScale';
 import ScaleConnectionPanel from '../../scale/ScaleConnectionPanel';
-import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../../utils/pricing';
 
 /* ═══════════════════════════════════════════════════════════════
    Constants
@@ -81,8 +75,7 @@ const TR = {
     placeOnScale: 'הנח על המשקל...',
     scaleOn: 'משקל מחובר',
     scaleOff: 'משקל לא מחובר',
-    autoSaved: (w) => `נשמר ${w} ק"ג`,
-    reset: 'אפס',
+    autoSaved: (w) => `נשמר ${w} ק"ג — עובר להבא`,
     srcManual: 'ידני',
     srcScale: 'משקל (BEP)',
     srcPlaceholder: 'סקייל (placeholder)',
@@ -117,9 +110,6 @@ const TR = {
     reopenOrder: 'פתח מחדש לעריכה',
     reopenConfirm: 'להחזיר הזמנה זו למצב "בהכנה"?',
     manualInputPkg: 'כמות:',
-    unitOrderedBadge: 'הוזמן ביחידות',
-    underOneKgBadge: 'פחות מקילו',
-    largeDiffWarn: (exp, act, pct) => `הכמות שהוזנה שונה ב-${pct}% מהכמות שהוזמנה.\nהוזמן: ${exp}\nהוזן: ${act}\nלהמשיך בכל זאת?`,
   },
   th: {
     title: 'จัดการจัดส่ง V6',
@@ -171,8 +161,7 @@ const TR = {
     placeOnScale: 'วางบนตาชั่ง...',
     scaleOn: 'ตาชั่งเชื่อมต่อแล้ว',
     scaleOff: 'ตาชั่งไม่ได้เชื่อมต่อ',
-    autoSaved: (w) => `บันทึก ${w} กก.`,
-    reset: 'รีเซ็ต',
+    autoSaved: (w) => `บันทึก ${w} กก. — ไปรายการถัดไป`,
     srcManual: 'กรอกเอง',
     srcScale: 'ตาชั่ง (BEP)',
     srcPlaceholder: 'ตาชั่ง (ชั่วคราว)',
@@ -207,9 +196,6 @@ const TR = {
     reopenOrder: 'เปิดใหม่เพื่อแก้ไข',
     reopenConfirm: 'เปลี่ยนคำสั่งซื้อนี้กลับเป็น "กำลังดำเนินการ"?',
     manualInputPkg: 'จำนวน:',
-    unitOrderedBadge: 'สั่งเป็นหน่วย',
-    underOneKgBadge: 'น้อยกว่า 1 กก.',
-    largeDiffWarn: (exp, act, pct) => `ค่าน้ำหนักต่างจากที่สั่ง ${pct}%\nสั่ง: ${exp}\nที่กรอก: ${act}\nยืนยันดำเนินการต่อหรือไม่?`,
   },
 };
 
@@ -349,18 +335,6 @@ function sourceLabel(src, t) {
     package: t.srcPackage,
   };
   return map[src] || t.srcManual;
-}
-
-function formatOrderedExpectation(it, expectedQtyForCompare, t) {
-  const measurementType = it?.measurementType || 'kg';
-  if (measurementType === 'package') {
-    return `${Math.floor(expectedQtyForCompare)} ${t.pkgLbl}`;
-  }
-  if (measurementType === 'unit') {
-    const unitQty = Number(it?.requestedQuantity || 0);
-    return `${Number(expectedQtyForCompare).toFixed(3)} ${t.kg} (~${Math.floor(unitQty)} ${t.unitLbl})`;
-  }
-  return `${Number(expectedQtyForCompare).toFixed(3)} ${t.kg}`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -562,7 +536,6 @@ export default function DeliveryManagementV6() {
           name: d.name || '',
           measurementType: d.measurementType || 'kg',
           unitSize: d.unitSize || 1,
-          averageWeightKg: d.averageWeightKg || 1,
         };
       } catch { /* non-fatal */ }
     }));
@@ -614,11 +587,8 @@ export default function DeliveryManagementV6() {
           }),
         ]);
 
-        const allOrderIds = [
-          ...(Array.isArray(fetched) ? fetched : []).map((o) => o?.id).filter(Boolean),
-          ...(Array.isArray(completedFromDb) ? completedFromDb : []).map((o) => o?.id).filter(Boolean),
-        ];
-        const persisted = loadWeighingStateWithRecovery({ weekKey: selectedWeek, orderIds: allOrderIds });
+        const persisted = loadWeighingState({ weekKey: selectedWeek });
+        setWeighingState(persisted);
 
         // Hydrate pending orders with local weighing state
         const hydratedPending = (Array.isArray(fetched) ? fetched : []).map((o) => {
@@ -638,8 +608,6 @@ export default function DeliveryManagementV6() {
 
         // Pending first, then completed at the bottom
         const allOrders = [...hydratedPending, ...hydratedCompleted];
-        const reconciled = reconcileWeighingStateWithOrders({ weekKey: selectedWeek, state: persisted, orders: allOrders });
-        setWeighingState(reconciled);
         setOrders(allOrders);
         if (allOrders.length > 0 && (!selectedOrderId || !allOrders.some((o) => o.id === selectedOrderId))) {
           // Auto-select first non-completed order, or first order if all completed
@@ -695,7 +663,6 @@ export default function DeliveryManagementV6() {
         images: pd?.images || it?.images || [],
         measurementType: pd?.measurementType || it?.measurementType || 'kg',
         unitSize: pd?.unitSize || it?.unitSize || 1,
-        averageWeightKg: pd?.averageWeightKg || it?.averageWeightKg || 1,
       };
     });
   }, [selectedOrder, productDetails]);
@@ -766,29 +733,21 @@ export default function DeliveryManagementV6() {
       list = list.filter((o) => o.status !== 'completed' && o.status !== 'pending_sync');
     }
 
-    // Sort by community first (clustered), then pending/completed, then customer number (asc)
+    // Sort: pending orders first (by community order, then name), completed at bottom
     list.sort((a, b) => {
+      const aDone = a.status === 'completed' || a.status === 'pending_sync' ? 1 : 0;
+      const bDone = b.status === 'completed' || b.status === 'pending_sync' ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
       const ca = a?.customerDetails?.pickupSpot || a?.pickupSpot || '';
       const cb = b?.customerDetails?.pickupSpot || b?.pickupSpot || '';
       const ra = rankMap[ca] ?? 9999;
       const rb = rankMap[cb] ?? 9999;
       if (ra !== rb) return ra - rb;
-      const aDone = a.status === 'completed' || a.status === 'pending_sync' ? 1 : 0;
-      const bDone = b.status === 'completed' || b.status === 'pending_sync' ? 1 : 0;
-      if (aDone !== bDone) return aDone - bDone;
-      const aCid = a?.customerDetails?.phone || a?.customerDetails?.email || '';
-      const bCid = b?.customerDetails?.phone || b?.customerDetails?.email || '';
-      const aNum = Number(permanentNumbersMap[aCid]);
-      const bNum = Number(permanentNumbersMap[bCid]);
-      const aHasNum = Number.isFinite(aNum) && aNum > 0;
-      const bHasNum = Number.isFinite(bNum) && bNum > 0;
-      if (aHasNum && bHasNum && aNum !== bNum) return aNum - bNum;
-      if (aHasNum !== bHasNum) return aHasNum ? -1 : 1;
       return (a.customerDetails?.name || '').localeCompare(b.customerDetails?.name || '');
     });
 
     return list;
-  }, [orders, communityFilter, orderCommunities, showCompleted, permanentNumbersMap]);
+  }, [orders, communityFilter, orderCommunities, showCompleted]);
 
   // Set active item index when selected order changes
   useEffect(() => {
@@ -809,18 +768,8 @@ export default function DeliveryManagementV6() {
       if (removedLineIds[it.lineId]) continue;
       const req = Number(it.requestedQuantity || 0);
       const price = Number(it.pricePerUnit || 0);
-      const reqForPricing = getEstimatedChargeableQuantity({
-        measurementType: it.measurementType || 'kg',
-        quantity: req,
-        averageWeightKg: it.averageWeightKg || 1,
-      });
-      requestedTotal += reqForPricing;
-      requestedSum += getEstimatedLineTotal({
-        measurementType: it.measurementType || 'kg',
-        quantity: req,
-        averageWeightKg: it.averageWeightKg || 1,
-        price,
-      });
+      requestedTotal += req;
+      requestedSum += req * price;
       const actual = Number(weightsByLineId?.[it.lineId]?.actualQuantity || 0);
       actualTotal += actual;
       actualSum += actual * price;
@@ -890,8 +839,15 @@ export default function DeliveryManagementV6() {
 
     showToast(t.autoSaved(rounded.toFixed(3)));
 
-    // Stay on current item — user navigates manually
-    autoWeighActiveRef.current = false;
+    // Advance to next unweighed item AFTER the current one (not from the start)
+    const nextUnweighed = getNextUnweighedIndex(items, nextWeights, removedLineIds, activeItemIndex + 1);
+    if (nextUnweighed >= 0) {
+      setActiveItemIndex(nextUnweighed);
+      autoWeighActiveRef.current = true;
+      prevStableRef.current = 0;
+    } else {
+      autoWeighActiveRef.current = false;
+    }
   }, [selectedOrder, activeItemIndex, items, weightsByLineId, removedLineIds, selectedWeek, showToast, t]);
 
   // Watch scale for auto-save trigger
@@ -916,7 +872,7 @@ export default function DeliveryManagementV6() {
      Manual weight actions
      ═══════════════════════════════════════════════════════════ */
 
-  const saveManualWeight = useCallback(async (lineId, value, src = 'manual') => {
+  const saveManualWeight = useCallback((lineId, value, src = 'manual') => {
     if (!selectedOrder || !lineId) return;
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) return;
@@ -924,33 +880,6 @@ export default function DeliveryManagementV6() {
     const it = items.find((i) => i.lineId === lineId);
     const isPackage = it?.measurementType === 'package';
     const actual = isPackage ? Math.floor(n) : Math.round(n * 1000) / 1000;
-
-    const requestedQty = Number(it?.requestedQuantity || 0);
-    const expectedQtyForCompare = getEstimatedChargeableQuantity({
-      measurementType: it?.measurementType || 'kg',
-      quantity: requestedQty,
-      averageWeightKg: it?.averageWeightKg || 1,
-    });
-    if (expectedQtyForCompare > 0) {
-      const diffRatio = Math.abs(actual - expectedQtyForCompare) / expectedQtyForCompare;
-      if (diffRatio >= 0.2) {
-        const pct = Math.round(diffRatio * 100);
-        const ok = await biConfirm({
-          heText: TR.he.largeDiffWarn(
-            formatOrderedExpectation(it, expectedQtyForCompare, TR.he),
-            formatOrderedExpectation(it, actual, TR.he),
-            pct,
-          ),
-          thText: TR.th.largeDiffWarn(
-            formatOrderedExpectation(it, expectedQtyForCompare, TR.th),
-            formatOrderedExpectation(it, actual, TR.th),
-            pct,
-          ),
-          title: 'warning',
-        });
-        if (!ok) return;
-      }
-    }
 
     const nextWeights = {
       ...(weightsByLineId || {}),
@@ -969,9 +898,21 @@ export default function DeliveryManagementV6() {
 
     showToast(t.autoSaved(actual.toFixed ? actual.toFixed(3) : String(actual)));
 
-    // Stay on current item — user navigates manually
-    autoWeighActiveRef.current = false;
-  }, [selectedOrder, items, weightsByLineId, removedLineIds, selectedWeek, showToast, t, biConfirm]);
+    // Auto-advance to next unweighed item AFTER the current one
+    const currentIdx = items.findIndex((i) => i.lineId === lineId);
+    const nextUnweighed = getNextUnweighedIndex(items, nextWeights, removedLineIds, (currentIdx >= 0 ? currentIdx + 1 : 0));
+    if (nextUnweighed >= 0) {
+      setActiveItemIndex(nextUnweighed);
+      // Enable auto-weigh on the next item if scale is connected
+      const nextIt = items[nextUnweighed];
+      if (nextIt && nextIt.measurementType !== 'package') {
+        autoWeighActiveRef.current = true;
+        prevStableRef.current = 0;
+      }
+    } else {
+      autoWeighActiveRef.current = false;
+    }
+  }, [selectedOrder, items, weightsByLineId, removedLineIds, selectedWeek, showToast, t]);
 
   const startEdit = (lineId, currentValue) => {
     setEditingLineId(lineId);
@@ -1013,13 +954,7 @@ export default function DeliveryManagementV6() {
     const nextWeights = {};
     for (const it of items) {
       if (!it?.lineId) continue;
-      const requestedQty = Number(it.requestedQuantity || 0);
-      const requestedForWeight = getEstimatedChargeableQuantity({
-        measurementType: it.measurementType || 'kg',
-        quantity: requestedQty,
-        averageWeightKg: it.averageWeightKg || 1,
-      });
-      nextWeights[it.lineId] = { actualQuantity: requestedForWeight, source: 'ordered_default' };
+      nextWeights[it.lineId] = { actualQuantity: Number(it.requestedQuantity || 0), source: 'ordered_default' };
     }
     const updated = upsertOrderWeighing({
       weekKey: selectedWeek,
@@ -1052,28 +987,6 @@ export default function DeliveryManagementV6() {
     });
     setWeighingState(updated);
   };
-
-  /* ─── Reset item (clear recorded weight) ─── */
-  const resetItem = useCallback((lineId) => {
-    if (!selectedOrder || !lineId) return;
-    const nextWeights = { ...(weightsByLineId || {}) };
-    delete nextWeights[lineId];
-    const newStatus = getNextUnweighedIndex(items, nextWeights, removedLineIds) === -1 && Object.keys(nextWeights).filter((k) => nextWeights[k]?.actualQuantity).length > 0
-      ? 'weighed' : 'in_progress';
-    const updated = upsertOrderWeighing({
-      weekKey: selectedWeek,
-      orderId: selectedOrder.id,
-      patch: { status: newStatus, weightsByLineId: nextWeights },
-    });
-    setWeighingState(updated);
-    setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? { ...o, status: newStatus } : o)));
-    // Re-enable auto-weigh for this item if scale is connected
-    const it = items.find((i) => i.lineId === lineId);
-    if (it && it.measurementType !== 'package') {
-      autoWeighActiveRef.current = true;
-      prevStableRef.current = 0;
-    }
-  }, [selectedOrder, items, weightsByLineId, removedLineIds, selectedWeek]);
 
   /* ═══════════════════════════════════════════════════════════
      Complete order (preserved from V5 — full invoice logic)
@@ -1654,13 +1567,7 @@ export default function DeliveryManagementV6() {
                     const isPackage = it.measurementType === 'package';
                     const isUnit = it.measurementType === 'unit';
                     const reqQty = Number(it.requestedQuantity || 0);
-                    const reqEstimatedKg = getEstimatedChargeableQuantity({
-                      measurementType: it.measurementType || 'kg',
-                      quantity: reqQty,
-                      averageWeightKg: it.averageWeightKg || 1,
-                    });
                     const showQtyBadge = reqQty > 1;
-                    const showUnderOneKgBadge = !isPackage && reqEstimatedKg > 0 && reqEstimatedKg < 1;
 
                     return (
                       <div
@@ -1687,13 +1594,6 @@ export default function DeliveryManagementV6() {
                             <div className="bg-red-600 text-white font-black rounded-full min-w-[36px] h-9 flex items-center justify-center px-2 text-lg shadow-lg border-2 border-white">
                               {t.qtyBadge}{isPackage || isUnit ? Math.floor(reqQty) : reqQty}
                             </div>
-                          </div>
-                        )}
-                        {showUnderOneKgBadge && !isRemoved && (
-                          <div className={`absolute top-2 ${showQtyBadge ? 'left-2' : 'right-2'} z-10`}>
-                            <span className="bg-orange-500 text-white font-bold text-[11px] px-2 py-0.5 rounded-full shadow">
-                              {t.underOneKgBadge}
-                            </span>
                           </div>
                         )}
 
@@ -1738,24 +1638,16 @@ export default function DeliveryManagementV6() {
                             {isPackage ? (
                               <><span className="font-black text-base">{Math.floor(reqQty)}</span> {t.pkgLbl} • {t.perPkg} {Number(it.pricePerUnit || 0).toFixed(2)}</>
                             ) : isUnit ? (
-                              <>
-                                <span className="font-black text-xl text-purple-700">{Math.floor(reqQty)}</span> <span className="font-black text-lg text-purple-700">{t.unitLbl}</span>
-                                {' '}• {t.perKg} {Number(it.pricePerUnit || 0).toFixed(2)}
-                              </>
+                              <><span className="font-black text-base">{Math.floor(reqQty)}</span> {t.unitLbl} • {t.perKg} {Number(it.pricePerUnit || 0).toFixed(2)}</>
                             ) : (
                               <>
-                                <span className={`font-black text-base ${reqQty < 1 ? 'text-orange-600' : ''}`}>{reqQty.toFixed(3)}</span> {t.kg} • {t.perKg} {Number(it.pricePerUnit || 0).toFixed(2)}
+                                <span className="font-black text-base">{reqQty.toFixed(3)}</span> {t.kg} • {t.perKg} {Number(it.pricePerUnit || 0).toFixed(2)}
                                 {it.unitSize && it.unitSize !== 1 && (
                                   <span className="text-gray-400 ml-1">({Math.round(reqQty / it.unitSize)} x {it.unitSize})</span>
                                 )}
                               </>
                             )}
                           </div>
-                          {isUnit && !isRemoved && (
-                            <div className="mt-1 inline-block bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                              {t.unitOrderedBadge}
-                            </div>
-                          )}
                         </div>
 
                         {/* ── Weight display / Live scale / Edit ── */}
@@ -1859,20 +1751,11 @@ export default function DeliveryManagementV6() {
                                     onClick={() => {
                                       if (editValue) {
                                         saveManualWeight(it.lineId, editValue, 'manual');
-                                        return;
-                                      }
-                                      if (scaleConnected) {
-                                        const stableVal = (liveWeight?.stable && liveWeight.value > WEIGHT_ON_THRESHOLD)
-                                          ? liveWeight.value
-                                          : (lastStableWeight?.value ?? 0);
-                                        if (stableVal > WEIGHT_ON_THRESHOLD) {
-                                          saveManualWeight(it.lineId, stableVal, 'scale');
-                                        }
                                       }
                                     }}
                                     disabled={!editValue && !(scaleConnected && ((liveWeight?.stable && liveWeight.value > WEIGHT_ON_THRESHOLD) || (lastStableWeight?.value > WEIGHT_ON_THRESHOLD)))}
                                     className={`px-4 py-2 rounded-lg text-sm font-bold ${
-                                      (editValue || (scaleConnected && ((liveWeight?.stable && liveWeight.value > WEIGHT_ON_THRESHOLD) || (lastStableWeight?.value > WEIGHT_ON_THRESHOLD))))
+                                      editValue
                                         ? 'bg-green-600 text-white hover:bg-green-700'
                                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                                     }`}
@@ -1900,15 +1783,6 @@ export default function DeliveryManagementV6() {
                                     className="flex-1 text-xs font-bold py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
                                   >
                                     {t.edit}
-                                  </button>
-                                )}
-                                {/* Reset button (only when item has a recorded weight) */}
-                                {weighedQty && !isEditing && (
-                                  <button
-                                    onClick={() => resetItem(it.lineId)}
-                                    className="text-xs font-bold py-1.5 px-3 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-colors"
-                                  >
-                                    {t.reset}
                                   </button>
                                 )}
                                 {/* Remove button */}
