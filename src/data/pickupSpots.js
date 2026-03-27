@@ -1,9 +1,14 @@
 // A list of pickup locations with their delivery options
 const pickupSpotsData = {
-  "ניצנים": {
-    name: "ניצנים",
+  "ניצנים ה": {
+    name: "ניצנים ה",
     options: ["pickup"],
-    deliveryFee: 20, // Fee for home delivery if applicable
+    deliveryFee: 25, // Fee for home delivery if applicable
+  },
+  "ניצנים ג": {
+    name: "ניצנים ג",
+    options: ["pickup", "homeDelivery"],
+    deliveryFee: 25,
   },
   "מרכז שפירא": {
     name: "מרכז שפירא",

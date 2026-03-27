@@ -56,8 +56,8 @@ class ScaleService extends EventEmitter {
    * @param {object} options - Serial port options
    */
   async connectSerial(portPath, options = {}) {
-    // Disconnect existing connection if any
-    this.disconnect();
+    // Disconnect existing connection if any (await so Windows releases COM before reopen)
+    await this.disconnect();
 
     const { SerialPort } = require('serialport');
     const { DelimiterParser } = require('@serialport/parser-delimiter');
@@ -521,23 +521,34 @@ class ScaleService extends EventEmitter {
 
   /**
    * Disconnect from the scale
+  /**
+   * Release serial/TCP resources. Must complete before opening the same COM port again on Windows.
    */
-  disconnect() {
+  async disconnect() {
     this.stopPolling();
-    
-    if (this.connection) {
-      if (this.connectionType === 'serial') {
-        if (this.connection.isOpen) {
-          this.connection.close();
-        }
-      } else if (this.connectionType === 'tcp') {
-        this.connection.destroy();
-      }
-      this.connection = null;
-    }
+
+    const conn = this.connection;
+    const ctype = this.connectionType;
+    this.connection = null;
     this.isConnected = false;
     this.connectionType = null;
     this.buffer = '';
+    this.tcpBuffer = '';
+
+    if (!conn) return;
+
+    if (ctype === 'serial') {
+      if (conn.isOpen) {
+        await new Promise((resolve) => {
+          conn.close((err) => {
+            if (err) console.error('Serial port close:', err);
+            resolve();
+          });
+        });
+      }
+    } else if (ctype === 'tcp') {
+      conn.destroy();
+    }
     this.tcpBuffer = '';
   }
 

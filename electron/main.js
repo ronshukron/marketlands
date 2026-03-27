@@ -46,7 +46,7 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
     if (scaleService) {
-      scaleService.disconnect();
+      void scaleService.disconnect();
     }
   });
 
@@ -198,10 +198,11 @@ function setupMenu() {
           label: 'Disconnect Scale',
           click: () => {
             if (scaleService) {
-              scaleService.disconnect();
-              if (mainWindow) {
-                mainWindow.webContents.send('scale:disconnected');
-              }
+              void scaleService.disconnect().then(() => {
+                if (mainWindow) {
+                  mainWindow.webContents.send('scale:disconnected');
+                }
+              });
             }
           }
         }
@@ -307,7 +308,7 @@ function setupScaleIPC() {
   // Disconnect scale
   ipcMain.handle('scale:disconnect', async () => {
     try {
-      scaleService.disconnect();
+      await scaleService.disconnect();
       return { success: true };
     } catch (error) {
       return { error: error.message };
@@ -424,7 +425,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   // Cleanup scale connection before quitting
   if (scaleService) {
-    scaleService.disconnect();
+    void scaleService.disconnect();
   }
 });
 
