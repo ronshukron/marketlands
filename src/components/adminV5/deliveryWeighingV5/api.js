@@ -44,6 +44,18 @@ function weekWindowFromKey(weekKey) {
   return { start, end };
 }
 
+function normalizeSpecificDateRange(startDate, endDate) {
+  if (!startDate && !endDate) return null;
+  const rawStart = startDate || endDate;
+  const rawEnd = endDate || startDate;
+  const start = new Date(rawStart);
+  const end = new Date(rawEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return start <= end ? { start, end } : { start: end, end: start };
+}
+
 function flattenOrderBreakdown(orderBreakdown) {
   const out = [];
   if (!orderBreakdown || typeof orderBreakdown !== 'object') return out;
@@ -59,8 +71,10 @@ function flattenOrderBreakdown(orderBreakdown) {
 export async function fetchDelayedOrdersFromCustomerOrders({
   weekKey,
   communities = [],
+  startDate = '',
+  endDate = '',
 }) {
-  const window = weekWindowFromKey(weekKey);
+  const window = normalizeSpecificDateRange(startDate, endDate) || weekWindowFromKey(weekKey);
   if (!window) return [];
 
   const allowedCommunities = Array.isArray(communities) ? communities.filter(Boolean) : [];
@@ -144,8 +158,10 @@ export async function fetchDelayedOrdersFromCustomerOrders({
 export async function fetchCompletedOrdersForWeek({
   weekKey,
   communities = [],
+  startDate = '',
+  endDate = '',
 }) {
-  const window = weekWindowFromKey(weekKey);
+  const window = normalizeSpecificDateRange(startDate, endDate) || weekWindowFromKey(weekKey);
   if (!window) return [];
 
   const allowedCommunities = Array.isArray(communities) ? communities.filter(Boolean) : [];
@@ -235,9 +251,11 @@ export async function fetchCompletedOrdersForWeek({
 export async function fetchDelayedOrdersForDeliveryV5({
   weekKey,
   communities = [],
+  startDate = '',
+  endDate = '',
 }) {
   // Use real orders from Firestore only. No mock fallback.
-  return await fetchDelayedOrdersFromCustomerOrders({ weekKey, communities });
+  return await fetchDelayedOrdersFromCustomerOrders({ weekKey, communities, startDate, endDate });
 }
 
 export async function handleSuspendedPaymentV5({

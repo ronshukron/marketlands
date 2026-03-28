@@ -59,6 +59,18 @@ function weekWindowFromKey(weekKey) {
   return { start, end };
 }
 
+function normalizeSpecificDateRange(startDate, endDate) {
+  if (!startDate && !endDate) return null;
+  const rawStart = startDate || endDate;
+  const rawEnd = endDate || startDate;
+  const start = new Date(rawStart);
+  const end = new Date(rawEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return start <= end ? { start, end } : { start: end, end: start };
+}
+
 function normalizeDelayedOrder(docSnap, weekKey) {
   const data = docSnap.data() || {};
   const rawItems = Array.isArray(data.items) ? data.items : flattenOrderBreakdown(data.orderBreakdown);
@@ -126,8 +138,8 @@ function normalizeDelayedOrder(docSnap, weekKey) {
   };
 }
 
-function classifyDelayedOrders(snapshot, weekKey, communities = []) {
-  const window = weekWindowFromKey(weekKey);
+function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = '', endDate = '') {
+  const window = normalizeSpecificDateRange(startDate, endDate) || weekWindowFromKey(weekKey);
   if (!window) return { pendingOrders: [], completedOrders: [], allOrders: [] };
 
   const allowedCommunities = Array.isArray(communities) ? communities.filter(Boolean) : [];
@@ -204,15 +216,17 @@ export async function fetchAvailableDeliveryWeeksV7() {
 export function subscribeDelayedOrdersForWeekV7({
   weekKey,
   communities = [],
+  startDate = '',
+  endDate = '',
   onOrders,
   onError,
 }) {
-  if (!weekKey) return () => {};
+  if (!weekKey && !startDate && !endDate) return () => {};
 
   const unsubscribe = onSnapshot(
     collection(db, 'customerOrdersDelayed'),
     (snapshot) => {
-      const next = classifyDelayedOrders(snapshot, weekKey, communities);
+      const next = classifyDelayedOrders(snapshot, weekKey, communities, startDate, endDate);
       if (typeof onOrders === 'function') onOrders(next);
     },
     (error) => {
@@ -267,6 +281,7 @@ export async function searchProductsV7({ term = '', limit = 20 }) {
         id: docSnap.id,
         name: data.name || '',
         thaiName: data.thaiName || '',
+        independentFarmer: data.independentFarmer === true,
         price: safeNumber(data.price, 0),
         images: Array.isArray(data.images) ? data.images : [],
         businessId: data.businessId || '',
@@ -278,6 +293,7 @@ export async function searchProductsV7({ term = '', limit = 20 }) {
         averageWeightKg: safeNumber(data.averageWeightKg, 1),
       };
     })
+    .filter((product) => product.independentFarmer !== true)
     .filter((product) => {
       if (!needle) return true;
       return [

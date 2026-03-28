@@ -44,6 +44,9 @@ const TR = {
     selectAll: 'הכל',
     clearSel: 'נקה',
     load: 'טען הזמנות',
+    fromDate: 'מתאריך:',
+    toDate: 'עד תאריך:',
+    clearDates: 'נקה תאריכים',
     weekLabel: 'שבוע נבחר:',
     commLabel: 'קהילות:',
     orders: 'הזמנות',
@@ -134,6 +137,9 @@ const TR = {
     selectAll: 'ทั้งหมด',
     clearSel: 'ล้าง',
     load: 'โหลดคำสั่งซื้อ',
+    fromDate: 'จากวันที่:',
+    toDate: 'ถึงวันที่:',
+    clearDates: 'ล้างวันที่',
     weekLabel: 'สัปดาห์:',
     commLabel: 'ชุมชน:',
     orders: 'คำสั่งซื้อ',
@@ -321,6 +327,40 @@ function weekKeyToRangeLabel(weekKey) {
   return `${format(sunday, 'dd/MM/yyyy')} - ${format(saturday, 'dd/MM/yyyy')}`;
 }
 
+function parseOrderCreatedAt(order) {
+  const candidates = [order?.createdAtIso, order?.createdAt, order?.createdDate];
+  for (const value of candidates) {
+    if (!value) continue;
+    const d = value instanceof Date ? value : new Date(value);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+function normalizeSpecificDateRange(startStr, endStr) {
+  const hasAny = Boolean(startStr || endStr);
+  if (!hasAny) return null;
+  const rawStart = startStr || endStr;
+  const rawEnd = endStr || startStr;
+  const start = new Date(rawStart);
+  const end = new Date(rawEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  if (start <= end) return { start, end };
+  return { start: end, end: start };
+}
+
+function filterOrdersBySpecificDates(orders = [], startStr, endStr) {
+  const range = normalizeSpecificDateRange(startStr, endStr);
+  if (!range) return orders;
+  return (orders || []).filter((order) => {
+    const createdAt = parseOrderCreatedAt(order);
+    if (!createdAt) return false;
+    return createdAt >= range.start && createdAt <= range.end;
+  });
+}
+
 function getNextUnweighedIndex(items = [], weightsByLineId = {}, removedLineIds = {}, startFrom = 0) {
   // Search forward from startFrom, then wrap around from 0
   for (let offset = 0; offset < items.length; offset++) {
@@ -386,6 +426,10 @@ export default function DeliveryManagementV6() {
   const [availableWeeks, setAvailableWeeks] = useState([]);
   const [tempSelectedWeek, setTempSelectedWeek] = useState('');
   const [selectedWeek, setSelectedWeek] = useState('');
+  const [tempSpecificStartDate, setTempSpecificStartDate] = useState('');
+  const [tempSpecificEndDate, setTempSpecificEndDate] = useState('');
+  const [selectedSpecificStartDate, setSelectedSpecificStartDate] = useState('');
+  const [selectedSpecificEndDate, setSelectedSpecificEndDate] = useState('');
 
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
   const communityDropdownRef = useRef(null);
@@ -604,11 +648,23 @@ export default function DeliveryManagementV6() {
       setError(null);
       try {
         const communities = Array.from(selectedCommunities);
+        const hasSpecificDates = Boolean(selectedSpecificStartDate || selectedSpecificEndDate);
+        const weekKeyForQuery = hasSpecificDates ? '' : selectedWeek;
 
         // Fetch pending AND completed orders in parallel
         const [fetched, completedFromDb] = await Promise.all([
-          fetchDelayedOrdersForDeliveryV5({ weekKey: selectedWeek, communities }),
-          fetchCompletedOrdersForWeek({ weekKey: selectedWeek, communities }).catch((err) => {
+          fetchDelayedOrdersForDeliveryV5({
+            weekKey: weekKeyForQuery,
+            communities,
+            startDate: selectedSpecificStartDate,
+            endDate: selectedSpecificEndDate,
+          }),
+          fetchCompletedOrdersForWeek({
+            weekKey: weekKeyForQuery,
+            communities,
+            startDate: selectedSpecificStartDate,
+            endDate: selectedSpecificEndDate,
+          }).catch((err) => {
             console.warn('Failed to fetch completed orders (non-fatal):', err);
             return [];
           }),
@@ -638,20 +694,27 @@ export default function DeliveryManagementV6() {
 
         // Pending first, then completed at the bottom
         const allOrders = [...hydratedPending, ...hydratedCompleted];
+        const dateFilteredOrders = filterOrdersBySpecificDates(
+          allOrders,
+          selectedSpecificStartDate,
+          selectedSpecificEndDate,
+        );
         const reconciled = reconcileWeighingStateWithOrders({ weekKey: selectedWeek, state: persisted, orders: allOrders });
         setWeighingState(reconciled);
-        setOrders(allOrders);
-        if (allOrders.length > 0 && (!selectedOrderId || !allOrders.some((o) => o.id === selectedOrderId))) {
+        setOrders(dateFilteredOrders);
+        if (dateFilteredOrders.length > 0 && (!selectedOrderId || !dateFilteredOrders.some((o) => o.id === selectedOrderId))) {
           // Auto-select first non-completed order, or first order if all completed
-          const firstPending = allOrders.find((o) => o.status !== 'completed' && o.status !== 'pending_sync');
-          setSelectedOrderId(firstPending ? firstPending.id : allOrders[0].id);
+          const firstPending = dateFilteredOrders.find((o) => o.status !== 'completed' && o.status !== 'pending_sync');
+          setSelectedOrderId(firstPending ? firstPending.id : dateFilteredOrders[0].id);
+        } else if (dateFilteredOrders.length === 0) {
+          setSelectedOrderId(null);
         }
         setCommunityFilter('__all__');
 
         // Gather product IDs and customers from ALL orders (pending + completed)
         const productIdSet = new Set();
         const customersList = [];
-        allOrders.forEach((o) => {
+        dateFilteredOrders.forEach((o) => {
           (o.items || []).forEach((it) => { if (it?.productId) productIdSet.add(it.productId); });
           const cid = o?.customerDetails?.phone || o?.customerDetails?.email || null;
           if (cid) customersList.push({ id: cid, name: o?.customerDetails?.name || '' });
@@ -671,7 +734,7 @@ export default function DeliveryManagementV6() {
     };
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedWeek, selectedCommunities]);
+  }, [selectedWeek, selectedCommunities, selectedSpecificStartDate, selectedSpecificEndDate]);
 
   /* ═══════════════════════════════════════════════════════════
      Derived data
@@ -1233,6 +1296,8 @@ export default function DeliveryManagementV6() {
   const handleLoad = () => {
     setSelectedWeek(tempSelectedWeek);
     setSelectedCommunities(new Set(tempSelectedCommunities));
+    setSelectedSpecificStartDate(tempSpecificStartDate);
+    setSelectedSpecificEndDate(tempSpecificEndDate);
   };
 
   /* ─── Status badge ─── */
@@ -1373,6 +1438,37 @@ export default function DeliveryManagementV6() {
               </div>
             </div>
 
+            <div className="min-w-[170px]">
+              <label className="block text-xs font-bold text-gray-600 mb-1">{t.fromDate}</label>
+              <input
+                type="date"
+                value={tempSpecificStartDate}
+                onChange={(e) => setTempSpecificStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="min-w-[170px]">
+              <label className="block text-xs font-bold text-gray-600 mb-1">{t.toDate}</label>
+              <input
+                type="date"
+                value={tempSpecificEndDate}
+                onChange={(e) => setTempSpecificEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setTempSpecificStartDate('');
+                setTempSpecificEndDate('');
+              }}
+              className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-sm border transition-colors"
+            >
+              {t.clearDates}
+            </button>
+
             {/* Load button */}
             <button
               onClick={handleLoad}
@@ -1388,6 +1484,9 @@ export default function DeliveryManagementV6() {
               {t.weekLabel} <span className="font-bold">{weekKeyToRangeLabel(selectedWeek)}</span>
               {selectedCommunities.size > 0 && (
                 <> — {t.commLabel} <span className="font-bold">{Array.from(selectedCommunities).join(', ')}</span></>
+              )}
+              {(selectedSpecificStartDate || selectedSpecificEndDate) && (
+                <> — <span className="font-bold">{selectedSpecificStartDate || selectedSpecificEndDate}</span> → <span className="font-bold">{selectedSpecificEndDate || selectedSpecificStartDate}</span></>
               )}
             </div>
           )}

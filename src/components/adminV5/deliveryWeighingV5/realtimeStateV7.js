@@ -212,15 +212,30 @@ export async function saveOrderDraftV7({
 }) {
   if (!weekKey || !orderId) return;
 
-  await setDoc(draftRef(weekKey, orderId), {
+  const ref = draftRef(weekKey, orderId);
+  const existingSnap = await getDoc(ref);
+  const existing = existingSnap.exists() ? (existingSnap.data() || {}) : {};
+  const patch = draftPatch || {};
+  const next = {
+    ...existing,
     orderId,
-    ...(draftPatch || {}),
+    ...patch,
     updatedAtIso: nowIso(),
     updatedAt: serverTimestamp(),
     updatedBySessionId: session?.sessionId || '',
     updatedByName: session?.userName || '',
     updatedByStationId: session?.stationId || '',
-  }, { merge: true });
+  };
+
+  // Replace these maps exactly so removed keys are actually cleared.
+  if (Object.prototype.hasOwnProperty.call(patch, 'weightsByLineId')) {
+    next.weightsByLineId = patch.weightsByLineId || {};
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'removedLineIds')) {
+    next.removedLineIds = patch.removedLineIds || {};
+  }
+
+  await setDoc(ref, next);
 }
 
 export async function clearOrderDraftV7({ weekKey, orderId }) {

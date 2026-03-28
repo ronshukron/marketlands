@@ -35,8 +35,6 @@ import {
   buildSettlementPayload,
   getNextUnweighedIndex,
   mergeProductDetailsIntoItems,
-  resolveActualQuantity,
-  safeNumber,
   weekKeyToRangeLabel,
 } from './v7/orderDraftUtils';
 
@@ -45,6 +43,64 @@ const WEIGHT_ON_THRESHOLD = 0.020;
 const WEIGHT_OFF_THRESHOLD = 0.010;
 const LANG_STORAGE_KEY = 'deliveryV7::lang';
 const COMMUNITY_ORDER_KEY = 'deliveryV7::communityOrder';
+const OFFLINE_DRAFTS_PREFIX = 'deliveryV7::offlineDrafts::';
+const OFFLINE_QUEUE_KEY = 'deliveryV7::offlineQueue';
+const WEEK_CACHE_PREFIX = 'deliveryV7::cache::';
+
+function loadJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // Ignore localStorage failures.
+  }
+}
+
+function loadOfflineDrafts(weekKey) {
+  if (!weekKey) return {};
+  return loadJson(`${OFFLINE_DRAFTS_PREFIX}${weekKey}`, {});
+}
+
+function saveOfflineDrafts(weekKey, draftsByOrder) {
+  if (!weekKey) return;
+  saveJson(`${OFFLINE_DRAFTS_PREFIX}${weekKey}`, draftsByOrder || {});
+}
+
+function clearOfflineDraftByOrder(weekKey, orderId) {
+  if (!weekKey || !orderId) return;
+  const existing = loadOfflineDrafts(weekKey);
+  if (!existing?.[orderId]) return;
+  const next = { ...existing };
+  delete next[orderId];
+  saveOfflineDrafts(weekKey, next);
+}
+
+function loadOfflineQueue() {
+  return loadJson(OFFLINE_QUEUE_KEY, []);
+}
+
+function saveOfflineQueue(queue) {
+  saveJson(OFFLINE_QUEUE_KEY, queue || []);
+}
+
+function loadWeekCache(weekKey) {
+  if (!weekKey) return null;
+  return loadJson(`${WEEK_CACHE_PREFIX}${weekKey}`, null);
+}
+
+function saveWeekCache(weekKey, payload) {
+  if (!weekKey) return;
+  saveJson(`${WEEK_CACHE_PREFIX}${weekKey}`, payload || null);
+}
 
 const TR = {
   he: {
@@ -60,6 +116,9 @@ const TR = {
     selectAll: 'הכל',
     clearSel: 'נקה',
     load: 'טען הזמנות',
+    fromDate: 'מתאריך:',
+    toDate: 'עד תאריך:',
+    clearDates: 'נקה תאריכים',
     weekLabel: 'שבוע נבחר:',
     commLabel: 'קהילות:',
     orders: 'הזמנות',
@@ -133,6 +192,12 @@ const TR = {
     priceUpdatedOk: 'המחיר עודכן',
     deleteLine: 'מחק שורה',
     deleteLineConfirm: (n) => `למחוק את "${n}" מההזמנה?`,
+    savedOffline: 'נשמר אופליין — יסונכרן כשהאינטרנט יחזור.',
+    offlineQ: 'ממתינים לסנכרון',
+    syncNow: 'סנכרן עכשיו',
+    syncingLabel: 'מסנכרן...',
+    syncOk: (n) => `${n} הזמנות סונכרנו`,
+    syncFail: (n) => `${n} נכשלו`,
   },
   th: {
     title: 'จัดการจัดส่ง V7',
@@ -147,6 +212,9 @@ const TR = {
     selectAll: 'ทั้งหมด',
     clearSel: 'ล้าง',
     load: 'โหลดคำสั่งซื้อ',
+    fromDate: 'จากวันที่:',
+    toDate: 'ถึงวันที่:',
+    clearDates: 'ล้างวันที่',
     weekLabel: 'สัปดาห์:',
     commLabel: 'ชุมชน:',
     orders: 'คำสั่งซื้อ',
@@ -220,6 +288,12 @@ const TR = {
     priceUpdatedOk: 'อัปเดตราคาแล้ว',
     deleteLine: 'ลบบรรทัด',
     deleteLineConfirm: (n) => `ลบ "${n}" ออกจากคำสั่งซื้อ?`,
+    savedOffline: 'บันทึกออฟไลน์ — จะซิงค์เมื่อมีเน็ต',
+    offlineQ: 'รอซิงค์',
+    syncNow: 'ซิงค์ตอนนี้',
+    syncingLabel: 'กำลังซิงค์...',
+    syncOk: (n) => `ซิงค์สำเร็จ ${n} รายการ`,
+    syncFail: (n) => `ล้มเหลว ${n} รายการ`,
   },
 };
 
@@ -333,6 +407,40 @@ function formatOrderedExpectation(it, expectedQtyForCompare, t) {
   return `${Number(expectedQtyForCompare).toFixed(3)} ${t.kg}`;
 }
 
+function parseOrderCreatedAt(order) {
+  const candidates = [order?.createdAtIso, order?.createdAt, order?.createdDate];
+  for (const value of candidates) {
+    if (!value) continue;
+    const d = value instanceof Date ? value : new Date(value);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+function normalizeSpecificDateRange(startStr, endStr) {
+  const hasAny = Boolean(startStr || endStr);
+  if (!hasAny) return null;
+  const rawStart = startStr || endStr;
+  const rawEnd = endStr || startStr;
+  const start = new Date(rawStart);
+  const end = new Date(rawEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  if (start <= end) return { start, end };
+  return { start: end, end: start };
+}
+
+function filterOrdersBySpecificDates(orders = [], startStr, endStr) {
+  const range = normalizeSpecificDateRange(startStr, endStr);
+  if (!range) return orders;
+  return (orders || []).filter((order) => {
+    const createdAt = parseOrderCreatedAt(order);
+    if (!createdAt) return false;
+    return createdAt >= range.start && createdAt <= range.end;
+  });
+}
+
 function getDisplayName(user) {
   return user?.displayName || user?.email || user?.phoneNumber || 'Admin';
 }
@@ -368,6 +476,10 @@ export default function DeliveryManagementV7() {
   const [availableWeeks, setAvailableWeeks] = useState([]);
   const [tempSelectedWeek, setTempSelectedWeek] = useState('');
   const [selectedWeek, setSelectedWeek] = useState('');
+  const [tempSpecificStartDate, setTempSpecificStartDate] = useState('');
+  const [tempSpecificEndDate, setTempSpecificEndDate] = useState('');
+  const [selectedSpecificStartDate, setSelectedSpecificStartDate] = useState('');
+  const [selectedSpecificEndDate, setSelectedSpecificEndDate] = useState('');
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
   const communityDropdownRef = useRef(null);
   const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
@@ -419,6 +531,9 @@ export default function DeliveryManagementV7() {
   const [presence, setPresence] = useState([]);
   const [claimsByOrder, setClaimsByOrder] = useState({});
   const [draftsByOrder, setDraftsByOrder] = useState({});
+  const [localDraftsByOrder, setLocalDraftsByOrder] = useState({});
+  const [offlineQueue, setOfflineQueue] = useState(() => loadOfflineQueue());
+  const [syncingOffline, setSyncingOffline] = useState(false);
   const [savingActionKey, setSavingActionKey] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -447,6 +562,14 @@ export default function DeliveryManagementV7() {
       window.removeEventListener('offline', off);
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedWeek) {
+      setLocalDraftsByOrder({});
+      return;
+    }
+    setLocalDraftsByOrder(loadOfflineDrafts(selectedWeek));
+  }, [selectedWeek]);
 
   useEffect(() => {
     if (activeItemIndex >= 0 && itemRefs.current[activeItemIndex]) {
@@ -508,16 +631,34 @@ export default function DeliveryManagementV7() {
   }, []);
 
   useEffect(() => {
+    if (!selectedWeek) return;
+    const cached = loadWeekCache(selectedWeek);
+    if (cached?.orders?.length) {
+      setOrders(filterOrdersBySpecificDates(cached.orders || [], selectedSpecificStartDate, selectedSpecificEndDate));
+      setProductDetails(cached.productDetails || {});
+      setPermanentNumbersMap(cached.permanentNumbersMap || {});
+      setError(null);
+    }
+  }, [selectedWeek, selectedSpecificStartDate, selectedSpecificEndDate]);
+
+  useEffect(() => {
     if (!selectedWeek) return () => {};
     setLoading(true);
     const unsubscribe = subscribeDelayedOrdersForWeekV7({
       weekKey: selectedWeek,
       communities: Array.from(selectedCommunities),
+      startDate: selectedSpecificStartDate,
+      endDate: selectedSpecificEndDate,
       onOrders: async ({ allOrders }) => {
         try {
+          const dateFilteredOrders = filterOrdersBySpecificDates(
+            allOrders,
+            selectedSpecificStartDate,
+            selectedSpecificEndDate,
+          );
           const productIdSet = new Set();
           const customersList = [];
-          allOrders.forEach((order) => {
+          dateFilteredOrders.forEach((order) => {
             (order.items || []).forEach((it) => {
               if (it?.productId) productIdSet.add(it.productId);
             });
@@ -530,13 +671,14 @@ export default function DeliveryManagementV7() {
           ]);
           setProductDetails(pd);
           setPermanentNumbersMap(nums);
-          setOrders(allOrders);
+          setOrders(dateFilteredOrders);
+          saveWeekCache(selectedWeek, { orders: allOrders, productDetails: pd, permanentNumbersMap: nums });
           setError(null);
           setCommunityFilter('__all__');
           setSelectedOrderId((prev) => {
-            if (prev && allOrders.some((o) => o.id === prev)) return prev;
-            const firstPending = allOrders.find((o) => o.status !== 'completed');
-            return firstPending ? firstPending.id : (allOrders[0]?.id || null);
+            if (prev && dateFilteredOrders.some((o) => o.id === prev)) return prev;
+            const firstPending = dateFilteredOrders.find((o) => o.status !== 'completed');
+            return firstPending ? firstPending.id : (dateFilteredOrders[0]?.id || null);
           });
         } catch (e) {
           console.error(e);
@@ -547,12 +689,30 @@ export default function DeliveryManagementV7() {
       },
       onError: (e) => {
         console.error(e);
-        setError(t.failOrders);
+        const cached = loadWeekCache(selectedWeek);
+        if (cached?.orders?.length) {
+          setOrders(filterOrdersBySpecificDates(cached.orders || [], selectedSpecificStartDate, selectedSpecificEndDate));
+          setProductDetails(cached.productDetails || {});
+          setPermanentNumbersMap(cached.permanentNumbersMap || {});
+          showToast(t.savedOffline);
+          setError(null);
+        } else {
+          setError(t.failOrders);
+        }
         setLoading(false);
       },
     });
     return unsubscribe;
-  }, [selectedWeek, selectedCommunities, fetchPermanentCustomerNumbers, t.failOrders]);
+  }, [
+    selectedWeek,
+    selectedCommunities,
+    selectedSpecificStartDate,
+    selectedSpecificEndDate,
+    fetchPermanentCustomerNumbers,
+    t.failOrders,
+    t.savedOffline,
+    showToast,
+  ]);
 
   useEffect(() => {
     if (!selectedWeek) return () => {};
@@ -603,8 +763,26 @@ export default function DeliveryManagementV7() {
     };
   }, [searchTerm]);
 
+  useEffect(() => {
+    if (typeof Image === 'undefined') return;
+    Object.values(productDetails || {}).forEach((pd) => {
+      if (Array.isArray(pd?.images) && pd.images[0]) {
+        const img = new Image();
+        img.src = pd.images[0];
+      }
+    });
+  }, [productDetails]);
+
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) || null, [orders, selectedOrderId]);
-  const selectedOrderSaved = useMemo(() => (selectedWeek && selectedOrderId ? (draftsByOrder[selectedOrderId] || {}) : {}), [draftsByOrder, selectedWeek, selectedOrderId]);
+  const effectiveDraftsByOrder = useMemo(() => ({
+    ...(draftsByOrder || {}),
+    ...(localDraftsByOrder || {}),
+  }), [draftsByOrder, localDraftsByOrder]);
+  const selectedOrderSaved = useMemo(() => (
+    selectedWeek && selectedOrderId
+      ? (effectiveDraftsByOrder[selectedOrderId] || {})
+      : {}
+  ), [effectiveDraftsByOrder, selectedWeek, selectedOrderId]);
   const weightsByLineId = selectedOrderSaved.weightsByLineId || {};
   const removedLineIds = selectedOrderSaved.removedLineIds || {};
   const selectedClaim = selectedOrderId ? claimsByOrder[selectedOrderId] : null;
@@ -670,7 +848,7 @@ export default function DeliveryManagementV7() {
       : orders.filter((o) => (o?.customerDetails?.pickupSpot || o?.pickupSpot) === communityFilter);
 
     if (!showCompleted) {
-      list = list.filter((o) => getEffectiveOrderStatus(o, draftsByOrder[o.id]) !== 'completed');
+      list = list.filter((o) => getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]) !== 'completed');
     }
 
     list.sort((a, b) => {
@@ -679,8 +857,8 @@ export default function DeliveryManagementV7() {
       const ra = rankMap[ca] ?? 9999;
       const rb = rankMap[cb] ?? 9999;
       if (ra !== rb) return ra - rb;
-      const aDone = getEffectiveOrderStatus(a, draftsByOrder[a.id]) === 'completed' ? 1 : 0;
-      const bDone = getEffectiveOrderStatus(b, draftsByOrder[b.id]) === 'completed' ? 1 : 0;
+      const aDone = getEffectiveOrderStatus(a, effectiveDraftsByOrder[a.id]) === 'completed' ? 1 : 0;
+      const bDone = getEffectiveOrderStatus(b, effectiveDraftsByOrder[b.id]) === 'completed' ? 1 : 0;
       if (aDone !== bDone) return aDone - bDone;
       const aCid = a?.customerDetails?.phone || a?.customerDetails?.email || '';
       const bCid = b?.customerDetails?.phone || b?.customerDetails?.email || '';
@@ -693,7 +871,7 @@ export default function DeliveryManagementV7() {
       return (a.customerDetails?.name || '').localeCompare(b.customerDetails?.name || '');
     });
     return list;
-  }, [orders, communityFilter, orderCommunities, showCompleted, permanentNumbersMap, draftsByOrder]);
+  }, [orders, communityFilter, orderCommunities, showCompleted, permanentNumbersMap, effectiveDraftsByOrder]);
 
   useEffect(() => {
     if (!selectedOrder) {
@@ -734,15 +912,131 @@ export default function DeliveryManagementV7() {
     return { requestedTotal, actualTotal, requestedSum, actualSum };
   }, [items, weightsByLineId, removedLineIds]);
 
+  const writeLocalDraftForOrder = useCallback((orderId, patch) => {
+    if (!selectedWeek || !orderId) return;
+    setLocalDraftsByOrder((prev) => {
+      const next = {
+        ...prev,
+        [orderId]: {
+          ...(prev[orderId] || {}),
+          ...(patch || {}),
+          updatedAtIso: new Date().toISOString(),
+        },
+      };
+      saveOfflineDrafts(selectedWeek, next);
+      return next;
+    });
+  }, [selectedWeek]);
+
+  const clearLocalDraftForOrder = useCallback((orderId) => {
+    if (!selectedWeek || !orderId) return;
+    setLocalDraftsByOrder((prev) => {
+      if (!prev[orderId]) return prev;
+      const next = { ...prev };
+      delete next[orderId];
+      saveOfflineDrafts(selectedWeek, next);
+      return next;
+    });
+  }, [selectedWeek]);
+
   const saveDraftPatch = useCallback(async (patch) => {
     if (!selectedWeek || !selectedOrder) return;
-    await saveOrderDraftV7({
-      weekKey: selectedWeek,
-      orderId: selectedOrder.id,
-      draftPatch: patch,
-      session,
+    try {
+      await saveOrderDraftV7({
+        weekKey: selectedWeek,
+        orderId: selectedOrder.id,
+        draftPatch: patch,
+        session,
+      });
+      clearLocalDraftForOrder(selectedOrder.id);
+    } catch (error) {
+      writeLocalDraftForOrder(selectedOrder.id, patch);
+      showToast(t.savedOffline);
+    }
+  }, [selectedOrder, selectedWeek, session, clearLocalDraftForOrder, writeLocalDraftForOrder, showToast, t.savedOffline]);
+
+  const enqueueOfflineSettlement = useCallback((entry) => {
+    setOfflineQueue((prev) => {
+      const others = prev.filter((q) => !(q.orderId === entry.orderId && q.weekKey === entry.weekKey));
+      const next = [...others, entry];
+      saveOfflineQueue(next);
+      return next;
     });
-  }, [selectedOrder, selectedWeek, session]);
+  }, []);
+
+  const syncOfflineQueueNow = useCallback(async () => {
+    if (!isOnline || syncingOffline) return;
+    if (!offlineQueue.length) return;
+    setSyncingOffline(true);
+    let okCount = 0;
+    let failCount = 0;
+    const keep = [];
+    for (const entry of offlineQueue) {
+      try {
+        await saveOrderDraftV7({
+          weekKey: entry.weekKey,
+          orderId: entry.orderId,
+          draftPatch: entry.draftBeforeCharge || { status: 'settling' },
+          session,
+        });
+        await handleSuspendedPaymentV7(entry.payload);
+        await clearOrderDraftV7({ weekKey: entry.weekKey, orderId: entry.orderId });
+        clearOfflineDraftByOrder(entry.weekKey, entry.orderId);
+        okCount += 1;
+        if (entry.weekKey === selectedWeek) {
+          clearLocalDraftForOrder(entry.orderId);
+          setOrders((prev) => prev.map((o) => (o.id === entry.orderId ? { ...o, status: 'completed' } : o)));
+        }
+      } catch (error) {
+        failCount += 1;
+        keep.push(entry);
+      }
+    }
+    setOfflineQueue(keep);
+    saveOfflineQueue(keep);
+    if (okCount) showToast(t.syncOk(okCount));
+    if (failCount) showToast(t.syncFail(failCount));
+    setSyncingOffline(false);
+  }, [
+    isOnline,
+    syncingOffline,
+    offlineQueue,
+    session,
+    selectedWeek,
+    clearLocalDraftForOrder,
+    showToast,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (!isOnline || !selectedWeek) return;
+    if (!localDraftsByOrder || Object.keys(localDraftsByOrder).length === 0) return;
+    let cancelled = false;
+    const flush = async () => {
+      for (const [orderId, draftPatch] of Object.entries(localDraftsByOrder)) {
+        if (cancelled) return;
+        try {
+          await saveOrderDraftV7({
+            weekKey: selectedWeek,
+            orderId,
+            draftPatch,
+            session,
+          });
+          if (!cancelled) clearLocalDraftForOrder(orderId);
+        } catch (error) {
+          // Keep unsynced local draft.
+        }
+      }
+    };
+    flush();
+    return () => { cancelled = true; };
+  }, [isOnline, selectedWeek, localDraftsByOrder, session, clearLocalDraftForOrder]);
+
+  useEffect(() => {
+    if (isOnline && offlineQueue.length > 0) {
+      syncOfflineQueueNow();
+    }
+  }, [isOnline, offlineQueue.length, syncOfflineQueueNow]);
 
   const selectItemForWeighing = useCallback(async (idx) => {
     if (idx < 0 || idx >= items.length || claimedByOther) return;
@@ -905,7 +1199,7 @@ export default function DeliveryManagementV7() {
   const resetItem = useCallback(async (lineId) => {
     if (!selectedOrder || !lineId || claimedByOther) return;
     const nextWeights = { ...(weightsByLineId || {}) };
-    delete nextWeights[lineId];
+    nextWeights[lineId] = { actualQuantity: null, source: 'manual' };
     const newStatus = getNextUnweighedIndex(items, nextWeights, removedLineIds) === -1
       && Object.keys(nextWeights).filter((k) => nextWeights[k]?.actualQuantity).length > 0
       ? 'weighed'
@@ -1061,14 +1355,33 @@ export default function DeliveryManagementV7() {
       });
       await handleSuspendedPaymentV7(payload);
       await clearOrderDraftV7({ weekKey: selectedWeek, orderId: selectedOrder.id });
+      clearLocalDraftForOrder(selectedOrder.id);
       if (selectedClaim?.sessionId === session.sessionId) {
         await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
       }
       await biAlert({ heText: 'הושלם! השרת אישר.', thText: 'เสร็จแล้ว! เซิร์ฟเวอร์ยืนยัน', title: 'success' });
     } catch (e) {
       console.error(e);
-      await saveDraftPatch({ status: 'weighed' });
-      await biAlert({ heText: 'שגיאה. אפשר לנסות שוב. בדוק קונסול.', thText: 'เกิดข้อผิดพลาด — ลองอีกครั้ง', title: 'error' });
+      const networkLikeFailure = !isOnline || !e?.response;
+      if (networkLikeFailure) {
+        const payload = buildSettlementPayload({
+          selectedOrder,
+          items,
+          draft: selectedOrderSaved,
+        });
+        writeLocalDraftForOrder(selectedOrder.id, { ...selectedOrderSaved, status: 'pending_sync' });
+        enqueueOfflineSettlement({
+          weekKey: selectedWeek,
+          orderId: selectedOrder.id,
+          payload,
+          draftBeforeCharge: { ...selectedOrderSaved, status: 'pending_sync' },
+        });
+        setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? { ...o, status: 'pending_sync' } : o)));
+        showToast(t.savedOffline);
+      } else {
+        await saveDraftPatch({ status: 'weighed' });
+        await biAlert({ heText: 'שגיאה. אפשר לנסות שוב. בדוק קונסול.', thText: 'เกิดข้อผิดพลาด — ลองอีกครั้ง', title: 'error' });
+      }
     } finally {
       setLoading(false);
     }
@@ -1088,6 +1401,8 @@ export default function DeliveryManagementV7() {
   const handleLoad = () => {
     setSelectedWeek(tempSelectedWeek);
     setSelectedCommunities(new Set(tempSelectedCommunities));
+    setSelectedSpecificStartDate(tempSpecificStartDate);
+    setSelectedSpecificEndDate(tempSpecificEndDate);
   };
 
   const statusBadge = (status) => {
@@ -1132,6 +1447,20 @@ export default function DeliveryManagementV7() {
               {stationId}
             </div>
             <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`} title={isOnline ? 'Online' : 'Offline'} />
+            {offlineQueue.length > 0 && (
+              <>
+                <div className="px-3 py-2 bg-orange-100 text-orange-800 rounded-lg text-sm font-bold">
+                  {t.offlineQ}: {offlineQueue.length}
+                </div>
+                <button
+                  onClick={syncOfflineQueueNow}
+                  disabled={!isOnline || syncingOffline}
+                  className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg text-sm transition-colors disabled:opacity-50"
+                >
+                  {syncingOffline ? t.syncingLabel : t.syncNow}
+                </button>
+              </>
+            )}
             <button
               onClick={toggleLang}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors"
@@ -1205,6 +1534,37 @@ export default function DeliveryManagementV7() {
               </div>
             </div>
 
+            <div className="min-w-[170px]">
+              <label className="block text-xs font-bold text-gray-600 mb-1">{t.fromDate}</label>
+              <input
+                type="date"
+                value={tempSpecificStartDate}
+                onChange={(e) => setTempSpecificStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="min-w-[170px]">
+              <label className="block text-xs font-bold text-gray-600 mb-1">{t.toDate}</label>
+              <input
+                type="date"
+                value={tempSpecificEndDate}
+                onChange={(e) => setTempSpecificEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setTempSpecificStartDate('');
+                setTempSpecificEndDate('');
+              }}
+              className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-sm border transition-colors"
+            >
+              {t.clearDates}
+            </button>
+
             <button
               onClick={handleLoad}
               disabled={loading}
@@ -1220,6 +1580,9 @@ export default function DeliveryManagementV7() {
               {selectedCommunities.size > 0 && (
                 <> — {t.commLabel} <span className="font-bold">{Array.from(selectedCommunities).join(', ')}</span></>
               )}
+              {(selectedSpecificStartDate || selectedSpecificEndDate) && (
+                <> — <span className="font-bold">{selectedSpecificStartDate || selectedSpecificEndDate}</span> → <span className="font-bold">{selectedSpecificEndDate || selectedSpecificStartDate}</span></>
+              )}
             </div>
           )}
         </div>
@@ -1233,8 +1596,8 @@ export default function DeliveryManagementV7() {
                 <span className="font-bold text-gray-900">{t.orders}</span>
                 <div className="flex items-center gap-2">
                   {(() => {
-                    const pendingCount = orders.filter((o) => getEffectiveOrderStatus(o, draftsByOrder[o.id]) !== 'completed').length;
-                    const doneCount = orders.filter((o) => getEffectiveOrderStatus(o, draftsByOrder[o.id]) === 'completed').length;
+                    const pendingCount = orders.filter((o) => getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]) !== 'completed').length;
+                    const doneCount = orders.filter((o) => getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]) === 'completed').length;
                     return (
                       <>
                         <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">{pendingCount}</span>
@@ -1309,7 +1672,7 @@ export default function DeliveryManagementV7() {
                   <div className="p-6 text-center text-gray-400 text-sm">{t.noOrders}</div>
                 )}
                 {filteredOrders.map((o) => {
-                  const effectiveStatus = getEffectiveOrderStatus(o, draftsByOrder[o.id]);
+                  const effectiveStatus = getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]);
                   const isActive = o.id === selectedOrderId;
                   const cid = o?.customerDetails?.phone || o?.customerDetails?.email || null;
                   const custNum = cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-';
@@ -1489,10 +1852,20 @@ export default function DeliveryManagementV7() {
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         {searchResults.map((product) => (
                           <div key={product.id} className="border border-gray-200 rounded-xl p-3 bg-gray-50 flex items-center gap-3">
+                            <div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-white flex-shrink-0">
+                              {Array.isArray(product.images) && product.images[0] ? (
+                                <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-300 text-xl">?</div>
+                              )}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <div className="font-bold text-sm text-gray-900 truncate">{product.name}</div>
+                              {product.thaiName && (
+                                <div className="text-xs text-blue-600 truncate">{product.thaiName}</div>
+                              )}
                               <div className="text-xs text-gray-500 truncate">{product.businessName || '-'}</div>
-                              <div className="text-xs text-gray-500">{Number(product.price || 0).toFixed(2)} ₪</div>
+                              <div className="text-xs font-bold text-gray-700">{Number(product.price || 0).toFixed(2)} ₪</div>
                             </div>
                             <input
                               value={addQuantities[product.id] ?? (product.measurementType === 'kg' ? String(product.unitSize || 1) : '1')}
