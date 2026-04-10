@@ -16,13 +16,17 @@ import {
 } from './apiV7';
 import {
   buildSessionIdV7,
+  bulkSetDraftWeightsV7,
   claimOrderV7,
+  clearDraftLineWeightV7,
   clearOrderDraftV7,
   clearPresenceV7,
   getOrCreateStationIdV7,
   isClaimStaleV7,
   releaseOrderClaimV7,
   saveOrderDraftV7,
+  setDraftLineRemovedV7,
+  setDraftLineWeightV7,
   subscribeClaimsV7,
   subscribeDraftsV7,
   subscribePresenceV7,
@@ -32,6 +36,7 @@ import { useWeightScale } from '../../../hooks/useWeightScale';
 import ScaleConnectionPanel from '../../scale/ScaleConnectionPanel';
 import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../../utils/pricing';
 import {
+  alignItemsWithDraft,
   buildSettlementPayload,
   getNextUnweighedIndex,
   mergeProductDetailsIntoItems,
@@ -43,64 +48,6 @@ const WEIGHT_ON_THRESHOLD = 0.020;
 const WEIGHT_OFF_THRESHOLD = 0.010;
 const LANG_STORAGE_KEY = 'deliveryV7::lang';
 const COMMUNITY_ORDER_KEY = 'deliveryV7::communityOrder';
-const OFFLINE_DRAFTS_PREFIX = 'deliveryV7::offlineDrafts::';
-const OFFLINE_QUEUE_KEY = 'deliveryV7::offlineQueue';
-const WEEK_CACHE_PREFIX = 'deliveryV7::cache::';
-
-function loadJson(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-
-function saveJson(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    // Ignore localStorage failures.
-  }
-}
-
-function loadOfflineDrafts(weekKey) {
-  if (!weekKey) return {};
-  return loadJson(`${OFFLINE_DRAFTS_PREFIX}${weekKey}`, {});
-}
-
-function saveOfflineDrafts(weekKey, draftsByOrder) {
-  if (!weekKey) return;
-  saveJson(`${OFFLINE_DRAFTS_PREFIX}${weekKey}`, draftsByOrder || {});
-}
-
-function clearOfflineDraftByOrder(weekKey, orderId) {
-  if (!weekKey || !orderId) return;
-  const existing = loadOfflineDrafts(weekKey);
-  if (!existing?.[orderId]) return;
-  const next = { ...existing };
-  delete next[orderId];
-  saveOfflineDrafts(weekKey, next);
-}
-
-function loadOfflineQueue() {
-  return loadJson(OFFLINE_QUEUE_KEY, []);
-}
-
-function saveOfflineQueue(queue) {
-  saveJson(OFFLINE_QUEUE_KEY, queue || []);
-}
-
-function loadWeekCache(weekKey) {
-  if (!weekKey) return null;
-  return loadJson(`${WEEK_CACHE_PREFIX}${weekKey}`, null);
-}
-
-function saveWeekCache(weekKey, payload) {
-  if (!weekKey) return;
-  saveJson(`${WEEK_CACHE_PREFIX}${weekKey}`, payload || null);
-}
 
 const TR = {
   he: {
@@ -168,7 +115,6 @@ const TR = {
     stWeighed: 'נשקל',
     stSettling: 'מחייב…',
     stCompleted: 'הושלם',
-    stPendingSync: 'ממתין לסנכרון',
     noPermission: 'אין הרשאות לצפות בדף זה',
     failWeeks: 'שגיאה בטעינת שבועות',
     failOrders: 'שגיאה בטעינת הזמנות',
@@ -192,12 +138,6 @@ const TR = {
     priceUpdatedOk: 'המחיר עודכן',
     deleteLine: 'מחק שורה',
     deleteLineConfirm: (n) => `למחוק את "${n}" מההזמנה?`,
-    savedOffline: 'נשמר אופליין — יסונכרן כשהאינטרנט יחזור.',
-    offlineQ: 'ממתינים לסנכרון',
-    syncNow: 'סנכרן עכשיו',
-    syncingLabel: 'מסנכרן...',
-    syncOk: (n) => `${n} הזמנות סונכרנו`,
-    syncFail: (n) => `${n} נכשלו`,
   },
   th: {
     title: 'จัดการจัดส่ง V7',
@@ -264,7 +204,6 @@ const TR = {
     stWeighed: 'ชั่งแล้ว',
     stSettling: 'เก็บเงิน…',
     stCompleted: 'เสร็จแล้ว',
-    stPendingSync: 'รอซิงค์',
     noPermission: 'ไม่มีสิทธิ์เข้าถึง',
     failWeeks: 'โหลดสัปดาห์ล้มเหลว',
     failOrders: 'โหลดคำสั่งซื้อล้มเหลว',
@@ -288,12 +227,6 @@ const TR = {
     priceUpdatedOk: 'อัปเดตราคาแล้ว',
     deleteLine: 'ลบบรรทัด',
     deleteLineConfirm: (n) => `ลบ "${n}" ออกจากคำสั่งซื้อ?`,
-    savedOffline: 'บันทึกออฟไลน์ — จะซิงค์เมื่อมีเน็ต',
-    offlineQ: 'รอซิงค์',
-    syncNow: 'ซิงค์ตอนนี้',
-    syncingLabel: 'กำลังซิงค์...',
-    syncOk: (n) => `ซิงค์สำเร็จ ${n} รายการ`,
-    syncFail: (n) => `ล้มเหลว ${n} รายการ`,
   },
 };
 
@@ -489,6 +422,7 @@ export default function DeliveryManagementV7() {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [activeItemIndex, setActiveItemIndex] = useState(-1);
   const [productDetails, setProductDetails] = useState({});
+  const productDetailsRef = useRef({});
   const [permanentNumbersMap, setPermanentNumbersMap] = useState({});
   const [showScalePanel, setShowScalePanel] = useState(false);
   const { isElectron: isElectronEnv, isConnected: scaleConnected, weight: liveWeight, lastStableWeight } = useWeightScale();
@@ -525,15 +459,11 @@ export default function DeliveryManagementV7() {
   }, []);
   const biConfirm = useCallback(({ heText, thText, title = 'warning' }) => showDialog({ heText, thText, title, type: 'confirm' }), [showDialog]);
   const biAlert = useCallback(({ heText, thText, title = 'info' }) => showDialog({ heText, thText, title, type: 'alert' }), [showDialog]);
-  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const itemRefs = useRef({});
 
   const [presence, setPresence] = useState([]);
   const [claimsByOrder, setClaimsByOrder] = useState({});
   const [draftsByOrder, setDraftsByOrder] = useState({});
-  const [localDraftsByOrder, setLocalDraftsByOrder] = useState({});
-  const [offlineQueue, setOfflineQueue] = useState(() => loadOfflineQueue());
-  const [syncingOffline, setSyncingOffline] = useState(false);
   const [savingActionKey, setSavingActionKey] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -551,25 +481,6 @@ export default function DeliveryManagementV7() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  useEffect(() => {
-    const on = () => setIsOnline(true);
-    const off = () => setIsOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!selectedWeek) {
-      setLocalDraftsByOrder({});
-      return;
-    }
-    setLocalDraftsByOrder(loadOfflineDrafts(selectedWeek));
-  }, [selectedWeek]);
 
   useEffect(() => {
     if (activeItemIndex >= 0 && itemRefs.current[activeItemIndex]) {
@@ -631,17 +542,6 @@ export default function DeliveryManagementV7() {
   }, []);
 
   useEffect(() => {
-    if (!selectedWeek) return;
-    const cached = loadWeekCache(selectedWeek);
-    if (cached?.orders?.length) {
-      setOrders(filterOrdersBySpecificDates(cached.orders || [], selectedSpecificStartDate, selectedSpecificEndDate));
-      setProductDetails(cached.productDetails || {});
-      setPermanentNumbersMap(cached.permanentNumbersMap || {});
-      setError(null);
-    }
-  }, [selectedWeek, selectedSpecificStartDate, selectedSpecificEndDate]);
-
-  useEffect(() => {
     if (!selectedWeek) return () => {};
     setLoading(true);
     const unsubscribe = subscribeDelayedOrdersForWeekV7({
@@ -665,14 +565,18 @@ export default function DeliveryManagementV7() {
             const cid = order?.customerDetails?.phone || order?.customerDetails?.email || null;
             if (cid) customersList.push({ id: cid, name: order?.customerDetails?.name || '' });
           });
-          const [pd, nums] = await Promise.all([
-            fetchProductDetailsV7(Array.from(productIdSet)),
+          const missingProductIds = Array.from(productIdSet).filter((id) => !productDetailsRef.current[id]);
+          const [newPd, nums] = await Promise.all([
+            missingProductIds.length > 0 ? fetchProductDetailsV7(missingProductIds) : {},
             fetchPermanentCustomerNumbers(customersList),
           ]);
-          setProductDetails(pd);
+          if (Object.keys(newPd).length > 0) {
+            const merged = { ...productDetailsRef.current, ...newPd };
+            productDetailsRef.current = merged;
+            setProductDetails(merged);
+          }
           setPermanentNumbersMap(nums);
           setOrders(dateFilteredOrders);
-          saveWeekCache(selectedWeek, { orders: allOrders, productDetails: pd, permanentNumbersMap: nums });
           setError(null);
           setCommunityFilter('__all__');
           setSelectedOrderId((prev) => {
@@ -689,16 +593,7 @@ export default function DeliveryManagementV7() {
       },
       onError: (e) => {
         console.error(e);
-        const cached = loadWeekCache(selectedWeek);
-        if (cached?.orders?.length) {
-          setOrders(filterOrdersBySpecificDates(cached.orders || [], selectedSpecificStartDate, selectedSpecificEndDate));
-          setProductDetails(cached.productDetails || {});
-          setPermanentNumbersMap(cached.permanentNumbersMap || {});
-          showToast(t.savedOffline);
-          setError(null);
-        } else {
-          setError(t.failOrders);
-        }
+        setError(t.failOrders);
         setLoading(false);
       },
     });
@@ -710,8 +605,6 @@ export default function DeliveryManagementV7() {
     selectedSpecificEndDate,
     fetchPermanentCustomerNumbers,
     t.failOrders,
-    t.savedOffline,
-    showToast,
   ]);
 
   useEffect(() => {
@@ -744,6 +637,22 @@ export default function DeliveryManagementV7() {
   }, [selectedWeek, selectedOrderId, session]);
 
   useEffect(() => {
+    if (!selectedWeek || !selectedOrderId || !session.sessionId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await claimOrderV7({ weekKey: selectedWeek, orderId: selectedOrderId, session });
+      } catch (e) {
+        if (!cancelled && e?.code !== 'already-claimed') console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrderId, session }).catch(() => {});
+    };
+  }, [selectedWeek, selectedOrderId, session]);
+
+  useEffect(() => {
     if (!searchTerm.trim()) {
       setSearchResults([]);
       setSearchingProducts(false);
@@ -763,21 +672,35 @@ export default function DeliveryManagementV7() {
     };
   }, [searchTerm]);
 
+  const imageBlobCacheRef = useRef({});
+  const [, setImageCacheTick] = useState(0);
   useEffect(() => {
-    if (typeof Image === 'undefined') return;
-    Object.values(productDetails || {}).forEach((pd) => {
-      if (Array.isArray(pd?.images) && pd.images[0]) {
-        const img = new Image();
-        img.src = pd.images[0];
+    let cancelled = false;
+    const urls = Object.values(productDetails || {})
+      .map((pd) => pd?.images?.[0])
+      .filter((url) => url && !imageBlobCacheRef.current[url]);
+    if (urls.length === 0) return;
+    (async () => {
+      let added = 0;
+      for (const url of urls) {
+        if (cancelled || imageBlobCacheRef.current[url]) continue;
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const blob = await resp.blob();
+          if (cancelled) break;
+          imageBlobCacheRef.current[url] = URL.createObjectURL(blob);
+          added += 1;
+        } catch (_) { /* skip failed fetches */ }
       }
-    });
+      if (!cancelled && added > 0) setImageCacheTick((v) => v + 1);
+    })();
+    return () => { cancelled = true; };
   }, [productDetails]);
+  const cachedImg = useCallback((url) => imageBlobCacheRef.current[url] || url, []);
 
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) || null, [orders, selectedOrderId]);
-  const effectiveDraftsByOrder = useMemo(() => ({
-    ...(draftsByOrder || {}),
-    ...(localDraftsByOrder || {}),
-  }), [draftsByOrder, localDraftsByOrder]);
+  const effectiveDraftsByOrder = draftsByOrder || {};
   const selectedOrderSaved = useMemo(() => (
     selectedWeek && selectedOrderId
       ? (effectiveDraftsByOrder[selectedOrderId] || {})
@@ -791,8 +714,15 @@ export default function DeliveryManagementV7() {
 
   const items = useMemo(() => {
     const base = selectedOrder?.items || [];
-    return mergeProductDetailsIntoItems(base, productDetails);
-  }, [selectedOrder, productDetails]);
+    const merged = mergeProductDetailsIntoItems(base, productDetails);
+    const aligned = alignItemsWithDraft(merged, selectedOrderSaved);
+    return [...aligned].sort((a, b) => {
+      const nameA = (a.productName || a.name || '').toLowerCase();
+      const nameB = (b.productName || b.name || '').toLowerCase();
+      if (nameA !== nameB) return nameA.localeCompare(nameB);
+      return (a.lineId || '').localeCompare(b.lineId || '');
+    });
+  }, [selectedOrder, productDetails, selectedOrderSaved]);
 
   const activeItems = useMemo(() => items.filter((it) => !removedLineIds[it.lineId]), [items, removedLineIds]);
   const nextIdx = useMemo(() => getNextUnweighedIndex(items, weightsByLineId, removedLineIds, 0), [items, weightsByLineId, removedLineIds]);
@@ -912,131 +842,15 @@ export default function DeliveryManagementV7() {
     return { requestedTotal, actualTotal, requestedSum, actualSum };
   }, [items, weightsByLineId, removedLineIds]);
 
-  const writeLocalDraftForOrder = useCallback((orderId, patch) => {
-    if (!selectedWeek || !orderId) return;
-    setLocalDraftsByOrder((prev) => {
-      const next = {
-        ...prev,
-        [orderId]: {
-          ...(prev[orderId] || {}),
-          ...(patch || {}),
-          updatedAtIso: new Date().toISOString(),
-        },
-      };
-      saveOfflineDrafts(selectedWeek, next);
-      return next;
-    });
-  }, [selectedWeek]);
-
-  const clearLocalDraftForOrder = useCallback((orderId) => {
-    if (!selectedWeek || !orderId) return;
-    setLocalDraftsByOrder((prev) => {
-      if (!prev[orderId]) return prev;
-      const next = { ...prev };
-      delete next[orderId];
-      saveOfflineDrafts(selectedWeek, next);
-      return next;
-    });
-  }, [selectedWeek]);
-
   const saveDraftPatch = useCallback(async (patch) => {
     if (!selectedWeek || !selectedOrder) return;
-    try {
-      await saveOrderDraftV7({
-        weekKey: selectedWeek,
-        orderId: selectedOrder.id,
-        draftPatch: patch,
-        session,
-      });
-      clearLocalDraftForOrder(selectedOrder.id);
-    } catch (error) {
-      writeLocalDraftForOrder(selectedOrder.id, patch);
-      showToast(t.savedOffline);
-    }
-  }, [selectedOrder, selectedWeek, session, clearLocalDraftForOrder, writeLocalDraftForOrder, showToast, t.savedOffline]);
-
-  const enqueueOfflineSettlement = useCallback((entry) => {
-    setOfflineQueue((prev) => {
-      const others = prev.filter((q) => !(q.orderId === entry.orderId && q.weekKey === entry.weekKey));
-      const next = [...others, entry];
-      saveOfflineQueue(next);
-      return next;
+    await saveOrderDraftV7({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      draftPatch: patch,
+      session,
     });
-  }, []);
-
-  const syncOfflineQueueNow = useCallback(async () => {
-    if (!isOnline || syncingOffline) return;
-    if (!offlineQueue.length) return;
-    setSyncingOffline(true);
-    let okCount = 0;
-    let failCount = 0;
-    const keep = [];
-    for (const entry of offlineQueue) {
-      try {
-        await saveOrderDraftV7({
-          weekKey: entry.weekKey,
-          orderId: entry.orderId,
-          draftPatch: entry.draftBeforeCharge || { status: 'settling' },
-          session,
-        });
-        await handleSuspendedPaymentV7(entry.payload);
-        await clearOrderDraftV7({ weekKey: entry.weekKey, orderId: entry.orderId });
-        clearOfflineDraftByOrder(entry.weekKey, entry.orderId);
-        okCount += 1;
-        if (entry.weekKey === selectedWeek) {
-          clearLocalDraftForOrder(entry.orderId);
-          setOrders((prev) => prev.map((o) => (o.id === entry.orderId ? { ...o, status: 'completed' } : o)));
-        }
-      } catch (error) {
-        failCount += 1;
-        keep.push(entry);
-      }
-    }
-    setOfflineQueue(keep);
-    saveOfflineQueue(keep);
-    if (okCount) showToast(t.syncOk(okCount));
-    if (failCount) showToast(t.syncFail(failCount));
-    setSyncingOffline(false);
-  }, [
-    isOnline,
-    syncingOffline,
-    offlineQueue,
-    session,
-    selectedWeek,
-    clearLocalDraftForOrder,
-    showToast,
-    t,
-  ]);
-
-  useEffect(() => {
-    if (!isOnline || !selectedWeek) return;
-    if (!localDraftsByOrder || Object.keys(localDraftsByOrder).length === 0) return;
-    let cancelled = false;
-    const flush = async () => {
-      for (const [orderId, draftPatch] of Object.entries(localDraftsByOrder)) {
-        if (cancelled) return;
-        try {
-          await saveOrderDraftV7({
-            weekKey: selectedWeek,
-            orderId,
-            draftPatch,
-            session,
-          });
-          if (!cancelled) clearLocalDraftForOrder(orderId);
-        } catch (error) {
-          // Keep unsynced local draft.
-        }
-      }
-    };
-    flush();
-    return () => { cancelled = true; };
-  }, [isOnline, selectedWeek, localDraftsByOrder, session, clearLocalDraftForOrder]);
-
-  useEffect(() => {
-    if (isOnline && offlineQueue.length > 0) {
-      syncOfflineQueueNow();
-    }
-  }, [isOnline, offlineQueue.length, syncOfflineQueueNow]);
+  }, [selectedOrder, selectedWeek, session]);
 
   const selectItemForWeighing = useCallback(async (idx) => {
     if (idx < 0 || idx >= items.length || claimedByOther) return;
@@ -1067,15 +881,20 @@ export default function DeliveryManagementV7() {
     const it = items[activeItemIndex];
     if (!it?.lineId) return;
     const rounded = Math.round(weightValue * 1000) / 1000;
-    const nextWeights = {
-      ...(weightsByLineId || {}),
-      [it.lineId]: { actualQuantity: rounded, source: src },
-    };
-    const newStatus = getNextUnweighedIndex(items, nextWeights, removedLineIds) === -1 ? 'weighed' : 'in_progress';
-    await saveDraftPatch({ status: newStatus, weightsByLineId: nextWeights });
+    const predictedWeights = { ...(weightsByLineId || {}), [it.lineId]: { actualQuantity: rounded, source: src } };
+    const newStatus = getNextUnweighedIndex(items, predictedWeights, removedLineIds) === -1 ? 'weighed' : 'in_progress';
+    await setDraftLineWeightV7({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      lineId: it.lineId,
+      actualQuantity: rounded,
+      source: src,
+      status: newStatus,
+      session,
+    });
     showToast(t.autoSaved(rounded.toFixed(3)));
     autoWeighActiveRef.current = false;
-  }, [selectedOrder, activeItemIndex, claimedByOther, items, weightsByLineId, removedLineIds, saveDraftPatch, showToast, t]);
+  }, [selectedOrder, activeItemIndex, claimedByOther, items, weightsByLineId, removedLineIds, selectedWeek, session, showToast, t]);
 
   useEffect(() => {
     if (!scaleConnected || !autoWeighActiveRef.current || claimedByOther) return;
@@ -1125,14 +944,19 @@ export default function DeliveryManagementV7() {
       }
     }
 
-    const nextWeights = {
-      ...(weightsByLineId || {}),
-      [lineId]: { actualQuantity: actual, source: src },
-    };
-    const newStatus = getNextUnweighedIndex(items, nextWeights, removedLineIds) === -1 ? 'weighed' : 'in_progress';
+    const predictedWeights = { ...(weightsByLineId || {}), [lineId]: { actualQuantity: actual, source: src } };
+    const newStatus = getNextUnweighedIndex(items, predictedWeights, removedLineIds) === -1 ? 'weighed' : 'in_progress';
     setSavingActionKey(`weight:${lineId}`);
     try {
-      await saveDraftPatch({ status: newStatus, weightsByLineId: nextWeights });
+      await setDraftLineWeightV7({
+        weekKey: selectedWeek,
+        orderId: selectedOrder.id,
+        lineId,
+        actualQuantity: actual,
+        source: src,
+        status: newStatus,
+        session,
+      });
       setEditingLineId(null);
       setEditValue('');
       showToast(t.autoSaved(actual.toFixed ? actual.toFixed(3) : String(actual)));
@@ -1140,7 +964,7 @@ export default function DeliveryManagementV7() {
     } finally {
       setSavingActionKey('');
     }
-  }, [selectedOrder, claimedByOther, items, weightsByLineId, removedLineIds, biConfirm, saveDraftPatch, showToast, t]);
+  }, [selectedOrder, claimedByOther, items, weightsByLineId, removedLineIds, selectedWeek, session, biConfirm, showToast, t]);
 
   const startEdit = (lineId, currentValue) => {
     setEditingLineId(lineId);
@@ -1181,45 +1005,64 @@ export default function DeliveryManagementV7() {
       });
       nextWeights[it.lineId] = { actualQuantity: requestedForWeight, source: 'ordered_default' };
     }
-    await saveDraftPatch({ status: 'weighed', weightsByLineId: nextWeights });
+    await bulkSetDraftWeightsV7({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      weightsByLineId: nextWeights,
+      status: 'weighed',
+      session,
+    });
   };
 
   const removeItem = async (lineId) => {
     if (!selectedOrder || !lineId || claimedByOther) return;
-    await saveDraftPatch({ removedLineIds: { ...removedLineIds, [lineId]: true } });
+    await setDraftLineRemovedV7({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      lineId,
+      removed: true,
+      session,
+    });
   };
 
   const restoreItem = async (lineId) => {
     if (!selectedOrder || !lineId || claimedByOther) return;
-    const newRemoved = { ...removedLineIds };
-    delete newRemoved[lineId];
-    await saveDraftPatch({ removedLineIds: newRemoved });
+    await setDraftLineRemovedV7({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      lineId,
+      removed: false,
+      session,
+    });
   };
 
   const resetItem = useCallback(async (lineId) => {
     if (!selectedOrder || !lineId || claimedByOther) return;
-    const nextWeights = { ...(weightsByLineId || {}) };
-    nextWeights[lineId] = { actualQuantity: null, source: 'manual' };
-    const newStatus = getNextUnweighedIndex(items, nextWeights, removedLineIds) === -1
-      && Object.keys(nextWeights).filter((k) => nextWeights[k]?.actualQuantity).length > 0
+    const predictedWeights = { ...(weightsByLineId || {}) };
+    predictedWeights[lineId] = { actualQuantity: null, source: 'manual' };
+    const hasAnyWeight = Object.keys(predictedWeights).some((k) => predictedWeights[k]?.actualQuantity);
+    const newStatus = getNextUnweighedIndex(items, predictedWeights, removedLineIds) === -1 && hasAnyWeight
       ? 'weighed'
       : 'in_progress';
-    await saveDraftPatch({ status: newStatus, weightsByLineId: nextWeights });
+    await clearDraftLineWeightV7({
+      weekKey: selectedWeek,
+      orderId: selectedOrder.id,
+      lineId,
+      status: newStatus,
+      session,
+    });
     const it = items.find((i) => i.lineId === lineId);
     if (it && it.measurementType !== 'package') {
       autoWeighActiveRef.current = true;
       prevStableRef.current = 0;
     }
-  }, [selectedOrder, claimedByOther, weightsByLineId, items, removedLineIds, saveDraftPatch]);
+  }, [selectedOrder, claimedByOther, weightsByLineId, items, removedLineIds, selectedWeek, session]);
 
   const claimSelectedOrder = useCallback(async () => {
     if (!selectedOrder || !selectedWeek) return;
     setSavingActionKey(`claim:${selectedOrder.id}`);
     try {
-      if (myClaim?.orderId && myClaim.orderId !== selectedOrder.id) {
-        await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: myClaim.orderId, session });
-      }
-      await claimOrderV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
+      await claimOrderV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session, force: true });
       showToast(t.orderClaimedOk);
     } catch (e) {
       console.error(e);
@@ -1231,7 +1074,7 @@ export default function DeliveryManagementV7() {
     } finally {
       setSavingActionKey('');
     }
-  }, [selectedOrder, selectedWeek, myClaim, session, showToast, t.orderClaimedOk, biAlert]);
+  }, [selectedOrder, selectedWeek, session, showToast, t.orderClaimedOk, biAlert]);
 
   const releaseSelectedOrder = useCallback(async () => {
     if (!selectedOrder || !selectedWeek) return;
@@ -1355,32 +1198,30 @@ export default function DeliveryManagementV7() {
       });
       await handleSuspendedPaymentV7(payload);
       await clearOrderDraftV7({ weekKey: selectedWeek, orderId: selectedOrder.id });
-      clearLocalDraftForOrder(selectedOrder.id);
       if (selectedClaim?.sessionId === session.sessionId) {
         await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
       }
       await biAlert({ heText: 'הושלם! השרת אישר.', thText: 'เสร็จแล้ว! เซิร์ฟเวอร์ยืนยัน', title: 'success' });
     } catch (e) {
       console.error(e);
-      const networkLikeFailure = !isOnline || !e?.response;
-      if (networkLikeFailure) {
-        const payload = buildSettlementPayload({
-          selectedOrder,
-          items,
-          draft: selectedOrderSaved,
-        });
-        writeLocalDraftForOrder(selectedOrder.id, { ...selectedOrderSaved, status: 'pending_sync' });
-        enqueueOfflineSettlement({
-          weekKey: selectedWeek,
-          orderId: selectedOrder.id,
-          payload,
-          draftBeforeCharge: { ...selectedOrderSaved, status: 'pending_sync' },
-        });
-        setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? { ...o, status: 'pending_sync' } : o)));
-        showToast(t.savedOffline);
-      } else {
+      try {
         await saveDraftPatch({ status: 'weighed' });
-        await biAlert({ heText: 'שגיאה. אפשר לנסות שוב. בדוק קונסול.', thText: 'เกิดข้อผิดพลาด — ลองอีกครั้ง', title: 'error' });
+      } catch (draftErr) {
+        console.error('Failed to revert draft status:', draftErr);
+      }
+      const isNetworkError = (typeof navigator !== 'undefined' && !navigator.onLine) || !e?.response;
+      if (isNetworkError) {
+        await biAlert({
+          heText: 'לא ניתן לחייב כרגע — אין חיבור לאינטרנט.\nההזמנה נשארה במצב "נשקל" — נסה שוב כשהאינטרנט יחזור.',
+          thText: 'ไม่สามารถเรียกเก็บเงินได้ — ไม่มีอินเทอร์เน็ต\nคำสั่งซื้อยังอยู่ในสถานะ "ชั่งแล้ว" — ลองอีกครั้งเมื่อมีเน็ต',
+          title: 'error',
+        });
+      } else {
+        await biAlert({
+          heText: 'שגיאה בחיוב. ההזמנה נשארה במצב "נשקל" — אפשר לנסות שוב.',
+          thText: 'เกิดข้อผิดพลาดในการเรียกเก็บเงิน — ลองอีกครั้ง',
+          title: 'error',
+        });
       }
     } finally {
       setLoading(false);
@@ -1413,7 +1254,6 @@ export default function DeliveryManagementV7() {
       weighed: { label: t.stWeighed, cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
       settling: { label: t.stSettling, cls: 'bg-purple-100 text-purple-800 border-purple-300' },
       completed: { label: t.stCompleted, cls: 'bg-green-100 text-green-800 border-green-300' },
-      pending_sync: { label: t.stPendingSync, cls: 'bg-orange-100 text-orange-800 border-orange-300' },
     };
     const m = map[s] || map.pending;
     return <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${m.cls}`}>{m.label}</span>;
@@ -1446,21 +1286,6 @@ export default function DeliveryManagementV7() {
             <div className="px-3 py-2 bg-sky-100 text-sky-800 rounded-lg text-sm font-bold">
               {stationId}
             </div>
-            <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`} title={isOnline ? 'Online' : 'Offline'} />
-            {offlineQueue.length > 0 && (
-              <>
-                <div className="px-3 py-2 bg-orange-100 text-orange-800 rounded-lg text-sm font-bold">
-                  {t.offlineQ}: {offlineQueue.length}
-                </div>
-                <button
-                  onClick={syncOfflineQueueNow}
-                  disabled={!isOnline || syncingOffline}
-                  className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg text-sm transition-colors disabled:opacity-50"
-                >
-                  {syncingOffline ? t.syncingLabel : t.syncNow}
-                </button>
-              </>
-            )}
             <button
               onClick={toggleLang}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors"
@@ -1854,7 +1679,7 @@ export default function DeliveryManagementV7() {
                           <div key={product.id} className="border border-gray-200 rounded-xl p-3 bg-gray-50 flex items-center gap-3">
                             <div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-white flex-shrink-0">
                               {Array.isArray(product.images) && product.images[0] ? (
-                                <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+                                <img src={cachedImg(product.images[0])} alt={product.name} className="w-full h-full object-cover" />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-300 text-xl">?</div>
                               )}
@@ -1962,7 +1787,7 @@ export default function DeliveryManagementV7() {
                         <div className="flex justify-center pt-4 pb-2 px-4">
                           {it.images && it.images.length > 0 ? (
                             <img
-                              src={it.images[0]}
+                              src={cachedImg(it.images[0])}
                               alt={displayName}
                               className={`w-28 h-28 rounded-xl object-cover border border-gray-200 ${isRemoved ? 'grayscale' : ''}`}
                             />

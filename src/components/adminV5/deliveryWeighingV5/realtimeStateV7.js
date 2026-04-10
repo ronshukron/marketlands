@@ -204,6 +204,13 @@ export async function releaseOrderClaimV7({
   await deleteDoc(ref);
 }
 
+// Status-only draft updater for top-level scalar fields (status, updatedBy, etc.).
+// Do NOT pass weightsByLineId or removedLineIds here — those are shared maps that
+// require merge-inside-transaction semantics to be multi-station safe. Use instead:
+//   setDraftLineWeightV7   — single line weight
+//   clearDraftLineWeightV7 — reset one line's weight
+//   bulkSetDraftWeightsV7  — overwrite many lines (merges with server state)
+//   setDraftLineRemovedV7  — toggle a line's removed flag
 export async function saveOrderDraftV7({
   weekKey,
   orderId,
@@ -212,11 +219,22 @@ export async function saveOrderDraftV7({
 }) {
   if (!weekKey || !orderId) return;
 
+  const patch = draftPatch || {};
+  if (Object.prototype.hasOwnProperty.call(patch, 'weightsByLineId')) {
+    throw new Error(
+      'saveOrderDraftV7 must not be used for weightsByLineId. Use setDraftLineWeightV7, clearDraftLineWeightV7, or bulkSetDraftWeightsV7.',
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'removedLineIds')) {
+    throw new Error(
+      'saveOrderDraftV7 must not be used for removedLineIds. Use setDraftLineRemovedV7.',
+    );
+  }
+
   const ref = draftRef(weekKey, orderId);
   await runTransaction(db, async (transaction) => {
     const existingSnap = await transaction.get(ref);
     const existing = existingSnap.exists() ? (existingSnap.data() || {}) : {};
-    const patch = draftPatch || {};
     const next = {
       ...existing,
       orderId,
@@ -227,15 +245,126 @@ export async function saveOrderDraftV7({
       updatedByName: session?.userName || '',
       updatedByStationId: session?.stationId || '',
     };
+    transaction.set(ref, next);
+  });
+}
 
-    // Replace these maps exactly so removed keys are actually cleared.
-    if (Object.prototype.hasOwnProperty.call(patch, 'weightsByLineId')) {
-      next.weightsByLineId = patch.weightsByLineId || {};
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, 'removedLineIds')) {
-      next.removedLineIds = patch.removedLineIds || {};
-    }
+export async function bulkSetDraftWeightsV7({
+  weekKey,
+  orderId,
+  weightsByLineId: incoming,
+  status,
+  session,
+}) {
+  if (!weekKey || !orderId) return;
+  const ref = draftRef(weekKey, orderId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    const existing = snap.exists() ? (snap.data() || {}) : {};
+    const merged = { ...(existing.weightsByLineId || {}), ...(incoming || {}) };
+    const next = {
+      ...existing,
+      orderId,
+      weightsByLineId: merged,
+      updatedAtIso: nowIso(),
+      updatedAt: serverTimestamp(),
+      updatedBySessionId: session?.sessionId || '',
+      updatedByName: session?.userName || '',
+      updatedByStationId: session?.stationId || '',
+    };
+    if (status) next.status = status;
+    transaction.set(ref, next);
+  });
+}
 
+export async function setDraftLineWeightV7({
+  weekKey,
+  orderId,
+  lineId,
+  actualQuantity,
+  source,
+  status,
+  session,
+}) {
+  if (!weekKey || !orderId || !lineId) return;
+  const ref = draftRef(weekKey, orderId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    const existing = snap.exists() ? (snap.data() || {}) : {};
+    const weightsByLineId = { ...(existing.weightsByLineId || {}) };
+    weightsByLineId[lineId] = { actualQuantity, source };
+    const next = {
+      ...existing,
+      orderId,
+      weightsByLineId,
+      updatedAtIso: nowIso(),
+      updatedAt: serverTimestamp(),
+      updatedBySessionId: session?.sessionId || '',
+      updatedByName: session?.userName || '',
+      updatedByStationId: session?.stationId || '',
+    };
+    if (status) next.status = status;
+    transaction.set(ref, next);
+  });
+}
+
+export async function clearDraftLineWeightV7({
+  weekKey,
+  orderId,
+  lineId,
+  status,
+  session,
+}) {
+  if (!weekKey || !orderId || !lineId) return;
+  const ref = draftRef(weekKey, orderId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    const existing = snap.exists() ? (snap.data() || {}) : {};
+    const weightsByLineId = { ...(existing.weightsByLineId || {}) };
+    weightsByLineId[lineId] = { actualQuantity: null, source: 'manual' };
+    const next = {
+      ...existing,
+      orderId,
+      weightsByLineId,
+      updatedAtIso: nowIso(),
+      updatedAt: serverTimestamp(),
+      updatedBySessionId: session?.sessionId || '',
+      updatedByName: session?.userName || '',
+      updatedByStationId: session?.stationId || '',
+    };
+    if (status) next.status = status;
+    transaction.set(ref, next);
+  });
+}
+
+export async function setDraftLineRemovedV7({
+  weekKey,
+  orderId,
+  lineId,
+  removed,
+  session,
+}) {
+  if (!weekKey || !orderId || !lineId) return;
+  const ref = draftRef(weekKey, orderId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    const existing = snap.exists() ? (snap.data() || {}) : {};
+    const removedLineIds = { ...(existing.removedLineIds || {}) };
+    if (removed) {
+      removedLineIds[lineId] = true;
+    } else {
+      delete removedLineIds[lineId];
+    }
+    const next = {
+      ...existing,
+      orderId,
+      removedLineIds,
+      updatedAtIso: nowIso(),
+      updatedAt: serverTimestamp(),
+      updatedBySessionId: session?.sessionId || '',
+      updatedByName: session?.userName || '',
+      updatedByStationId: session?.stationId || '',
+    };
     transaction.set(ref, next);
   });
 }

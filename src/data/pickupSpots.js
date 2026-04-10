@@ -69,6 +69,11 @@ const pickupSpotsData = {
     options: ["pickup","homeDelivery"],
     deliveryFee: 25,
   },
+  "גבים": {
+    name: "גבים",
+    options: ["pickup","homeDelivery"],
+    deliveryFee: 25,
+  },
   "אלתא": {
     name: "אלתא",
     options: ["pickup"],

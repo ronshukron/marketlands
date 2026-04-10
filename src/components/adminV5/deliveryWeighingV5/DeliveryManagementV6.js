@@ -934,6 +934,8 @@ export default function DeliveryManagementV6() {
   // Save weight for the currently active item and advance
   const saveWeightAndAdvance = useCallback((weightValue, src = 'scale') => {
     if (!selectedOrder || activeItemIndex < 0) return;
+    // V6 tweak: do not auto-save when item is removed from scale.
+    if (src === 'scale') return;
     const it = items[activeItemIndex];
     if (!it?.lineId) return;
 

@@ -109,6 +109,91 @@ export function mergeProductDetailsIntoItems(items = [], productDetails = {}) {
   });
 }
 
+function normalizeDraftToken(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function parseLineId(lineId) {
+  if (!lineId) return null;
+  const parts = String(lineId).split('::');
+  if (parts.length < 4) return null;
+  const orderId = parts[0] || '';
+  const itemToken = parts[1] || '';
+  const selectedOption = parts.slice(2, -1).join('::');
+  const rawIndex = Number(parts[parts.length - 1]);
+  return {
+    lineId: String(lineId),
+    orderId,
+    itemToken,
+    itemTokenNorm: normalizeDraftToken(itemToken),
+    selectedOption,
+    optionNorm: normalizeDraftToken(selectedOption),
+    index: Number.isFinite(rawIndex) ? rawIndex : null,
+  };
+}
+
+export function alignItemsWithDraft(items = [], draft = {}) {
+  const draftLineIds = Array.from(new Set([
+    ...Object.keys(draft?.weightsByLineId || {}),
+    ...Object.keys(draft?.removedLineIds || {}),
+  ]))
+    .map(parseLineId)
+    .filter(Boolean);
+
+  if (draftLineIds.length === 0) return items;
+
+  const unusedCandidates = [...draftLineIds];
+
+  return (items || []).map((item, index) => {
+    if (!item) return item;
+    if (item?.lineId && draftLineIds.some((entry) => entry.lineId === item.lineId)) {
+      return item;
+    }
+
+    const productTokens = [
+      item?.productId,
+      item?.id,
+      item?.productName,
+      item?.name,
+    ]
+      .filter(Boolean)
+      .map(normalizeDraftToken);
+    const itemOptionNorm = normalizeDraftToken(item?.selectedOption);
+
+    let bestIndex = -1;
+    let bestScore = 0;
+
+    unusedCandidates.forEach((candidate, candidateIndex) => {
+      if (!candidate) return;
+
+      let score = 0;
+      if (productTokens.includes(candidate.itemTokenNorm)) score += 4;
+      if (candidate.index === index) score += 3;
+      if (itemOptionNorm && candidate.optionNorm === itemOptionNorm) score += 3;
+      if (!itemOptionNorm && candidate.optionNorm && candidate.index === index) score += 1;
+      if (!itemOptionNorm && !candidate.optionNorm) score += 1;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = candidateIndex;
+      }
+    });
+
+    if (bestIndex === -1 || bestScore < 4) {
+      return item;
+    }
+
+    const matched = unusedCandidates[bestIndex];
+    unusedCandidates[bestIndex] = null;
+
+    return {
+      ...item,
+      lineId: matched.lineId,
+      selectedOption: item?.selectedOption || matched.selectedOption || '',
+    };
+  });
+}
+
 export function resolveActualQuantity(item, weightsByLineId = {}) {
   const measurementType = item?.measurementType || 'kg';
   const weighed = weightsByLineId?.[item?.lineId];
