@@ -423,6 +423,7 @@ export default function DeliveryManagementV7() {
   const [activeItemIndex, setActiveItemIndex] = useState(-1);
   const [productDetails, setProductDetails] = useState({});
   const productDetailsRef = useRef({});
+  const imageMemoryCacheRef = useRef({});
   const [permanentNumbersMap, setPermanentNumbersMap] = useState({});
   const [showScalePanel, setShowScalePanel] = useState(false);
   const { isElectron: isElectronEnv, isConnected: scaleConnected, weight: liveWeight, lastStableWeight } = useWeightScale();
@@ -459,6 +460,37 @@ export default function DeliveryManagementV7() {
   }, []);
   const biConfirm = useCallback(({ heText, thText, title = 'warning' }) => showDialog({ heText, thText, title, type: 'confirm' }), [showDialog]);
   const biAlert = useCallback(({ heText, thText, title = 'info' }) => showDialog({ heText, thText, title, type: 'alert' }), [showDialog]);
+  const preloadImageUrl = useCallback((url) => {
+    if (!url || typeof Image === 'undefined') return Promise.resolve(url || '');
+    const existing = imageMemoryCacheRef.current[url];
+    if (existing?.loaded) return Promise.resolve(url);
+    if (existing?.promise) return existing.promise;
+    const img = new Image();
+    img.decoding = 'async';
+    const promise = new Promise((resolve) => {
+      img.onload = () => {
+        imageMemoryCacheRef.current[url] = { img, loaded: true };
+        resolve(url);
+      };
+      img.onerror = () => {
+        imageMemoryCacheRef.current[url] = { img: null, loaded: false, failed: true };
+        resolve(url);
+      };
+    });
+    imageMemoryCacheRef.current[url] = { img, loaded: false, promise };
+    img.src = url;
+    return promise;
+  }, []);
+  const prefetchProductImages = useCallback(async (detailsMap) => {
+    const urls = Array.from(new Set(
+      Object.values(detailsMap || {})
+        .flatMap((pd) => (Array.isArray(pd?.images) ? pd.images : []))
+        .filter(Boolean),
+    ));
+    if (urls.length === 0) return;
+    await Promise.all(urls.map((url) => preloadImageUrl(url)));
+  }, [preloadImageUrl]);
+  const cachedImg = useCallback((url) => url, []);
   const itemRefs = useRef({});
 
   const [presence, setPresence] = useState([]);
@@ -570,11 +602,14 @@ export default function DeliveryManagementV7() {
             missingProductIds.length > 0 ? fetchProductDetailsV7(missingProductIds) : {},
             fetchPermanentCustomerNumbers(customersList),
           ]);
+          const mergedProductDetails = Object.keys(newPd).length > 0
+            ? { ...productDetailsRef.current, ...newPd }
+            : productDetailsRef.current;
           if (Object.keys(newPd).length > 0) {
-            const merged = { ...productDetailsRef.current, ...newPd };
-            productDetailsRef.current = merged;
-            setProductDetails(merged);
+            productDetailsRef.current = mergedProductDetails;
+            setProductDetails(mergedProductDetails);
           }
+          await prefetchProductImages(mergedProductDetails);
           setPermanentNumbersMap(nums);
           setOrders(dateFilteredOrders);
           setError(null);
@@ -671,33 +706,9 @@ export default function DeliveryManagementV7() {
       clearTimeout(id);
     };
   }, [searchTerm]);
-
-  const imageBlobCacheRef = useRef({});
-  const [, setImageCacheTick] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    const urls = Object.values(productDetails || {})
-      .map((pd) => pd?.images?.[0])
-      .filter((url) => url && !imageBlobCacheRef.current[url]);
-    if (urls.length === 0) return;
-    (async () => {
-      let added = 0;
-      for (const url of urls) {
-        if (cancelled || imageBlobCacheRef.current[url]) continue;
-        try {
-          const resp = await fetch(url);
-          if (!resp.ok) continue;
-          const blob = await resp.blob();
-          if (cancelled) break;
-          imageBlobCacheRef.current[url] = URL.createObjectURL(blob);
-          added += 1;
-        } catch (_) { /* skip failed fetches */ }
-      }
-      if (!cancelled && added > 0) setImageCacheTick((v) => v + 1);
-    })();
-    return () => { cancelled = true; };
-  }, [productDetails]);
-  const cachedImg = useCallback((url) => imageBlobCacheRef.current[url] || url, []);
+  useEffect(() => () => {
+    imageMemoryCacheRef.current = {};
+  }, []);
 
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) || null, [orders, selectedOrderId]);
   const effectiveDraftsByOrder = draftsByOrder || {};
