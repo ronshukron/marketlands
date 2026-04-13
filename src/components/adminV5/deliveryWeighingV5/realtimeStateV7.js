@@ -288,24 +288,17 @@ export async function setDraftLineWeightV7({
 }) {
   if (!weekKey || !orderId || !lineId) return;
   const ref = draftRef(weekKey, orderId);
-  await runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(ref);
-    const existing = snap.exists() ? (snap.data() || {}) : {};
-    const weightsByLineId = { ...(existing.weightsByLineId || {}) };
-    weightsByLineId[lineId] = { actualQuantity, source };
-    const next = {
-      ...existing,
-      orderId,
-      weightsByLineId,
-      updatedAtIso: nowIso(),
-      updatedAt: serverTimestamp(),
-      updatedBySessionId: session?.sessionId || '',
-      updatedByName: session?.userName || '',
-      updatedByStationId: session?.stationId || '',
-    };
-    if (status) next.status = status;
-    transaction.set(ref, next);
-  });
+  const data = {
+    orderId,
+    weightsByLineId: { [lineId]: { actualQuantity, source } },
+    updatedAtIso: nowIso(),
+    updatedAt: serverTimestamp(),
+    updatedBySessionId: session?.sessionId || '',
+    updatedByName: session?.userName || '',
+    updatedByStationId: session?.stationId || '',
+  };
+  if (status) data.status = status;
+  await setDoc(ref, data, { merge: true });
 }
 
 export async function clearDraftLineWeightV7({
@@ -317,24 +310,17 @@ export async function clearDraftLineWeightV7({
 }) {
   if (!weekKey || !orderId || !lineId) return;
   const ref = draftRef(weekKey, orderId);
-  await runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(ref);
-    const existing = snap.exists() ? (snap.data() || {}) : {};
-    const weightsByLineId = { ...(existing.weightsByLineId || {}) };
-    weightsByLineId[lineId] = { actualQuantity: null, source: 'manual' };
-    const next = {
-      ...existing,
-      orderId,
-      weightsByLineId,
-      updatedAtIso: nowIso(),
-      updatedAt: serverTimestamp(),
-      updatedBySessionId: session?.sessionId || '',
-      updatedByName: session?.userName || '',
-      updatedByStationId: session?.stationId || '',
-    };
-    if (status) next.status = status;
-    transaction.set(ref, next);
-  });
+  const data = {
+    orderId,
+    weightsByLineId: { [lineId]: { actualQuantity: null, source: 'manual' } },
+    updatedAtIso: nowIso(),
+    updatedAt: serverTimestamp(),
+    updatedBySessionId: session?.sessionId || '',
+    updatedByName: session?.userName || '',
+    updatedByStationId: session?.stationId || '',
+  };
+  if (status) data.status = status;
+  await setDoc(ref, data, { merge: true });
 }
 
 export async function setDraftLineRemovedV7({
@@ -346,16 +332,23 @@ export async function setDraftLineRemovedV7({
 }) {
   if (!weekKey || !orderId || !lineId) return;
   const ref = draftRef(weekKey, orderId);
-  await runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(ref);
-    const existing = snap.exists() ? (snap.data() || {}) : {};
+  if (removed) {
+    await setDoc(ref, {
+      orderId,
+      removedLineIds: { [lineId]: true },
+      updatedAtIso: nowIso(),
+      updatedAt: serverTimestamp(),
+      updatedBySessionId: session?.sessionId || '',
+      updatedByName: session?.userName || '',
+      updatedByStationId: session?.stationId || '',
+    }, { merge: true });
+  } else {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    const existing = snap.data() || {};
     const removedLineIds = { ...(existing.removedLineIds || {}) };
-    if (removed) {
-      removedLineIds[lineId] = true;
-    } else {
-      delete removedLineIds[lineId];
-    }
-    const next = {
+    delete removedLineIds[lineId];
+    await setDoc(ref, {
       ...existing,
       orderId,
       removedLineIds,
@@ -364,9 +357,8 @@ export async function setDraftLineRemovedV7({
       updatedBySessionId: session?.sessionId || '',
       updatedByName: session?.userName || '',
       updatedByStationId: session?.stationId || '',
-    };
-    transaction.set(ref, next);
-  });
+    });
+  }
 }
 
 export async function clearOrderDraftV7({ weekKey, orderId }) {

@@ -17,7 +17,6 @@ import {
   roundTo,
   safeNumber,
   sumItemsTotal,
-  buildStableLineId,
 } from './v7/orderDraftUtils';
 
 async function getIdTokenIfAvailable() {
@@ -73,28 +72,33 @@ function normalizeSpecificDateRange(startDate, endDate) {
 
 function normalizeDelayedOrder(docSnap, weekKey) {
   const data = docSnap.data() || {};
-  const rawItems = Array.isArray(data.items) ? data.items : flattenOrderBreakdown(data.orderBreakdown);
+  const { breakdown: canonicalBreakdown, newSeedsAssigned } = ensureLineIdsInBreakdown(docSnap.id, data.orderBreakdown || {});
+
+  if (newSeedsAssigned) {
+    const breakdownToSave = {};
+    for (const [bKey, bVal] of Object.entries(canonicalBreakdown)) {
+      breakdownToSave[bKey] = {
+        ...bVal,
+        items: (bVal.items || []).map(({ lineId, businessOrderKey, ...rest }) => rest),
+      };
+    }
+    const orderRef = doc(db, 'customerOrdersDelayed', docSnap.id);
+    updateDoc(orderRef, { orderBreakdown: breakdownToSave }).catch(() => {});
+  }
+
+  const rawItems = flattenOrderBreakdown(canonicalBreakdown);
   const items = (rawItems || [])
     .filter((item) => item && (item.quantity || item.quantity === 0))
     .filter((item) => !item.isShipping && item.productId !== 'Mdean61FIezxRcMUZjVn')
-    .map((item, index) => {
+    .map((item) => {
       const productId = item.productId || item.id || '';
-      const selectedOption = item.selectedOption || '';
-      const lineId = item.lineId || buildStableLineId({
-        orderId: docSnap.id,
-        productId: productId || item.productName || item.name || '',
-        productName: item.productName || item.name || 'Item',
-        selectedOption,
-        index,
-      });
-
-      return {
-        lineId,
+      return ({
+        lineId: item.lineId,
         productId,
         productName: item.productName || item.name || 'Item',
         requestedQuantity: safeNumber(item.quantity, 0),
         pricePerUnit: safeNumber(item.price, 0),
-        selectedOption,
+        selectedOption: item.selectedOption || '',
         businessId: item.businessId || '',
         businessName: item.businessName || '',
         catalogNumber: item.catalogNumber || '',
@@ -102,7 +106,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
         measurementType: item.measurementType || 'kg',
         unitSize: safeNumber(item.unitSize, 1),
         averageWeightKg: safeNumber(item.averageWeightKg, 1),
-      };
+      });
     });
 
   return {
@@ -130,7 +134,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     ).toISOString(),
     status: 'pending',
     suspendedPaymentRef: data.delayedPayment || data.suspendedPayment || null,
-    orderBreakdown: data.orderBreakdown || {},
+    orderBreakdown: canonicalBreakdown,
     items,
     businessIds: Array.isArray(data.businessIds) ? data.businessIds : [],
     grandTotal: safeNumber(data.grandTotal, 0),
@@ -373,8 +377,9 @@ async function mutateDelayedOrderFallback({
   const currentData = orderSnap.data() || {};
   ensureEditableOrder(currentData);
 
-  let orderBreakdown = ensureLineIdsInBreakdown(orderId, currentData.orderBreakdown || {});
+  let orderBreakdown = ensureLineIdsInBreakdown(orderId, currentData.orderBreakdown || {}).breakdown;
   orderBreakdown = mutation(orderBreakdown, currentData) || orderBreakdown;
+  orderBreakdown = ensureLineIdsInBreakdown(orderId, orderBreakdown).breakdown;
   orderBreakdown = recomputeBreakdownTotals(orderBreakdown);
 
   const items = flattenOrderBreakdown(orderBreakdown);
@@ -428,17 +433,7 @@ export async function addItemToDelayedOrderV7({
           businessName: product?.businessName || 'Manual Item',
           items: [],
         };
-        const index = Array.isArray(target.items) ? target.items.length : 0;
-        const lineId = buildStableLineId({
-          orderId,
-          productId: product?.id,
-          productName: product?.name,
-          selectedOption: '',
-          index,
-        });
-
         const newItem = {
-          lineId,
           productId: product?.id || '',
           productName: product?.name || 'Item',
           quantity: requestedQuantity,

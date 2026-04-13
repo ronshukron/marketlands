@@ -10,26 +10,36 @@ export function roundTo(value, digits = 3) {
   return Math.round(safeNumber(value) * factor) / factor;
 }
 
+function generateLineSeed(occurrenceIndex) {
+  return `s${occurrenceIndex}`;
+}
+
 export function buildStableLineId({
   orderId,
+  businessOrderKey = '',
   productId,
   productName,
   selectedOption = '',
-  index = 0,
+  lineSeed = '',
 }) {
-  return `${orderId || 'order'}::${productId || productName || 'item'}::${selectedOption || ''}::${index}`;
+  return `${orderId || 'order'}::${productId || productName || 'item'}::${businessOrderKey || ''}::${selectedOption || ''}::${lineSeed}`;
+}
+
+function getCanonicalBusinessEntries(orderBreakdown) {
+  return Object.entries(orderBreakdown || {}).sort(([a], [b]) => String(a).localeCompare(String(b)));
 }
 
 export function flattenOrderBreakdown(orderBreakdown) {
   const out = [];
   if (!orderBreakdown || typeof orderBreakdown !== 'object') return out;
 
-  Object.values(orderBreakdown).forEach((businessOrder) => {
+  getCanonicalBusinessEntries(orderBreakdown).forEach(([businessOrderKey, businessOrder]) => {
     const businessName = businessOrder?.businessName || '';
     const businessId = businessOrder?.businessId || '';
     (businessOrder?.items || []).forEach((item) => {
       out.push({
         ...item,
+        businessOrderKey,
         businessName: item?.businessName || businessName,
         businessId: item?.businessId || businessId,
       });
@@ -39,31 +49,36 @@ export function flattenOrderBreakdown(orderBreakdown) {
   return out;
 }
 
-export function ensureLineIdsInItems(orderId, items = []) {
-  return (items || []).map((item, index) => ({
-    ...item,
-    lineId: item?.lineId || buildStableLineId({
-      orderId,
-      productId: item?.productId || item?.id || '',
-      productName: item?.productName || item?.name || 'item',
-      selectedOption: item?.selectedOption || '',
-      index,
-    }),
-  }));
-}
-
 export function ensureLineIdsInBreakdown(orderId, orderBreakdown = {}) {
   const next = {};
+  let newSeedsAssigned = false;
 
-  Object.entries(orderBreakdown || {}).forEach(([businessOrderKey, businessOrder]) => {
-    const items = ensureLineIdsInItems(orderId, businessOrder?.items || []);
+  getCanonicalBusinessEntries(orderBreakdown).forEach(([businessOrderKey, businessOrder]) => {
+    const items = (businessOrder?.items || []).map((item, idx) => {
+      const hadSeed = !!item?.lineSeed;
+      const lineSeed = item?.lineSeed || generateLineSeed(idx);
+      if (!hadSeed) newSeedsAssigned = true;
+      return {
+        ...item,
+        businessOrderKey,
+        lineSeed,
+        lineId: buildStableLineId({
+          orderId,
+          businessOrderKey,
+          productId: item?.productId || item?.id || '',
+          productName: item?.productName || item?.name || 'item',
+          selectedOption: item?.selectedOption || '',
+          lineSeed,
+        }),
+      };
+    });
     next[businessOrderKey] = {
       ...(businessOrder || {}),
       items,
     };
   });
 
-  return next;
+  return { breakdown: next, newSeedsAssigned };
 }
 
 export function sumItemsTotal(orderBreakdown = {}) {
@@ -117,14 +132,17 @@ function parseLineId(lineId) {
   if (!lineId) return null;
   const parts = String(lineId).split('::');
   if (parts.length < 4) return null;
+  const hasBusinessOrderKey = parts.length >= 5;
   const orderId = parts[0] || '';
   const itemToken = parts[1] || '';
-  const selectedOption = parts.slice(2, -1).join('::');
+  const businessOrderKey = hasBusinessOrderKey ? (parts[2] || '') : '';
+  const selectedOption = hasBusinessOrderKey ? parts.slice(3, -1).join('::') : parts.slice(2, -1).join('::');
   const rawIndex = Number(parts[parts.length - 1]);
   return {
     lineId: String(lineId),
     orderId,
     itemToken,
+    businessOrderKey,
     itemTokenNorm: normalizeDraftToken(itemToken),
     selectedOption,
     optionNorm: normalizeDraftToken(selectedOption),
@@ -132,66 +150,30 @@ function parseLineId(lineId) {
   };
 }
 
-export function alignItemsWithDraft(items = [], draft = {}) {
-  const draftLineIds = Array.from(new Set([
-    ...Object.keys(draft?.weightsByLineId || {}),
-    ...Object.keys(draft?.removedLineIds || {}),
-  ]))
-    .map(parseLineId)
-    .filter(Boolean);
+export function isCanonicalLineIdV7(lineId) {
+  const parts = String(lineId || '').split('::');
+  if (parts.length < 5) return false;
+  const lastPart = parts[parts.length - 1];
+  return lastPart.length > 0 && !/^\d+$/.test(lastPart);
+}
 
-  if (draftLineIds.length === 0) return items;
-
-  const unusedCandidates = [...draftLineIds];
-
-  return (items || []).map((item, index) => {
-    if (!item) return item;
-    if (item?.lineId && draftLineIds.some((entry) => entry.lineId === item.lineId)) {
-      return item;
-    }
-
-    const productTokens = [
-      item?.productId,
-      item?.id,
-      item?.productName,
-      item?.name,
-    ]
-      .filter(Boolean)
-      .map(normalizeDraftToken);
-    const itemOptionNorm = normalizeDraftToken(item?.selectedOption);
-
-    let bestIndex = -1;
-    let bestScore = 0;
-
-    unusedCandidates.forEach((candidate, candidateIndex) => {
-      if (!candidate) return;
-
-      let score = 0;
-      if (productTokens.includes(candidate.itemTokenNorm)) score += 4;
-      if (candidate.index === index) score += 3;
-      if (itemOptionNorm && candidate.optionNorm === itemOptionNorm) score += 3;
-      if (!itemOptionNorm && candidate.optionNorm && candidate.index === index) score += 1;
-      if (!itemOptionNorm && !candidate.optionNorm) score += 1;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = candidateIndex;
-      }
-    });
-
-    if (bestIndex === -1 || bestScore < 4) {
-      return item;
-    }
-
-    const matched = unusedCandidates[bestIndex];
-    unusedCandidates[bestIndex] = null;
-
-    return {
-      ...item,
-      lineId: matched.lineId,
-      selectedOption: item?.selectedOption || matched.selectedOption || '',
-    };
-  });
+export function sanitizeDraftForItems(draft = {}, items = []) {
+  const allowedLineIds = new Set(
+    (items || [])
+      .map((item) => item?.lineId)
+      .filter(Boolean),
+  );
+  const weightsByLineId = Object.fromEntries(
+    Object.entries(draft?.weightsByLineId || {}).filter(([lineId]) => allowedLineIds.has(lineId)),
+  );
+  const removedLineIds = Object.fromEntries(
+    Object.entries(draft?.removedLineIds || {}).filter(([lineId]) => allowedLineIds.has(lineId)),
+  );
+  return {
+    ...(draft || {}),
+    weightsByLineId,
+    removedLineIds,
+  };
 }
 
 export function resolveActualQuantity(item, weightsByLineId = {}) {
