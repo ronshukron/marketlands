@@ -177,12 +177,19 @@ export function sanitizeDraftForItems(draft = {}, items = []) {
 }
 
 export function resolveActualQuantity(item, weightsByLineId = {}) {
-  const measurementType = item?.measurementType || 'kg';
   const weighed = weightsByLineId?.[item?.lineId];
   if (weighed && weighed.actualQuantity != null && weighed.actualQuantity !== '') {
     return safeNumber(weighed.actualQuantity);
   }
-  if (measurementType === 'package') {
+  return null;
+}
+
+export function resolveActualQuantityForSettlement(item, weightsByLineId = {}) {
+  const weighed = weightsByLineId?.[item?.lineId];
+  if (weighed && weighed.actualQuantity != null && weighed.actualQuantity !== '') {
+    return safeNumber(weighed.actualQuantity);
+  }
+  if ((item?.measurementType || 'kg') === 'package') {
     return safeNumber(item?.requestedQuantity ?? item?.quantity, 0);
   }
   return null;
@@ -206,7 +213,7 @@ export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }
     .filter((item) => item?.catalogNumber !== BUFFER_LINE_CATALOG_NUMBER)
     .filter((item) => !removedLineIds?.[item?.lineId])
     .map((item) => {
-      const actualQuantity = resolveActualQuantity(item, weightsByLineId);
+      const actualQuantity = resolveActualQuantityForSettlement(item, weightsByLineId);
       const pricePerUnit = safeNumber(item?.pricePerUnit ?? item?.price, 0);
       const linePrice = roundTo(safeNumber(actualQuantity) * pricePerUnit, 2);
       const measurementType = item?.measurementType || 'kg';

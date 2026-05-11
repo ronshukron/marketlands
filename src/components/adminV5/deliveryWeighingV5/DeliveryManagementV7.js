@@ -36,6 +36,7 @@ import { useWeightScale } from '../../../hooks/useWeightScale';
 import ScaleConnectionPanel from '../../scale/ScaleConnectionPanel';
 import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../../utils/pricing';
 import {
+  BUFFER_LINE_CATALOG_NUMBER,
   buildSettlementPayload,
   getNextUnweighedIndex,
   mergeProductDetailsIntoItems,
@@ -63,6 +64,39 @@ const WEIGHT_ON_THRESHOLD = 0.020;
 const WEIGHT_OFF_THRESHOLD = 0.010;
 const LANG_STORAGE_KEY = 'deliveryV7::lang';
 const COMMUNITY_ORDER_KEY = 'deliveryV7::communityOrder';
+const LAST_SETUP_KEY = 'deliveryV7::lastSetup';
+
+function isLikelyNetworkErrorV7(error) {
+  const message = String(error?.message || '');
+  return (
+    (typeof navigator !== 'undefined' && !navigator.onLine)
+    || error?.code === 'unavailable'
+    || error?.code === 'deadline-exceeded'
+    || message.includes('client is offline')
+    || message.includes('Failed to fetch')
+    // Firestore 10.11.1 can throw this internal assertion while a transaction is interrupted offline.
+    || message.includes('INTERNAL ASSERTION FAILED: Unexpected state')
+  );
+}
+
+function readLastSetupV7() {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LAST_SETUP_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLastSetupV7(setup) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(LAST_SETUP_KEY, JSON.stringify(setup || {}));
+  } catch {
+    // Non-critical: offline cache still keeps the loaded orders.
+  }
+}
 
 const TR = {
   he: {
@@ -458,6 +492,33 @@ function formatConflictValue(snapshot, langPack) {
   return '-';
 }
 
+function normalizeSupplierOption(opt) {
+  if (!opt) return '';
+  const trimmed = String(opt).trim();
+  if (trimmed === 'ללא אופציות' || trimmed === 'None') return '';
+  return trimmed;
+}
+
+function getOrderCopyDate(selectedWeek, endDate) {
+  const date = endDate ? new Date(endDate) : new Date(selectedWeek);
+  if (!endDate && selectedWeek && !Number.isNaN(date.getTime())) date.setDate(date.getDate() + 5);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit' }).replace(/\//g, '.');
+}
+
+function copyTextToClipboard(text) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+  return Promise.resolve();
+}
+
 function getDisplayName(user) {
   return user?.displayName || user?.email || user?.phoneNumber || 'Admin';
 }
@@ -487,20 +548,21 @@ export default function DeliveryManagementV7() {
     userName: getDisplayName(currentUser),
     sessionId: buildSessionIdV7({ userId: currentUser?.uid, stationId }),
   }), [currentUser, stationId]);
+  const initialSetup = useMemo(() => readLastSetupV7(), []);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [availableWeeks, setAvailableWeeks] = useState([]);
-  const [tempSelectedWeek, setTempSelectedWeek] = useState('');
-  const [selectedWeek, setSelectedWeek] = useState('');
-  const [tempSpecificStartDate, setTempSpecificStartDate] = useState('');
-  const [tempSpecificEndDate, setTempSpecificEndDate] = useState('');
-  const [selectedSpecificStartDate, setSelectedSpecificStartDate] = useState('');
-  const [selectedSpecificEndDate, setSelectedSpecificEndDate] = useState('');
+  const [tempSelectedWeek, setTempSelectedWeek] = useState(initialSetup.weekKey || '');
+  const [selectedWeek, setSelectedWeek] = useState(initialSetup.weekKey || '');
+  const [tempSpecificStartDate, setTempSpecificStartDate] = useState(initialSetup.startDate || '');
+  const [tempSpecificEndDate, setTempSpecificEndDate] = useState(initialSetup.endDate || '');
+  const [selectedSpecificStartDate, setSelectedSpecificStartDate] = useState(initialSetup.startDate || '');
+  const [selectedSpecificEndDate, setSelectedSpecificEndDate] = useState(initialSetup.endDate || '');
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
   const communityDropdownRef = useRef(null);
-  const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
-  const [selectedCommunities, setSelectedCommunities] = useState(new Set());
+  const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set(Array.isArray(initialSetup.communities) ? initialSetup.communities : []));
+  const [selectedCommunities, setSelectedCommunities] = useState(new Set(Array.isArray(initialSetup.communities) ? initialSetup.communities : []));
 
   const [orders, setOrders] = useState([]);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -516,6 +578,8 @@ export default function DeliveryManagementV7() {
   const [syncingOffline, setSyncingOffline] = useState(false);
   const imageMemoryCacheRef = useRef({});
   const [permanentNumbersMap, setPermanentNumbersMap] = useState({});
+  const permanentNumbersMapRef = useRef({});
+  const currentScreenRef = useRef({ orders: [] });
   const [showScalePanel, setShowScalePanel] = useState(false);
   const { isElectron: isElectronEnv, isConnected: scaleConnected, weight: liveWeight, lastStableWeight } = useWeightScale();
   const [editingLineId, setEditingLineId] = useState(null);
@@ -536,6 +600,20 @@ export default function DeliveryManagementV7() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), dur);
   }, []);
+
+  useEffect(() => {
+    permanentNumbersMapRef.current = permanentNumbersMap;
+    currentScreenRef.current = {
+      orders,
+      productDetails,
+      permanentNumbersMap,
+      remoteDraftsByOrder,
+      localDraftsByOrder,
+      pendingOps,
+      syncConflicts,
+    };
+  }, [orders, productDetails, permanentNumbersMap, remoteDraftsByOrder, localDraftsByOrder, pendingOps, syncConflicts]);
+
   const [dialog, setDialog] = useState(null);
   const dialogResolveRef = useRef(null);
   const showDialog = useCallback(({ heText, thText, title = 'info', type = 'alert' }) => {
@@ -602,6 +680,8 @@ export default function DeliveryManagementV7() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchingProducts, setSearchingProducts] = useState(false);
   const [addQuantities, setAddQuantities] = useState({});
+  const [missingModalOpen, setMissingModalOpen] = useState(false);
+  const [missingModalItems, setMissingModalItems] = useState([]);
 
   const isAdmin = !!currentUser && (userRole === 'admin' || ADMIN_UIDS.includes(currentUser.uid));
 
@@ -643,11 +723,11 @@ export default function DeliveryManagementV7() {
       .then((weeks) => {
         if (!active) return;
         setAvailableWeeks(weeks);
-        if (weeks.length > 0) setTempSelectedWeek(weeks[0]);
+        if (weeks.length > 0) setTempSelectedWeek((prev) => prev || weeks[0]);
       })
       .catch((e) => {
         console.error(e);
-        if (active) setError(t.failWeeks);
+        if (active && !isLikelyNetworkErrorV7(e)) setError(t.failWeeks);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -657,32 +737,53 @@ export default function DeliveryManagementV7() {
 
   const fetchPermanentCustomerNumbers = useCallback(async (customersList) => {
     if (!customersList || customersList.length === 0) return {};
-    const mapping = {};
-    const missing = [];
-    await Promise.all(customersList.map(async (customer) => {
+    const uniqueCustomersById = new Map();
+    customersList.forEach((customer) => {
       const id = customer?.id;
       if (!id) return;
-      const ref = doc(db, 'customerNumbers', id);
-      const snap = await getDoc(ref);
-      if (snap.exists()) mapping[id] = snap.data()?.number;
-      else missing.push(customer);
-    }));
-    if (missing.length === 0) return mapping;
-    const configRef = doc(db, 'customerNumbers', '_config');
-    await runTransaction(db, async (tx) => {
-      const configSnap = await tx.get(configRef);
-      let currentMax = configSnap.exists() ? Number(configSnap.data()?.maxNumber || 0) : 0;
-      let next = currentMax;
-      for (const item of missing) {
-        const id = item?.id;
-        if (!id) continue;
-        next += 1;
-        tx.set(doc(db, 'customerNumbers', id), { number: next, name: item?.name || '', assignedAt: new Date() });
-        mapping[id] = next;
+      if (!uniqueCustomersById.has(id)) {
+        uniqueCustomersById.set(id, { id, name: customer?.name || '' });
       }
-      tx.set(configRef, { maxNumber: next }, { merge: true });
     });
-    return mapping;
+    const uniqueCustomers = Array.from(uniqueCustomersById.values());
+    if (uniqueCustomers.length === 0) return {};
+    const mapping = {};
+    const missing = [];
+    try {
+      await Promise.all(uniqueCustomers.map(async (customer) => {
+        const id = customer?.id;
+        if (!id) return;
+        const ref = doc(db, 'customerNumbers', id);
+        const snap = await getDoc(ref);
+        if (snap.exists()) mapping[id] = snap.data()?.number;
+        else missing.push(customer);
+      }));
+      if (missing.length === 0) return mapping;
+      const configRef = doc(db, 'customerNumbers', '_config');
+      await runTransaction(db, async (tx) => {
+        const configSnap = await tx.get(configRef);
+        let currentMax = configSnap.exists() ? Number(configSnap.data()?.maxNumber || 0) : 0;
+        let next = currentMax;
+        for (const item of missing) {
+          const id = item?.id;
+          if (!id) continue;
+          next += 1;
+          tx.set(doc(db, 'customerNumbers', id), { number: next, name: item?.name || '', assignedAt: new Date() });
+          mapping[id] = next;
+        }
+        tx.set(configRef, { maxNumber: next }, { merge: true });
+      });
+      return mapping;
+    } catch (error) {
+      if (!isLikelyNetworkErrorV7(error)) throw error;
+      const cachedNumbers = permanentNumbersMapRef.current || {};
+      uniqueCustomers.forEach((customer) => {
+        if (customer?.id && cachedNumbers[customer.id] != null) {
+          mapping[customer.id] = cachedNumbers[customer.id];
+        }
+      });
+      return mapping;
+    }
   }, []);
 
   useEffect(() => {
@@ -734,11 +835,36 @@ export default function DeliveryManagementV7() {
     };
   }, [remoteDraftsByOrder, selectedWeek]);
 
-  const isLikelyNetworkError = useCallback((error) => (
-    (typeof navigator !== 'undefined' && !navigator.onLine)
-    || error?.code === 'unavailable'
-    || !error?.response
-  ), []);
+  const isLikelyNetworkError = useCallback(isLikelyNetworkErrorV7, []);
+
+  const applyCachedScopeToScreen = useCallback((cachedScope, { toast = true } = {}) => {
+    setOrders(cachedScope.orders || []);
+    setProductDetails(cachedScope.productDetails || {});
+    productDetailsRef.current = cachedScope.productDetails || {};
+    setPermanentNumbersMap(cachedScope.permanentNumbersMap || {});
+    setRemoteDraftsByOrder(cachedScope.remoteDraftsByOrder || {});
+    const filteredPendingOps = (cachedScope.pendingOps || []).filter((op) => !op?.lineId || isCanonicalLineIdV7(op.lineId));
+    setLocalDraftsByOrder(cachedScope.workingDraftsByOrder || applyOpsToDrafts(cachedScope.remoteDraftsByOrder || {}, filteredPendingOps));
+    setPendingOps(filteredPendingOps);
+    setSyncConflicts(cachedScope.conflicts || []);
+    setError(null);
+    setCommunityFilter('__all__');
+    setSelectedOrderId((prev) => {
+      if (prev && (cachedScope.orders || []).some((o) => o.id === prev)) return prev;
+      const firstPending = (cachedScope.orders || []).find((o) => o.status !== 'completed');
+      return firstPending ? firstPending.id : (cachedScope.orders?.[0]?.id || null);
+    });
+    setLoading(false);
+    if (toast) showToast(t.offlineLoaded);
+  }, [showToast, t.offlineLoaded]);
+
+  const preserveCurrentScreenOffline = useCallback((message = '') => {
+    if ((currentScreenRef.current.orders || []).length === 0) return false;
+    setError(null);
+    setLoading(false);
+    if (message) showToast(message);
+    return true;
+  }, [showToast]);
 
   const queueManyDraftOps = useCallback((ops) => {
     let nextPending = pendingOps;
@@ -924,39 +1050,23 @@ export default function DeliveryManagementV7() {
     if (!isOnline) {
       const cachedScope = getOfflineScope(readOfflineStore(), currentScopeKey);
       if (!cachedScope) {
-        setOrders([]);
-        setProductDetails({});
-        productDetailsRef.current = {};
-        setPermanentNumbersMap({});
-        setRemoteDraftsByOrder({});
-        setLocalDraftsByOrder({});
-        setPendingOps([]);
-        setSyncConflicts([]);
         setClaimsByOrder({});
         setPresence([]);
-        setError(t.offlineNoCache);
+        if (!preserveCurrentScreenOffline(t.offlineLoaded)) {
+          setOrders([]);
+          setProductDetails({});
+          productDetailsRef.current = {};
+          setPermanentNumbersMap({});
+          setRemoteDraftsByOrder({});
+          setLocalDraftsByOrder({});
+          setPendingOps([]);
+          setSyncConflicts([]);
+          setError(t.offlineNoCache);
+        }
         setLoading(false);
         return () => {};
       }
-      setLoading(true);
-      setOrders(cachedScope.orders || []);
-      setProductDetails(cachedScope.productDetails || {});
-      productDetailsRef.current = cachedScope.productDetails || {};
-      setPermanentNumbersMap(cachedScope.permanentNumbersMap || {});
-      setRemoteDraftsByOrder(cachedScope.remoteDraftsByOrder || {});
-      const filteredPendingOps = (cachedScope.pendingOps || []).filter((op) => !op?.lineId || isCanonicalLineIdV7(op.lineId));
-      setLocalDraftsByOrder(cachedScope.workingDraftsByOrder || applyOpsToDrafts(cachedScope.remoteDraftsByOrder || {}, filteredPendingOps));
-      setPendingOps(filteredPendingOps);
-      setSyncConflicts(cachedScope.conflicts || []);
-      setError(null);
-      setCommunityFilter('__all__');
-      setSelectedOrderId((prev) => {
-        if (prev && (cachedScope.orders || []).some((o) => o.id === prev)) return prev;
-        const firstPending = (cachedScope.orders || []).find((o) => o.status !== 'completed');
-        return firstPending ? firstPending.id : (cachedScope.orders?.[0]?.id || null);
-      });
-      setLoading(false);
-      showToast(t.offlineLoaded);
+      applyCachedScopeToScreen(cachedScope);
       return () => {};
     }
     setLoading(true);
@@ -983,7 +1093,12 @@ export default function DeliveryManagementV7() {
           });
           const missingProductIds = Array.from(productIdSet).filter((id) => !productDetailsRef.current[id]);
           const [newPd, nums] = await Promise.all([
-            missingProductIds.length > 0 ? fetchProductDetailsV7(missingProductIds) : {},
+            missingProductIds.length > 0
+              ? fetchProductDetailsV7(missingProductIds).catch((error) => {
+                if (!isLikelyNetworkError(error)) throw error;
+                return {};
+              })
+              : {},
             fetchPermanentCustomerNumbers(customersList),
           ]);
           const mergedProductDetails = Object.keys(newPd).length > 0
@@ -1019,14 +1134,34 @@ export default function DeliveryManagementV7() {
           });
         } catch (e) {
           console.error(e);
-          setError(t.failOrders);
+          if (isLikelyNetworkError(e)) {
+            setIsOnline(false);
+            const cachedScope = getOfflineScope(readOfflineStore(), currentScopeKey);
+            if (cachedScope) {
+              applyCachedScopeToScreen(cachedScope);
+            } else if (!preserveCurrentScreenOffline(t.offlineLoaded)) {
+              setError(t.offlineNoCache);
+            }
+          } else {
+            setError(t.failOrders);
+          }
         } finally {
           setLoading(false);
         }
       },
       onError: (e) => {
         console.error(e);
-        setError(t.failOrders);
+        if (isLikelyNetworkError(e)) {
+          setIsOnline(false);
+          const cachedScope = getOfflineScope(readOfflineStore(), currentScopeKey);
+          if (cachedScope) {
+            applyCachedScopeToScreen(cachedScope);
+          } else if (!preserveCurrentScreenOffline(t.offlineLoaded)) {
+            setError(t.offlineNoCache);
+          }
+        } else {
+          setError(t.failOrders);
+        }
         setLoading(false);
       },
     });
@@ -1036,10 +1171,12 @@ export default function DeliveryManagementV7() {
     selectedCommunities,
     selectedSpecificStartDate,
     selectedSpecificEndDate,
+    applyCachedScopeToScreen,
     fetchPermanentCustomerNumbers,
     currentScopeKey,
+    isLikelyNetworkError,
     isOnline,
-    showToast,
+    preserveCurrentScreenOffline,
     t.failOrders,
     t.offlineLoaded,
     t.offlineNoCache,
@@ -1229,6 +1366,76 @@ export default function DeliveryManagementV7() {
     return list;
   }, [orders, communityFilter, orderCommunities, showCompleted, permanentNumbersMap, effectiveDraftsByOrder]);
 
+  const missingOrderItems = (() => {
+    const map = {};
+
+    orders.forEach((order) => {
+      const mergedItems = mergeProductDetailsIntoItems(order.items || [], productDetails);
+      const draft = sanitizeDraftForItems(effectiveDraftsByOrder[order.id] || {}, mergedItems);
+      const weights = draft.weightsByLineId || {};
+      const removed = draft.removedLineIds || {};
+
+      mergedItems.forEach((item) => {
+        if (!item?.lineId || item.catalogNumber === BUFFER_LINE_CATALOG_NUMBER) return;
+        const measurementType = item.measurementType || 'kg';
+        const requested = Number(item.requestedQuantity || 0);
+        if (requested <= 0) return;
+
+        const avg = Number(item.averageWeightKg || 1) || 1;
+        const unitSize = Number(item.unitSize || 1) || 1;
+        const expected = measurementType === 'unit' ? requested * avg : requested;
+        const actual = removed[item.lineId] ? 0 : Number(weights[item.lineId]?.actualQuantity || 0);
+        const missing = Math.max(0, expected - actual);
+        if (missing <= 0.0005) return;
+
+        const unitQty = measurementType === 'unit'
+          ? missing / avg
+          : measurementType === 'package'
+            ? missing
+            : missing / unitSize;
+        const key = [
+          item.businessId || '',
+          item.productId || item.productName || '',
+          item.selectedOption || '',
+          measurementType,
+          unitSize,
+          avg,
+        ].join('::');
+
+        if (!map[key]) {
+          map[key] = {
+            key,
+            businessName: item.businessName || '',
+            productName: item.productName || item.name || 'Item',
+            selectedOption: normalizeSupplierOption(item.selectedOption),
+            measurementType,
+            rawQuantity: 0,
+            unitQuantity: 0,
+            canUseKg: measurementType !== 'package',
+            included: true,
+            mode: 'unit',
+            quantity: 0,
+          };
+        }
+        map[key].rawQuantity += missing;
+        map[key].unitQuantity += unitQty;
+      });
+    });
+
+    return Object.values(map)
+      .map((item) => ({
+        ...item,
+        rawQuantity: Math.round(item.rawQuantity * 10) / 10,
+        unitQuantity: Math.round(item.unitQuantity * 1000) / 1000,
+        quantity: Math.max(1, Math.round(item.unitQuantity)),
+      }))
+      .sort((a, b) => {
+        const businessCompare = (a.businessName || '').localeCompare(b.businessName || '');
+        if (businessCompare !== 0) return businessCompare;
+        return (a.productName || '').localeCompare(b.productName || '');
+      });
+  })();
+
   useEffect(() => {
     if (!selectedOrderId) {
       setActiveItemIndex(-1);
@@ -1349,13 +1556,8 @@ export default function DeliveryManagementV7() {
     const stableVal = lastStableWeight?.value ?? 0;
     if (stableVal > WEIGHT_ON_THRESHOLD) {
       prevStableRef.current = stableVal;
-    } else if (prevStableRef.current > WEIGHT_ON_THRESHOLD && stableVal < WEIGHT_OFF_THRESHOLD) {
-      const toSave = prevStableRef.current;
-      prevStableRef.current = 0;
-      autoWeighActiveRef.current = false;
-      saveWeightAndAdvance(toSave, 'scale');
     }
-  }, [lastStableWeight, scaleConnected, saveWeightAndAdvance, claimedByOther]);
+  }, [lastStableWeight, scaleConnected, claimedByOther]);
 
   const saveManualWeight = useCallback(async (lineId, value, src = 'manual') => {
     if (!selectedOrder || !lineId || claimedByOther) return;
@@ -1756,7 +1958,6 @@ export default function DeliveryManagementV7() {
       if (selectedClaim?.sessionId === session.sessionId) {
         await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
       }
-      await biAlert({ heText: 'הושלם! השרת אישר.', thText: 'เสร็จแล้ว! เซิร์ฟเวอร์ยืนยัน', title: 'success' });
     } catch (e) {
       console.error(e);
       try {
@@ -1806,6 +2007,12 @@ export default function DeliveryManagementV7() {
   const selectAllCommunities = () => setTempSelectedCommunities(new Set(pickupSpots));
   const clearAllCommunities = () => setTempSelectedCommunities(new Set());
   const handleLoad = () => {
+    writeLastSetupV7({
+      weekKey: tempSelectedWeek,
+      communities: Array.from(tempSelectedCommunities),
+      startDate: tempSpecificStartDate,
+      endDate: tempSpecificEndDate,
+    });
     setSelectedWeek(tempSelectedWeek);
     setSelectedCommunities(new Set(tempSelectedCommunities));
     setSelectedSpecificStartDate(tempSpecificStartDate);
@@ -1827,6 +2034,88 @@ export default function DeliveryManagementV7() {
 
   const itemDisplayName = (it) => (lang === 'th' && it.thaiName) ? it.thaiName : it.productName;
   const itemSecondaryName = (it) => (lang === 'th' && it.thaiName) ? it.productName : it.thaiName;
+
+  const openMissingOrderModal = () => {
+    setMissingModalItems(missingOrderItems);
+    setMissingModalOpen(true);
+  };
+
+  const closeMissingOrderModal = () => {
+    setMissingModalOpen(false);
+    setMissingModalItems([]);
+  };
+
+  const updateMissingItem = (idx, field, value) => {
+    setMissingModalItems((prev) => {
+      const next = [...prev];
+      const item = { ...next[idx] };
+      if (field === 'mode') {
+        item.mode = value;
+        item.quantity = value === 'kg'
+          ? Number(item.rawQuantity.toFixed(1))
+          : Math.max(1, Math.round(item.unitQuantity));
+      } else if (field === 'quantity') {
+        item.quantity = value === '' ? '' : Number(value);
+      } else if (field === 'included') {
+        item.included = value;
+      }
+      next[idx] = item;
+      return next;
+    });
+  };
+
+  const setAllMissingMode = (mode) => {
+    setMissingModalItems((prev) => prev.map((item) => {
+      if (mode === 'kg' && !item.canUseKg) return item;
+      return {
+        ...item,
+        mode,
+        quantity: mode === 'kg'
+          ? Number(item.rawQuantity.toFixed(1))
+          : Math.max(1, Math.round(item.unitQuantity)),
+      };
+    }));
+  };
+
+  const buildMissingOrderText = () => {
+    const included = missingModalItems.filter((item) => item.included && (Number(item.quantity) || 0) > 0);
+    const dateForHeader = getOrderCopyDate(selectedWeek, selectedSpecificEndDate || selectedSpecificStartDate);
+    const parts = [`צהריים טובים, הזמנה ל${dateForHeader}:`, ''];
+    const formatLine = (item) => {
+      const isKgMode = item.mode === 'kg' && item.canUseKg;
+      const optPart = item.selectedOption && !isKgMode ? ` *${item.selectedOption}*` : '';
+      const qty = Number(item.quantity) || 0;
+      const qtyDisplay = isKgMode ? qty.toFixed(1) : String(Math.round(qty));
+      const suffix = isKgMode ? 'ק"ג' : "יח'";
+      return `* ${item.productName}${optPart} – ${qtyDisplay} ${suffix}`;
+    };
+    const kgItems = included.filter((item) => item.mode === 'kg' && item.canUseKg);
+    const unitItems = included.filter((item) => item.mode !== 'kg' || !item.canUseKg);
+
+    if (kgItems.length > 0) {
+      parts.push('הזמנה סיטונאית לא ארוז:');
+      parts.push(...kgItems.map(formatLine));
+    }
+    if (kgItems.length > 0 && unitItems.length > 0) parts.push('');
+    if (unitItems.length > 0) {
+      parts.push('הזמנה ארוז:');
+      parts.push(...unitItems.map(formatLine));
+    }
+    return parts.join('\n');
+  };
+
+  const handleCopyMissingOrder = async () => {
+    try {
+      const text = buildMissingOrderText();
+      if (!text) return;
+      await copyTextToClipboard(text);
+      showToast('הזמנת החוסרים הועתקה');
+      closeMissingOrderModal();
+    } catch (e) {
+      console.error('Failed to copy missing order text', e);
+      showToast('שגיאה בהעתקת ההזמנה');
+    }
+  };
 
   if (loading && orders.length === 0) return <LoadingSpinner />;
   if (error && orders.length === 0) return <div className="p-8 text-center text-red-600 text-lg font-bold">{error}</div>;
@@ -1908,6 +2197,9 @@ export default function DeliveryManagementV7() {
                 onChange={(e) => setTempSelectedWeek(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
+                {tempSelectedWeek && !availableWeeks.includes(tempSelectedWeek) && (
+                  <option value={tempSelectedWeek}>{weekKeyToRangeLabel(tempSelectedWeek)}</option>
+                )}
                 {availableWeeks.map((wk) => (
                   <option key={wk} value={wk}>{weekKeyToRangeLabel(wk)}</option>
                 ))}
@@ -1982,6 +2274,16 @@ export default function DeliveryManagementV7() {
               className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
             >
               {loading ? '...' : t.load}
+            </button>
+
+            <button
+              type="button"
+              onClick={openMissingOrderModal}
+              disabled={missingOrderItems.length === 0}
+              className="px-5 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="הצג והעתק הזמנת חוסרים"
+            >
+              חוסרים להזמנה ({missingOrderItems.length})
             </button>
           </div>
 
@@ -2661,6 +2963,118 @@ export default function DeliveryManagementV7() {
           </div>
         </div>
       </div>
+
+      {missingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black bg-opacity-50" onClick={closeMissingOrderModal}></div>
+          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-11/12 max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200">
+              <h3 className="text-xl font-bold text-gray-800">הזמנת חוסרים</h3>
+              <button type="button" onClick={closeMissingOrderModal} className="text-2xl text-gray-400 hover:text-gray-700 leading-none">✕</button>
+            </div>
+
+            <div className="flex gap-2 px-5 py-3 bg-gray-50 border-b border-gray-100">
+              <span className="text-sm text-gray-600 self-center ml-2">הכל:</span>
+              <button
+                type="button"
+                onClick={() => setAllMissingMode('unit')}
+                className="px-4 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+              >
+                יח'
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllMissingMode('kg')}
+                className="px-4 py-1.5 rounded-full text-sm font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+              >
+                ק"ג
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+              {missingModalItems.map((it, idx) => (
+                <div
+                  key={it.key}
+                  className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border transition-all ${
+                    it.included ? 'bg-white border-gray-200 shadow-sm' : 'bg-gray-50 border-gray-100 opacity-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={it.included}
+                      onChange={(e) => updateMissingItem(idx, 'included', e.target.checked)}
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <span className="font-semibold text-gray-800 text-base block truncate">{it.productName}</span>
+                      {it.selectedOption && <span className="text-sm text-gray-500">{it.selectedOption}</span>}
+                      {it.businessName && <span className="text-xs text-gray-400 block truncate">{it.businessName}</span>}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pr-8 sm:pr-0">
+                    {it.canUseKg ? (
+                      <div className="inline-flex rounded-full overflow-hidden border border-gray-300">
+                        <button
+                          type="button"
+                          onClick={() => updateMissingItem(idx, 'mode', 'unit')}
+                          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                            it.mode === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          יח'
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateMissingItem(idx, 'mode', 'kg')}
+                          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                            it.mode === 'kg' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          ק"ג
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400 w-[88px] text-center">יח' (קבוע)</span>
+                    )}
+
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        step={it.mode === 'kg' && it.canUseKg ? '0.1' : '1'}
+                        value={it.quantity}
+                        onChange={(e) => updateMissingItem(idx, 'quantity', e.target.value)}
+                        disabled={!it.included}
+                        className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-center text-base font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                      />
+                      <span className="text-sm text-gray-500 w-8">
+                        {it.mode === 'kg' && it.canUseKg ? 'ק"ג' : "יח'"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-gray-200 px-5 py-4 bg-gray-50 rounded-b-2xl">
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                <span className="text-sm text-gray-500">
+                  {missingModalItems.filter((it) => it.included && (Number(it.quantity) || 0) > 0).length} מוצרים נבחרו
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyMissingOrder}
+                  className="w-full sm:w-auto px-6 py-3 bg-orange-500 text-white font-bold rounded-xl text-lg hover:bg-orange-600 active:bg-orange-700 transition-colors shadow-md"
+                >
+                  העתק הזמנה
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BilingualDialog
         open={!!dialog}

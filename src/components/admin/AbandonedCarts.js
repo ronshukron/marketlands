@@ -49,9 +49,14 @@ const AbandonedCarts = () => {
   const [availableWeeks, setAvailableWeeks] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState('');
   const [tempSelectedWeek, setTempSelectedWeek] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [selectedSpecificStartDate, setSelectedSpecificStartDate] = useState('');
+  const [selectedSpecificEndDate, setSelectedSpecificEndDate] = useState('');
 
   const [selectedCommunities, setSelectedCommunities] = useState(new Set());
   const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
+  const [tempSpecificStartDate, setTempSpecificStartDate] = useState('');
+  const [tempSpecificEndDate, setTempSpecificEndDate] = useState('');
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
 
   const [expandedOrders, setExpandedOrders] = useState(new Set());
@@ -78,8 +83,10 @@ const AbandonedCarts = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    if (selectedWeek) fetchAbandonedOrders();
-  }, [selectedWeek, selectedCommunities]);
+    if (selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate) {
+      fetchAbandonedOrders();
+    }
+  }, [selectedWeek, selectedCommunities, selectedSpecificStartDate, selectedSpecificEndDate]);
 
   // ─── Fetch available weeks ──────────────────────────────────────────
   const fetchAvailableWeeks = async () => {
@@ -132,13 +139,41 @@ const AbandonedCarts = () => {
   const fetchAbandonedOrders = async () => {
     setLoading(true);
     try {
-      const sunday = new Date(selectedWeek);
-      const friday = new Date(sunday);
-      friday.setDate(sunday.getDate() + 5);
-      friday.setHours(23, 59, 59, 999);
+      const hasSpecificDates = Boolean(selectedSpecificStartDate || selectedSpecificEndDate);
+      let startDate;
+      let endDate;
 
-      const startISO = sunday.toISOString();
-      const endISO = friday.toISOString();
+      if (hasSpecificDates) {
+        const rawStart = selectedSpecificStartDate || selectedSpecificEndDate;
+        const rawEnd = selectedSpecificEndDate || selectedSpecificStartDate;
+        const parsedStart = new Date(rawStart);
+        const parsedEnd = new Date(rawEnd);
+
+        parsedStart.setHours(0, 0, 0, 0);
+        parsedEnd.setHours(23, 59, 59, 999);
+
+        if (parsedStart <= parsedEnd) {
+          startDate = parsedStart;
+          endDate = parsedEnd;
+        } else {
+          startDate = new Date(parsedEnd);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(parsedStart);
+          endDate.setHours(23, 59, 59, 999);
+        }
+      } else {
+        const sunday = new Date(selectedWeek);
+        const friday = new Date(sunday);
+        friday.setDate(sunday.getDate() + 5);
+        friday.setHours(23, 59, 59, 999);
+        startDate = sunday;
+        endDate = friday;
+      }
+
+      setDateRange({
+        start: format(startDate, 'dd/MM/yyyy'),
+        end: format(endDate, 'dd/MM/yyyy')
+      });
 
       const [regularSnap, delayedSnap] = await Promise.all([
         getDocs(collection(db, 'customerOrders')),
@@ -158,8 +193,7 @@ const AbandonedCarts = () => {
         if (typeof ca === 'string') dt = new Date(ca);
         else if (ca?.toDate) dt = ca.toDate();
         else return;
-        const dtISO = dt.toISOString();
-        if (dtISO < startISO || dtISO > endISO) return;
+        if (dt < startDate || dt > endDate) return;
 
         const ph = formatPhone(data.customerDetails?.phone);
         if (ph) successfulPhones.add(ph);
@@ -174,8 +208,7 @@ const AbandonedCarts = () => {
         if (typeof ca === 'string') dt = new Date(ca);
         else if (ca?.toDate) dt = ca.toDate();
         else return;
-        const dtISO = dt.toISOString();
-        if (dtISO < startISO || dtISO > endISO) return;
+        if (dt < startDate || dt > endDate) return;
 
         const ph = formatPhone(data.customerDetails?.phone);
         if (ph) successfulPhones.add(ph);
@@ -195,8 +228,7 @@ const AbandonedCarts = () => {
         else if (ca?.toDate) dt = ca.toDate();
         else return;
 
-        const dtISO = dt.toISOString();
-        if (dtISO < startISO || dtISO > endISO) return;
+        if (dt < startDate || dt > endDate) return;
 
         const spot = data.customerDetails?.pickupSpot || 'לא צוין';
         if (selectedCommunities.size > 0 && !selectedCommunities.has(spot)) return;
@@ -218,8 +250,7 @@ const AbandonedCarts = () => {
         else if (ca?.toDate) dt = ca.toDate();
         else return;
 
-        const dtISO = dt.toISOString();
-        if (dtISO < startISO || dtISO > endISO) return;
+        if (dt < startDate || dt > endDate) return;
 
         const spot = data.customerDetails?.pickupSpot || 'לא צוין';
         if (selectedCommunities.size > 0 && !selectedCommunities.has(spot)) return;
@@ -251,7 +282,10 @@ const AbandonedCarts = () => {
   };
 
   const handleSubmitFilters = () => {
-    setSelectedWeek(tempSelectedWeek);
+    const hasSpecificDates = Boolean(tempSpecificStartDate || tempSpecificEndDate);
+    setSelectedWeek(hasSpecificDates ? '' : tempSelectedWeek);
+    setSelectedSpecificStartDate(tempSpecificStartDate);
+    setSelectedSpecificEndDate(tempSpecificEndDate);
     setSelectedCommunities(tempSelectedCommunities);
   };
 
@@ -375,6 +409,45 @@ const AbandonedCarts = () => {
           </div>
         </div>
 
+        <div className="mt-6 border-t pt-6">
+          <p className="text-gray-700 text-sm font-medium mb-3">או בחר תאריכים ספציפיים:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-gray-700 text-sm mb-2">מתאריך:</label>
+              <input
+                type="date"
+                value={tempSpecificStartDate}
+                onChange={(e) => setTempSpecificStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-700 text-sm mb-2">עד תאריך:</label>
+              <input
+                type="date"
+                value={tempSpecificEndDate}
+                onChange={(e) => setTempSpecificEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+            </div>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              אם נבחר לפחות תאריך אחד, הסינון יהיה לפי תאריכים ספציפיים (במקום שבוע).
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setTempSpecificStartDate('');
+                setTempSpecificEndDate('');
+              }}
+              className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+            >
+              נקה תאריכים
+            </button>
+          </div>
+        </div>
+
         <div className="mt-6 text-center">
           <button
             onClick={handleSubmitFilters}
@@ -383,10 +456,23 @@ const AbandonedCarts = () => {
             טען נתונים
           </button>
         </div>
+
+        {selectedWeek && (
+          <p className="text-center text-gray-600 mt-4">
+            מציג הזמנות מ-{dateRange.start} עד {dateRange.end}
+            {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
+          </p>
+        )}
+        {!selectedWeek && (selectedSpecificStartDate || selectedSpecificEndDate) && (
+          <p className="text-center text-gray-600 mt-4">
+            מציג הזמנות בתאריכים {dateRange.start} - {dateRange.end}
+            {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
+          </p>
+        )}
       </div>
 
       {/* ── Summary Stats ───────────────────────────────────────────── */}
-      {selectedWeek && (
+      {(selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate) && (
         <div className="mb-8 bg-gradient-to-r from-red-50 to-orange-50 p-6 rounded-lg shadow">
           <h2 className="text-xl font-semibold mb-4 text-red-800">סיכום עגלות נטושות</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -424,10 +510,11 @@ const AbandonedCarts = () => {
       )}
 
       {/* ── No results ──────────────────────────────────────────────── */}
-      {orders.length === 0 && selectedWeek && (
+      {orders.length === 0 &&
+        (selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate) && (
         <div className="bg-green-50 border border-green-200 text-green-700 p-6 rounded-lg text-center">
           <p className="text-lg font-medium">אין עגלות נטושות!</p>
-          <p className="text-sm mt-1">לא נמצאו הזמנות שלא הושלמו בשבוע ובקהילות שנבחרו.</p>
+          <p className="text-sm mt-1">לא נמצאו הזמנות שלא הושלמו בטווח התאריכים ובקהילות שנבחרו.</p>
         </div>
       )}
 
