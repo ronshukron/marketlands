@@ -4,6 +4,21 @@ import { db } from '../firebase/firebase';
 const CONFIG_DOC_PATH = 'settings/paymentConfig';
 export const REGULAR_PAYMENT_PROVIDERS = ['bit_legacy', 'grow_payment_link'];
 export const DELAYED_PAYMENT_GATEWAYS = ['grow_j5_legacy', 'grow_payment_link'];
+const DEFAULT_REUSABLE_CARTON_CONFIG = {
+  enabledSpots: [],
+  defaultSelectedSpots: [],
+};
+
+const normalizeReusableCartonConfig = (config = {}) => {
+  const enabledSpots = Array.isArray(config.enabledSpots) ? config.enabledSpots : [];
+  const defaultSelectedSpots = Array.isArray(config.defaultSelectedSpots) ? config.defaultSelectedSpots : [];
+  const enabledSet = new Set(enabledSpots);
+
+  return {
+    enabledSpots,
+    defaultSelectedSpots: defaultSelectedSpots.filter((spot) => enabledSet.has(spot)),
+  };
+};
 
 /**
  * Get the list of pickup spots configured for delayed payment
@@ -105,6 +120,44 @@ export const setPaymentRoutingConfig = async (config) => {
     return true;
   } catch (error) {
     console.error('Error setting payment routing config:', error);
+    return false;
+  }
+};
+
+/**
+ * Get reusable farmer carton rollout/default config.
+ * @returns {Promise<{enabledSpots: string[], defaultSelectedSpots: string[]}>}
+ */
+export const getReusableCartonConfig = async () => {
+  try {
+    const configRef = doc(db, CONFIG_DOC_PATH);
+    const configSnap = await getDoc(configRef);
+
+    if (configSnap.exists()) {
+      return normalizeReusableCartonConfig(configSnap.data().reusableCartonConfig);
+    }
+    return DEFAULT_REUSABLE_CARTON_CONFIG;
+  } catch (error) {
+    console.error('Error fetching reusable carton config:', error);
+    return DEFAULT_REUSABLE_CARTON_CONFIG;
+  }
+};
+
+/**
+ * Save reusable farmer carton rollout/default config.
+ * @param {{enabledSpots: string[], defaultSelectedSpots: string[]}} config
+ * @returns {Promise<boolean>} True if successful
+ */
+export const setReusableCartonConfig = async (config) => {
+  try {
+    const configRef = doc(db, CONFIG_DOC_PATH);
+    await setDoc(configRef, {
+      reusableCartonConfig: normalizeReusableCartonConfig(config),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error setting reusable carton config:', error);
     return false;
   }
 };

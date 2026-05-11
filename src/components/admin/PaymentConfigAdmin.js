@@ -5,7 +5,9 @@ import {
   getDelayedPaymentSpots,
   setDelayedPaymentSpots,
   getPaymentRoutingConfig,
-  setPaymentRoutingConfig
+  setPaymentRoutingConfig,
+  getReusableCartonConfig,
+  setReusableCartonConfig
 } from '../../services/paymentConfigService';
 import Swal from 'sweetalert2';
 
@@ -14,6 +16,8 @@ const PaymentConfigAdmin = () => {
   const [delayedSpots, setDelayedSpots] = useState([]);
   const [regularPaymentProvider, setRegularPaymentProvider] = useState('bit_legacy');
   const [delayedPaymentGateway, setDelayedPaymentGateway] = useState('grow_j5_legacy');
+  const [reusableCartonEnabledSpots, setReusableCartonEnabledSpots] = useState([]);
+  const [reusableCartonDefaultSpots, setReusableCartonDefaultSpots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,13 +29,16 @@ const PaymentConfigAdmin = () => {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const [spots, routingConfig] = await Promise.all([
+      const [spots, routingConfig, reusableCartonConfig] = await Promise.all([
         getDelayedPaymentSpots(),
-        getPaymentRoutingConfig()
+        getPaymentRoutingConfig(),
+        getReusableCartonConfig()
       ]);
       setDelayedSpots(spots);
       setRegularPaymentProvider(routingConfig.regularPaymentProvider);
       setDelayedPaymentGateway(routingConfig.delayedPaymentGateway);
+      setReusableCartonEnabledSpots(reusableCartonConfig.enabledSpots || []);
+      setReusableCartonDefaultSpots(reusableCartonConfig.defaultSelectedSpots || []);
     } catch (error) {
       console.error('Error loading config:', error);
       Swal.fire('שגיאה', 'שגיאה בטעינת ההגדרות', 'error');
@@ -68,18 +75,43 @@ const PaymentConfigAdmin = () => {
     setDelayedSpots(prev => prev.filter(s => !filteredSpots.includes(s)));
   };
 
+  const handleToggleReusableCartonEnabled = (spot) => {
+    if (reusableCartonEnabledSpots.includes(spot)) {
+      setReusableCartonEnabledSpots(prev => prev.filter(s => s !== spot));
+      setReusableCartonDefaultSpots(prev => prev.filter(s => s !== spot));
+      return;
+    }
+
+    setReusableCartonEnabledSpots(prev => [...prev, spot]);
+  };
+
+  const handleToggleReusableCartonDefault = (spot) => {
+    if (!reusableCartonEnabledSpots.includes(spot)) return;
+
+    setReusableCartonDefaultSpots(prev => {
+      if (prev.includes(spot)) {
+        return prev.filter(s => s !== spot);
+      }
+      return [...prev, spot];
+    });
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      const [spotsSaved, routingSaved] = await Promise.all([
+      const [spotsSaved, routingSaved, reusableCartonSaved] = await Promise.all([
         setDelayedPaymentSpots(delayedSpots),
         setPaymentRoutingConfig({
           regularPaymentProvider,
           delayedPaymentGateway
+        }),
+        setReusableCartonConfig({
+          enabledSpots: reusableCartonEnabledSpots,
+          defaultSelectedSpots: reusableCartonDefaultSpots
         })
       ]);
 
-      if (spotsSaved && routingSaved) {
+      if (spotsSaved && routingSaved && reusableCartonSaved) {
         Swal.fire({
           icon: 'success',
           title: 'נשמר בהצלחה',
@@ -104,6 +136,8 @@ const PaymentConfigAdmin = () => {
 
   const delayedCount = delayedSpots.length;
   const regularCount = pickupSpots.length - delayedCount;
+  const reusableCartonCount = reusableCartonEnabledSpots.length;
+  const reusableCartonDefaultCount = reusableCartonDefaultSpots.length;
 
   if (loading) {
     return (
@@ -178,7 +212,7 @@ const PaymentConfigAdmin = () => {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 p-6 bg-purple-50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-6 bg-purple-50">
             <div className="bg-white rounded-lg p-4 shadow-sm border-r-4 border-purple-500">
               <div className="text-3xl font-bold text-purple-700">{delayedCount}</div>
               <div className="text-sm text-gray-600">נקודות תשלום מושהה (J5)</div>
@@ -186,6 +220,14 @@ const PaymentConfigAdmin = () => {
             <div className="bg-white rounded-lg p-4 shadow-sm border-r-4 border-green-500">
               <div className="text-3xl font-bold text-green-700">{regularCount}</div>
               <div className="text-sm text-gray-600">נקודות תשלום רגיל</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border-r-4 border-emerald-500">
+              <div className="text-3xl font-bold text-emerald-700">{reusableCartonCount}</div>
+              <div className="text-sm text-gray-600">אפשרות קרטונים בשימוש חוזר</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border-r-4 border-lime-500">
+              <div className="text-3xl font-bold text-lime-700">{reusableCartonDefaultCount}</div>
+              <div className="text-sm text-gray-600">מסומן כברירת מחדל</div>
             </div>
           </div>
         </div>
@@ -272,12 +314,65 @@ const PaymentConfigAdmin = () => {
           </div>
         </div>
 
+        {/* Reusable Cartons Grid */}
+        <div className="bg-white rounded-lg shadow-md overflow-hidden mb-6">
+          <div className="p-4 bg-emerald-50 border-b border-emerald-100">
+            <h2 className="text-lg font-semibold text-emerald-900">
+              קרטוני חקלאים / קרטונים בשימוש חוזר ({filteredPickupSpots.length})
+            </h2>
+            <p className="text-sm text-emerald-700 mt-1">
+              הפעלה לפי קהילה, ובחירה אם הצ'קבוקס יהיה מסומן ללקוח כברירת מחדל.
+            </p>
+          </div>
+
+          <div className="p-4 max-h-[500px] overflow-y-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredPickupSpots.map((spot) => {
+                const isEnabled = reusableCartonEnabledSpots.includes(spot);
+                const isDefault = reusableCartonDefaultSpots.includes(spot);
+                return (
+                  <div
+                    key={spot}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      isEnabled
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                        : 'border-gray-200 bg-white text-gray-700'
+                    }`}
+                  >
+                    <div className="font-medium text-sm truncate mb-3">{spot}</div>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        onChange={() => handleToggleReusableCartonEnabled(spot)}
+                        className="h-4 w-4 text-emerald-600 border-gray-300 rounded"
+                      />
+                      <span>הצג אפשרות ללקוח</span>
+                    </label>
+                    <label className={`mt-2 flex items-center gap-2 text-sm ${isEnabled ? 'cursor-pointer' : 'cursor-not-allowed text-gray-400'}`}>
+                      <input
+                        type="checkbox"
+                        checked={isDefault}
+                        onChange={() => handleToggleReusableCartonDefault(spot)}
+                        disabled={!isEnabled}
+                        className="h-4 w-4 text-lime-600 border-gray-300 rounded disabled:opacity-50"
+                      />
+                      <span>מסומן כברירת מחדל</span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
         {/* Save Button */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-600">
               <span className="font-medium text-purple-700">{delayedCount}</span> נקודות יעברו לתשלום מושהה,{' '}
-              <span className="font-medium text-green-700">{regularCount}</span> ישארו בתשלום רגיל
+              <span className="font-medium text-green-700">{regularCount}</span> ישארו בתשלום רגיל,{' '}
+              <span className="font-medium text-emerald-700">{reusableCartonCount}</span> יקבלו אפשרות לקרטונים בשימוש חוזר
             </div>
             <button
               onClick={handleSave}

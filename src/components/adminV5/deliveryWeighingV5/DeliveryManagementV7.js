@@ -206,6 +206,9 @@ const TR = {
     cloudValue: 'ערך בענן',
     conflictLine: 'שורה',
     conflictStatus: 'סטטוס',
+    reusableCartonBadge: 'קרטון חוזר',
+    reusableCartonBannerTitle: 'הלקוח ביקש קרטוני חקלאים בשימוש חוזר',
+    reusableCartonBannerBody: 'ארזו את ההזמנה בקרטוני חקלאים נקיים ובמצב טוב, אם קיימים בעמדת האריזה.',
   },
   th: {
     title: 'จัดการจัดส่ง V7',
@@ -314,6 +317,9 @@ const TR = {
     cloudValue: 'ค่าในคลาวด์',
     conflictLine: 'บรรทัด',
     conflictStatus: 'สถานะ',
+    reusableCartonBadge: 'กล่องใช้ซ้ำ',
+    reusableCartonBannerTitle: 'ลูกค้าขอกล่องเกษตรกรใช้ซ้ำ',
+    reusableCartonBannerBody: 'แพ็กออเดอร์นี้ในกล่องเกษตรกรที่สะอาดและสภาพดี ถ้ามีพร้อมใช้งานที่จุดแพ็ก',
   },
 };
 
@@ -2393,6 +2399,7 @@ export default function DeliveryManagementV7() {
                   const isDone = effectiveStatus === 'completed';
                   const claim = claimsByOrder[o.id];
                   const takenByOther = claim && claim.sessionId !== session.sessionId && !isClaimStaleV7(claim);
+                  const wantsReusableCartons = o?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true;
                   return (
                     <button
                       key={o.id}
@@ -2419,6 +2426,12 @@ export default function DeliveryManagementV7() {
                           <div className={`text-[11px] truncate ${isDone ? 'text-green-600' : isActive ? 'text-blue-700' : 'text-gray-500'}`}>
                             {o.customerDetails?.pickupSpot || o.pickupSpot || ''} {o.customerDetails?.phone ? `• ${o.customerDetails.phone}` : ''}
                           </div>
+                          {wantsReusableCartons && (
+                            <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black text-white shadow">
+                              <span>🌱</span>
+                              <span>{t.reusableCartonBadge}</span>
+                            </div>
+                          )}
                           {claim && (
                             <div className={`text-[10px] truncate mt-1 ${takenByOther ? 'text-red-600' : 'text-violet-600'}`}>
                               {t.claimedBy}: {claim.stationId}
@@ -2510,6 +2523,24 @@ export default function DeliveryManagementV7() {
                   {claimedByOther && (
                     <div className="mt-3 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-bold">
                       {t.busyElsewhere}
+                    </div>
+                  )}
+
+                  {selectedOrder.customerDetails?.packagingPreference?.useReusableFarmerCartons === true && (
+                    <div className="mt-3 rounded-2xl border-4 border-emerald-500 bg-emerald-50 p-4 shadow-lg">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-emerald-600 text-2xl shadow text-white">
+                          🌱
+                        </div>
+                        <div>
+                          <div className="text-xl font-black text-emerald-950">
+                            {t.reusableCartonBannerTitle}
+                          </div>
+                          <div className="mt-1 text-sm font-bold text-emerald-800">
+                            {t.reusableCartonBannerBody}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 

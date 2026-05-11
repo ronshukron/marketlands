@@ -13,7 +13,7 @@ import { pickupSpots, pickupSpotsData } from '../../data/pickupSpots';
 import { createDelayedPaymentCheckout, DELAYED_PAYMENT_GATEWAYS } from '../../services/delayedPaymentGatewayService';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
-import { isDelayedPaymentSpot } from '../../services/paymentConfigService';
+import { getReusableCartonConfig, isDelayedPaymentSpot } from '../../services/paymentConfigService';
 import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../utils/pricing';
 
 // Catalog numbers for shipping line items
@@ -63,6 +63,12 @@ const OrderConfirmationDelayed = () => {
     const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
         return localStorage.getItem('selectedPickupSpot') || '';
     });
+    const [reusableCartonConfig, setReusableCartonConfig] = useState({
+        enabledSpots: [],
+        defaultSelectedSpots: [],
+    });
+    const [useReusableFarmerCartons, setUseReusableFarmerCartons] = useState(false);
+    const [showReusableCartonInfo, setShowReusableCartonInfo] = useState(false);
     const { userLoggedIn, currentUser } = useAuth();
 
     // Get pickup spots from the order
@@ -73,6 +79,7 @@ const OrderConfirmationDelayed = () => {
     
     // Get the selected pickup spot's data
     const selectedSpotData = selectedPickupSpot ? pickupSpotsData[selectedPickupSpot] : null;
+    const reusableCartonAvailable = selectedPickupSpot && reusableCartonConfig.enabledSpots.includes(selectedPickupSpot);
 
     const [deliveryOption, setDeliveryOption] = useState(() => {
         // If selectedSpotData exists and has homeDelivery option, default to it
@@ -117,6 +124,30 @@ const OrderConfirmationDelayed = () => {
         }
         setTotalWithDelivery(newTotal);
     }, [deliveryOption, selectedSpotData, cartTotal]);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadReusableCartonConfig = async () => {
+            const config = await getReusableCartonConfig();
+            if (!isMounted) return;
+            setReusableCartonConfig(config);
+        };
+
+        loadReusableCartonConfig();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        const isAvailable = selectedPickupSpot && reusableCartonConfig.enabledSpots.includes(selectedPickupSpot);
+        const isDefaultSelected = selectedPickupSpot && reusableCartonConfig.defaultSelectedSpots.includes(selectedPickupSpot);
+
+        setUseReusableFarmerCartons(Boolean(isAvailable && isDefaultSelected));
+        setShowReusableCartonInfo(false);
+    }, [selectedPickupSpot, reusableCartonConfig]);
 
     // Ensure shipping product is in cart when homeDelivery is selected; remove otherwise
     useEffect(() => {
@@ -554,6 +585,10 @@ const OrderConfirmationDelayed = () => {
                     boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
                     // Avoid writing undefined if selectedSpotData is missing.
                     deliveryFee: deliveryOption === 'homeDelivery' ? (Number(selectedSpotData?.deliveryFee) || 0) : 0,
+                },
+                packagingPreference: {
+                    useReusableFarmerCartons: Boolean(reusableCartonAvailable && useReusableFarmerCartons),
+                    type: reusableCartonAvailable && useReusableFarmerCartons ? 'reusable_farmer_cartons' : 'new_carton'
                 }
             },
             businessIds: businessIds,
@@ -790,7 +825,11 @@ const OrderConfirmationDelayed = () => {
                     deliveryDetails: {
                         type: deliveryOption,
                         boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                    deliveryFee: deliveryOption === 'homeDelivery' ? (Number(selectedSpotData?.deliveryFee) || 0) : 0,
+                        deliveryFee: deliveryOption === 'homeDelivery' ? (Number(selectedSpotData?.deliveryFee) || 0) : 0,
+                    },
+                    packagingPreference: {
+                        useReusableFarmerCartons: Boolean(reusableCartonAvailable && useReusableFarmerCartons),
+                        type: reusableCartonAvailable && useReusableFarmerCartons ? 'reusable_farmer_cartons' : 'new_carton'
                     }
                 },
                 businessIds: businessIds,
@@ -1125,6 +1164,39 @@ const OrderConfirmationDelayed = () => {
                                             </button>
                                         )}
                                     </div>
+                                </div>
+                            )}
+
+                            {reusableCartonAvailable && (
+                                <div className="form-group md:col-span-2">
+                                    <div className="flex items-center justify-start">
+                                        <div className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-2">
+                                            <input
+                                                id="useReusableFarmerCartons"
+                                                type="checkbox"
+                                                checked={useReusableFarmerCartons}
+                                                onChange={(e) => setUseReusableFarmerCartons(e.target.checked)}
+                                                className="h-4 w-4 text-emerald-700 focus:ring-emerald-500 border-emerald-300 rounded ml-2"
+                                            />
+                                            <label htmlFor="useReusableFarmerCartons" className="cursor-pointer whitespace-nowrap text-base font-bold text-emerald-900">
+                                                🌱 אני רוצה קרטון ממוחזר
+                                            </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowReusableCartonInfo(prev => !prev)}
+                                                className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-emerald-500 text-xs font-bold text-emerald-700 bg-white hover:bg-emerald-100"
+                                                aria-expanded={showReusableCartonInfo}
+                                                aria-label="מידע נוסף על קרטונים בשימוש חוזר"
+                                            >
+                                                i
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {showReusableCartonInfo && (
+                                        <div className="mx-auto mt-2 max-w-md rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-center text-xs sm:text-sm text-emerald-900">
+                                            נשתמש בקרטונים חקלאים שהתוצרת הגיעה איתם מהחקלאים, במידה ויש כדי לחסוך קרטון חדש.
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             

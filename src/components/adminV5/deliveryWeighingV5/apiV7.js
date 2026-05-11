@@ -120,6 +120,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
       email: data.customerDetails?.email || '',
       pickupSpot: data.customerDetails?.pickupSpot || 'Unknown',
       deliveryDetails: data.customerDetails?.deliveryDetails || {},
+      packagingPreference: data.customerDetails?.packagingPreference || {},
     },
     delayedMeta: {
       isDelayed: data.isDelayedOrder === true || data.delayedOrder === true,
