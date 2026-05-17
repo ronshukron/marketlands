@@ -88,7 +88,7 @@ import CommunityHub from './components/communityHub/CommunityHub';
 import CommunityDiscountConfig from './components/admin/CommunityDiscountConfig';
 import CommunityHubAdmin from './components/admin/CommunityHubAdmin';
 import DeliveryScheduleAdmin from './components/admin/DeliveryScheduleAdmin';
-import WeeklyDeliveryOrderSummary from './components/admin/WeeklyDeliveryOrderSummary';
+import WeeklyDeliveryOrderSummary from './components/admin/WeeklyDeliveryOrderSummaryWorkspace';
 
 const App = () => {
   return (

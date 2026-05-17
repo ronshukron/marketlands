@@ -4,11 +4,11 @@ Use this document as the next implementation prompt. The goal is to implement th
 
 ## Goal
 
-Add a new grocery-store side of the website where products are always visible and orderable as long as their product quantity/stock is greater than zero. Customers must select their community and then select an available delivery date for that community.
+Add a new grocery-store side of the website where products are always visible and orderable as long as their product quantity/stock is greater than zero. Customers must select their community and then select an available delivery date for that community, this happens in the @odercomnfimation page before that a user can be at all category in home page.
 
-Admins/business users must be able to keep creating the classic limited-time order forms, but also choose a new always-on grocery order form in `src/components/businesses/CreateOrderForBusiness.js`.
+Admins/business (this new addtion is all for isIndependent = false business) users must be able to keep creating the classic limited-time order forms, but also choose a new always-on grocery order form in `src/components/businesses/CreateOrderForBusiness.js`.
 
-Admin reports equivalent to `src/components/admin/WeeklyOrderSummaryV3.js` and supplier ordering should work by delivery week/community, not by the week the order was created.
+Admin reports equivalent to `src/components/admin/WeeklyOrderSummaryV3.js` and supplier ordering should work by delivery week/community, not by the week the order was created, for communities can have a few deliveris a week or none so we should be ablle to pick a delevry that of a week and a community and see all their orders.
 
 ## Important Existing Code
 
@@ -16,7 +16,7 @@ Admin reports equivalent to `src/components/admin/WeeklyOrderSummaryV3.js` and s
 - Product card and stock controls: `src/components/category-store/ProductCard.js`
 - Cart context: `src/contexts/CartContext.js`
 - Delayed checkout: `src/components/delayedPayment/OrderConfirmationDelayed.js`
-- Classic business order creation: `src/components/businesses/CreateOrderForBusiness.js`
+- Classic business order creation: `src/components/businesses/CreateOrderForBusiness.js` 
 - Weekly admin summary: `src/components/admin/WeeklyOrderSummaryV3.js`
 - Supplier ordering summary: `src/components/admin/WeeklyOrderFromSuppliersV1.js`
 - Delivery/weighing APIs: `src/components/adminV5/deliveryWeighingV5/api.js` and possibly `apiV7.js`
@@ -153,7 +153,7 @@ Update `src/components/businesses/CreateOrderForBusiness.js`.
 Add a top-level choice:
 
 - Classic limited order
-- Always-on grocery store
+- Always-on grocery store (only for IsIndependent == false business)
 
 Implementation detail:
 
@@ -178,7 +178,7 @@ Current behavior loads active `Orders` only when one-time/recurring timing is ac
 - If `orderData.orderMode === 'always_on_grocery'` or `orderData.alwaysOn === true` or `orderData.groceryStore === true`, treat the order as active.
 - Keep product visibility controlled by `productData.stockAmount > 0`.
 - Keep community filtering: products only show for selected community if the always-on order includes that community in `pickupSpots`.
-- For always-on products, do not show an order countdown. Show something like `זמין להזמנה` or no timing text.
+- For always-on products, do  show an order countdown. the count down is until the cutoff so calculate it correctly.
 
 Do not break classic one-time/recurring orders.
 
@@ -205,7 +205,10 @@ UI:
 
 - Add a delivery date selector near pickup/delivery details.
 - Only show dates that are available and not past cutoff.
+- default to first next available date.
 - Hebrew labels are fine, but keep the stored value as `yyyy-MM-dd`.
+- make sure it an easy to pick date ui. the user will be able to click the correct date.
+
 
 Validation:
 
@@ -260,6 +263,8 @@ Keep this simple. It can be a plain form/table.
 ## Weekly Summary Equivalent
 
 Update `src/components/admin/WeeklyOrderSummaryV3.js` or create a new equivalent page such as:
+
+add a new page dont update V3.
 
 `src/components/admin/WeeklyDeliveryOrderSummary.js`
 

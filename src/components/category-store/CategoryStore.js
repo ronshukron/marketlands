@@ -11,6 +11,37 @@ import { pickupSpots } from '../../data/pickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled } from '../../utils/deliveryScheduleUtils';
 
+const PRODUCT_QUERY_CHUNK_SIZE = 10;
+const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'אחר'];
+
+const getCategoryStoreSortRank = (product) => {
+  if (product.businessName === 'הבסקט של בסטה') return 2;
+  if (product.isFarmerOrder === true) return 0;
+  return 1;
+};
+
+const sortCategoryStoreProducts = (a, b) => {
+  const rankDiff = getCategoryStoreSortRank(a) - getCategoryStoreSortRank(b);
+  if (rankDiff !== 0) return rankDiff;
+  return (a.sortIndex ?? 0) - (b.sortIndex ?? 0);
+};
+
+const calculateCategoryCounts = (products) => {
+  const counts = {};
+  products.forEach(product => {
+    const cat = product.category || 'אחר';
+    counts[cat] = (counts[cat] || 0) + 1;
+  });
+  counts['הכל'] = products.length;
+  return counts;
+};
+
+const getAdjustedSlideIndex = (index) => {
+  const maxIndex = STORE_CATEGORIES.length - 1;
+  if (index >= maxIndex) return Math.max(maxIndex - 1, 0);
+  return index;
+};
+
 const CategoryStore = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,6 +58,7 @@ const CategoryStore = () => {
   const sliderRef = useRef(null);
   const storeTopRef = useRef(null);
   const communityDropdownRef = useRef(null);
+  const fetchProductsRequestIdRef = useRef(0);
   const [isCommunityOpen, setIsCommunityOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState('');
   const [deliverySchedule, setDeliverySchedule] = useState(null);
@@ -34,8 +66,6 @@ const CategoryStore = () => {
   const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
   const [, setTimeTick] = useState(0);
   
-  const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'אחר'];
-
   useEffect(() => {
     fetchCategorizedProducts();
   }, []);
@@ -58,7 +88,7 @@ const CategoryStore = () => {
     }
     
     // Update slider position when category changes
-    const categoryIndex = categories.indexOf(cat);
+    const categoryIndex = STORE_CATEGORIES.indexOf(cat);
     if (sliderRef.current && categoryIndex !== -1) {
       // Use setTimeout to ensure slider is fully initialized
       setTimeout(() => {
@@ -84,7 +114,7 @@ const CategoryStore = () => {
   // Ensure slider is positioned correctly on mount
   useEffect(() => {
     if (sliderRef.current && selectedCategory) {
-      const categoryIndex = categories.indexOf(selectedCategory);
+      const categoryIndex = STORE_CATEGORIES.indexOf(selectedCategory);
       if (categoryIndex !== -1) {
         setTimeout(() => {
           if (sliderRef.current) {
@@ -94,7 +124,7 @@ const CategoryStore = () => {
         }, 200);
       }
     }
-  }, [sliderRef.current]);
+  }, [selectedCategory]);
   
   const handleCategoryChange = (category) => {
     const params = new URLSearchParams(location.search);
@@ -175,7 +205,14 @@ const CategoryStore = () => {
   }, []);
 
   const fetchCategorizedProducts = async () => {
+    const requestId = fetchProductsRequestIdRef.current + 1;
+    fetchProductsRequestIdRef.current = requestId;
+    const isCurrentRequest = () => fetchProductsRequestIdRef.current === requestId;
+
     setLoading(true);
+    setProducts([]);
+    setCategoryCounts({});
+
     try {
       const currentTime = new Date();
       const adjustedCurrentTime = new Date(currentTime.getTime() + 60 * 60 * 1000); // Add 1 hour
@@ -263,17 +300,20 @@ const CategoryStore = () => {
         }
       });
 
-      // Fetch all products in parallel
-      const productPromises = [];
-      const productMetadata = []; // Track which order each promise belongs to
+      if (!isCurrentRequest()) return;
+
+      // Fetch product chunks in the same order used by the UI sort, publishing each
+      // completed chunk so the grid can render before every product query finishes.
+      const productJobs = [];
+      let nextSortIndex = 0;
       
       activeOrders.forEach(order => {
-        if (businessMap[order.data.businessId]) {
+        const businessData = businessMap[order.data.businessId];
+        if (businessData) {
           const selectedProductIds = order.data.selectedProducts || [];
           if (selectedProductIds.length > 0) {
-            const chunkSize = 10;
-            for (let i = 0; i < selectedProductIds.length; i += chunkSize) {
-              const chunk = selectedProductIds.slice(i, i + chunkSize);
+            for (let i = 0; i < selectedProductIds.length; i += PRODUCT_QUERY_CHUNK_SIZE) {
+              const chunk = selectedProductIds.slice(i, i + PRODUCT_QUERY_CHUNK_SIZE);
               
               const productsQuery = query(
                 collection(db, 'Products'),
@@ -281,8 +321,14 @@ const CategoryStore = () => {
                 where('__name__', 'in', chunk)
               );
               
-              productPromises.push(getDocs(productsQuery));
-              productMetadata.push({
+              const sortIndex = nextSortIndex++;
+              productJobs.push({
+                productsQuery,
+                sortRank: getCategoryStoreSortRank({
+                  businessName: businessData.businessName,
+                  isFarmerOrder: order.data.isFarmerOrder || false
+                }),
+                sortIndex,
                 orderId: order.id,
                 orderData: order.data,
                 orderType: order.orderType,
@@ -291,7 +337,7 @@ const CategoryStore = () => {
                 groceryStore: order.data.groceryStore === true,
                 endingTime: order.endingTime,
                 endingTimeByPickupSpot: order.endingTimeByPickupSpot || {},
-                businessData: businessMap[order.data.businessId],
+                businessData,
                 pickupSpots: Array.isArray(order.data.pickupSpots) ? order.data.pickupSpots : []
               });
             }
@@ -299,19 +345,23 @@ const CategoryStore = () => {
         }
       });
 
-      // Wait for all product queries to complete
-      const productSnapshots = await Promise.all(productPromises);
-      
-      // Process all products
       const allProducts = [];
-      productSnapshots.forEach((productsSnapshot, index) => {
-        const metadata = productMetadata[index];
+
+      productJobs.sort((a, b) => {
+        if (a.sortRank !== b.sortRank) return a.sortRank - b.sortRank;
+        return a.sortIndex - b.sortIndex;
+      });
+
+      for (const metadata of productJobs) {
+        const productsSnapshot = await getDocs(metadata.productsQuery);
+        if (!isCurrentRequest()) return;
         
-        productsSnapshot.docs.forEach(productDoc => {
+        const batchProducts = [];
+        productsSnapshot.docs.forEach((productDoc, productIndex) => {
           const productData = productDoc.data();
           
           if (productData.stockAmount > 0) {
-            allProducts.push({
+            batchProducts.push({
               // Product fields
               id: productDoc.id,
               name: productData.name,
@@ -351,48 +401,33 @@ const CategoryStore = () => {
               // For cart compatibility
               selectedOption: productData.options && productData.options.length > 0 ? productData.options[0] : "",
               quantity: 0,
-              uid: `${productDoc.id}_${Math.random().toString(36).substr(2, 9)}`
+              uid: `${productDoc.id}_${metadata.orderId}`,
+              sortIndex: (metadata.sortIndex * PRODUCT_QUERY_CHUNK_SIZE) + productIndex
             });
           }
         });
-      });
 
-      // Sort products: Farmers first, then other businesses, "הבסקט של בסטה" last
-      allProducts.sort((a, b) => {
-        const isBastaA = a.businessName === 'הבסקט של בסטה';
-        const isBastaB = b.businessName === 'הבסקט של בסטה';
-        const isFarmerA = a.isFarmerOrder === true;
-        const isFarmerB = b.isFarmerOrder === true;
-        
-        // If one is Basta and the other is not, non-Basta comes first
-        if (isBastaA && !isBastaB) return 1;
-        if (!isBastaA && isBastaB) return -1;
-        
-        // If both are not Basta, prioritize farmers
-        if (!isBastaA && !isBastaB) {
-          if (isFarmerA && !isFarmerB) return -1;
-          if (!isFarmerA && isFarmerB) return 1;
+        if (batchProducts.length > 0) {
+          allProducts.push(...batchProducts);
+          allProducts.sort(sortCategoryStoreProducts);
+          setProducts([...allProducts]);
+          setCategoryCounts(calculateCategoryCounts(allProducts));
         }
-        
-        // Otherwise maintain original order
-        return 0;
-      });
+      }
 
-      setProducts(allProducts);
-      
-      // Calculate category counts
-      const counts = {};
-      allProducts.forEach(product => {
-        const cat = product.category || 'אחר';
-        counts[cat] = (counts[cat] || 0) + 1;
-      });
-      counts['הכל'] = allProducts.length;
-      setCategoryCounts(counts);
+      if (isCurrentRequest()) {
+        setProducts([...allProducts]);
+        setCategoryCounts(calculateCategoryCounts(allProducts));
+      }
       
     } catch (error) {
-      console.error('Error fetching categorized products:', error);
+      if (isCurrentRequest()) {
+        console.error('Error fetching categorized products:', error);
+      }
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) {
+        setLoading(false);
+      }
     }
   };
 
@@ -549,18 +584,12 @@ const CategoryStore = () => {
 
   // Do not early-return on loading; show search/carousel immediately and spinner below
 
-  const currentCategoryIndex = categories.indexOf(selectedCategory);
+  const currentCategoryIndex = STORE_CATEGORIES.indexOf(selectedCategory);
 
   // Adjust the slide index so edges behave nicely with 3 visible slides
   // - Index 0 can be centered when infinite=true
   // - Last index cannot be centered; use second-to-last so the last is visible on the right
   // - Second-to-last can be centered and shows the last on the right
-  const getAdjustedSlideIndex = (index) => {
-    const maxIndex = categories.length - 1;
-    if (index >= maxIndex) return Math.max(maxIndex - 1, 0);
-    return index;
-  };
-  
   const sliderSettings = {
     dots: false,
     infinite: true,
@@ -686,7 +715,7 @@ const CategoryStore = () => {
         {!isSearchActive && (
           <div className="my-6 category-carousel-container md:hidden">
             <Slider ref={sliderRef} {...sliderSettings}>
-              {categories.map((category) => {
+              {STORE_CATEGORIES.map((category) => {
                 const isActive = category === selectedCategory;
                 const categoryIcon = {
                   'הכל': '🛒',
@@ -702,7 +731,7 @@ const CategoryStore = () => {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        const categoryIndex = categories.indexOf(category);
+                        const categoryIndex = STORE_CATEGORIES.indexOf(category);
                         if (sliderRef.current && categoryIndex !== -1) {
                           const targetIndex = getAdjustedSlideIndex(categoryIndex);
                           sliderRef.current.slickGoTo(targetIndex);
@@ -735,14 +764,6 @@ const CategoryStore = () => {
           </div>
         )}
 
-        {/* Loading state below the carousel, above the grid */}
-        {loading && (
-          <div className="text-center py-6">
-            <LoadingSpinner />
-            <p className="mt-2 text-gray-600 text-sm">טוען מוצרים...</p>
-          </div>
-        )}
-
         {/* Show search results header when searching */}
         {isSearchActive && (
           <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -757,12 +778,20 @@ const CategoryStore = () => {
           </div>
         )}
         
-        {!loading && (
+        {(displayProducts.length > 0 || !loading) && (
           <ProductGrid 
             products={displayProducts} 
             calculateTimeRemaining={calculateTimeRemaining}
             selectedCommunity={selectedCommunity}
           />
+        )}
+
+        {/* Keep loaded products visible while the remaining batches continue loading. */}
+        {loading && (
+          <div className="text-center py-6">
+            <LoadingSpinner />
+            <p className="mt-2 text-gray-600 text-sm">טוען מוצרים...</p>
+          </div>
         )}
       </div>
     </div>

@@ -5,6 +5,20 @@ import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext';
 
+const CATEGORY_CARD_IMAGE_LIMIT = 1;
+
+const ProductImage = ({ src, alt, className, width, height }) => (
+  <img
+    src={src}
+    alt={alt}
+    className={className}
+    loading="lazy"
+    decoding="async"
+    width={width}
+    height={height}
+  />
+);
+
 const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => {
   // Get measurement type and unit size from product (defaults: kg, 1)
   // measurementType: 'kg' | 'unit' | 'package'
@@ -22,7 +36,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
 
   // For kg items, quantity is in kg (e.g., 0.5); for unit/package items it's count (e.g., 1)
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
-  const [selectedOption, setSelectedOption] = useState(
+  const [selectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
   );
   const { addItem, cartItems } = useCart();
@@ -32,6 +46,11 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       .filter(item => item.id === product.id)
       .reduce((sum, item) => sum + item.quantity, 0);
   }, [cartItems, product.id]);
+
+  const cardImages = useMemo(
+    () => (Array.isArray(product.images) ? product.images.filter(Boolean).slice(0, CATEGORY_CARD_IMAGE_LIMIT) : []),
+    [product.images]
+  );
 
   // Format quantity for display
   const formatQuantity = (qty) => {
@@ -153,7 +172,8 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     infinite: true,
     speed: 500,
     slidesToShow: 1,
-    slidesToScroll: 1
+    slidesToScroll: 1,
+    lazyLoad: 'ondemand'
   };
 
   const isOutOfStock = product.stockAmount <= 0;
@@ -164,16 +184,18 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       <div className="hidden md:flex md:flex-col">
         {/* Product Image Section - Desktop */}
         <div className="relative h-56 w-full flex-shrink-0">
-          {product.images && product.images.length > 0 ? (
-            product.images.length > 1 ? (
+          {cardImages.length > 0 ? (
+            cardImages.length > 1 ? (
               <div className="h-full">
                 <Slider {...sliderSettings} className="h-full">
-                  {product.images.map((image, index) => (
+                  {cardImages.map((image, index) => (
                     <div key={index} className="h-56">
-                      <img
+                      <ProductImage
                         src={image}
                         alt={`תמונה ${index + 1} של ${product.name}`}
                         className="w-full h-full object-cover"
+                        width="320"
+                        height="224"
                       />
                     </div>
                   ))}
@@ -181,10 +203,12 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               </div>
             ) : (
               <div className="h-full">
-                <img 
-                  src={product.images[0]} 
+                <ProductImage 
+                  src={cardImages[0]} 
                   alt={product.name}
                   className="w-full h-full object-cover" 
+                  width="320"
+                  height="224"
                 />
               </div>
             )
@@ -291,16 +315,18 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       <div className="md:hidden flex border-b">
         {/* Product Image Section - Mobile */}
         <div className="relative h-28 w-28 flex-shrink-0 border-l">
-          {product.images && product.images.length > 0 ? (
-            product.images.length > 1 ? (
+          {cardImages.length > 0 ? (
+            cardImages.length > 1 ? (
               <div className="h-full">
                 <Slider {...sliderSettings} className="h-full">
-                  {product.images.map((image, index) => (
+                  {cardImages.map((image, index) => (
                     <div key={index} className="h-32">
-                      <img
+                      <ProductImage
                         src={image}
                         alt={`תמונה ${index + 1} של ${product.name}`}
                         className="w-full h-full object-contain"
+                        width="112"
+                        height="112"
                       />
                     </div>
                   ))}
@@ -308,10 +334,12 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               </div>
             ) : (
               <div className="h-full">
-                <img 
-                  src={product.images[0]} 
+                <ProductImage 
+                  src={cardImages[0]} 
                   alt={product.name}
                   className="w-full h-full object-contain" 
+                  width="112"
+                  height="112"
                 />
               </div>
             )

@@ -176,6 +176,10 @@ const SearchBar = ({ products, onSearchResults, setSearchActive }) => {
                         src={product.images[0]} 
                         alt={product.name}
                         className="w-12 h-12 object-cover rounded-md border border-gray-200"
+                        loading="lazy"
+                        decoding="async"
+                        width="48"
+                        height="48"
                       />
                     ) : (
                       <div className="w-12 h-12 bg-gray-100 rounded-md flex items-center justify-center">
