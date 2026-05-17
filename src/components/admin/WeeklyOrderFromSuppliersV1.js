@@ -7,6 +7,7 @@ import LoadingSpinner from '../LoadingSpinner';
 import { format } from 'date-fns';
 import { pickupSpots } from '../../data/pickupSpots';
 import { getEstimatedLineTotal } from '../../utils/pricing';
+import { getOrderCommunity, getOrderDeliveryDate, getWeekKey } from '../../utils/deliveryScheduleUtils';
 
 const WeeklyOrderFromSuppliersV1 = () => {
   const { currentUser } = useAuth();
@@ -115,19 +116,8 @@ const WeeklyOrderFromSuppliersV1 = () => {
       
       delayedSnapshot.docs.forEach(doc => {
         const orderData = doc.data();
-        const createdAt = orderData.createdAt;
-        let createdDate;
-        if (typeof createdAt === 'string') {
-          createdDate = new Date(createdAt);
-        } else if (createdAt && createdAt.toDate) {
-          createdDate = createdAt.toDate();
-        } else {
-          return;
-        }
-        const sunday = new Date(createdDate);
-        sunday.setDate(createdDate.getDate() - createdDate.getDay());
-        sunday.setHours(0, 0, 0, 0);
-        weeksSet.add(sunday.toISOString().split('T')[0]);
+        const weekKey = getWeekKey(getOrderDeliveryDate(orderData));
+        if (weekKey) weeksSet.add(weekKey);
       });
       
       const sortedWeeks = Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));
@@ -161,9 +151,6 @@ const WeeklyOrderFromSuppliersV1 = () => {
       t.setDate(t.getDate() + 1);
       setOrderMessageDate(t.toISOString().split('T')[0]);
       
-      const startDateISO = sunday.toISOString();
-      const endDateISO = friday.toISOString();
-      
       const ordersRef = collection(db, 'customerOrders');
       const delayedOrdersRef = collection(db, 'customerOrdersDelayed');
       const [ordersSnapshot, delayedSnapshot] = await Promise.all([
@@ -195,20 +182,11 @@ const WeeklyOrderFromSuppliersV1 = () => {
           if (isCompleted) return;
         }
         
-        const createdAt = orderData.createdAt;
-        let createdDate;
-        if (typeof createdAt === 'string') {
-          createdDate = new Date(createdAt);
-        } else if (createdAt && createdAt.toDate) {
-          createdDate = createdAt.toDate();
-        } else {
-          return;
-        }
+        const deliveryDate = getOrderDeliveryDate(orderData);
+        if (!deliveryDate) return;
+        if (deliveryDate < sunday || deliveryDate > friday) return;
         
-        const createdDateISO = createdDate.toISOString();
-        if (createdDateISO < startDateISO || createdDateISO > endDateISO) return;
-        
-        const pickupSpot = orderData.customerDetails?.pickupSpot || 'לא צוין';
+        const pickupSpot = getOrderCommunity(orderData);
         if (selectedCommunities.size > 0 && !selectedCommunities.has(pickupSpot)) return;
         
         matchedOrderCount++;

@@ -1,8 +1,8 @@
 import axios from 'axios';
 import { getAuth } from 'firebase/auth';
-import { functionsEndpoint } from '../../../utils/functionsClient';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
+import { getOrderCommunity, getOrderDeliveryDate } from '../../../utils/deliveryScheduleUtils';
 
 async function getIdTokenIfAvailable() {
   try {
@@ -12,24 +12,6 @@ async function getIdTokenIfAvailable() {
   } catch (e) {
     return null;
   }
-}
-
-function toDateSafe(v) {
-  if (!v) return null;
-  if (typeof v === 'string') {
-    const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  if (v?.toDate && typeof v.toDate === 'function') {
-    try {
-      const d = v.toDate();
-      return d && !Number.isNaN(d.getTime()) ? d : null;
-    } catch (e) {
-      return null;
-    }
-  }
-  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
-  return null;
 }
 
 function weekWindowFromKey(weekKey) {
@@ -93,11 +75,11 @@ export async function fetchDelayedOrdersFromCustomerOrders({
     if (!isDelayed) return;
     if (d.paymentStatus !== 'held') return;
     if (d.delayedOrderStatus !== 'pending_weighing') return;
-    const createdAt = toDateSafe(d.createdAt) || toDateSafe(d.createdAtIso) || toDateSafe(d.updatedAt);
-    if (!createdAt) return;
-    if (createdAt < window.start || createdAt > window.end) return;
+    const deliveryDate = getOrderDeliveryDate(d);
+    if (!deliveryDate) return;
+    if (deliveryDate < window.start || deliveryDate > window.end) return;
 
-    const pickupSpot = d.customerDetails?.pickupSpot || 'לא צוין';
+    const pickupSpot = getOrderCommunity(d);
     if (hasCommunityFilter && !allowedCommunities.includes(pickupSpot)) return;
 
     const rawItems = d.items && Array.isArray(d.items) ? d.items : flattenOrderBreakdown(d.orderBreakdown);
@@ -142,7 +124,7 @@ export async function fetchDelayedOrdersFromCustomerOrders({
       },
       suspendedPaymentRef: d.delayedPayment || d.suspendedPayment || null,
       items,
-      createdAtIso: createdAt.toISOString(),
+      createdAtIso: deliveryDate.toISOString(),
     });
   });
 
@@ -188,11 +170,11 @@ export async function fetchCompletedOrdersForWeek({
       || payStatus === 'charged' || payStatus === 'completed' || payStatus === 'settled';
     if (!isCompleted) return;
 
-    const createdAt = toDateSafe(d.createdAt) || toDateSafe(d.createdAtIso) || toDateSafe(d.updatedAt);
-    if (!createdAt) return;
-    if (createdAt < window.start || createdAt > window.end) return;
+    const deliveryDate = getOrderDeliveryDate(d);
+    if (!deliveryDate) return;
+    if (deliveryDate < window.start || deliveryDate > window.end) return;
 
-    const pickupSpot = d.customerDetails?.pickupSpot || 'לא צוין';
+    const pickupSpot = getOrderCommunity(d);
     if (hasCommunityFilter && !allowedCommunities.includes(pickupSpot)) return;
 
     const rawItems = d.items && Array.isArray(d.items) ? d.items : flattenOrderBreakdown(d.orderBreakdown);
@@ -236,7 +218,7 @@ export async function fetchCompletedOrdersForWeek({
         delayedOrderStatus: status,
       },
       items,
-      createdAtIso: createdAt.toISOString(),
+      createdAtIso: deliveryDate.toISOString(),
     });
   });
 

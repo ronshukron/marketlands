@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { doc, updateDoc, getDoc, setDoc, collection, addDoc, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
@@ -15,6 +15,12 @@ import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
 import { getReusableCartonConfig, isDelayedPaymentSpot } from '../../services/paymentConfigService';
 import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../utils/pricing';
+import {
+    generateAvailableDeliveryDates,
+    getWeekKey,
+    isDeliveryDateOrderable,
+    isAlwaysOnGroceryOrder,
+} from '../../utils/deliveryScheduleUtils';
 
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
@@ -76,6 +82,12 @@ const OrderConfirmationDelayed = () => {
 
     // Add a new state to track which pickup spots are available for each business order
     const [businessPickupSpots, setBusinessPickupSpots] = useState({});
+    const [cartOrderMeta, setCartOrderMeta] = useState({});
+    const [deliverySchedule, setDeliverySchedule] = useState(null);
+    const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
+    const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
+    const [deliveryDateError, setDeliveryDateError] = useState('');
+    const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some((orderData) => isAlwaysOnGroceryOrder(orderData));
     
     // Get the selected pickup spot's data
     const selectedSpotData = selectedPickupSpot ? pickupSpotsData[selectedPickupSpot] : null;
@@ -114,6 +126,43 @@ const OrderConfirmationDelayed = () => {
 
     // Add this near your other state declarations
     const [totalWithDelivery, setTotalWithDelivery] = useState(cartTotal);
+
+    const isOrderUnavailableForSelectedDate = useCallback((orderId) => {
+        const orderData = cartOrderMeta[orderId];
+        if (!orderData || !isAlwaysOnGroceryOrder(orderData)) return false;
+        if (!deliverySchedule || !selectedDeliveryDate || !selectedPickupSpot) return false;
+        return !isDeliveryDateOrderable(selectedDeliveryDate, deliverySchedule, new Date(), orderData, selectedPickupSpot);
+    }, [cartOrderMeta, deliverySchedule, selectedDeliveryDate, selectedPickupSpot]);
+    const cutoffCartItems = useMemo(() => {
+        const items = [];
+        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            if (!isOrderUnavailableForSelectedDate(orderId)) return;
+            const businessName = orderData.items[0]?.businessName || 'Unknown Business';
+            orderData.items
+                .filter((item) => !item.isShipping)
+                .forEach((item) => items.push({ ...item, orderId, businessName }));
+        });
+        return items;
+    }, [itemsByOrder, isOrderUnavailableForSelectedDate]);
+    const effectiveItemsByOrder = useMemo(() => {
+        const next = {};
+        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            if (isOrderUnavailableForSelectedDate(orderId)) return;
+            const items = orderData.items || [];
+            if (items.length === 0) return;
+            next[orderId] = {
+                ...orderData,
+                items,
+                total: items.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0),
+            };
+        });
+        return next;
+    }, [itemsByOrder, isOrderUnavailableForSelectedDate]);
+    const cutoffCartTotal = useMemo(
+        () => cutoffCartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0),
+        [cutoffCartItems]
+    );
+    const effectiveTotalWithDelivery = Math.max(0, totalWithDelivery - cutoffCartTotal);
 
     // Add this useEffect to update the total when delivery option changes
     useEffect(() => {
@@ -242,6 +291,7 @@ const OrderConfirmationDelayed = () => {
         const collectPickupSpots = async () => {
             const orderSpots = new Set();
             const businessSpots = {};
+            const orderMeta = {};
             
             // Fetch pickup spots for each order
             for (const orderId of orderIds) {
@@ -249,6 +299,7 @@ const OrderConfirmationDelayed = () => {
                     const orderDocRef = await getDoc(doc(db, "Orders", orderId));
                     if (orderDocRef.exists()) {
                         const orderData = orderDocRef.data();
+                        orderMeta[orderId] = orderData;
                         
                         // Save pickup spots for this business order
                         if (orderData.pickupSpots && orderData.pickupSpots.length > 0) {
@@ -263,6 +314,7 @@ const OrderConfirmationDelayed = () => {
             
             // Save the mapping of business orders to their available pickup spots
             setBusinessPickupSpots(businessSpots);
+            setCartOrderMeta(orderMeta);
             
             // Convert Set to Array
             setAvailablePickupSpots(Array.from(orderSpots));
@@ -286,6 +338,68 @@ const OrderConfirmationDelayed = () => {
         }
     }, [selectedPickupSpot]);
 
+    useEffect(() => {
+        const loadDeliverySchedule = async () => {
+            setDeliveryDateError('');
+
+            if (!cartHasAlwaysOnGrocery) {
+                setDeliverySchedule(null);
+                setAvailableDeliveryDates([]);
+                setSelectedDeliveryDate('');
+                return;
+            }
+
+            if (!selectedPickupSpot || selectedPickupSpot === 'הכל') {
+                setDeliverySchedule(null);
+                setAvailableDeliveryDates([]);
+                setSelectedDeliveryDate('');
+                setDeliveryDateError('יש לבחור קהילה כדי לבחור תאריך משלוח.');
+                return;
+            }
+
+            try {
+                const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', selectedPickupSpot));
+                if (!scheduleSnap.exists()) {
+                    setDeliverySchedule(null);
+                    setAvailableDeliveryDates([]);
+                    setSelectedDeliveryDate('');
+                    setDeliveryDateError('לא הוגדר לוח משלוחים לקהילה זו. יש לפנות למנהל המערכת.');
+                    return;
+                }
+
+                const scheduleData = scheduleSnap.data();
+                setDeliverySchedule(scheduleData);
+                const scheduleDates = generateAvailableDeliveryDates(scheduleData);
+                const currentWeekKey = getWeekKey(new Date());
+                const currentWeekDates = scheduleDates.filter((dateKey) => getWeekKey(dateKey) === currentWeekKey);
+                const nextVisibleWeekKey = currentWeekDates.length > 0 ? currentWeekKey : getWeekKey(scheduleDates[0]);
+                const dates = scheduleDates.filter((dateKey) => getWeekKey(dateKey) === nextVisibleWeekKey);
+
+                setAvailableDeliveryDates(dates);
+                if (dates.length === 0) {
+                    setSelectedDeliveryDate('');
+                    setDeliveryDateError('אין תאריכי משלוח זמינים לקהילה זו כרגע.');
+                    return;
+                }
+
+                setSelectedDeliveryDate((current) => {
+                    const stored = localStorage.getItem(`selectedDeliveryDate:${selectedPickupSpot}`);
+                    if (dates.includes(current)) return current;
+                    if (stored && dates.includes(stored)) return stored;
+                    return dates[0];
+                });
+            } catch (error) {
+                console.error('Error loading delivery schedule:', error);
+                setDeliverySchedule(null);
+                setAvailableDeliveryDates([]);
+                setSelectedDeliveryDate('');
+                setDeliveryDateError('טעינת לוח המשלוחים נכשלה. נסו שוב מאוחר יותר.');
+            }
+        };
+
+        loadDeliverySchedule();
+    }, [cartHasAlwaysOnGrocery, selectedPickupSpot, cartOrderMeta]);
+
     // Save userName and userPhone to localStorage whenever they change
     useEffect(() => {
         if (userName.trim() !== '') {
@@ -306,9 +420,16 @@ const OrderConfirmationDelayed = () => {
                         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
                         (!requestAddress || userAddress.trim() !== '') &&
                         (deliveryOption !== 'homeDelivery' || userAddress.trim() !== '') &&
-                        (availablePickupSpots.length === 0 || (selectedPickupSpot && selectedPickupSpot !== 'הכל')); 
+                        (availablePickupSpots.length === 0 || (selectedPickupSpot && selectedPickupSpot !== 'הכל')) &&
+                        (!cartHasAlwaysOnGrocery || (selectedDeliveryDate && !deliveryDateError)); 
         setFormIsValid(isValid);
-    }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots, deliveryOption]);
+    }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots, deliveryOption, cartHasAlwaysOnGrocery, selectedDeliveryDate, deliveryDateError]);
+
+    useEffect(() => {
+        if (selectedPickupSpot && selectedDeliveryDate) {
+            localStorage.setItem(`selectedDeliveryDate:${selectedPickupSpot}`, selectedDeliveryDate);
+        }
+    }, [selectedPickupSpot, selectedDeliveryDate]);
 
     useEffect(() => {
         // Check if any order requires an address
@@ -407,6 +528,32 @@ const OrderConfirmationDelayed = () => {
         return true;
     };
 
+    const validateDeliveryDateSelection = () => {
+        if (!cartHasAlwaysOnGrocery) return true;
+
+        if (deliveryDateError || !selectedDeliveryDate) {
+            Swal.fire({
+                icon: 'error',
+                title: 'נא לבחור תאריך משלוח',
+                text: deliveryDateError || 'יש לבחור תאריך משלוח זמין עבור מוצרי החנות הקבועה.',
+                confirmButtonText: 'הבנתי'
+            });
+            return false;
+        }
+
+        if (Object.keys(effectiveItemsByOrder).length === 0) {
+            Swal.fire({
+                icon: 'error',
+                title: 'אין פריטים זמינים לתאריך הזה',
+                text: 'כל הפריטים בעגלה עברו את זמן החיתוך לתאריך המשלוח שנבחר. בחרו תאריך אחר או חזרו לחנות.',
+                confirmButtonText: 'הבנתי'
+            });
+            return false;
+        }
+
+        return true;
+    };
+
     // Add this useEffect after the existing useEffects
     useEffect(() => {
         const checkExpiredOrders = async () => {
@@ -489,8 +636,12 @@ const OrderConfirmationDelayed = () => {
             return;
         }
 
+        if (!validateDeliveryDateSelection()) {
+            return;
+        }
+
         // Check if any order doesn't meet minimum order amount
-        const invalidOrders = Object.entries(itemsByOrder).filter(([orderId, orderData]) => {
+        const invalidOrders = Object.entries(effectiveItemsByOrder).filter(([orderId, orderData]) => {
             return orderData.total < orderData.minimumOrderAmount;
         });
 
@@ -510,7 +661,7 @@ const OrderConfirmationDelayed = () => {
         }
 
         // Check if any order has ended
-        for (const [orderId, orderData] of Object.entries(itemsByOrder)) {
+        for (const [orderId, orderData] of Object.entries(effectiveItemsByOrder)) {
             const orderHasEnded = await checkIfOrderEnded(orderId);
             if (orderHasEnded) {
                 const businessName = orderData.items[0]?.businessName || "Unknown Business";
@@ -532,7 +683,7 @@ const OrderConfirmationDelayed = () => {
         const orderBreakdown = {};
         const businessIds = [];
         // Process each order in the cart
-        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+        Object.entries(effectiveItemsByOrder).forEach(([orderId, orderData]) => {
             const orderItems = [];
             
             // Process each item in this order
@@ -566,7 +717,12 @@ const OrderConfirmationDelayed = () => {
                 businessId: orderData.businessId,
                 businessName: businessName,
                 subTotal: orderData.total,
-                items: orderItems
+                items: orderItems,
+                ...(cartHasAlwaysOnGrocery ? {
+                    deliveryDate: selectedDeliveryDate,
+                    deliveryWeekKey: getWeekKey(selectedDeliveryDate),
+                    community: selectedPickupSpot
+                } : {})
             };
         });
 
@@ -593,9 +749,21 @@ const OrderConfirmationDelayed = () => {
             },
             businessIds: businessIds,
             createdAt: new Date().toISOString(),
+            ...(cartHasAlwaysOnGrocery ? {
+                fulfillment: {
+                    community: selectedPickupSpot,
+                    deliveryDate: selectedDeliveryDate,
+                    deliveryWeekKey: getWeekKey(selectedDeliveryDate),
+                    scheduleSource: 'deliverySchedules',
+                    selectedAt: new Date().toISOString()
+                },
+                deliveryDate: selectedDeliveryDate,
+                deliveryWeekKey: getWeekKey(selectedDeliveryDate),
+                community: selectedPickupSpot
+            } : {}),
             paymentStatus: 'pending_payment',
             paymentMethod: 'grow_delayed',
-            grandTotal: totalWithDelivery,
+            grandTotal: effectiveTotalWithDelivery,
             // Delayed-order fields (safe client-side fields)
             isDelayedOrder: true,
             delayedOrderStatus: 'created_in_fe', // later: you will refine statuses
@@ -604,14 +772,14 @@ const OrderConfirmationDelayed = () => {
                 status: 'created',
                 checkoutFlow: 'dynamic_frontend_gateway',
                 holdBufferPercent: HOLD_BUFFER_PERCENT,
-                holdSum: Math.round(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100
+                holdSum: Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100
             },
             // If user is logged in, store their ID
             userId: currentUser?.uid || null
         }, { merge: true });
 
         // Update the original orders with the actual document ID
-        await updateOrdersWithReference(Object.keys(itemsByOrder), customerOrderId);
+        await updateOrdersWithReference(Object.keys(effectiveItemsByOrder), customerOrderId);
 
         // Add the order to the user's document
         if (currentUser && currentUser.uid) {
@@ -626,13 +794,13 @@ const OrderConfirmationDelayed = () => {
         }
 
         // Get all orderIds instead of just the first one
-        const orderIds = Object.keys(itemsByOrder);
+        const orderIds = Object.keys(effectiveItemsByOrder);
 
         try {
             // Call backend to create Grow (J5) payment process.
             // Backend MUST be the one calling Grow.
             // Hold extra buffer so final weighing can exceed estimate.
-            const holdAmount = Math.round(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100;
+            const holdAmount = Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100;
 
             const paymentData = {
                 mode: 'weekly_delayed',
@@ -646,13 +814,14 @@ const OrderConfirmationDelayed = () => {
                 customerOrderId,
                 orderIds,
                 pickupSpot: selectedPickupSpot,
-                deliveryOption
+                deliveryOption,
+                ...(cartHasAlwaysOnGrocery ? { deliveryDate: selectedDeliveryDate } : {})
             };
 
             // Add product data for each item in the cart (invoice context)
             let productIndex = 0;
             let productLinesSum = 0;
-            Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            Object.entries(effectiveItemsByOrder).forEach(([orderId, orderData]) => {
                 orderData.items.forEach(item => {
                     if (item.quantity > 0) {
                         const linePrice = getEstimatedLineTotal(item);
@@ -711,6 +880,9 @@ const OrderConfirmationDelayed = () => {
     
             if (docSnap.exists()) {
                 const orderData = docSnap.data();
+                if (isAlwaysOnGroceryOrder(orderData)) {
+                    return false;
+                }
                 // Use per-pickup-spot ending time if available
                 const spotToCheck = pickupSpot || selectedPickupSpot;
                 const endingTime = getEndingTimeForSpot(orderData, spotToCheck);
@@ -740,7 +912,7 @@ const OrderConfirmationDelayed = () => {
             setLoading(true);
             
             // Check and update stock levels first
-            const filteredForStock = Object.entries(itemsByOrder).reduce((acc, [oid, data]) => {
+            const filteredForStock = Object.entries(effectiveItemsByOrder).reduce((acc, [oid, data]) => {
                 acc[oid] = {
                     ...data,
                     items: data.items.filter(i => i.id !== SHIPPING_PRODUCT_ID && !i.isShipping)
@@ -770,13 +942,13 @@ const OrderConfirmationDelayed = () => {
             }
             
             // Continue with order processing...
-            const orderIds = Object.keys(itemsByOrder);
+            const orderIds = Object.keys(effectiveItemsByOrder);
             const customerOrderId = `temp_${new Date().getTime()}`;
             
             const orderBreakdown = {};
             const businessIds = [];
             // Process each order in the cart
-            Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            Object.entries(effectiveItemsByOrder).forEach(([orderId, orderData]) => {
                 const orderItems = [];
                 
                 // Process each item in this order
@@ -807,7 +979,12 @@ const OrderConfirmationDelayed = () => {
                     businessId: orderData.businessId,
                     businessName: businessName,
                     subTotal: orderData.total,
-                    items: orderItems
+                    items: orderItems,
+                    ...(cartHasAlwaysOnGrocery ? {
+                        deliveryDate: selectedDeliveryDate,
+                        deliveryWeekKey: getWeekKey(selectedDeliveryDate),
+                        community: selectedPickupSpot
+                    } : {})
                 };              
             });
 
@@ -834,9 +1011,21 @@ const OrderConfirmationDelayed = () => {
                 },
                 businessIds: businessIds,
                 createdAt: new Date().toISOString(),
+                ...(cartHasAlwaysOnGrocery ? {
+                    fulfillment: {
+                        community: selectedPickupSpot,
+                        deliveryDate: selectedDeliveryDate,
+                        deliveryWeekKey: getWeekKey(selectedDeliveryDate),
+                        scheduleSource: 'deliverySchedules',
+                        selectedAt: new Date().toISOString()
+                    },
+                    deliveryDate: selectedDeliveryDate,
+                    deliveryWeekKey: getWeekKey(selectedDeliveryDate),
+                    community: selectedPickupSpot
+                } : {}),
                 paymentStatus: 'completed',
                 paymentMethod: 'free',
-                grandTotal: totalWithDelivery,
+                grandTotal: effectiveTotalWithDelivery,
                 // If user is logged in, store their ID
                 userId: currentUser?.uid || null
             };
@@ -879,7 +1068,7 @@ const OrderConfirmationDelayed = () => {
                         orderDetails: {
                             customerName: userName,
                             totalAmount: 0,
-                            items: Object.values(itemsByOrder).reduce((total, order) => 
+                            items: Object.values(effectiveItemsByOrder).reduce((total, order) => 
                                 total + order.items.length, 0)
                         }
                     } 
@@ -934,11 +1123,15 @@ const OrderConfirmationDelayed = () => {
             return;
         }
 
+        if (!validateDeliveryDateSelection()) {
+            return;
+        }
+
         try {
             setLoading(true);
             
             // Check stock before proceeding to payment
-            const filteredForStock = Object.entries(itemsByOrder).reduce((acc, [oid, data]) => {
+            const filteredForStock = Object.entries(effectiveItemsByOrder).reduce((acc, [oid, data]) => {
                 acc[oid] = {
                     ...data,
                     items: data.items.filter(i => i.id !== SHIPPING_PRODUCT_ID && !i.isShipping)
@@ -968,7 +1161,7 @@ const OrderConfirmationDelayed = () => {
             }
             
             // Check if the entire payable amount is 0 (considering shipping as well)
-            if (totalWithDelivery === 0) {
+            if (effectiveTotalWithDelivery === 0) {
                 handleFreeOrder();
                 return;
             }
@@ -1110,6 +1303,70 @@ const OrderConfirmationDelayed = () => {
                                             </option>
                                         ))}
                                     </select>
+                                </div>
+                            )}
+
+                            {cartHasAlwaysOnGrocery && (
+                                <div className="form-group md:col-span-2 bg-green-50 rounded-lg p-3 border border-green-200">
+                                    <h3 className="text-base font-semibold text-green-900 mb-1">
+                                        בחירת תאריך משלוח
+                                    </h3>
+                                    <p className="text-xs text-green-800 mb-2">
+                                        {availableDeliveryDates.length > 0
+                                            ? `${deliverySchedule?.communityName || selectedPickupSpot}: ${getWeekKey(availableDeliveryDates[0]) === getWeekKey(new Date()) ? 'תאריכים זמינים השבוע' : 'אין תאריכים זמינים השבוע - מציגים את השבוע הבא'}`
+                                            : (deliverySchedule?.communityName || selectedPickupSpot
+                                                ? `בחרו תאריך משלוח זמין עבור ${deliverySchedule?.communityName || selectedPickupSpot}`
+                                                : 'בחרו קהילה כדי לראות תאריכי משלוח זמינים')}
+                                    </p>
+
+                                    {deliveryDateError && (
+                                        <div className="mb-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                                            {deliveryDateError}
+                                        </div>
+                                    )}
+
+                                    {availableDeliveryDates.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {availableDeliveryDates.map((dateKey) => {
+                                                const date = new Date(`${dateKey}T00:00:00`);
+                                                const label = date.toLocaleDateString('he-IL', {
+                                                    weekday: 'short',
+                                                    day: '2-digit',
+                                                    month: '2-digit'
+                                                });
+                                                const isSelected = selectedDeliveryDate === dateKey;
+                                                return (
+                                                    <button
+                                                        key={dateKey}
+                                                        type="button"
+                                                        onClick={() => setSelectedDeliveryDate(dateKey)}
+                                                        className={`rounded-md border px-3 py-2 text-center text-sm transition-all ${
+                                                            isSelected
+                                                                ? 'border-green-700 bg-green-600 text-white shadow-sm'
+                                                                : 'border-green-200 bg-white text-green-900 hover:border-green-500'
+                                                        }`}
+                                                    >
+                                                        <span className="font-semibold">{label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {cutoffCartItems.length > 0 && (
+                                        <div className="mt-3 rounded-md border border-yellow-200 bg-yellow-50 p-2 text-xs text-yellow-800">
+                                            <p className="font-semibold mb-1">
+                                                הפריטים הבאים עברו את זמן החיתוך לתאריך הזה ולא יהיו חלק מההזמנה:
+                                            </p>
+                                            <ul className="list-disc list-inside space-y-0.5">
+                                                {cutoffCartItems.map((item, index) => (
+                                                    <li key={`${item.orderId}-${item.uid || item.id}-${index}`}>
+                                                        {item.name || item.productName} ({item.businessName})
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             
@@ -1256,11 +1513,11 @@ const OrderConfirmationDelayed = () => {
                     <div className="mb-6 bg-gradient-to-r from-purple-50 to-purple-100 p-4 sm:p-6 rounded-lg border-2 border-purple-200">
                         <div className="flex items-baseline justify-between gap-3">
                             <span className="text-lg sm:text-2xl font-bold text-gray-900">סה"כ הזמנה:</span>
-                            <span className="text-xl sm:text-3xl font-bold text-purple-700 whitespace-nowrap">{totalWithDelivery.toFixed(2)}₪</span>
+                            <span className="text-xl sm:text-3xl font-bold text-purple-700 whitespace-nowrap">{effectiveTotalWithDelivery.toFixed(2)}₪</span>
                         </div>
                         <div className="flex items-baseline justify-between gap-3 mt-2">
                             <span className="text-sm sm:text-base text-gray-700">מסגרת אשראי (כולל {HOLD_BUFFER_PERCENT}% מרווח):</span>
-                            <span className="text-base sm:text-lg font-semibold text-gray-700 whitespace-nowrap">{(totalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100)).toFixed(2)}₪</span>
+                            <span className="text-base sm:text-lg font-semibold text-gray-700 whitespace-nowrap">{(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100)).toFixed(2)}₪</span>
                         </div>
                         <p className="text-xs sm:text-sm text-gray-600 mt-2">
                             נחזיק מסגרת גבוהה יותר למקרה שהמשקל הסופי יעלה על ההערכה. החיוב בפועל יהיה לפי השקילה ביום המשלוח.
@@ -1287,7 +1544,7 @@ const OrderConfirmationDelayed = () => {
                             disabled={!agreeToTerms || !formIsValid}
                             className="w-full bg-purple-700 hover:bg-purple-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-3 sm:py-4 px-4 sm:px-6 rounded-lg text-base sm:text-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-purple-300 shadow-lg"
                         >
-                            {totalWithDelivery === 0
+                            {effectiveTotalWithDelivery === 0
                                 ? 'אישור הזמנה'
                                 : "לתשלום"}
                         </button>

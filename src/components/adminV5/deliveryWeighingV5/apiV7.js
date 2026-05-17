@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
 import { functionsEndpoint } from '../../../utils/functionsClient';
+import { getOrderCommunity, getOrderDeliveryDate, getWeekKey } from '../../../utils/deliveryScheduleUtils';
 import {
   ensureLineIdsInBreakdown,
   flattenOrderBreakdown,
@@ -27,24 +28,6 @@ async function getIdTokenIfAvailable() {
   } catch (error) {
     return null;
   }
-}
-
-function toDateSafe(value) {
-  if (!value) return null;
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  if (value?.toDate && typeof value.toDate === 'function') {
-    try {
-      const parsed = value.toDate();
-      return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
-    } catch (error) {
-      return null;
-    }
-  }
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  return null;
 }
 
 function weekWindowFromKey(weekKey) {
@@ -113,12 +96,12 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     id: docSnap.id,
     source: 'customerOrdersDelayed',
     weekKey,
-    pickupSpot: data.customerDetails?.pickupSpot || 'Unknown',
+    pickupSpot: getOrderCommunity(data),
     customerDetails: {
       name: data.customerDetails?.name || 'Customer',
       phone: data.customerDetails?.phone || '',
       email: data.customerDetails?.email || '',
-      pickupSpot: data.customerDetails?.pickupSpot || 'Unknown',
+      pickupSpot: getOrderCommunity(data),
       deliveryDetails: data.customerDetails?.deliveryDetails || {},
       packagingPreference: data.customerDetails?.packagingPreference || {},
     },
@@ -127,12 +110,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
       paymentStatus: data.paymentStatus || '',
       delayedOrderStatus: data.delayedOrderStatus || '',
     },
-    createdAtIso: (
-      toDateSafe(data.createdAt)
-      || toDateSafe(data.createdAtIso)
-      || toDateSafe(data.updatedAt)
-      || new Date()
-    ).toISOString(),
+    createdAtIso: (getOrderDeliveryDate(data) || new Date()).toISOString(),
     status: 'pending',
     suspendedPaymentRef: data.delayedPayment || data.suspendedPayment || null,
     orderBreakdown: canonicalBreakdown,
@@ -157,11 +135,11 @@ function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = 
     const isDelayed = data.isDelayedOrder === true || data.delayedOrder === true;
     if (!isDelayed) return;
 
-    const createdAt = toDateSafe(data.createdAt) || toDateSafe(data.createdAtIso) || toDateSafe(data.updatedAt);
-    if (!createdAt) return;
-    if (createdAt < window.start || createdAt > window.end) return;
+    const deliveryDate = getOrderDeliveryDate(data);
+    if (!deliveryDate) return;
+    if (deliveryDate < window.start || deliveryDate > window.end) return;
 
-    const pickupSpot = data.customerDetails?.pickupSpot || 'Unknown';
+    const pickupSpot = getOrderCommunity(data);
     if (hasCommunityFilter && !allowedCommunities.includes(pickupSpot)) return;
 
     const normalized = normalizeDelayedOrder(docSnap, weekKey);
@@ -200,19 +178,13 @@ function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = 
 }
 
 export async function fetchAvailableDeliveryWeeksV7() {
-  const snapshot = await getDocs(collection(db, 'Orders'));
+  const snapshot = await getDocs(collection(db, 'customerOrdersDelayed'));
   const weeksSet = new Set();
 
   snapshot.forEach((docSnap) => {
     const data = docSnap.data() || {};
-    const endingTime = data.Ending_Time || data.endingTime;
-    if (!endingTime) return;
-    const endDate = endingTime?.toDate ? endingTime.toDate() : new Date(endingTime);
-    if (!endDate || Number.isNaN(endDate.getTime())) return;
-    const sunday = new Date(endDate);
-    sunday.setDate(endDate.getDate() - endDate.getDay());
-    sunday.setHours(0, 0, 0, 0);
-    weeksSet.add(sunday.toISOString().split('T')[0]);
+    const weekKey = getWeekKey(getOrderDeliveryDate(data));
+    if (weekKey) weeksSet.add(weekKey);
   });
 
   return Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));

@@ -3,6 +3,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
 import { getEstimatedLineTotal } from '../utils/pricing';
+import { isAlwaysOnGroceryOrder } from '../utils/deliveryScheduleUtils';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -77,6 +78,9 @@ export const CartProvider = ({ children }) => {
 
           if (orderSnap.exists()) {
             const orderData = orderSnap.data();
+            if (isAlwaysOnGroceryOrder(orderData)) {
+              continue;
+            }
             const pickupSpots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];
             
             // Check if order has per-pickup-spot ending times

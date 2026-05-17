@@ -65,6 +65,18 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'לוחות משלוחים לקהילות',
+    description: 'הגדרת ימי משלוח, תאריכים חריגים וזמני חיתוך לחנות הקבועה',
+    to: '/admin/delivery-schedules',
+    featured: true
+  },
+  {
+    title: 'סיכום לפי שבוע משלוח',
+    description: 'צפייה בהזמנות לפי תאריך/שבוע משלוח וקהילה, כולל נתוני עבר',
+    to: '/admin/weekly-delivery-summary',
+    featured: true
+  },
+  {
     title: 'ניהול משלוחים V2',
     description: 'ניהול משלוחים עם בחירת שבוע וקהילות',
     to: '/admin/delivery-v2',

@@ -34,6 +34,7 @@ import AddProduct from './components/businesses/AddProduct';
 import EditProduct from './components/businesses/EditProduct';
 import BulkEditProducts from './components/businesses/BulkEditProducts';
 import CreateOrderForBusiness from './components/businesses/CreateOrderForBusiness';
+import AlwaysOnCutoffSettings from './components/businesses/AlwaysOnCutoffSettings';
 import OrderFormBusiness from './components/businesses/OrderFormBusiness';
 import BusinessOrderSummary from './components/businesses/BusinessOrderSummary';
 import OrderConfirmationFree from './components/businesses/OrderConfirmationFree';
@@ -86,6 +87,8 @@ import PaymentConfigAdmin from './components/admin/PaymentConfigAdmin';
 import CommunityHub from './components/communityHub/CommunityHub';
 import CommunityDiscountConfig from './components/admin/CommunityDiscountConfig';
 import CommunityHubAdmin from './components/admin/CommunityHubAdmin';
+import DeliveryScheduleAdmin from './components/admin/DeliveryScheduleAdmin';
+import WeeklyDeliveryOrderSummary from './components/admin/WeeklyDeliveryOrderSummary';
 
 const App = () => {
   return (
@@ -131,6 +134,7 @@ const App = () => {
                   <Route path="/edit-product/:productId" element={<EditProduct />} />
                   <Route path="/bulk-edit-products" element={<BulkEditProducts />} />
                   <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
+                  <Route path="/business/always-on-cutoffs" element={<AlwaysOnCutoffSettings />} />
                   <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
                   <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
                   <Route path="/order-confirmation-free" element={<OrderConfirmationFree />} />
@@ -148,6 +152,7 @@ const App = () => {
                   <Route path="/admin/weekly-summary-v2" element={<WeeklyOrderSummaryV2 />} />
                   <Route path="/admin/weekly-summary-v3" element={<WeeklyOrderSummaryV3 />} />
                   <Route path="/admin/weekly-summary-v4" element={<WeeklyOrderSummaryV4 />} />
+                  <Route path="/admin/weekly-delivery-summary" element={<WeeklyDeliveryOrderSummary />} />
                   <Route path="/admin/weekly-customer-orders" element={<WeeklyCustomerOrderManager />} />
                   <Route path="/admin/order-from-suppliers" element={<WeeklyOrderFromSuppliersV1 />} />
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
@@ -157,6 +162,7 @@ const App = () => {
                   <Route path="/admin/delivery-v5" element={<DeliveryManagementV5 />} />
                   <Route path="/admin/delivery-v6" element={<DeliveryManagementV6 />} />
                   <Route path="/admin/delivery-v7" element={<DeliveryManagementV7 />} />
+                  <Route path="/admin/delivery-schedules" element={<DeliveryScheduleAdmin />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
                   <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
                   <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />

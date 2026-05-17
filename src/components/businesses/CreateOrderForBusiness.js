@@ -37,6 +37,7 @@ const CreateOrderForBusiness = () => {
   const { currentUser } = useAuth();
   const [orderName, setOrderName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [orderMode, setOrderMode] = useState('classic');
   const [orderType, setOrderType] = useState('one_time'); // 'one_time' or 'recurring'
   const [imageFile, setImageFile] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('commission'); // 'commission' or 'free'
@@ -65,6 +66,7 @@ const CreateOrderForBusiness = () => {
   const [selectedPickupSpots, setSelectedPickupSpots] = useState([]);
   // Per-pickup-spot ending times: { 'spotName': Date }
   const [endingTimeByPickupSpot, setEndingTimeByPickupSpot] = useState({});
+  const isAlwaysOnGrocery = orderMode === 'always_on_grocery';
 
   useEffect(() => {
     if (!selectedProducts || selectedProducts.length === 0) {
@@ -142,8 +144,8 @@ const CreateOrderForBusiness = () => {
   const handleCreateOrder = async () => {
     if (loading) return;
 
-    // Validate dates first
-    if (!validateDates()) {
+    // Validate dates first for classic limited-time orders only.
+    if (!isAlwaysOnGrocery && !validateDates()) {
       // Scroll to the date error
       const dateElement = document.getElementById('shippingDateStart');
       if (dateElement) {
@@ -162,7 +164,7 @@ const CreateOrderForBusiness = () => {
     }
 
     // Validate that all selected pickup spots have ending times
-    if (orderType === 'one_time' && selectedPickupSpots.length > 0) {
+    if (!isAlwaysOnGrocery && orderType === 'one_time' && selectedPickupSpots.length > 0) {
       const spotsWithoutEndingTime = selectedPickupSpots.filter(
         (spot) => !endingTimeByPickupSpot[spot]
       );
@@ -176,8 +178,8 @@ const CreateOrderForBusiness = () => {
       }
     }
 
-    // Validate that at least one pickup spot is selected for one_time orders
-    if (orderType === 'one_time' && selectedPickupSpots.length === 0) {
+    // Always-on grocery also needs at least one community/pickup spot for storefront filtering.
+    if (selectedPickupSpots.length === 0) {
       Swal.fire({
         icon: 'error',
         title: 'שגיאה',
@@ -186,7 +188,7 @@ const CreateOrderForBusiness = () => {
       return;
     }
 
-    if (orderType === 'recurring') {
+    if (!isAlwaysOnGrocery && orderType === 'recurring') {
       const hasActiveSchedule = schedule.some(
         (day) => day.active && day.startTime && day.endTime
       );
@@ -259,7 +261,7 @@ const CreateOrderForBusiness = () => {
 
     // For backward compatibility, compute a single endingTime as the latest of all per-spot times
     let endingTime = null;
-    if (orderType === 'one_time' && selectedPickupSpots.length > 0) {
+    if (!isAlwaysOnGrocery && orderType === 'one_time' && selectedPickupSpots.length > 0) {
       const allEndingTimes = selectedPickupSpots
         .map((spot) => endingTimeByPickupSpot[spot])
         .filter((t) => t instanceof Date && !isNaN(t.getTime()));
@@ -313,15 +315,13 @@ const CreateOrderForBusiness = () => {
         }
       });
 
-      // Create the order document with additional fields
-      const orderData = {
+      const commonOrderData = {
         businessEmail: currentUser.email,
         businessId: currentUser.uid,
         orderName,
         selectedProducts,
         Order_Time: currentTime,
-        endingTime: endingTime || null, // Legacy field for backward compatibility
-        endingTimeByPickupSpot: endingTimeByPickupSpotForDb, // New per-spot ending times
+        createdAt: currentTime,
         businessName,
         communityName,
         businessKind,
@@ -332,18 +332,39 @@ const CreateOrderForBusiness = () => {
         payboxLink: payboxLink,
         phoneNumber: bitPhoneNumber, // Add the phone number to the order data
         requestAddress,
-        schedule: orderType === 'recurring' ? schedule : [],
-        orderType, // Include order type
         isFarmerOrder: isFarmerOrder,
         areas: isFarmerOrder ? selectedAreas : [],
         minimumOrderAmount: minimumOrderAmount ? parseFloat(minimumOrderAmount) : 0,
         description,
-        shippingDateRange: {
-          start: shippingDateStart,
-          end: shippingDateEnd
-        },
         pickupSpots: selectedPickupSpots,
       };
+
+      // Create the order document with additional fields
+      const orderData = isAlwaysOnGrocery
+        ? {
+          ...commonOrderData,
+          orderMode: 'always_on_grocery',
+          orderType: 'always_on_grocery',
+          alwaysOn: true,
+          groceryStore: true,
+          schedule: [],
+          fulfillmentConfig: {
+            type: 'community_delivery_schedule',
+            allowCustomerDateSelection: true
+          }
+        }
+        : {
+          ...commonOrderData,
+          orderMode: 'classic',
+          endingTime: endingTime || null, // Legacy field for backward compatibility
+          endingTimeByPickupSpot: endingTimeByPickupSpotForDb, // New per-spot ending times
+          schedule: orderType === 'recurring' ? schedule : [],
+          orderType, // Include order type
+          shippingDateRange: {
+            start: shippingDateStart,
+            end: shippingDateEnd
+          },
+        };
 
       const docRef = await addDoc(collection(db, 'Orders'), orderData);
 
@@ -383,6 +404,36 @@ const CreateOrderForBusiness = () => {
       
       {/* Main Form Container */}
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
+        <div className="space-y-3">
+          <p className="text-sm font-medium text-gray-700">סוג מודעה</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className={`border rounded-lg p-4 cursor-pointer transition-colors ${orderMode === 'classic' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'}`}>
+              <input
+                type="radio"
+                name="orderMode"
+                value="classic"
+                checked={orderMode === 'classic'}
+                onChange={(e) => setOrderMode(e.target.value)}
+                className="ml-2"
+              />
+              <span className="font-medium">הזמנה מוגבלת בזמן</span>
+              <p className="text-xs text-gray-500 mt-1">המודעה הקלאסית עם זמני סיום וטווח משלוח.</p>
+            </label>
+            <label className={`border rounded-lg p-4 cursor-pointer transition-colors ${isAlwaysOnGrocery ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white'}`}>
+              <input
+                type="radio"
+                name="orderMode"
+                value="always_on_grocery"
+                checked={isAlwaysOnGrocery}
+                onChange={(e) => setOrderMode(e.target.value)}
+                className="ml-2"
+              />
+              <span className="font-medium">חנות מכולת קבועה</span>
+              <p className="text-xs text-gray-500 mt-1">המוצרים זמינים כל עוד יש מלאי, והלקוח בוחר תאריך משלוח בקופה.</p>
+            </label>
+          </div>
+        </div>
+
         {/* Order Name */}
         <div className="space-y-2">
           <label htmlFor="orderName" className="block text-sm font-medium text-gray-700">
@@ -428,7 +479,7 @@ const CreateOrderForBusiness = () => {
         </div> */}
 
         {/* Per-Pickup-Spot Ending Time Selection for One-time Orders */}
-        {orderType === 'one_time' && selectedPickupSpots.length > 0 && (
+        {!isAlwaysOnGrocery && orderType === 'one_time' && selectedPickupSpots.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium text-gray-700">
@@ -472,7 +523,7 @@ const CreateOrderForBusiness = () => {
         )}
 
         {/* Message when no pickup spots selected */}
-        {orderType === 'one_time' && selectedPickupSpots.length === 0 && (
+        {!isAlwaysOnGrocery && orderType === 'one_time' && selectedPickupSpots.length === 0 && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <p className="text-sm text-yellow-800">
               בחרו נקודות איסוף כדי להגדיר זמני סיום הזמנות
@@ -481,7 +532,7 @@ const CreateOrderForBusiness = () => {
         )}
 
         {/* Schedule Selection for Recurring Orders */}
-        {orderType === 'recurring' && (
+        {!isAlwaysOnGrocery && orderType === 'recurring' && (
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-gray-700">
               בחרו את הימים והשעות שבהם ההזמנה תהיה פעילה: <span className="text-red-500">*</span>
@@ -765,6 +816,7 @@ const CreateOrderForBusiness = () => {
         </div>
 
         {/* Shipping Date Range */}
+        {!isAlwaysOnGrocery && (
         <div className="mb-6">
           <label className="block text-gray-700 mb-2">
             טווח תאריכים למשלוח <span className="text-red-500">*</span>
@@ -810,6 +862,13 @@ const CreateOrderForBusiness = () => {
             טווח התאריכים בו המוצרים יסופקו ללקוחות
           </p>
         </div>
+        )}
+
+        {isAlwaysOnGrocery && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-900">
+            חנות קבועה לא דורשת זמן סיום או טווח משלוח. זמינות התאריכים תנוהל לפי לוחות המשלוחים לקהילות.
+          </div>
+        )}
 
 
         {/* Submit Button */}
@@ -818,7 +877,7 @@ const CreateOrderForBusiness = () => {
           disabled={loading}
           className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'יוצר מודעה...' : 'צור מודעה'}
+          {loading ? 'יוצר מודעה...' : (isAlwaysOnGrocery ? 'צור חנות קבועה' : 'צור מודעה')}
         </button>
       </div>
     </div>

@@ -126,6 +126,12 @@ const BusinessDashBoard = () => {
       >
         המוצרים שלי
       </button>
+      <button
+        className="mb-6 md:mr-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg w-full md:w-auto"
+        onClick={() => navigate('/business/always-on-cutoffs')}
+      >
+        זמני חיתוך לחנות קבועה
+      </button>
 
       {orders.length === 0 ? (
         <div className="text-center py-8 px-4 bg-gray-50 rounded-lg shadow">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { collection, query, getDocs, doc, getDoc, where } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
@@ -9,6 +9,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Slider from 'react-slick';
 import { pickupSpots } from '../../data/pickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
+import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled } from '../../utils/deliveryScheduleUtils';
 
 const CategoryStore = () => {
   const [products, setProducts] = useState([]);
@@ -28,6 +29,10 @@ const CategoryStore = () => {
   const communityDropdownRef = useRef(null);
   const [isCommunityOpen, setIsCommunityOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState('');
+  const [deliverySchedule, setDeliverySchedule] = useState(null);
+  const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
+  const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
+  const [, setTimeTick] = useState(0);
   
   const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'אחר'];
 
@@ -125,6 +130,50 @@ const CategoryStore = () => {
     }
   }, [selectedCommunity]);
 
+  useEffect(() => {
+    const loadDeliverySchedule = async () => {
+      if (!selectedCommunity) {
+        setDeliverySchedule(null);
+        return;
+      }
+      try {
+        const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', selectedCommunity));
+        const scheduleData = scheduleSnap.exists() ? scheduleSnap.data() : null;
+        setDeliverySchedule(scheduleData);
+        const dates = scheduleData ? generateAvailableDeliveryDates(scheduleData) : [];
+        const currentWeekKey = getWeekKey(new Date());
+        const currentWeekDates = dates.filter((dateKey) => getWeekKey(dateKey) === currentWeekKey);
+        const visibleWeekKey = currentWeekDates.length > 0 ? currentWeekKey : getWeekKey(dates[0]);
+        const visibleDates = dates.filter((dateKey) => getWeekKey(dateKey) === visibleWeekKey);
+        setAvailableDeliveryDates(visibleDates);
+        setSelectedDeliveryDate((current) => {
+          const stored = localStorage.getItem(`selectedDeliveryDate:${selectedCommunity}`);
+          if (current && visibleDates.includes(current)) return current;
+          if (stored && visibleDates.includes(stored)) return stored;
+          return visibleDates[0] || '';
+        });
+      } catch (error) {
+        console.error('Error loading delivery schedule for category store:', error);
+        setDeliverySchedule(null);
+        setAvailableDeliveryDates([]);
+        setSelectedDeliveryDate('');
+      }
+    };
+
+    loadDeliverySchedule();
+  }, [selectedCommunity]);
+
+  useEffect(() => {
+    if (selectedCommunity && selectedDeliveryDate) {
+      localStorage.setItem(`selectedDeliveryDate:${selectedCommunity}`, selectedDeliveryDate);
+    }
+  }, [selectedCommunity, selectedDeliveryDate]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTimeTick((tick) => tick + 1), 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const fetchCategorizedProducts = async () => {
     setLoading(true);
     try {
@@ -142,8 +191,12 @@ const CategoryStore = () => {
         const orderData = orderDoc.data();
         const endingTime = orderData.Ending_Time || orderData.endingTime;
         const endingTimeByPickupSpot = orderData.endingTimeByPickupSpot || {};
+        const isAlwaysOnGrocery = isAlwaysOnGroceryOrder(orderData);
         
         let orderType = orderData.orderType;
+        if (isAlwaysOnGrocery) {
+          orderType = 'always_on_grocery';
+        }
         if (!orderType) {
           if (orderData.schedule) {
             orderType = 'recurring';
@@ -155,7 +208,9 @@ const CategoryStore = () => {
         }
 
         let isActive = false;
-        if (orderType === 'one_time') {
+        if (isAlwaysOnGrocery) {
+          isActive = isAlwaysOnGroceryOrderEnabled(orderData);
+        } else if (orderType === 'one_time') {
           // Check if ANY pickup spot is still active (has ending time in the future)
           const orderPickupSpots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];
           
@@ -231,6 +286,9 @@ const CategoryStore = () => {
                 orderId: order.id,
                 orderData: order.data,
                 orderType: order.orderType,
+                orderMode: order.data.orderMode || '',
+                alwaysOn: order.data.alwaysOn === true,
+                groceryStore: order.data.groceryStore === true,
                 endingTime: order.endingTime,
                 endingTimeByPickupSpot: order.endingTimeByPickupSpot || {},
                 businessData: businessMap[order.data.businessId],
@@ -281,6 +339,11 @@ const CategoryStore = () => {
               
               // Order timing fields
               orderType: metadata.orderType,
+              orderMode: metadata.orderMode,
+              alwaysOn: metadata.alwaysOn,
+              groceryStore: metadata.groceryStore,
+              fulfillmentConfig: metadata.orderData.fulfillmentConfig || {},
+              orderData: metadata.orderData,
               endingTime: metadata.endingTime,
               endingTimeByPickupSpot: metadata.endingTimeByPickupSpot,
               schedule: metadata.orderData.schedule,
@@ -338,6 +401,38 @@ const CategoryStore = () => {
   const calculateTimeRemaining = (product, pickupSpot) => {
     const orderType = product.orderType;
     const now = new Date();
+
+    if (product.orderMode === 'always_on_grocery' || product.alwaysOn || product.groceryStore || orderType === 'always_on_grocery') {
+      if (!deliverySchedule || !selectedDeliveryDate) {
+        return 'זמין להזמנה - בחרו תאריך משלוח';
+      }
+
+      const cutoffAt = getEffectiveOrderCutoffAt(
+        selectedDeliveryDate,
+        deliverySchedule,
+        product.orderData || product,
+        pickupSpot
+      );
+
+      if (!cutoffAt) {
+        return 'פתוח להזמנה לתאריך הנבחר';
+      }
+
+      const diff = cutoffAt - now;
+      if (diff <= 0) {
+        return 'זמן החיתוך עבר';
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+      const minutes = Math.floor((diff / (1000 * 60)) % 60);
+      let timeString = '';
+      if (days > 0) timeString += `${days} ימים `;
+      if (hours > 0) timeString += `${hours} שעות `;
+      if (minutes > 0) timeString += `${minutes} דקות`;
+
+      return `נשאר להזמנה: ${timeString || 'פחות מדקה'}`;
+    }
 
     if (orderType === 'one_time' || !orderType) {
       // Build a pseudo-orderData object for getEndingTimeForSpot
@@ -405,6 +500,14 @@ const CategoryStore = () => {
         if (!Array.isArray(p.pickupSpots) || !p.pickupSpots.includes(selectedCommunity)) {
           return false;
         }
+
+        if (p.orderMode === 'always_on_grocery' || p.alwaysOn || p.groceryStore || p.orderType === 'always_on_grocery') {
+          if (!deliverySchedule || !selectedDeliveryDate) return true;
+          return generateAvailableDeliveryDates(deliverySchedule, {
+            orderData: p.orderData || p,
+            communityName: selectedCommunity,
+          }).includes(selectedDeliveryDate);
+        }
         
         // For recurring orders, check schedule
         if (p.orderType === 'recurring' && p.schedule) {
@@ -438,6 +541,11 @@ const CategoryStore = () => {
         return p.orderType !== 'one_time';
       })
     : baseProducts;
+
+  const searchProducts = useMemo(() => {
+    if (!selectedCommunity) return products;
+    return products.filter(p => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity));
+  }, [products, selectedCommunity]);
 
   // Do not early-return on loading; show search/carousel immediately and spinner below
 
@@ -534,9 +642,42 @@ const CategoryStore = () => {
           </div>
         </div>
 
+        {selectedCommunity && availableDeliveryDates.length > 0 && (
+          <div className="mb-3 px-1">
+            <p className="text-sm font-medium text-gray-700 mb-2 text-right">
+              תאריך משלוח:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {availableDeliveryDates.map((dateKey) => {
+                const date = new Date(`${dateKey}T00:00:00`);
+                const label = date.toLocaleDateString('he-IL', {
+                  weekday: 'short',
+                  day: '2-digit',
+                  month: '2-digit',
+                });
+                const selected = selectedDeliveryDate === dateKey;
+                return (
+                  <button
+                    key={dateKey}
+                    type="button"
+                    onClick={() => setSelectedDeliveryDate(dateKey)}
+                    className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                      selected
+                        ? 'bg-green-600 border-green-700 text-white'
+                        : 'bg-white border-green-200 text-green-900 hover:border-green-500'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Search Bar */}
         <SearchBar 
-          products={selectedCommunity ? products.filter(p => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity)) : products}
+          products={searchProducts}
           onSearchResults={setSearchResults}
           setSearchActive={setIsSearchActive}
         />
