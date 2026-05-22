@@ -4,6 +4,34 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
 
+/** Same exclusion rules as WeeklyDeliveryOrderSummary for delayed checkouts */
+const DELAYED_EXCLUDED_STATUSES = new Set(['abandoned', 'cancelled', 'cancelled_by_admin']);
+
+async function fetchCustomerOrderById(customerOrderId) {
+  const standardSnap = await getDoc(doc(db, 'customerOrders', customerOrderId));
+  if (standardSnap.exists()) {
+    return { id: customerOrderId, customerOrderSource: 'customerOrders', ...standardSnap.data() };
+  }
+  const delayedSnap = await getDoc(doc(db, 'customerOrdersDelayed', customerOrderId));
+  if (delayedSnap.exists()) {
+    return { id: customerOrderId, customerOrderSource: 'customerOrdersDelayed', ...delayedSnap.data() };
+  }
+  return null;
+}
+
+function shouldIncludeCustomerOrder(order) {
+  if (!order) return false;
+  const isDelayed = order.customerOrderSource === 'customerOrdersDelayed';
+  if (!isDelayed) {
+    return String(order.paymentStatus || '').toLowerCase() === 'completed';
+  }
+  const delayedStatus = String(order.delayedOrderStatus || '').toLowerCase();
+  const paymentStatus = String(order.paymentStatus || '').toLowerCase();
+  if (DELAYED_EXCLUDED_STATUSES.has(delayedStatus)) return false;
+  if (paymentStatus === 'abandoned' || paymentStatus === 'cancelled') return false;
+  return true;
+}
+
 const BusinessOrderSummary = () => {
   const { orderId } = useParams();
   const [orderData, setOrderData] = useState(null);
@@ -24,26 +52,12 @@ const BusinessOrderSummary = () => {
 
           // Fetch all customer orders referenced by this order form
           const customerOrderIds = fetchedOrderData.customerOrderIds || [];
-          console.log('customerOrderIds', customerOrderIds);
           const fetchedCustomerOrders = await Promise.all(
-            customerOrderIds.map(async (customerOrderId) => {
-              const customerOrderDocRef = doc(db, 'customerOrders', customerOrderId);
-              const customerOrderSnap = await getDoc(customerOrderDocRef);
-              
-              if (customerOrderSnap.exists()) {
-                return { id: customerOrderId, ...customerOrderSnap.data() };
-      } else {
-                console.warn(`Customer order ${customerOrderId} not found`);
-                return null;
-              }
-            })
+            customerOrderIds.map((customerOrderId) => fetchCustomerOrderById(customerOrderId))
           );
-          console.log('fetchedCustomerOrders', fetchedCustomerOrders);
-          // Filter out null values and orders that are not completed
-          const validCustomerOrders = fetchedCustomerOrders.filter(order => 
-            order !== null && order.paymentStatus === 'completed'
+          const validCustomerOrders = fetchedCustomerOrders.filter((order) =>
+            order !== null && shouldIncludeCustomerOrder(order)
           );
-          console.log('validCustomerOrders', validCustomerOrders);
           setCustomerOrders(validCustomerOrders);
           
           // Generate pickup spot summary
@@ -184,7 +198,7 @@ const BusinessOrderSummary = () => {
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-white p-3 rounded shadow-sm text-center">
                 <div className="text-2xl font-bold text-blue-600">{customerOrders.length}</div>
-                <div className="text-xs text-gray-500">הזמנות מאושרות</div>
+                <div className="text-xs text-gray-500">הזמנות פעילות</div>
               </div>
               <div className="bg-white p-3 rounded shadow-sm text-center">
                 <div className="text-2xl font-bold text-green-600">₪{calculateGrandTotalForBusiness().toFixed(2)}</div>
@@ -220,7 +234,7 @@ const BusinessOrderSummary = () => {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-            <p className="text-gray-500">לא נמצאו הזמנות מאושרות עם נקודות איסוף מוגדרות.</p>
+            <p className="text-gray-500">לא נמצאו הזמנות פעילות עם נקודות איסוף מוגדרות.</p>
           </div>
         ) : (
           <div className="space-y-6">
@@ -281,7 +295,7 @@ const BusinessOrderSummary = () => {
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-5 mb-8 shadow-md border border-blue-100">
         <div className="flex flex-col md:flex-row justify-between items-center">
           <div className="mb-3 md:mb-0">
-            <div className="text-sm text-gray-600 mb-1">סך כל ההזמנות המאושרות למודעה זו</div>
+            <div className="text-sm text-gray-600 mb-1">סך כל ההזמנות הפעילות למודעה זו</div>
             <div className="text-2xl font-bold text-blue-700">₪{calculateGrandTotalForBusiness().toFixed(2)}</div>
           </div>
           <div className="text-sm text-gray-500">
@@ -289,7 +303,7 @@ const BusinessOrderSummary = () => {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              סכום זה מציג את סך ההזמנות המשולמות בלבד
+              כולל הזמנות בתשלום מושהה שטרם נסגרו; הזמנות בוטלו/נטושות לא מוצגות
             </div>
           </div>
         </div>
@@ -299,7 +313,7 @@ const BusinessOrderSummary = () => {
       <div className="mb-8">
         <div className="flex items-center mb-4">
           <div className="h-8 w-1 bg-green-500 rounded-full mr-3"></div>
-          <h2 className="text-xl font-semibold text-gray-800">הזמנות מאושרות של לקוחות</h2>
+          <h2 className="text-xl font-semibold text-gray-800">הזמנות לקוחות (משולמות ותשלום מושהה פעיל)</h2>
         </div>
 
         {customerOrders.length === 0 && (
@@ -307,7 +321,7 @@ const BusinessOrderSummary = () => {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
             </svg>
-            <p className="text-gray-500">לא נמצאו הזמנות מאושרות מלקוחות עבור מודעה זו.</p>
+            <p className="text-gray-500">לא נמצאו הזמנות מלקוחות עבור מודעה זו.</p>
           </div>
         )}
 
@@ -333,11 +347,19 @@ const BusinessOrderSummary = () => {
                     </div>
                     <h3 className="text-lg font-medium text-gray-800">{customerOrder.customerDetails?.name || 'לקוח לא ידוע'}</h3>
                   </div>
-                  <div className="flex items-center bg-green-50 px-3 py-1 rounded-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-500 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span className="font-medium text-green-600">₪{customerSubTotal.toFixed(2)}</span>
+                  <div className="flex flex-wrap items-center gap-2 justify-end">
+                    {customerOrder.customerOrderSource === 'customerOrdersDelayed' &&
+                      String(customerOrder.paymentStatus || '').toLowerCase() !== 'completed' && (
+                        <span className="text-xs font-medium bg-amber-100 text-amber-800 px-2 py-1 rounded-full">
+                          תשלום מושהה
+                        </span>
+                      )}
+                    <div className="flex items-center bg-green-50 px-3 py-1 rounded-full">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-500 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="font-medium text-green-600">₪{customerSubTotal.toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
 

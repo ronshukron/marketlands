@@ -55,6 +55,7 @@ function normalizeSpecificDateRange(startDate, endDate) {
 
 function normalizeDelayedOrder(docSnap, weekKey) {
   const data = docSnap.data() || {};
+  const deliveryDate = getOrderDeliveryDate(data) || new Date();
   const { breakdown: canonicalBreakdown, newSeedsAssigned } = ensureLineIdsInBreakdown(docSnap.id, data.orderBreakdown || {});
 
   if (newSeedsAssigned) {
@@ -110,7 +111,8 @@ function normalizeDelayedOrder(docSnap, weekKey) {
       paymentStatus: data.paymentStatus || '',
       delayedOrderStatus: data.delayedOrderStatus || '',
     },
-    createdAtIso: (getOrderDeliveryDate(data) || new Date()).toISOString(),
+    deliveryDateIso: deliveryDate.toISOString(),
+    createdAtIso: deliveryDate.toISOString(),
     status: 'pending',
     suspendedPaymentRef: data.delayedPayment || data.suspendedPayment || null,
     orderBreakdown: canonicalBreakdown,

@@ -231,7 +231,7 @@ const Menu = () => {
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
                       </svg>
-                      לוח מודעות
+                      לוח מודעות וסיכום מכירות
                     </Link>
                   )}
                   {!isIndependent && (
@@ -488,7 +488,7 @@ const Menu = () => {
                   </Link>
                   {!isIndependent && (
                     <Link to="/dashboard" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/dashboard') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                      לוח מודעות
+                      לוח מודעות וסיכום מכירות
                     </Link>
                   )}
                   {!isIndependent && (

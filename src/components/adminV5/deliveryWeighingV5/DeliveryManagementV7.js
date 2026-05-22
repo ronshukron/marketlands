@@ -58,6 +58,7 @@ import {
   writeDraftStore,
   writeStaticScopeData,
 } from './v7/offlineSyncV7';
+import { getWeekKey, toLocalDateKey } from '../../../utils/deliveryScheduleUtils';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 const WEIGHT_ON_THRESHOLD = 0.020;
@@ -77,6 +78,10 @@ function isLikelyNetworkErrorV7(error) {
     // Firestore 10.11.1 can throw this internal assertion while a transaction is interrupted offline.
     || message.includes('INTERNAL ASSERTION FAILED: Unexpected state')
   );
+}
+
+function isBrowserOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
 function readLastSetupV7() {
@@ -112,6 +117,8 @@ const TR = {
     selectAll: 'הכל',
     clearSel: 'נקה',
     load: 'טען הזמנות',
+    deliveryDay: 'יום משלוח:',
+    allDeliveryDays: 'כל ימי המשלוח',
     fromDate: 'מתאריך:',
     toDate: 'עד תאריך:',
     clearDates: 'נקה תאריכים',
@@ -223,6 +230,8 @@ const TR = {
     selectAll: 'ทั้งหมด',
     clearSel: 'ล้าง',
     load: 'โหลดคำสั่งซื้อ',
+    deliveryDay: 'วันจัดส่ง:',
+    allDeliveryDays: 'ทุกวันจัดส่ง',
     fromDate: 'จากวันที่:',
     toDate: 'ถึงวันที่:',
     clearDates: 'ล้างวันที่',
@@ -433,8 +442,16 @@ function formatOrderedExpectation(it, expectedQtyForCompare, t) {
   return `${Number(expectedQtyForCompare).toFixed(3)} ${t.kg}`;
 }
 
-function parseOrderCreatedAt(order) {
-  const candidates = [order?.createdAtIso, order?.createdAt, order?.createdDate];
+function parseOrderDeliveryDate(order) {
+  const candidates = [
+    order?.deliveryDateIso,
+    order?.deliveryDate,
+    order?.rawData?.fulfillment?.deliveryDate,
+    order?.rawData?.deliveryDate,
+    order?.createdAtIso,
+    order?.createdAt,
+    order?.createdDate,
+  ];
   for (const value of candidates) {
     if (!value) continue;
     const d = value instanceof Date ? value : new Date(value);
@@ -457,13 +474,40 @@ function normalizeSpecificDateRange(startStr, endStr) {
   return { start: end, end: start };
 }
 
-function filterOrdersBySpecificDates(orders = [], startStr, endStr) {
+function parseLocalDateKey(dateKey) {
+  const [year, month, day] = String(dateKey || '').split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const parsed = new Date(year, month - 1, day);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function buildDeliveryDayOptions(weekKey, lang) {
+  const weekStart = parseLocalDateKey(weekKey);
+  if (!weekStart) return [];
+  const locale = lang === 'th' ? 'th-TH' : 'he-IL';
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+    const dateKey = toLocalDateKey(date);
+    return {
+      value: dateKey,
+      label: date.toLocaleDateString(locale, {
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit',
+      }),
+    };
+  });
+}
+
+function filterOrdersByDeliveryDates(orders = [], startStr, endStr) {
   const range = normalizeSpecificDateRange(startStr, endStr);
   if (!range) return orders;
   return (orders || []).filter((order) => {
-    const createdAt = parseOrderCreatedAt(order);
-    if (!createdAt) return false;
-    return createdAt >= range.start && createdAt <= range.end;
+    const deliveryDate = parseOrderDeliveryDate(order);
+    if (!deliveryDate) return false;
+    return deliveryDate >= range.start && deliveryDate <= range.end;
   });
 }
 
@@ -505,6 +549,43 @@ function normalizeSupplierOption(opt) {
   return trimmed;
 }
 
+function getMissingLineDetails(item, weights = {}, removed = {}) {
+  if (!item?.lineId || item.catalogNumber === BUFFER_LINE_CATALOG_NUMBER) return null;
+  const measurementType = item.measurementType || 'kg';
+  const requested = Number(item.requestedQuantity || 0);
+  if (requested <= 0) return null;
+
+  const avg = Number(item.averageWeightKg || 1) || 1;
+  const unitSize = Number(item.unitSize || 1) || 1;
+  const expected = measurementType === 'unit' ? requested * avg : requested;
+  const actual = removed[item.lineId] ? 0 : Number(weights[item.lineId]?.actualQuantity || 0);
+  const missing = Math.max(0, expected - actual);
+  if (missing <= 0.0005) return null;
+
+  const fulfillmentRatio = expected > 0 ? actual / expected : 1;
+  const isFullyMissing = actual <= 0.0005;
+  const isPartialUnderHalf = !isFullyMissing && fulfillmentRatio < 0.5;
+  if (!isFullyMissing && !isPartialUnderHalf) return null;
+
+  const unitQty = measurementType === 'unit'
+    ? missing / avg
+    : measurementType === 'package'
+      ? missing
+      : missing / unitSize;
+
+  return {
+    measurementType,
+    avg,
+    unitSize,
+    expected,
+    actual,
+    missing,
+    unitQty,
+    isFullyMissing,
+    isPartialUnderHalf,
+  };
+}
+
 function getOrderCopyDate(selectedWeek, endDate) {
   const date = endDate ? new Date(endDate) : new Date(selectedWeek);
   if (!endDate && selectedWeek && !Number.isNaN(date.getTime())) date.setDate(date.getDate() + 5);
@@ -535,17 +616,72 @@ function getEffectiveOrderStatus(order, draft) {
   return draft?.status || order.status || 'pending';
 }
 
+function getPersistedCompletedDraft(order) {
+  const raw = order?.rawData || {};
+  const weighing = raw.weighing || {};
+  const weightsByLineId = {
+    ...(raw.weightsByLineId || {}),
+    ...(weighing.weightsByLineId || {}),
+  };
+  const removedLineIds = {
+    ...(raw.removedLineIds || {}),
+    ...(weighing.removedLineIds || {}),
+  };
+  const finalInvoiceLines = Array.isArray(weighing.finalInvoiceLines)
+    ? weighing.finalInvoiceLines
+    : (Array.isArray(raw.finalInvoiceLines) ? raw.finalInvoiceLines : []);
+
+  finalInvoiceLines.forEach((line) => {
+    if (!line?.lineId || line.actualQuantity == null) return;
+    weightsByLineId[line.lineId] = {
+      actualQuantity: Number(line.actualQuantity),
+      source: line.weighSource || line.source || 'completed',
+    };
+  });
+
+  return {
+    orderId: order?.id || raw.id || '',
+    status: raw.delayedOrderStatus || order?.status || '',
+    weightsByLineId,
+    removedLineIds,
+    finalSum: weighing.finalSum ?? raw.finalSum,
+    finalInvoiceLines,
+  };
+}
+
+function mergeOrderDraftWithPersistedCompletion(order, draft = {}) {
+  const persisted = getPersistedCompletedDraft(order);
+  return {
+    ...persisted,
+    ...draft,
+    weightsByLineId: {
+      ...(persisted.weightsByLineId || {}),
+      ...(draft.weightsByLineId || {}),
+    },
+    removedLineIds: {
+      ...(persisted.removedLineIds || {}),
+      ...(draft.removedLineIds || {}),
+    },
+    status: draft.status || persisted.status || '',
+  };
+}
+
 export default function DeliveryManagementV7() {
   const { currentUser, userRole } = useAuth();
 
   const [lang, setLang] = useState(() => localStorage.getItem(LANG_STORAGE_KEY) || 'he');
   const t = TR[lang] || TR.he;
+  const tRef = useRef(t);
   const isRTL = lang === 'he';
   const toggleLang = () => {
     const next = lang === 'he' ? 'th' : 'he';
     setLang(next);
     localStorage.setItem(LANG_STORAGE_KEY, next);
   };
+
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   const stationId = useMemo(() => getOrCreateStationIdV7(), []);
   const session = useMemo(() => ({
@@ -674,6 +810,14 @@ export default function DeliveryManagementV7() {
     startDate: selectedSpecificStartDate,
     endDate: selectedSpecificEndDate,
   }), [selectedWeek, selectedCommunities, selectedSpecificStartDate, selectedSpecificEndDate]);
+  const deliveryDayOptions = useMemo(
+    () => buildDeliveryDayOptions(tempSelectedWeek, lang),
+    [tempSelectedWeek, lang],
+  );
+  const selectedDeliveryDayKey = tempSpecificStartDate
+    && tempSpecificStartDate === tempSpecificEndDate
+    ? tempSpecificStartDate
+    : '';
 
   useEffect(() => {
     pendingOpsRef.current = pendingOps;
@@ -688,6 +832,9 @@ export default function DeliveryManagementV7() {
   const [addQuantities, setAddQuantities] = useState({});
   const [missingModalOpen, setMissingModalOpen] = useState(false);
   const [missingModalItems, setMissingModalItems] = useState([]);
+  const [missingModalCommunities, setMissingModalCommunities] = useState(new Set());
+  const [missingModalView, setMissingModalView] = useState('items');
+  const [missingModalIncludeCompleted, setMissingModalIncludeCompleted] = useState(false);
 
   const isAdmin = !!currentUser && (userRole === 'admin' || ADMIN_UIDS.includes(currentUser.uid));
 
@@ -720,7 +867,7 @@ export default function DeliveryManagementV7() {
 
   useEffect(() => {
     if (!isAdmin) {
-      setError(t.noPermission);
+      setError(tRef.current.noPermission);
       setLoading(false);
       return;
     }
@@ -733,13 +880,13 @@ export default function DeliveryManagementV7() {
       })
       .catch((e) => {
         console.error(e);
-        if (active && !isLikelyNetworkErrorV7(e)) setError(t.failWeeks);
+        if (active && !isLikelyNetworkErrorV7(e)) setError(tRef.current.failWeeks);
       })
       .finally(() => {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [isAdmin, t.failWeeks, t.noPermission]);
+  }, [isAdmin]);
 
   const fetchPermanentCustomerNumbers = useCallback(async (customersList) => {
     if (!customersList || customersList.length === 0) return {};
@@ -861,8 +1008,8 @@ export default function DeliveryManagementV7() {
       return firstPending ? firstPending.id : (cachedScope.orders?.[0]?.id || null);
     });
     setLoading(false);
-    if (toast) showToast(t.offlineLoaded);
-  }, [showToast, t.offlineLoaded]);
+    if (toast) showToast(tRef.current.offlineLoaded);
+  }, [showToast]);
 
   const preserveCurrentScreenOffline = useCallback((message = '') => {
     if ((currentScreenRef.current.orders || []).length === 0) return false;
@@ -900,7 +1047,7 @@ export default function DeliveryManagementV7() {
     if (queuedOps.length === 0) return [];
     queueManyDraftOps(queuedOps);
     if (!isOnline) {
-      showToast(t.offlineDraftSaved);
+      showToast(tRef.current.offlineDraftSaved);
       return queuedOps;
     }
     try {
@@ -914,7 +1061,7 @@ export default function DeliveryManagementV7() {
       return queuedOps;
     } catch (error) {
       if (isLikelyNetworkError(error)) {
-        showToast(t.offlineDraftSaved);
+        showToast(tRef.current.offlineDraftSaved);
         return queuedOps;
       }
       setPendingOps((prev) => prev.filter((queued) => !queuedOps.some((op) => op.id === queued.id)));
@@ -930,7 +1077,6 @@ export default function DeliveryManagementV7() {
     remoteDraftsByOrder,
     rollbackQueuedDraftOps,
     showToast,
-    t.offlineDraftSaved,
   ]);
 
   const syncOfflineOpsNow = useCallback(async ({ quiet = false } = {}) => {
@@ -1038,13 +1184,13 @@ export default function DeliveryManagementV7() {
       }
       writeDraftStore(nextDraftStore);
       if (!quiet && pendingOps.length > 0 && currentScopeConflicts.length === 0) {
-        showToast(t.syncDone);
+        showToast(tRef.current.syncDone);
       }
       return { pending: currentScopePending, conflicts: currentScopeConflicts.length };
     } finally {
       setSyncingOffline(false);
     }
-  }, [currentScopeKey, isOnline, pendingOps.length, session, showToast, syncConflicts.length, syncingOffline, t.syncDone]);
+  }, [currentScopeKey, isOnline, pendingOps.length, session, showToast, syncConflicts.length, syncingOffline]);
 
   useEffect(() => {
     if (!isOnline || pendingOps.length === 0) return;
@@ -1058,7 +1204,7 @@ export default function DeliveryManagementV7() {
       if (!cachedScope) {
         setClaimsByOrder({});
         setPresence([]);
-        if (!preserveCurrentScreenOffline(t.offlineLoaded)) {
+        if (!preserveCurrentScreenOffline(tRef.current.offlineLoaded)) {
           setOrders([]);
           setProductDetails({});
           productDetailsRef.current = {};
@@ -1067,7 +1213,7 @@ export default function DeliveryManagementV7() {
           setLocalDraftsByOrder({});
           setPendingOps([]);
           setSyncConflicts([]);
-          setError(t.offlineNoCache);
+          setError(tRef.current.offlineNoCache);
         }
         setLoading(false);
         return () => {};
@@ -1076,6 +1222,7 @@ export default function DeliveryManagementV7() {
       return () => {};
     }
     setLoading(true);
+    setError(null);
     const unsubscribe = subscribeDelayedOrdersForWeekV7({
       weekKey: selectedWeek,
       communities: Array.from(selectedCommunities),
@@ -1083,7 +1230,7 @@ export default function DeliveryManagementV7() {
       endDate: selectedSpecificEndDate,
       onOrders: async ({ allOrders }) => {
         try {
-          const dateFilteredOrders = filterOrdersBySpecificDates(
+          const dateFilteredOrders = filterOrdersByDeliveryDates(
             allOrders,
             selectedSpecificStartDate,
             selectedSpecificEndDate,
@@ -1141,15 +1288,16 @@ export default function DeliveryManagementV7() {
         } catch (e) {
           console.error(e);
           if (isLikelyNetworkError(e)) {
-            setIsOnline(false);
+            const browserOffline = isBrowserOffline();
+            if (browserOffline) setIsOnline(false);
             const cachedScope = getOfflineScope(readOfflineStore(), currentScopeKey);
             if (cachedScope) {
-              applyCachedScopeToScreen(cachedScope);
-            } else if (!preserveCurrentScreenOffline(t.offlineLoaded)) {
-              setError(t.offlineNoCache);
+              applyCachedScopeToScreen(cachedScope, { toast: browserOffline });
+            } else if (!preserveCurrentScreenOffline(browserOffline ? tRef.current.offlineLoaded : '')) {
+              setError(tRef.current.offlineNoCache);
             }
           } else {
-            setError(t.failOrders);
+            setError(tRef.current.failOrders);
           }
         } finally {
           setLoading(false);
@@ -1158,15 +1306,16 @@ export default function DeliveryManagementV7() {
       onError: (e) => {
         console.error(e);
         if (isLikelyNetworkError(e)) {
-          setIsOnline(false);
+          const browserOffline = isBrowserOffline();
+          if (browserOffline) setIsOnline(false);
           const cachedScope = getOfflineScope(readOfflineStore(), currentScopeKey);
           if (cachedScope) {
-            applyCachedScopeToScreen(cachedScope);
-          } else if (!preserveCurrentScreenOffline(t.offlineLoaded)) {
-            setError(t.offlineNoCache);
+            applyCachedScopeToScreen(cachedScope, { toast: browserOffline });
+          } else if (!preserveCurrentScreenOffline(browserOffline ? tRef.current.offlineLoaded : '')) {
+            setError(tRef.current.offlineNoCache);
           }
         } else {
-          setError(t.failOrders);
+          setError(tRef.current.failOrders);
         }
         setLoading(false);
       },
@@ -1183,9 +1332,6 @@ export default function DeliveryManagementV7() {
     isLikelyNetworkError,
     isOnline,
     preserveCurrentScreenOffline,
-    t.failOrders,
-    t.offlineLoaded,
-    t.offlineNoCache,
   ]);
 
   useEffect(() => {
@@ -1271,7 +1417,10 @@ export default function DeliveryManagementV7() {
   const effectiveDraftsByOrder = localDraftsByOrder || remoteDraftsByOrder || {};
   const selectedOrderSaved = useMemo(() => (
     selectedWeek && selectedOrderId
-      ? sanitizeDraftForItems(effectiveDraftsByOrder[selectedOrderId] || {}, selectedOrder?.items || [])
+      ? sanitizeDraftForItems(
+        mergeOrderDraftWithPersistedCompletion(selectedOrder, effectiveDraftsByOrder[selectedOrderId] || {}),
+        selectedOrder?.items || [],
+      )
       : {}
   ), [effectiveDraftsByOrder, selectedOrder?.items, selectedWeek, selectedOrderId]);
   const weightsByLineId = selectedOrderSaved.weightsByLineId || {};
@@ -1372,33 +1521,37 @@ export default function DeliveryManagementV7() {
     return list;
   }, [orders, communityFilter, orderCommunities, showCompleted, permanentNumbersMap, effectiveDraftsByOrder]);
 
-  const missingOrderItems = (() => {
+  const missingOrderItems = useMemo(() => {
     const map = {};
+    const selectedMissingCommunities = missingModalOpen
+      ? missingModalCommunities
+      : new Set(orderCommunities);
 
     orders.forEach((order) => {
+      const community = order?.customerDetails?.pickupSpot || order?.pickupSpot || 'לא צוין';
+      if (!selectedMissingCommunities.has(community)) return;
+
       const mergedItems = mergeProductDetailsIntoItems(order.items || [], productDetails);
-      const draft = sanitizeDraftForItems(effectiveDraftsByOrder[order.id] || {}, mergedItems);
+      const persistedDraft = mergeOrderDraftWithPersistedCompletion(order, effectiveDraftsByOrder[order.id] || {});
+      if (!missingModalIncludeCompleted && getEffectiveOrderStatus(order, persistedDraft) === 'completed') return;
+
+      const draft = sanitizeDraftForItems(persistedDraft, mergedItems);
       const weights = draft.weightsByLineId || {};
       const removed = draft.removedLineIds || {};
 
       mergedItems.forEach((item) => {
-        if (!item?.lineId || item.catalogNumber === BUFFER_LINE_CATALOG_NUMBER) return;
-        const measurementType = item.measurementType || 'kg';
-        const requested = Number(item.requestedQuantity || 0);
-        if (requested <= 0) return;
-
-        const avg = Number(item.averageWeightKg || 1) || 1;
-        const unitSize = Number(item.unitSize || 1) || 1;
-        const expected = measurementType === 'unit' ? requested * avg : requested;
-        const actual = removed[item.lineId] ? 0 : Number(weights[item.lineId]?.actualQuantity || 0);
-        const missing = Math.max(0, expected - actual);
-        if (missing <= 0.0005) return;
-
-        const unitQty = measurementType === 'unit'
-          ? missing / avg
-          : measurementType === 'package'
-            ? missing
-            : missing / unitSize;
+        const missingDetails = getMissingLineDetails(item, weights, removed);
+        if (!missingDetails) return;
+        const {
+          measurementType,
+          avg,
+          unitSize,
+          expected,
+          actual,
+          missing,
+          unitQty,
+          isFullyMissing,
+        } = missingDetails;
         const key = [
           item.businessId || '',
           item.productId || item.productName || '',
@@ -1417,6 +1570,11 @@ export default function DeliveryManagementV7() {
             measurementType,
             rawQuantity: 0,
             unitQuantity: 0,
+            expectedQuantity: 0,
+            actualQuantity: 0,
+            fullMissingCount: 0,
+            partialMissingCount: 0,
+            communities: new Set(),
             canUseKg: measurementType !== 'package',
             included: true,
             mode: 'unit',
@@ -1425,6 +1583,14 @@ export default function DeliveryManagementV7() {
         }
         map[key].rawQuantity += missing;
         map[key].unitQuantity += unitQty;
+        map[key].expectedQuantity += expected;
+        map[key].actualQuantity += actual;
+        map[key].communities.add(community);
+        if (isFullyMissing) {
+          map[key].fullMissingCount += 1;
+        } else {
+          map[key].partialMissingCount += 1;
+        }
       });
     });
 
@@ -1433,6 +1599,11 @@ export default function DeliveryManagementV7() {
         ...item,
         rawQuantity: Math.round(item.rawQuantity * 10) / 10,
         unitQuantity: Math.round(item.unitQuantity * 1000) / 1000,
+        expectedQuantity: Math.round(item.expectedQuantity * 10) / 10,
+        actualQuantity: Math.round(item.actualQuantity * 10) / 10,
+        communities: Array.from(item.communities).sort(),
+        hasPartialMissing: item.partialMissingCount > 0,
+        hasFullMissing: item.fullMissingCount > 0,
         quantity: Math.max(1, Math.round(item.unitQuantity)),
       }))
       .sort((a, b) => {
@@ -1440,7 +1611,75 @@ export default function DeliveryManagementV7() {
         if (businessCompare !== 0) return businessCompare;
         return (a.productName || '').localeCompare(b.productName || '');
       });
-  })();
+  }, [orders, productDetails, effectiveDraftsByOrder, missingModalCommunities, missingModalIncludeCompleted, missingModalOpen, orderCommunities]);
+
+  const missingOrdersByCustomer = useMemo(() => {
+    const selectedMissingCommunities = missingModalOpen
+      ? missingModalCommunities
+      : new Set(orderCommunities);
+
+    return orders
+      .map((order) => {
+        const community = order?.customerDetails?.pickupSpot || order?.pickupSpot || 'לא צוין';
+        if (!selectedMissingCommunities.has(community)) return null;
+
+        const mergedItems = mergeProductDetailsIntoItems(order.items || [], productDetails);
+        const persistedDraft = mergeOrderDraftWithPersistedCompletion(order, effectiveDraftsByOrder[order.id] || {});
+        if (!missingModalIncludeCompleted && getEffectiveOrderStatus(order, persistedDraft) === 'completed') return null;
+
+        const draft = sanitizeDraftForItems(persistedDraft, mergedItems);
+        const weights = draft.weightsByLineId || {};
+        const removed = draft.removedLineIds || {};
+        const missingLines = mergedItems
+          .map((item) => {
+            const missingDetails = getMissingLineDetails(item, weights, removed);
+            if (!missingDetails) return null;
+            return {
+              key: item.lineId,
+              productName: item.productName || item.name || 'Item',
+              selectedOption: normalizeSupplierOption(item.selectedOption),
+              businessName: item.businessName || '',
+              measurementType: missingDetails.measurementType,
+              missingQuantity: Math.round(missingDetails.missing * 10) / 10,
+              unitQuantity: Math.round(missingDetails.unitQty * 1000) / 1000,
+              expectedQuantity: Math.round(missingDetails.expected * 10) / 10,
+              actualQuantity: Math.round(missingDetails.actual * 10) / 10,
+              isFullyMissing: missingDetails.isFullyMissing,
+              isPartialUnderHalf: missingDetails.isPartialUnderHalf,
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => {
+            const businessCompare = (a.businessName || '').localeCompare(b.businessName || '');
+            if (businessCompare !== 0) return businessCompare;
+            return (a.productName || '').localeCompare(b.productName || '');
+          });
+
+        if (missingLines.length === 0) return null;
+
+        const customerId = order?.customerDetails?.phone || order?.customerDetails?.email || '';
+        const customerNumber = permanentNumbersMap[customerId];
+        return {
+          id: order.id,
+          orderLabel: order.id ? String(order.id).slice(0, 8) : '',
+          customerName: order?.customerDetails?.name || 'לקוח לא ידוע',
+          customerPhone: order?.customerDetails?.phone || '',
+          customerNumber: customerNumber || '',
+          community,
+          missingLines,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aNum = Number(a.customerNumber);
+        const bNum = Number(b.customerNumber);
+        const aHasNum = Number.isFinite(aNum) && aNum > 0;
+        const bHasNum = Number.isFinite(bNum) && bNum > 0;
+        if (aHasNum && bHasNum && aNum !== bNum) return aNum - bNum;
+        if (aHasNum !== bHasNum) return aHasNum ? -1 : 1;
+        return (a.customerName || '').localeCompare(b.customerName || '');
+      });
+  }, [orders, productDetails, effectiveDraftsByOrder, missingModalCommunities, missingModalIncludeCompleted, missingModalOpen, orderCommunities, permanentNumbersMap]);
 
   useEffect(() => {
     if (!selectedOrderId) {
@@ -1950,6 +2189,35 @@ export default function DeliveryManagementV7() {
         draft: settlingDraft,
       });
       await handleSuspendedPaymentV7(payload);
+      const completedWeighing = {
+        weightsByLineId: payload.weightsByLineId || {},
+        removedLineIds: payload.removedLineIds || {},
+        finalInvoiceLines: payload.finalInvoiceLines || [],
+        finalSum: payload.finalSum,
+        completedAtIso: nowIso(),
+      };
+      setOrders((prev) => prev.map((order) => (
+        order.id === selectedOrder.id
+          ? {
+            ...order,
+            status: 'completed',
+            delayedMeta: {
+              ...(order.delayedMeta || {}),
+              paymentStatus: 'completed',
+              delayedOrderStatus: 'completed',
+            },
+            rawData: {
+              ...(order.rawData || {}),
+              paymentStatus: 'completed',
+              delayedOrderStatus: 'completed',
+              weighing: {
+                ...((order.rawData || {}).weighing || {}),
+                ...completedWeighing,
+              },
+            },
+          }
+          : order
+      )));
       await clearOrderDraftV7({ weekKey: selectedWeek, orderId: selectedOrder.id });
       setRemoteDraftsByOrder((prev) => {
         const next = { ...prev };
@@ -2012,17 +2280,43 @@ export default function DeliveryManagementV7() {
 
   const selectAllCommunities = () => setTempSelectedCommunities(new Set(pickupSpots));
   const clearAllCommunities = () => setTempSelectedCommunities(new Set());
-  const handleLoad = () => {
+  const applyDeliveryFilters = ({ weekKey, communitiesSet, startDate, endDate }) => {
+    const communities = Array.from(communitiesSet);
     writeLastSetupV7({
+      weekKey,
+      communities,
+      startDate,
+      endDate,
+    });
+
+    setTempSelectedWeek(weekKey);
+    setSelectedWeek(weekKey);
+    setSelectedCommunities(new Set(communitiesSet));
+    setTempSpecificStartDate(startDate);
+    setTempSpecificEndDate(endDate);
+    setSelectedSpecificStartDate(startDate);
+    setSelectedSpecificEndDate(endDate);
+  };
+
+  const handleLoad = () => {
+    applyDeliveryFilters({
       weekKey: tempSelectedWeek,
-      communities: Array.from(tempSelectedCommunities),
+      communitiesSet: tempSelectedCommunities,
       startDate: tempSpecificStartDate,
       endDate: tempSpecificEndDate,
     });
-    setSelectedWeek(tempSelectedWeek);
-    setSelectedCommunities(new Set(tempSelectedCommunities));
-    setSelectedSpecificStartDate(tempSpecificStartDate);
-    setSelectedSpecificEndDate(tempSpecificEndDate);
+  };
+
+  const handleDeliveryDayChange = (dateKey) => {
+    if (!dateKey) {
+      setTempSpecificStartDate('');
+      setTempSpecificEndDate('');
+      return;
+    }
+
+    setTempSelectedWeek(getWeekKey(dateKey));
+    setTempSpecificStartDate(dateKey);
+    setTempSpecificEndDate(dateKey);
   };
 
   const statusBadge = (status) => {
@@ -2042,7 +2336,9 @@ export default function DeliveryManagementV7() {
   const itemSecondaryName = (it) => (lang === 'th' && it.thaiName) ? it.productName : it.thaiName;
 
   const openMissingOrderModal = () => {
-    setMissingModalItems(missingOrderItems);
+    const initialCommunities = communityFilter !== '__all__' ? [communityFilter] : [];
+    setMissingModalCommunities(new Set(initialCommunities));
+    setMissingModalItems([]);
     setMissingModalOpen(true);
   };
 
@@ -2069,6 +2365,28 @@ export default function DeliveryManagementV7() {
       return next;
     });
   };
+
+  const toggleMissingModalCommunity = (community) => {
+    setMissingModalCommunities((prev) => {
+      const next = new Set(prev);
+      if (next.has(community)) next.delete(community);
+      else next.add(community);
+      return next;
+    });
+  };
+
+  const selectAllMissingModalCommunities = () => {
+    setMissingModalCommunities(new Set(orderCommunities));
+  };
+
+  const clearMissingModalCommunities = () => {
+    setMissingModalCommunities(new Set());
+  };
+
+  useEffect(() => {
+    if (!missingModalOpen) return;
+    setMissingModalItems(missingOrderItems);
+  }, [missingModalOpen, missingOrderItems]);
 
   const setAllMissingMode = (mode) => {
     setMissingModalItems((prev) => prev.map((item) => {
@@ -2243,6 +2561,20 @@ export default function DeliveryManagementV7() {
               </div>
             </div>
 
+            <div className="min-w-[210px]">
+              <label className="block text-xs font-bold text-gray-600 mb-1">{t.deliveryDay}</label>
+              <select
+                value={selectedDeliveryDayKey}
+                onChange={(e) => handleDeliveryDayChange(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:outline-none"
+              >
+                <option value="">{t.allDeliveryDays}</option>
+                {deliveryDayOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="min-w-[170px]">
               <label className="block text-xs font-bold text-gray-600 mb-1">{t.fromDate}</label>
               <input
@@ -2266,8 +2598,7 @@ export default function DeliveryManagementV7() {
             <button
               type="button"
               onClick={() => {
-                setTempSpecificStartDate('');
-                setTempSpecificEndDate('');
+                handleDeliveryDayChange('');
               }}
               className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-sm border transition-colors"
             >
@@ -2998,32 +3329,134 @@ export default function DeliveryManagementV7() {
       {missingModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-black bg-opacity-50" onClick={closeMissingOrderModal}></div>
-          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-11/12 max-w-2xl max-h-[90vh] flex flex-col">
+          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-11/12 max-w-3xl max-h-[90vh] flex flex-col">
             <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200">
               <h3 className="text-xl font-bold text-gray-800">הזמנת חוסרים</h3>
               <button type="button" onClick={closeMissingOrderModal} className="text-2xl text-gray-400 hover:text-gray-700 leading-none">✕</button>
             </div>
 
-            <div className="flex gap-2 px-5 py-3 bg-gray-50 border-b border-gray-100">
-              <span className="text-sm text-gray-600 self-center ml-2">הכל:</span>
-              <button
-                type="button"
-                onClick={() => setAllMissingMode('unit')}
-                className="px-4 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
-              >
-                יח'
-              </button>
-              <button
-                type="button"
-                onClick={() => setAllMissingMode('kg')}
-                className="px-4 py-1.5 rounded-full text-sm font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
-              >
-                ק"ג
-              </button>
+            <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 space-y-3">
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className="text-sm font-bold text-gray-700">קהילות להצגת חוסרים:</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllMissingModalCommunities}
+                      className="px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                    >
+                      הכל
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearMissingModalCommunities}
+                      className="px-3 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                    >
+                      נקה
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {orderCommunities.map((community) => (
+                    <label
+                      key={community}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm cursor-pointer transition-colors ${
+                        missingModalCommunities.has(community)
+                          ? 'bg-green-100 text-green-800 border-green-300'
+                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={missingModalCommunities.has(community)}
+                        onChange={() => toggleMissingModalCommunity(community)}
+                        className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      />
+                      {community}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <span className="text-sm text-gray-600 self-center ml-2">תצוגה:</span>
+                <button
+                  type="button"
+                  onClick={() => setMissingModalView('items')}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    missingModalView === 'items'
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  לפי מוצר
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMissingModalView('orders')}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    missingModalView === 'orders'
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  לפי שם/מספר
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <span className="text-sm text-gray-600 self-center ml-2">הזמנות הושלמו:</span>
+                <button
+                  type="button"
+                  onClick={() => setMissingModalIncludeCompleted((prev) => !prev)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    missingModalIncludeCompleted
+                      ? 'bg-green-600 text-white'
+                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  {missingModalIncludeCompleted ? 'כולל הושלמו' : 'ללא הושלמו'}
+                </button>
+              </div>
+
+              {missingModalView === 'items' && (
+              <div className="flex gap-2">
+                <span className="text-sm text-gray-600 self-center ml-2">הכל:</span>
+                <button
+                  type="button"
+                  onClick={() => setAllMissingMode('unit')}
+                  className="px-4 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                >
+                  יח'
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllMissingMode('kg')}
+                  className="px-4 py-1.5 rounded-full text-sm font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                >
+                  ק"ג
+                </button>
+              </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-              {missingModalItems.map((it, idx) => (
+              {missingModalCommunities.size === 0 && (
+                <div className="text-center text-gray-500 py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  בחר קהילה אחת או יותר כדי לראות חוסרים.
+                </div>
+              )}
+
+              {missingModalCommunities.size > 0
+                && ((missingModalView === 'items' && missingModalItems.length === 0)
+                  || (missingModalView === 'orders' && missingOrdersByCustomer.length === 0)) && (
+                <div className="text-center text-gray-500 py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  אין חוסרים מלאים או חוסרים מתחת ל-50% בקהילות שנבחרו
+                  {missingModalIncludeCompleted ? '.' : ' בהזמנות שעדיין לא הושלמו.'}
+                </div>
+              )}
+
+              {missingModalCommunities.size > 0 && missingModalView === 'items' && missingModalItems.map((it, idx) => (
                 <div
                   key={it.key}
                   className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border transition-all ${
@@ -3038,9 +3471,29 @@ export default function DeliveryManagementV7() {
                       className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
                     />
                     <div className="min-w-0 flex-1">
-                      <span className="font-semibold text-gray-800 text-base block truncate">{it.productName}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-gray-800 text-base block truncate">{it.productName}</span>
+                        {it.hasPartialMissing && (
+                          <span className="text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">
+                            חוסר חלקי (פחות מ-50%)
+                          </span>
+                        )}
+                        {it.hasFullMissing && (
+                          <span className="text-xs font-bold bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full">
+                            חסר מלא
+                          </span>
+                        )}
+                      </div>
                       {it.selectedOption && <span className="text-sm text-gray-500">{it.selectedOption}</span>}
                       {it.businessName && <span className="text-xs text-gray-400 block truncate">{it.businessName}</span>}
+                      <span className="text-xs text-gray-500 block truncate">
+                        קהילות: {it.communities.join(', ')}
+                      </span>
+                      {it.hasPartialMissing && (
+                        <span className="text-xs text-amber-700 block">
+                          הוזמן {it.expectedQuantity} / נשקל {it.actualQuantity} / חסר {it.rawQuantity}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -3087,17 +3540,71 @@ export default function DeliveryManagementV7() {
                   </div>
                 </div>
               ))}
+
+              {missingModalCommunities.size > 0 && missingModalView === 'orders' && missingOrdersByCustomer.map((order) => (
+                <div key={order.id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-gray-800">
+                        {order.customerNumber ? `#${order.customerNumber} · ` : ''}
+                        {order.customerName}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {order.community}
+                        {order.customerPhone ? ` · ${order.customerPhone}` : ''}
+                        {order.orderLabel ? ` · הזמנה ${order.orderLabel}` : ''}
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold bg-orange-100 text-orange-800 px-2 py-1 rounded-full self-start">
+                      {order.missingLines.length} חוסרים
+                    </span>
+                  </div>
+                  <div className="divide-y divide-gray-100">
+                    {order.missingLines.map((line) => {
+                      const isKgLike = line.measurementType !== 'package';
+                      const missingDisplay = isKgLike
+                        ? `${line.missingQuantity} ק"ג`
+                        : `${Math.round(line.unitQuantity)} יח'`;
+                      return (
+                        <div key={line.key} className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-gray-800">{line.productName}</span>
+                            {line.selectedOption && <span className="text-sm text-gray-500">{line.selectedOption}</span>}
+                            {line.isPartialUnderHalf && (
+                              <span className="text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">
+                                חוסר חלקי (פחות מ-50%)
+                              </span>
+                            )}
+                            {line.isFullyMissing && (
+                              <span className="text-xs font-bold bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full">
+                                חסר מלא
+                              </span>
+                            )}
+                          </div>
+                          {line.businessName && <div className="text-xs text-gray-400">{line.businessName}</div>}
+                          <div className="text-xs text-gray-600 mt-1">
+                            הוזמן {line.expectedQuantity} / נשקל {line.actualQuantity} / חסר {missingDisplay}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="border-t border-gray-200 px-5 py-4 bg-gray-50 rounded-b-2xl">
               <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
                 <span className="text-sm text-gray-500">
-                  {missingModalItems.filter((it) => it.included && (Number(it.quantity) || 0) > 0).length} מוצרים נבחרו
+                  {missingModalView === 'items'
+                    ? `${missingModalItems.filter((it) => it.included && (Number(it.quantity) || 0) > 0).length} מוצרים נבחרו`
+                    : `${missingOrdersByCustomer.length} לקוחות עם חוסרים`}
                 </span>
                 <button
                   type="button"
                   onClick={handleCopyMissingOrder}
-                  className="w-full sm:w-auto px-6 py-3 bg-orange-500 text-white font-bold rounded-xl text-lg hover:bg-orange-600 active:bg-orange-700 transition-colors shadow-md"
+                  disabled={missingModalItems.filter((it) => it.included && (Number(it.quantity) || 0) > 0).length === 0}
+                  className="w-full sm:w-auto px-6 py-3 bg-orange-500 text-white font-bold rounded-xl text-lg hover:bg-orange-600 active:bg-orange-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   העתק הזמנה
                 </button>
