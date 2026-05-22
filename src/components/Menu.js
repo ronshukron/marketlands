@@ -10,6 +10,7 @@ import Cart from './Cart';
 import './Menu.css';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { isDeliveryDriverAccount, isIndependentBusinessAccount } from '../utils/accountRoles';
 
 const Menu = () => {
   const { userLoggedIn, userRole, currentUser } = useAuth();
@@ -22,6 +23,7 @@ const Menu = () => {
   const location = useLocation();
   const menuRef = useRef(null);
   const [isIndependent, setIsIndependent] = useState(false);
+  const [isDriver, setIsDriver] = useState(false);
 
   const navigateToCategory = (cat) => {
     // Close mobile menu if open
@@ -70,28 +72,32 @@ const Menu = () => {
     setIsOpen(false);
   }, [location.pathname]);
 
-  // Detect independent business
+  // Detect business account sub-types
   useEffect(() => {
-    const checkIndependent = async () => {
-      if (currentUser?.uid && userRole === 'business') {
+    const checkBusinessFlags = async () => {
+      if (currentUser?.uid && (userRole === 'business' || userRole === 'driver')) {
         try {
           const ref = doc(db, 'businesses', currentUser.uid);
           const snap = await getDoc(ref);
           if (snap.exists()) {
             const data = snap.data();
-            setIsIndependent(Boolean(data?.isIndependent));
+            setIsIndependent(isIndependentBusinessAccount(data));
+            setIsDriver(isDeliveryDriverAccount(data));
           } else {
             setIsIndependent(false);
+            setIsDriver(false);
           }
         } catch (e) {
-          console.error('Error checking isIndependent:', e);
+          console.error('Error checking business account flags:', e);
           setIsIndependent(false);
+          setIsDriver(false);
         }
       } else {
         setIsIndependent(false);
+        setIsDriver(false);
       }
     };
-    checkIndependent();
+    checkBusinessFlags();
   }, [currentUser?.uid, userRole]);
 
   const toggleMenu = (event) => {
@@ -117,7 +123,7 @@ const Menu = () => {
     return location.pathname === path;
   };
 
-  const businessId = currentUser && userRole === 'business' ? currentUser.uid : null;
+  const businessId = currentUser && userRole === 'business' && !isDriver ? currentUser.uid : null;
   const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר'];
 
   return (
@@ -202,7 +208,17 @@ const Menu = () => {
                 </>
               )}
               
-              {userLoggedIn && userRole === 'business' && (
+              {userLoggedIn && (userRole === 'driver' || isDriver) && (
+                <Link to="/driver/delivery" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/driver/delivery') ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zm10 0a2 2 0 11-4 0 2 2 0 014 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10h10zm0 0h8v-5l-3-4h-5v9z" />
+                  </svg>
+                  מסך נהג
+                </Link>
+              )}
+
+              {userLoggedIn && userRole === 'business' && !isDriver && (
                 <>
                   {isIndependent && (
                     <Link to="/independent-orders" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/independent-orders') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
@@ -261,7 +277,7 @@ const Menu = () => {
             </nav>
 
             {/* Category tabs - desktop (now with icons) - Hidden for business accounts */}
-            {userRole !== 'business' && (
+            {userRole !== 'business' && userRole !== 'driver' && !isDriver && (
               <div className="hidden md:flex items-center gap-2 mr-4">
                 <button
                   onClick={() => navigateToCategory('הכל')}
@@ -380,7 +396,7 @@ const Menu = () => {
           >
             <div className="pt-2 space-y-1 border-t border-gray-200">
               {/* Category tabs - mobile (top with icons) - Hidden for business accounts */}
-              {userRole !== 'business' && (
+              {userRole !== 'business' && userRole !== 'driver' && !isDriver && (
                 <div className="px-3 pb-3 mb-2 border-b border-gray-200">
                   <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase">קטגוריות</h4>
                   <div className="grid grid-cols-2 gap-2">
@@ -471,7 +487,13 @@ const Menu = () => {
                 </>
               )}
               
-              {userLoggedIn && userRole === 'business' && (
+              {userLoggedIn && (userRole === 'driver' || isDriver) && (
+                <Link to="/driver/delivery" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/driver/delivery') ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}>
+                  מסך נהג
+                </Link>
+              )}
+
+              {userLoggedIn && userRole === 'business' && !isDriver && (
                 <>
                   {isIndependent && (
                     <Link to="/independent-orders" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/independent-orders') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>

@@ -89,6 +89,7 @@ import CommunityDiscountConfig from './components/admin/CommunityDiscountConfig'
 import CommunityHubAdmin from './components/admin/CommunityHubAdmin';
 import DeliveryScheduleAdmin from './components/admin/DeliveryScheduleAdmin';
 import WeeklyDeliveryOrderSummary from './components/admin/WeeklyDeliveryOrderSummaryWorkspace';
+import DeliveryDriverV7 from './components/driver/DeliveryDriverV7';
 
 const App = () => {
   return (
@@ -163,6 +164,7 @@ const App = () => {
                   <Route path="/admin/delivery-v6" element={<DeliveryManagementV6 />} />
                   <Route path="/admin/delivery-v7" element={<DeliveryManagementV7 />} />
                   <Route path="/admin/delivery-schedules" element={<DeliveryScheduleAdmin />} />
+                  <Route path="/driver/delivery" element={<DeliveryDriverV7 />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
                   <Route path="/independent/order/:orderId" element={<IndependentOrderForm />} />
                   <Route path="/independent/volunteer/:orderId" element={<VolunteerPickupSpot />} />

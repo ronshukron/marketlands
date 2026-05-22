@@ -3,6 +3,7 @@ import { auth, db } from "../../firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { doSignOut } from "../../firebase/auth";
+import { isDeliveryDriverAccount } from "../../utils/accountRoles";
 
 const AuthContext = React.createContext();
 
@@ -60,7 +61,7 @@ export function AuthProvider({ children }) {
             const businessDocRef = doc(db, 'businesses', user.uid);
             const businessDoc = await getDoc(businessDocRef);
             if (businessDoc.exists()) {
-              userRole = 'business';
+              userRole = isDeliveryDriverAccount(businessDoc.data()) ? 'driver' : 'business';
             }
           }
         }

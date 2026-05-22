@@ -1,0 +1,132 @@
+/* Scoped driver page styles — overrides Bootstrap/Tailwind blue tints on sections */
+
+.driver-delivery-page .driver-collapsible {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+
+.driver-delivery-page .driver-collapsible__toggle {
+  background: transparent !important;
+  color: #111827 !important;
+  border: none;
+}
+
+.driver-delivery-page .driver-collapsible__toggle:hover {
+  background: #f9fafb !important;
+}
+
+.driver-delivery-page .driver-collapsible__title {
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-collapsible__subtitle {
+  color: #6b7280 !important;
+}
+
+.driver-delivery-page .driver-collapsible__badge {
+  background: rgba(17, 24, 39, 0.06) !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+.driver-delivery-page .driver-collapsible__icon {
+  background: #f3f4f6 !important;
+  color: #374151 !important;
+}
+
+.driver-delivery-page .driver-stat-card {
+  background: #f9fafb !important;
+  border: 1px solid #e5e7eb;
+}
+
+.driver-delivery-page .driver-stat-card,
+.driver-delivery-page .driver-stat-card * {
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-chip {
+  background: #fff !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+.driver-delivery-page .driver-chip.is-active {
+  background: #f3f4f6 !important;
+  color: #111827 !important;
+  border-color: #9ca3af !important;
+}
+
+.driver-delivery-page .driver-chip-all.is-active {
+  background: #111827 !important;
+  color: #fff !important;
+  border-color: #111827 !important;
+}
+
+.driver-delivery-page .driver-order-row {
+  background: #fff !important;
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-order-row:hover {
+  background: #f9fafb !important;
+}
+
+.driver-delivery-page .driver-order-row.is-active {
+  background: #f9fafb !important;
+  box-shadow: inset 0 0 0 1px #d1d5db;
+}
+
+.driver-delivery-page .driver-order-row * {
+  color: inherit;
+}
+
+.driver-delivery-page .driver-order-row .driver-order-name {
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-community-check.is-checked {
+  background: #f9fafb !important;
+  border-color: #d1d5db !important;
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-mini-btn {
+  background: #f9fafb !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+.driver-delivery-page .driver-load-btn {
+  background: #111827 !important;
+  color: #fff !important;
+}
+
+.driver-delivery-page .driver-load-btn:hover:not(:disabled) {
+  background: #374151 !important;
+}
+
+.driver-delivery-page .driver-home-card {
+  background: #f9fafb !important;
+  border: 1px solid #e5e7eb !important;
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-home-card * {
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-badge-home {
+  background: #f9fafb !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+.driver-delivery-page .driver-home-detail-box {
+  background: #f9fafb !important;
+  border: 1px solid #e5e7eb !important;
+  color: #111827 !important;
+}
+
+.driver-delivery-page .driver-home-detail-box * {
+  color: #111827 !important;
+}
