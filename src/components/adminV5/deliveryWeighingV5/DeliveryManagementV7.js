@@ -3016,8 +3016,13 @@ export default function DeliveryManagementV7() {
                       quantity: reqQty,
                       averageWeightKg: it.averageWeightKg || 1,
                     });
+                    const hasProductImage = it.images && it.images.length > 0;
                     const showQtyBadge = reqQty > 1;
                     const showUnderOneKgBadge = !isPackage && reqEstimatedKg > 0 && reqEstimatedKg < 1;
+                    const contentTopPadding = hasProductImage
+                      ? (showQtyBadge ? '8.5rem' : '6rem')
+                      : (showQtyBadge ? '4.25rem' : '0.75rem');
+                    const compactActionStyle = { flex: '0 0 auto', minWidth: 0, width: 'fit-content' };
 
                     return (
                       <div
@@ -3038,53 +3043,70 @@ export default function DeliveryManagementV7() {
                           }
                         `}
                       >
+                        {hasProductImage && (
+                          <>
+                            <img
+                              src={cachedImg(it.images[0])}
+                              alt=""
+                              aria-hidden="true"
+                              className={`pointer-events-none absolute inset-0 h-full w-full object-contain p-2 ${isRemoved ? 'grayscale opacity-40' : 'opacity-100'}`}
+                            />
+                            <div
+                              className={`pointer-events-none absolute inset-0 ${
+                                isRemoved
+                                  ? 'bg-red-50 opacity-70'
+                                  : isActive
+                                    ? 'bg-blue-200 opacity-25'
+                                    : isNext
+                                      ? 'bg-yellow-100 opacity-25'
+                                      : weighedQty
+                                        ? 'bg-green-100 opacity-20'
+                                        : 'bg-black opacity-5'
+                              }`}
+                            />
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black via-transparent to-black opacity-10" />
+                          </>
+                        )}
                         {showQtyBadge && !isRemoved && (
-                          <div className="absolute top-2 right-2 z-10">
-                            <div className="bg-red-600 text-white font-black rounded-full min-w-[36px] h-9 flex items-center justify-center px-2 text-lg shadow-lg border-2 border-white">
+                          <div className="absolute top-3 right-3 z-30">
+                            <div className="absolute inset-0 rounded-full bg-red-500 opacity-30 animate-ping" />
+                            <div className="relative bg-red-700 text-white font-black rounded-full min-w-[52px] h-12 flex items-center justify-center px-3 text-2xl shadow-2xl border-4 border-white ring-4 ring-red-300 animate-pulse">
                               x{isPackage || isUnit ? Math.floor(reqQty) : reqQty}
                             </div>
                           </div>
                         )}
                         {showUnderOneKgBadge && !isRemoved && (
-                          <div className={`absolute top-2 ${showQtyBadge ? 'left-2' : 'right-2'} z-10`}>
-                            <span className="bg-orange-500 text-white font-bold text-[11px] px-2 py-0.5 rounded-full shadow">
+                          <div className={`absolute top-2 ${showQtyBadge ? 'left-2' : 'right-2'} z-20`}>
+                            <span className="bg-orange-500 text-white font-black text-[11px] px-2 py-0.5 rounded-full shadow-lg border border-white">
                               {t.underOneKgBadge}
                             </span>
                           </div>
                         )}
                         {!isRemoved && isNext && !isActive && (
-                          <div className={`absolute top-2 ${showQtyBadge ? (isRTL ? 'right-14' : 'left-2') : (isRTL ? 'right-2' : 'left-2')} z-10`}>
-                            <span className="bg-yellow-400 text-yellow-900 font-bold text-[11px] px-2 py-0.5 rounded-full">{t.next}</span>
+                          <div className={`absolute top-2 ${showQtyBadge ? (isRTL ? 'right-12' : 'left-2') : (isRTL ? 'right-2' : 'left-2')} z-20`}>
+                            <span className="bg-yellow-400 text-yellow-900 font-bold text-[11px] px-2 py-0.5 rounded-full shadow border border-white">{t.next}</span>
                           </div>
                         )}
                         {isRemoved && (
-                          <div className="absolute top-2 left-2 z-10">
+                          <div className="absolute top-2 left-2 z-20">
                             <span className="bg-red-500 text-white font-bold text-[11px] px-2 py-0.5 rounded-full">{t.removedLabel}</span>
                           </div>
                         )}
 
-                        <div className="flex justify-center pt-4 pb-2 px-4">
-                          {it.images && it.images.length > 0 ? (
-                            <img
-                              src={cachedImg(it.images[0])}
-                              alt={displayName}
-                              className={`w-28 h-28 rounded-xl object-cover border border-gray-200 ${isRemoved ? 'grayscale' : ''}`}
-                            />
-                          ) : (
-                            <div className="w-28 h-28 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-300 text-3xl">
-                              ?
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="px-4 pb-2">
-                          <div className={`font-bold text-sm leading-tight ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                        <div className="relative z-10 p-3 space-y-2" style={{ paddingTop: contentTopPadding }}>
+                        <div
+                          className="p-2"
+                          style={hasProductImage ? { textShadow: '0 1px 2px rgba(255,255,255,0.95), 0 0 8px rgba(255,255,255,0.85)' } : undefined}
+                        >
+                          <div className={`inline rounded-md px-1.5 py-0.5 font-black text-sm leading-tight shadow-sm ${isRemoved ? 'bg-gray-100 text-gray-400 line-through' : 'bg-cyan-100 text-cyan-950'}`}>
                             {displayName}
                           </div>
                           {secondaryName && (
-                            <div className={`text-[11px] mt-0.5 ${isRemoved ? 'text-gray-300' : 'text-gray-500'}`}>{secondaryName}</div>
+                            <div className="mt-1">
+                              <span className={`inline rounded px-1.5 py-0.5 text-[11px] font-bold shadow-sm ${isRemoved ? 'bg-gray-100 text-gray-300' : 'bg-violet-100 text-violet-800'}`}>{secondaryName}</span>
+                            </div>
                           )}
-                          <div className={`text-xs mt-2 ${isRemoved ? 'text-gray-400' : 'text-gray-600'}`}>
+                          <div className={`mt-2 inline-block rounded-md px-1.5 py-0.5 text-xs font-semibold shadow-sm ${isRemoved ? 'bg-gray-100 text-gray-400' : 'bg-amber-100 text-amber-950'}`}>
                             <span className="font-bold">{t.ordered}: </span>
                             {isPackage ? (
                               <><span className="font-black text-base">{Math.floor(reqQty)}</span> {t.pkgLbl} • {t.perPkg} {Number(it.pricePerUnit || 0).toFixed(2)}</>
@@ -3109,11 +3131,14 @@ export default function DeliveryManagementV7() {
                           )}
                         </div>
 
-                        <div className="px-4 pb-3 border-t border-gray-100 pt-2">
+                        <div
+                          className="p-2"
+                          style={hasProductImage ? { textShadow: '0 1px 2px rgba(255,255,255,0.95), 0 0 8px rgba(255,255,255,0.85)' } : undefined}
+                        >
                           {isRemoved ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); restoreItem(it.lineId); }}
-                              className="w-full py-1.5 text-xs font-bold rounded-lg bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                              className="w-full py-1 px-2 text-[11px] font-bold rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
                             >
                               {t.restore}
                             </button>
@@ -3134,26 +3159,36 @@ export default function DeliveryManagementV7() {
 
                               {weighedQty && !isEditing && (
                                 <div className="flex items-center justify-between mb-2">
-                                  <div>
-                                    <div className="text-[11px] text-gray-500 font-bold">{t.weighed}:</div>
-                                    <div className="text-lg font-black text-green-700">
-                                      {isPackage
-                                        ? `${Math.floor(weighedQty)} ${t.pkgLbl}`
-                                        : `${Number(weighedQty).toFixed(3)} ${t.kg}`}
+                                  <div className="space-y-1">
+                                    <div>
+                                      <span className="inline rounded px-1.5 py-0.5 text-[11px] font-black text-green-900 bg-green-100 shadow-sm">{t.weighed}:</span>
+                                    </div>
+                                    <div>
+                                      <span className="inline rounded-md px-1.5 py-0.5 text-lg font-black text-green-950 bg-emerald-100 shadow-sm">
+                                        {isPackage
+                                          ? `${Math.floor(weighedQty)} ${t.pkgLbl}`
+                                          : `${Number(weighedQty).toFixed(3)} ${t.kg}`}
+                                      </span>
                                     </div>
                                     {weighed?.source && (
-                                      <div className="text-[10px] text-gray-400">{sourceLabel(weighed.source, t)}</div>
+                                      <div>
+                                        <span className="inline rounded px-1.5 py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 shadow-sm">{sourceLabel(weighed.source, t)}</span>
+                                      </div>
                                     )}
                                   </div>
-                                  <span className="text-green-600 text-xl font-black">&#10003;</span>
+                                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700 text-xl font-black shadow-sm">&#10003;</span>
                                 </div>
                               )}
 
                               {!weighedQty && !isActive && !isEditing && (
-                                <div className="mb-2">
-                                  <div className="text-[11px] text-gray-500 font-bold">{t.weighed}:</div>
-                                  <div className="text-lg font-black text-gray-400">
-                                    {isPackage ? t.notConfirmed : t.notWeighed}
+                                <div className="mb-2 space-y-1">
+                                  <div>
+                                    <span className="inline rounded px-1.5 py-0.5 text-[11px] font-black text-slate-700 bg-slate-100 shadow-sm">{t.weighed}:</span>
+                                  </div>
+                                  <div>
+                                    <span className="inline rounded-md px-1.5 py-0.5 text-lg font-black text-gray-700 bg-gray-100 shadow-sm">
+                                      {isPackage ? t.notConfirmed : t.notWeighed}
+                                    </span>
                                   </div>
                                 </div>
                               )}
@@ -3174,13 +3209,13 @@ export default function DeliveryManagementV7() {
                                   />
                                   <button
                                     onClick={() => saveManualWeight(it.lineId, editValue, 'manual')}
-                                    className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700"
+                                    className="px-3 py-1.5 bg-green-600 text-white rounded-md text-xs font-bold hover:bg-green-700"
                                   >
                                     {t.save}
                                   </button>
                                   <button
                                     onClick={cancelEdit}
-                                    className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-300"
+                                    className="px-2.5 py-1.5 bg-gray-200 text-gray-700 rounded-md text-xs font-bold hover:bg-gray-300"
                                   >
                                     {t.cancel}
                                   </button>
@@ -3215,7 +3250,7 @@ export default function DeliveryManagementV7() {
                                       }
                                     }}
                                     disabled={!editValue && !(scaleConnected && ((liveWeight?.stable && liveWeight.value > WEIGHT_ON_THRESHOLD) || (lastStableWeight?.value > WEIGHT_ON_THRESHOLD)))}
-                                    className={`px-4 py-2 rounded-lg text-sm font-bold ${
+                                    className={`px-3 py-1.5 rounded-md text-xs font-bold ${
                                       (editValue || (scaleConnected && ((liveWeight?.stable && liveWeight.value > WEIGHT_ON_THRESHOLD) || (lastStableWeight?.value > WEIGHT_ON_THRESHOLD))))
                                         ? 'bg-green-600 text-white hover:bg-green-700'
                                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -3242,29 +3277,32 @@ export default function DeliveryManagementV7() {
                                     />
                                     <button
                                       onClick={() => savePriceEdit(it)}
-                                      className="px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600"
+                                      className="px-2.5 py-1.5 bg-amber-500 text-white rounded-md text-[11px] font-bold hover:bg-amber-600"
                                     >
                                       {t.savePrice}
                                     </button>
                                     <button
                                       onClick={cancelPriceEdit}
-                                      className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-300"
+                                      className="px-2.5 py-1.5 bg-gray-200 text-gray-700 rounded-md text-[11px] font-bold hover:bg-gray-300"
                                     >
                                       {t.cancel}
                                     </button>
                                   </div>
                                 ) : (
-                                  <div className="text-xs text-gray-500">
-                                    <span className="font-bold">{t.price}:</span> ₪{Number(it.pricePerUnit || 0).toFixed(2)}
+                                  <div>
+                                    <span className="inline rounded-md px-1.5 py-0.5 text-xs font-bold text-indigo-950 bg-indigo-100 shadow-sm">
+                                      {t.price}: ₪{Number(it.pricePerUnit || 0).toFixed(2)}
+                                    </span>
                                   </div>
                                 )}
                               </div>
 
-                              <div className="flex gap-2 flex-wrap">
+                              <div className="flex gap-1.5 flex-wrap justify-end">
                                 {isPackage && !weighedQty && (
                                   <button
                                     onClick={() => saveManualWeight(it.lineId, reqQty, 'package')}
-                                    className="flex-1 text-xs font-bold py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                                    className="text-xs font-bold py-1.5 px-2 rounded-md bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                                    style={compactActionStyle}
                                   >
                                     {t.ordered}: {Math.floor(reqQty)} {t.pkgLbl}
                                   </button>
@@ -3272,7 +3310,8 @@ export default function DeliveryManagementV7() {
                                 {!isEditing && !(isActive && !weighedQty && !isPackage) && (
                                   <button
                                     onClick={() => startEdit(it.lineId, weighedQty)}
-                                    className="flex-1 text-xs font-bold py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+                                    className="text-xs font-bold py-1.5 px-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+                                    style={compactActionStyle}
                                   >
                                     {t.edit}
                                   </button>
@@ -3280,7 +3319,8 @@ export default function DeliveryManagementV7() {
                                 {!isPriceEditing && (
                                   <button
                                     onClick={() => startPriceEdit(it.lineId, it.pricePerUnit)}
-                                    className="text-xs font-bold py-1.5 px-3 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                                    className="text-xs font-bold py-1.5 px-2 rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                                    style={compactActionStyle}
                                   >
                                     {t.price}
                                   </button>
@@ -3288,7 +3328,8 @@ export default function DeliveryManagementV7() {
                                 {weighedQty && !isEditing && (
                                   <button
                                     onClick={() => resetItem(it.lineId)}
-                                    className="text-xs font-bold py-1.5 px-3 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-colors"
+                                    className="text-xs font-bold py-1.5 px-2 rounded-md bg-orange-100 text-orange-600 hover:bg-orange-200 transition-colors"
+                                    style={compactActionStyle}
                                   >
                                     {t.reset}
                                   </button>
@@ -3302,19 +3343,22 @@ export default function DeliveryManagementV7() {
                                     });
                                     if (ok) removeItem(it.lineId);
                                   }}
-                                  className="text-xs font-bold py-1.5 px-3 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                                  className="text-xs font-bold py-1.5 px-2 rounded-md bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                                  style={compactActionStyle}
                                 >
                                   {t.remove}
                                 </button>
                                 <button
                                   onClick={() => deleteLine(it)}
-                                  className="text-xs font-bold py-1.5 px-3 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+                                  className="text-xs font-bold py-1.5 px-2 rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
+                                  style={compactActionStyle}
                                 >
                                   {t.deleteLine}
                                 </button>
                               </div>
                             </div>
                           )}
+                        </div>
                         </div>
                       </div>
                     );
