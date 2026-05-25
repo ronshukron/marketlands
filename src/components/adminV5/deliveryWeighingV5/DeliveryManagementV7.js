@@ -3109,18 +3109,14 @@ export default function DeliveryManagementV7() {
                           <div className={`mt-2 inline-block rounded-md px-1.5 py-0.5 text-xs font-semibold shadow-sm ${isRemoved ? 'bg-gray-100 text-gray-400' : 'bg-amber-100 text-amber-950'}`}>
                             <span className="font-bold">{t.ordered}: </span>
                             {isPackage ? (
-                              <><span className="font-black text-base">{Math.floor(reqQty)}</span> {t.pkgLbl} • {t.perPkg} {Number(it.pricePerUnit || 0).toFixed(2)}</>
+                              <><span className="font-black text-base">{Math.floor(reqQty)}</span> {t.pkgLbl}</>
                             ) : isUnit ? (
                               <>
                                 <span className="font-black text-xl text-purple-700">{Math.floor(reqQty)}</span> <span className="font-black text-lg text-purple-700">{t.unitLbl}</span>
-                                {' '}• {t.perKg} {Number(it.pricePerUnit || 0).toFixed(2)}
                               </>
                             ) : (
                               <>
-                                <span className={`font-black text-base ${reqQty < 1 ? 'text-orange-600' : ''}`}>{reqQty.toFixed(3)}</span> {t.kg} • {t.perKg} {Number(it.pricePerUnit || 0).toFixed(2)}
-                                {it.unitSize && it.unitSize !== 1 && (
-                                  <span className="text-gray-400 ml-1">({Math.round(reqQty / it.unitSize)} x {it.unitSize})</span>
-                                )}
+                                <span className={`font-black text-base ${reqQty < 1 ? 'text-orange-600' : ''}`}>{reqQty.toFixed(3)}</span> {t.kg}
                               </>
                             )}
                           </div>
