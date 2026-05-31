@@ -13,6 +13,10 @@ import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, 
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
 const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'אחר'];
+const hebrewPickupSpotCollator = new Intl.Collator('he');
+
+const sortPickupSpotsByHebrewAlphabet = (spots) =>
+  [...spots].sort((a, b) => hebrewPickupSpotCollator.compare(a, b));
 
 const getCategoryStoreSortRank = (product) => {
   if (product.businessName === 'הבסקט של בסטה') return 2;
@@ -65,6 +69,12 @@ const CategoryStore = () => {
   const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
   const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
   const [, setTimeTick] = useState(0);
+  const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), []);
+  const filteredPickupSpots = useMemo(() => {
+    const query = communityQuery.trim().toLowerCase();
+    if (!query) return sortedPickupSpots;
+    return sortedPickupSpots.filter(s => s.toLowerCase().includes(query));
+  }, [communityQuery, sortedPickupSpots]);
   
   useEffect(() => {
     fetchCategorizedProducts();
@@ -650,7 +660,7 @@ const CategoryStore = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-right"
                 />
                 <div className="max-h-56 overflow-auto mt-2">
-                  {pickupSpots.filter(s => s.toLowerCase().includes(communityQuery.trim().toLowerCase())).map((spot) => {
+                  {filteredPickupSpots.map((spot) => {
                     const isActive = spot === selectedCommunity;
                     return (
                       <div
@@ -662,7 +672,7 @@ const CategoryStore = () => {
                       </div>
                     );
                   })}
-                  {pickupSpots.filter(s => s.toLowerCase().includes(communityQuery.trim().toLowerCase())).length === 0 && (
+                  {filteredPickupSpots.length === 0 && (
                     <div className="px-3 py-2 text-sm text-gray-500 text-center">לא נמצאו תוצאות</div>
                   )}
                 </div>

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { Navigate, Link, useNavigate } from 'react-router-dom'
+import { Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
 import { doSignInWithEmailAndPassword, doSignInWithGoogle } from '../../../firebase/auth'
 import { useAuth } from '../../../contexts/authContext'
 
 const Login = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { userLoggedIn } = useAuth();
+    const redirectTo = location.state?.from || '/';
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -19,7 +21,7 @@ const Login = () => {
         try {
             setIsSigningIn(true);
             await doSignInWithEmailAndPassword(email, password);
-            navigate('/');  // Navigate to home after successful login
+            navigate(redirectTo, { replace: true });
             setIsSigningIn(false);
         } catch (error) {
             console.error("Login failed:", error);
@@ -35,7 +37,7 @@ const Login = () => {
         try {
             setIsSigningIn(true);
             await doSignInWithGoogle();
-            navigate('/');  // Navigate to home after successful login
+            navigate(redirectTo, { replace: true });
         } catch (error) {
             console.error("Google sign-in failed:", error);
             setErrorMessage(error.message || "Failed to sign in with Google");
@@ -45,9 +47,9 @@ const Login = () => {
 
     useEffect(() => {
         if (userLoggedIn) {
-            navigate('/');
+            navigate(redirectTo, { replace: true });
         }
-    }, [userLoggedIn, navigate]);
+    }, [userLoggedIn, navigate, redirectTo]);
     
 
     return (

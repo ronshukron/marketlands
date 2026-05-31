@@ -5,25 +5,39 @@ import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
 import { verifyProduct, rejectProduct } from '../../services/independentAdminService';
+import {
+  approveMarketplaceProduct,
+  getPendingMarketplaceProducts,
+  rejectMarketplaceProduct,
+} from '../../services/marketplaceProductService';
 
 const ProductApprovals = () => {
   const { currentUser } = useAuth();
-  const [products, setProducts] = useState([]);
+  const [activeTab, setActiveTab] = useState('marketplace');
+  const [legacyProducts, setLegacyProducts] = useState([]);
+  const [marketplaceProducts, setMarketplaceProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
+
+  const fetchLegacyPending = async () => {
+    const q = query(collection(db, 'Products'), where('verified', '==', false));
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => ({ id: d.id, source: 'legacy', ...d.data() }))
+      .filter((p) => p.rejected !== true);
+  };
 
   const fetchPending = async () => {
     setLoading(true);
     try {
-      const q = query(
-        collection(db, 'Products'),
-        where('verified', '==', false)
-      );
-      const snap = await getDocs(q);
-      const items = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(p => p.rejected !== true); // exclude rejected on client side
-      setProducts(items);
+      const [legacy, marketplace] = await Promise.all([
+        fetchLegacyPending(),
+        getPendingMarketplaceProducts().then((items) =>
+          items.map((p) => ({ ...p, source: 'marketplace' }))
+        ),
+      ]);
+      setLegacyProducts(legacy);
+      setMarketplaceProducts(marketplace);
     } catch (e) {
       console.error('Failed to load pending products', e);
     } finally {
@@ -35,6 +49,8 @@ const ProductApprovals = () => {
     fetchPending();
   }, []);
 
+  const products = activeTab === 'marketplace' ? marketplaceProducts : legacyProducts;
+
   const handleApprove = async (product) => {
     if (!currentUser) {
       Swal.fire({ icon: 'error', title: 'שגיאת התחברות', text: 'יש להתחבר מחדש למערכת' });
@@ -42,7 +58,11 @@ const ProductApprovals = () => {
     }
     try {
       setActionLoadingId(product.id);
-      await verifyProduct({ productId: product.id });
+      if (product.source === 'marketplace') {
+        await approveMarketplaceProduct(product.id);
+      } else {
+        await verifyProduct({ productId: product.id });
+      }
       Swal.fire({ icon: 'success', title: 'המוצר אושר', timer: 1500, showConfirmButton: false });
       await fetchPending();
     } catch (e) {
@@ -70,13 +90,17 @@ const ProductApprovals = () => {
           if (!value) {
             return 'חובה להזין סיבה לדחייה';
           }
-        }
+        },
       });
 
-      if (!reason) return; // User cancelled
+      if (!reason) return;
 
       setActionLoadingId(product.id);
-      await rejectProduct({ productId: product.id, reason });
+      if (product.source === 'marketplace') {
+        await rejectMarketplaceProduct(product.id, reason);
+      } else {
+        await rejectProduct({ productId: product.id, reason });
+      }
       Swal.fire({ icon: 'success', title: 'המוצר נדחה', timer: 1500, showConfirmButton: false });
       await fetchPending();
     } catch (e) {
@@ -91,16 +115,41 @@ const ProductApprovals = () => {
 
   return (
     <div dir="rtl" className="max-w-5xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">אישור מוצרים</h1>
+      <h1 className="text-2xl font-bold text-gray-800 mb-4">אישור מוצרים</h1>
+      <div className="flex gap-2 mb-6">
+        <button
+          type="button"
+          onClick={() => setActiveTab('marketplace')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+            activeTab === 'marketplace' ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          שוק הבסטות ({marketplaceProducts.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('legacy')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+            activeTab === 'legacy' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          מוצרים שבועיים / עצמאיים ({legacyProducts.length})
+        </button>
+      </div>
+
       {products.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 border border-gray-200 rounded-lg">
           <h3 className="text-lg font-medium text-gray-900 mb-2">אין מוצרים ממתינים לאישור</h3>
-          <p className="text-gray-600">מוצרים שיוספו על ידי חקלאים עצמאיים יופיעו כאן.</p>
+          <p className="text-gray-600">
+            {activeTab === 'marketplace'
+              ? 'מוצרים שיוספו על ידי בעלי בסטה בשוק יופיעו כאן.'
+              : 'מוצרים שיוספו על ידי חקלאים עצמאיים יופיעו כאן.'}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
           {products.map((p) => (
-            <div key={p.id} className="bg-white rounded-lg border border-gray-200 p-4 flex gap-4 items-start">
+            <div key={`${p.source}-${p.id}`} className="bg-white rounded-lg border border-gray-200 p-4 flex gap-4 items-start">
               {Array.isArray(p.images) && p.images[0] && (
                 <img src={p.images[0]} alt={p.name} className="w-24 h-24 object-cover rounded" />
               )}
@@ -112,9 +161,11 @@ const ProductApprovals = () => {
                     {p.description && (
                       <p className="text-sm text-gray-600 mt-1 line-clamp-2">{p.description}</p>
                     )}
-                    <div className="text-xs text-gray-500 mt-1">סוג מע"מ: {p.vatType ?? '—'}</div>
-                    {p.merchantPrice != null && (
-                      <div className="text-xs text-gray-500 mt-1">מחיר סוחר: ₪{Number(p.merchantPrice).toFixed(2)}</div>
+                    {p.category && (
+                      <div className="text-xs text-gray-500 mt-1">קטגוריה: {p.category}</div>
+                    )}
+                    {p.vatType != null && (
+                      <div className="text-xs text-gray-500 mt-1">סוג מע"מ: {p.vatType}</div>
                     )}
                   </div>
                   <div className="flex gap-2">
@@ -137,7 +188,9 @@ const ProductApprovals = () => {
                 {Array.isArray(p.options) && p.options.length > 0 && (
                   <div className="text-xs text-gray-500 mt-2">אפשרויות: {p.options.join(', ')}</div>
                 )}
-                <div className="text-xs text-gray-500 mt-1">בעלים: {p.Owner_Email || p.Owner_ID}</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  בעלים: {p.ownerEmail || p.Owner_Email || p.businessId || p.Owner_ID}
+                </div>
               </div>
             </div>
           ))}
@@ -147,4 +200,4 @@ const ProductApprovals = () => {
   );
 };
 
-export default ProductApprovals; 
+export default ProductApprovals;

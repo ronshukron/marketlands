@@ -39,11 +39,14 @@ export const doSignInWithGoogle = async () => {
     const userCredential = await signInWithPopup(auth, provider);
     const user = userCredential.user;
     
-    // First check if user exists in businesses collection
+    const localBusinessDocRef = doc(db, "localbusiness", user.uid);
+    const localBusinessDoc = await getDoc(localBusinessDocRef);
+    if (localBusinessDoc.exists()) {
+      return userCredential;
+    }
+
     const businessDocRef = doc(db, "businesses", user.uid);
     const businessDoc = await getDoc(businessDocRef);
-    
-    // If user exists as a business, don't create a user document
     if (businessDoc.exists()) {
       return userCredential;
     }

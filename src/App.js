@@ -3,7 +3,8 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import ScrollToTop from './components/ScrollToTop';
 import { AuthProvider } from "./contexts/authContext";
 import { CartProvider } from './contexts/CartContext';
-import Menu from './components/Menu';
+import { MarketplaceCartProvider } from './contexts/MarketplaceCartContext';
+import AppMenu from './components/AppMenu';
 import Home from './components/Home';
 import Producers from './components/Producers';
 import ProducerDetails from './components/ProducerDetails';
@@ -28,6 +29,7 @@ import MyOrders from './components/MyOrders';
 import './App.css';
 import OngoingOrders from './components/OngoingOrders';
 import BusinessRegister from './components/auth/BusinessRegister';
+import LocalBusinessRegister from './components/auth/LocalBusinessRegister';
 import BusinessDashBoard from './components/businesses/BusinessDashBoard.js';
 import BusinessProducts from './components/businesses/BusinessProducts';
 import AddProduct from './components/businesses/AddProduct';
@@ -90,17 +92,33 @@ import CommunityHubAdmin from './components/admin/CommunityHubAdmin';
 import DeliveryScheduleAdmin from './components/admin/DeliveryScheduleAdmin';
 import WeeklyDeliveryOrderSummary from './components/admin/WeeklyDeliveryOrderSummaryWorkspace';
 import DeliveryDriverV7 from './components/driver/DeliveryDriverV7';
+import MarketplaceHome from './components/marketplace/MarketplaceHome';
+import MarketplaceLogin from './components/marketplace/MarketplaceLogin';
+import MarketplaceRegister from './components/marketplace/MarketplaceRegister';
+import MarketplaceOrderForm from './components/marketplace/MarketplaceOrderForm';
+import SellerMarketplaceDashboard from './components/marketplace/SellerMarketplaceDashboard';
+import MarketplaceProductsList from './components/marketplace/products/MarketplaceProductsList';
+import MarketplaceAddProduct from './components/marketplace/products/MarketplaceAddProduct';
+import MarketplaceEditProduct from './components/marketplace/products/MarketplaceEditProduct';
+import MarketplaceMyStore from './components/marketplace/MarketplaceMyStore';
+import MarketplaceStorePage from './components/marketplace/MarketplaceStorePage';
+import MarketplaceCheckout from './components/marketplace/MarketplaceCheckout';
+import MarketplaceOrderConfirmation from './components/marketplace/MarketplaceOrderConfirmation';
+import MarketplaceMyOrders from './components/marketplace/MarketplaceMyOrders';
+import MarketplaceBusinessOrders from './components/marketplace/MarketplaceBusinessOrders';
+import MarketplaceSettingsAdmin from './components/admin/MarketplaceSettingsAdmin';
 
 const App = () => {
   return (
     <AuthProvider>
       <CartProvider>
+        <MarketplaceCartProvider>
         <PickupSpotProvider>
           <SaleModeProvider>
             <Router>
             <ScrollToTop />
             <div className="App min-h-screen flex flex-col">
-              <Menu />
+              <AppMenu />
               <main className="flex-grow">
                 <Routes>
                   <Route path="/landing" element={<LandingPage />} />
@@ -129,6 +147,8 @@ const App = () => {
                   <Route path="/my-orders" element={<MyOrders />} />
                   <Route path="/ongoing-orders" element={<OngoingOrders />} />
                   <Route path="/business-register" element={<BusinessRegister />} />
+                  <Route path="/local-business-register" element={<LocalBusinessRegister />} />
+                  <Route path="/marketplace/register" element={<LocalBusinessRegister />} />
                   <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
                   <Route path="/Business-Products" element={<BusinessProducts />} />
                   <Route path="/add-product" element={<AddProduct />} />
@@ -184,11 +204,33 @@ const App = () => {
                   <Route path="/admin/analytics" element={<AnalyticsDashboard />} />
                   <Route path="/admin/customers" element={<CustomerInsights />} />
                   <Route path="/admin/payment-config" element={<PaymentConfigAdmin />} />
+                  <Route path="/admin/marketplace-settings" element={<MarketplaceSettingsAdmin />} />
                   <Route path="/admin/community-discount" element={<CommunityDiscountConfig />} />
                   <Route path="/admin/community-hub" element={<CommunityHubAdmin />} />
                   {/* Community Hub */}
                   <Route path="/community" element={<CommunityHub />} />
                   <Route path="/community/:communityId" element={<CommunityHub />} />
+                  {/* Community Marketplace */}
+                  <Route path="/community-marketplace" element={<MarketplaceHome />} />
+                  <Route path="/community-marketplace/login" element={<MarketplaceLogin />} />
+                  <Route path="/community-marketplace/register" element={<MarketplaceRegister />} />
+                  <Route path="/community-marketplace/checkout" element={<MarketplaceCheckout />} />
+                  <Route
+                    path="/community-marketplace/order-confirmation"
+                    element={<MarketplaceOrderConfirmation />}
+                  />
+                  <Route path="/community-marketplace/store/:businessId" element={<MarketplaceStorePage />} />
+                  <Route path="/community-marketplace/my-orders" element={<MarketplaceMyOrders />} />
+                  <Route path="/community-marketplace/order/:promotionId" element={<MarketplaceOrderForm />} />
+                  <Route path="/marketplace/my-store" element={<MarketplaceMyStore />} />
+                  <Route path="/marketplace/orders" element={<MarketplaceBusinessOrders />} />
+                  <Route path="/marketplace/dashboard" element={<SellerMarketplaceDashboard />} />
+                  <Route path="/marketplace/store" element={<SellerMarketplaceDashboard />} />
+                  <Route path="/marketplace/promotions/new" element={<SellerMarketplaceDashboard />} />
+                  <Route path="/marketplace/products" element={<MarketplaceProductsList />} />
+                  <Route path="/marketplace/products/new" element={<MarketplaceAddProduct />} />
+                  <Route path="/marketplace/products/:productId/edit" element={<MarketplaceEditProduct />} />
+                  <Route path="/marketplace/products/:productId" element={<MarketplaceEditProduct />} />
                 </Routes>
               </main>
               <Footer />
@@ -196,7 +238,8 @@ const App = () => {
             </div>
           </Router>
         </SaleModeProvider>
-      </PickupSpotProvider>
+        </PickupSpotProvider>
+        </MarketplaceCartProvider>
     </CartProvider>
   </AuthProvider>
 );

@@ -15,7 +15,8 @@ import "slick-carousel/slick/slick-theme.css";
 
 
 const BusinessProducts = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userRole } = useAuth();
+  const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedProducts, setSelectedProducts] = useState([]); // Track selected products
@@ -32,7 +33,12 @@ const BusinessProducts = () => {
   const [checkingSupplier, setCheckingSupplier] = useState(false);
   const [supplierDiff, setSupplierDiff] = useState(null);
   const [supplierCheckedAt, setSupplierCheckedAt] = useState(null);
-  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (userRole === 'localBusiness') {
+      navigate('/marketplace/products', { replace: true });
+    }
+  }, [userRole, navigate]);
 
   // Helper to determine selectability and status
   const getProductStatus = (p) => {

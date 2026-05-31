@@ -6,18 +6,19 @@ import { useAuth } from '../contexts/authContext';
 import { doSignOut } from '../firebase/auth';
 import { useCart } from '../contexts/CartContext';
 import { useSaleMode } from '../contexts/SaleModeContext';
+import { isCommunityMarketplaceShopper } from '../utils/marketplaceAccount';
 import Cart from './Cart';
 import './Menu.css';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { isDeliveryDriverAccount, isIndependentBusinessAccount } from '../utils/accountRoles';
-
 const Menu = () => {
   const { userLoggedIn, userRole, currentUser } = useAuth();
   const { totalItems } = useCart();
   const { setSaleMode } = useSaleMode();
   const [isOpen, setIsOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isMarketplaceCartOpen, setIsMarketplaceCartOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -75,8 +76,13 @@ const Menu = () => {
   // Detect business account sub-types
   useEffect(() => {
     const checkBusinessFlags = async () => {
-      if (currentUser?.uid && (userRole === 'business' || userRole === 'driver')) {
+      if (currentUser?.uid && (userRole === 'business' || userRole === 'driver' || userRole === 'localBusiness')) {
         try {
+          if (userRole === 'localBusiness') {
+            setIsIndependent(false);
+            setIsDriver(false);
+            return;
+          }
           const ref = doc(db, 'businesses', currentUser.uid);
           const snap = await getDoc(ref);
           if (snap.exists()) {
@@ -123,7 +129,14 @@ const Menu = () => {
     return location.pathname === path;
   };
 
-  const businessId = currentUser && userRole === 'business' && !isDriver ? currentUser.uid : null;
+  const businessId = currentUser && (userRole === 'business' || userRole === 'localBusiness') && !isDriver
+    ? currentUser.uid
+    : null;
+  const isMarketplaceShopper = isCommunityMarketplaceShopper({
+    userLoggedIn,
+    userRole,
+    isDriver,
+  });
   const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר'];
 
   return (
@@ -190,23 +203,22 @@ const Menu = () => {
                 </>
               )}
               
-              {userLoggedIn && userRole === 'user' && (
-                <>
-                  <Link to="/my-orders" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/my-orders') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                    </svg>
-                    ההזמנות שלי
-                  </Link>
-                  <Link to="/my-volunteer-spots" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/my-volunteer-spots') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    נקודות האיסוף שלי
-                  </Link>
-                </>
+              {isMarketplaceShopper && (
+                <Link
+                  to="/community-marketplace"
+                  className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${
+                    location.pathname.startsWith('/community-marketplace')
+                      ? 'bg-green-50 text-green-700'
+                      : 'text-gray-700 hover:bg-gray-50 hover:text-green-700'
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  שוק הבסטות
+                </Link>
               )}
+
               
               {userLoggedIn && (userRole === 'driver' || isDriver) && (
                 <Link to="/driver/delivery" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/driver/delivery') ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}>
@@ -215,6 +227,19 @@ const Menu = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10h10zm0 0h8v-5l-3-4h-5v9z" />
                   </svg>
                   מסך נהג
+                </Link>
+              )}
+
+              {userLoggedIn && userRole === 'localBusiness' && (
+                <Link
+                  to="/marketplace/dashboard"
+                  className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${
+                    location.pathname.startsWith('/marketplace')
+                      ? 'bg-green-50 text-green-700'
+                      : 'text-gray-700 hover:bg-gray-50 hover:text-green-700'
+                  }`}
+                >
+                  הבסטה בשוק
                 </Link>
               )}
 
@@ -277,7 +302,7 @@ const Menu = () => {
             </nav>
 
             {/* Category tabs - desktop (now with icons) - Hidden for business accounts */}
-            {userRole !== 'business' && userRole !== 'driver' && !isDriver && (
+            {userRole !== 'business' && userRole !== 'localBusiness' && userRole !== 'driver' && !isDriver && (
               <div className="hidden md:flex items-center gap-2 mr-4">
                 <button
                   onClick={() => navigateToCategory('הכל')}
@@ -329,11 +354,11 @@ const Menu = () => {
 
             {/* Right side items - cart, auth, mobile menu */}
             <div className="flex items-center space-x-3 space-x-reverse">
-              {/* Cart button with market basket icon */}
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={toggleCart}
                 className="relative inline-flex items-center p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700"
+                aria-label="סל קניות"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -396,7 +421,7 @@ const Menu = () => {
           >
             <div className="pt-2 space-y-1 border-t border-gray-200">
               {/* Category tabs - mobile (top with icons) - Hidden for business accounts */}
-              {userRole !== 'business' && userRole !== 'driver' && !isDriver && (
+              {userRole !== 'business' && userRole !== 'localBusiness' && userRole !== 'driver' && !isDriver && (
                 <div className="px-3 pb-3 mb-2 border-b border-gray-200">
                   <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase">קטגוריות</h4>
                   <div className="grid grid-cols-2 gap-2">
@@ -476,20 +501,36 @@ const Menu = () => {
                 </>
               )}
               
-              {userLoggedIn && userRole === 'user' && (
-                <>
-                  <Link to="/my-orders" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-orders') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                    ההזמנות שלי
-                  </Link>
-                  <Link to="/my-volunteer-spots" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-volunteer-spots') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                    נקודות האיסוף שלי
-                  </Link>
-                </>
+              {isMarketplaceShopper && (
+                <Link
+                  to="/community-marketplace"
+                  className={`block px-3 py-2 rounded-md text-base font-medium ${
+                    location.pathname.startsWith('/community-marketplace')
+                      ? 'bg-green-50 text-green-700'
+                      : 'text-gray-700 hover:bg-gray-50 hover:text-green-700'
+                  }`}
+                >
+                  שוק הבסטות
+                </Link>
               )}
+
               
               {userLoggedIn && (userRole === 'driver' || isDriver) && (
                 <Link to="/driver/delivery" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/driver/delivery') ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}>
                   מסך נהג
+                </Link>
+              )}
+
+              {userLoggedIn && userRole === 'localBusiness' && (
+                <Link
+                  to="/marketplace/dashboard"
+                  className={`block px-3 py-2 rounded-md text-base font-medium ${
+                    location.pathname.startsWith('/marketplace')
+                      ? 'bg-green-50 text-green-700'
+                      : 'text-gray-700 hover:bg-gray-50 hover:text-green-700'
+                  }`}
+                >
+                  הבסטה בשוק
                 </Link>
               )}
 
@@ -597,7 +638,6 @@ const Menu = () => {
       {/* Spacer to prevent content from being hidden under fixed header */}
       <div className="h-16 md:h-20"></div>
       
-      {/* Cart component */}
       <Cart isOpen={isCartOpen} onClose={toggleCart} />
     </>
   );

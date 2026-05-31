@@ -1,0 +1,93 @@
+// Paste these blocks into Firebase Console → Firestore → Rules
+// Insert BEFORE the final catch-all:
+//   match /{document=**} { allow read, write: if false; }
+
+    // --- Community marketplace (בסטות בשוק) ---
+
+    function isActiveMarketplaceStore() {
+      return resource.data.visible == true && resource.data.status == 'active';
+    }
+
+    function isActiveMarketplacePromotion() {
+      return resource.data.status == 'active';
+    }
+
+    function isMarketplaceBusinessOwner() {
+      return isAuthenticated() && resource.data.businessId == request.auth.uid;
+    }
+
+    function isMarketplaceBusinessOwnerOnCreate() {
+      return isAuthenticated() && request.resource.data.businessId == request.auth.uid;
+    }
+
+    function isMarketplaceOrderCustomer() {
+      return isAuthenticated() && (
+        resource.data.customerUserId == request.auth.uid
+        || resource.data.customerEmail == request.auth.token.email
+      );
+    }
+
+    function isMarketplaceOrderSeller() {
+      return isAuthenticated() && resource.data.businessId == request.auth.uid;
+    }
+
+    match /marketplaceStores/{businessId} {
+      allow read: if isActiveMarketplaceStore() || isBusinessOwner(businessId) || isAdmin();
+      allow create, update: if isBusinessOwner(businessId) || isAdmin();
+      allow delete: if false;
+    }
+
+    match /marketplacePromotions/{promotionId} {
+      allow read: if isActiveMarketplacePromotion()
+        || (isAuthenticated() && resource.data.businessId == request.auth.uid)
+        || isAdmin();
+      allow create: if isMarketplaceBusinessOwnerOnCreate() || isAdmin();
+      allow update: if isMarketplaceBusinessOwner() || isAdmin();
+      allow delete: if false;
+    }
+
+    match /marketplaceUsers/{userId} {
+      allow read, create, update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    match /marketplaceOrders/{orderId} {
+      allow create: if true;
+      allow read: if isAdmin()
+        || isMarketplaceOrderSeller()
+        || isMarketplaceOrderCustomer();
+      allow update: if isAdmin()
+        || (
+          isMarketplaceOrderSeller()
+          && request.resource.data.businessId == resource.data.businessId
+          && request.resource.data.customerUserId == resource.data.customerUserId
+          && request.resource.data.customerEmail == resource.data.customerEmail
+          && request.resource.data.fulfillmentStatus == 'completed'
+          && resource.data.fulfillmentStatus in ['new', 'confirmed', 'ready']
+        );
+      allow delete: if false;
+    }
+
+    match /localbusiness/{businessId} {
+      allow read: if true;
+      allow create, update: if isBusinessOwner(businessId) || isAdmin();
+      allow delete: if false;
+    }
+
+    match /marketplaceProducts/{productId} {
+      allow read: if true;
+      allow create: if isMarketplaceBusinessOwnerOnCreate() || isAdmin();
+      allow update: if isMarketplaceBusinessOwner() || isAdmin();
+      allow delete: if isMarketplaceBusinessOwner() || isAdmin();
+    }
+
+    match /marketplaceSettings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Future volunteer pickup (placeholder collection)
+    match /marketplacePromotionVolunteers/{volunteerId} {
+      allow read: if false;
+      allow write: if false;
+    }

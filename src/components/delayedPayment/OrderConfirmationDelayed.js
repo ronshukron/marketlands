@@ -35,6 +35,10 @@ const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
 const HOLD_BUFFER_PERCENT = 5;
 // Catalog number for the buffer line item (weighing safety margin)
 const BUFFER_LINE_CATALOG_NUMBER = process.env.REACT_APP_BUFFER_LINE_CATALOG_NUMBER || '999003';
+const hebrewPickupSpotCollator = new Intl.Collator('he');
+
+const sortPickupSpotsByHebrewAlphabet = (spots) =>
+    [...spots].sort((a, b) => hebrewPickupSpotCollator.compare(a, b));
 
 /**
  * Delayed-payment variant of OrderConfirmation.
@@ -88,6 +92,7 @@ const OrderConfirmationDelayed = () => {
     const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
     const [deliveryDateError, setDeliveryDateError] = useState('');
     const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some((orderData) => isAlwaysOnGroceryOrder(orderData));
+    const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), []);
     
     // Get the selected pickup spot's data
     const selectedSpotData = selectedPickupSpot ? pickupSpotsData[selectedPickupSpot] : null;
@@ -1297,7 +1302,7 @@ const OrderConfirmationDelayed = () => {
                                         required
                                     >
                                         <option value="">בחר נקודת איסוף</option>
-                                        {pickupSpots.map((spot) => (
+                                        {sortedPickupSpots.map((spot) => (
                                             <option key={spot} value={spot}>
                                                 {spot}
                                             </option>

@@ -1,0 +1,31 @@
+// Paste into Firebase Console → Storage → Rules
+// Merge with your existing rules (keep products/ and businesses/ blocks).
+
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Legacy weekly product images
+    match /products/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Business profile / store assets
+    match /businesses/{businessId}/{allPaths=**} {
+      allow write: if request.auth != null && request.auth.uid == businessId;
+      allow read: if true;
+    }
+
+    // שוק הבסטות — product images (separate from legacy products/)
+    match /marketplace-products/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // שוק הבסטות — store page images (cover, profile/logo)
+    match /marketplace-stores/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

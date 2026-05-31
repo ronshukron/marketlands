@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { doSignInWithEmailAndPassword, doSignInWithGoogle } from '../../firebase/auth';
 import { useAuth } from '../../contexts/authContext';
 import './AuthForms.css';
@@ -10,13 +10,15 @@ const UserLogin = () => {
   const [error, setError] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { userLoggedIn } = useAuth();
+  const redirectTo = location.state?.from || '/';
 
   useEffect(() => {
     if (userLoggedIn) {
-      navigate('/');
+      navigate(redirectTo, { replace: true });
     }
-  }, [userLoggedIn, navigate]);
+  }, [userLoggedIn, navigate, redirectTo]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,7 +28,7 @@ const UserLogin = () => {
       setIsSigningIn(true);
       setError('');
       await doSignInWithEmailAndPassword(email, password);
-      navigate('/');
+      navigate(redirectTo, { replace: true });
     } catch (error) {
       console.error("Login failed:", error);
       setError(error.message || 'שם משתמש או סיסמה שגויים');
@@ -44,7 +46,7 @@ const UserLogin = () => {
       setIsSigningIn(true);
       setError('');
       await doSignInWithGoogle();
-      navigate('/');
+      navigate(redirectTo, { replace: true });
     } catch (error) {
       console.error("Google sign-in failed:", error);
       setError(error.message || 'אירעה שגיאה בעת ההתחברות עם Google');

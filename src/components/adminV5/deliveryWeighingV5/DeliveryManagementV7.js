@@ -527,6 +527,22 @@ function areOpSnapshotsEqual(a, b) {
   return JSON.stringify(a || null) === JSON.stringify(b || null);
 }
 
+function isDelayedOrderSettledData(data = {}) {
+  const delayedStatus = String(data.delayedOrderStatus || '').toLowerCase();
+  const paymentStatus = String(data.paymentStatus || '').toLowerCase();
+  return (
+    ['settled', 'completed', 'charged'].includes(delayedStatus)
+    || ['charged', 'completed', 'settled'].includes(paymentStatus)
+  );
+}
+
+function isOrderSettledForSync(order) {
+  if (!order) return false;
+  return order.status === 'completed'
+    || isDelayedOrderSettledData(order.rawData || {})
+    || isDelayedOrderSettledData(order.delayedMeta || {});
+}
+
 function formatConflictValue(snapshot, langPack) {
   if (!snapshot) return '-';
   if (Object.prototype.hasOwnProperty.call(snapshot, 'removed')) {
@@ -1081,14 +1097,31 @@ export default function DeliveryManagementV7() {
 
   const syncOfflineOpsNow = useCallback(async ({ quiet = false } = {}) => {
     if (!isOnline || syncingOffline) return { pending: pendingOps.length, conflicts: syncConflicts.length };
-    // Only the draft store contains pendingOps — read that, not the static store.
+    // The draft store is canonical, but include live state for ops that have not
+    // reached localStorage yet because draft persistence is debounced.
     const draftStore = readDraftStore();
+    const currentScreen = currentScreenRef.current || {};
+    const statePendingOps = Array.isArray(currentScreen.pendingOps) ? currentScreen.pendingOps : [];
+    const syncScopes = { ...(draftStore.scopes || {}) };
+    if (currentScopeKey && statePendingOps.length > 0) {
+      const currentDraftScope = syncScopes[currentScopeKey] || {};
+      syncScopes[currentScopeKey] = {
+        ...currentDraftScope,
+        remoteDraftsByOrder: Object.keys(currentDraftScope.remoteDraftsByOrder || {}).length > 0
+          ? currentDraftScope.remoteDraftsByOrder
+          : (currentScreen.remoteDraftsByOrder || {}),
+        workingDraftsByOrder: Object.keys(currentDraftScope.workingDraftsByOrder || {}).length > 0
+          ? currentDraftScope.workingDraftsByOrder
+          : (currentScreen.localDraftsByOrder || {}),
+        pendingOps: statePendingOps,
+      };
+    }
     let nextDraftStore = draftStore;
     let currentScopeConflicts = [];
-    let currentScopePending = pendingOps.length;
+    let currentScopePending = statePendingOps.length || pendingOps.length;
     setSyncingOffline(true);
     try {
-      for (const [scopeKey, scope] of Object.entries(draftStore.scopes || {})) {
+      for (const [scopeKey, scope] of Object.entries(syncScopes)) {
         const scopePending = Array.isArray(scope?.pendingOps) ? scope.pendingOps : [];
         if (scopePending.length === 0) continue;
         const byOrder = {};
@@ -1102,6 +1135,20 @@ export default function DeliveryManagementV7() {
         const resolvedConflicts = [];
         const remoteDrafts = { ...(scope.remoteDraftsByOrder || {}) };
         for (const [orderId, orderOps] of Object.entries(byOrder)) {
+          const screenOrder = scopeKey === currentScopeKey
+            ? (currentScreen.orders || []).find((order) => order.id === orderId)
+            : null;
+          if (isOrderSettledForSync(screenOrder)) {
+            delete remoteDrafts[orderId];
+            continue;
+          }
+
+          const orderSnap = await getDoc(doc(db, 'customerOrdersDelayed', orderId));
+          if (orderSnap.exists() && isDelayedOrderSettledData(orderSnap.data() || {})) {
+            delete remoteDrafts[orderId];
+            continue;
+          }
+
           const draftSnap = await getDoc(doc(db, 'deliveryRealtimeV7', orderOps[0].weekKey, 'drafts', orderId));
           let currentRemoteDraft = draftSnap.exists() ? ({ id: draftSnap.id, ...draftSnap.data() }) : {};
           orderOps.sort((a, b) => String(a.localTimestamp || '').localeCompare(String(b.localTimestamp || '')));
@@ -1442,6 +1489,9 @@ export default function DeliveryManagementV7() {
   const activeItems = useMemo(() => items.filter((it) => !removedLineIds[it.lineId]), [items, removedLineIds]);
   const nextIdx = useMemo(() => getNextUnweighedIndex(items, weightsByLineId, removedLineIds, 0), [items, weightsByLineId, removedLineIds]);
   const canComplete = activeItems.length > 0 && nextIdx === -1;
+  const selectedOrderStatus = getEffectiveOrderStatus(selectedOrder, selectedOrderSaved);
+  const selectedOrderCompleted = selectedOrderStatus === 'completed';
+  const completeDisabled = !isOnline || syncingOffline || !canComplete || selectedOrderCompleted || claimedByOther;
   const selectedOrderConflicts = useMemo(() => (
     selectedOrder ? syncConflicts.filter((conflict) => conflict.orderId === selectedOrder.id) : []
   ), [selectedOrder, syncConflicts]);
@@ -2149,10 +2199,14 @@ export default function DeliveryManagementV7() {
     }
     if (pendingOps.length > 0) {
       const syncResult = await syncOfflineOpsNow({ quiet: false });
-      if (syncResult.pending > 0) {
+      if (syncResult.pending > 0 || syncResult.conflicts > 0) {
         await biAlert({ heText: TR.he.syncBlockedByPending, thText: TR.th.syncBlockedByPending, title: 'warning' });
         return;
       }
+    }
+    if (selectedOrderConflicts.length > 0) {
+      await biAlert({ heText: TR.he.syncBlockedByPending, thText: TR.th.syncBlockedByPending, title: 'warning' });
+      return;
     }
     if (!canComplete) {
       await biAlert({ heText: 'יש פריטים שלא נשקלו עדיין.', thText: 'ยังมีรายการที่ยังไม่ชั่ง', title: 'warning' });
@@ -2813,12 +2867,12 @@ export default function DeliveryManagementV7() {
                           </div>
                         )}
                       </div>
-                      <div className="ml-2">{statusBadge(getEffectiveOrderStatus(selectedOrder, selectedOrderSaved))}</div>
+                      <div className="ml-2">{statusBadge(selectedOrderStatus)}</div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={claimSelectedOrder}
-                        disabled={!isOnline || savingActionKey === `claim:${selectedOrder.id}` || getEffectiveOrderStatus(selectedOrder, selectedOrderSaved) === 'completed'}
+                        disabled={!isOnline || savingActionKey === `claim:${selectedOrder.id}` || selectedOrderCompleted}
                         className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
                       >
                         {t.claim}
@@ -2839,9 +2893,9 @@ export default function DeliveryManagementV7() {
                       </button>
                       <button
                         onClick={completeOrder}
-                        disabled={!isOnline || pendingOps.length > 0 || !canComplete || getEffectiveOrderStatus(selectedOrder, selectedOrderSaved) === 'completed' || claimedByOther}
+                        disabled={completeDisabled}
                         className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors ${
-                          !isOnline || pendingOps.length > 0 || !canComplete || getEffectiveOrderStatus(selectedOrder, selectedOrderSaved) === 'completed' || claimedByOther
+                          completeDisabled
                             ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                             : 'bg-green-600 hover:bg-green-700 text-white shadow'
                         }`}

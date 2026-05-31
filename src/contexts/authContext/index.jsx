@@ -4,6 +4,11 @@ import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { doSignOut } from "../../firebase/auth";
 import { isDeliveryDriverAccount } from "../../utils/accountRoles";
+import { LOCAL_BUSINESS_COLLECTION } from "../../constants/accountCollections";
+import {
+  MARKETPLACE_CUSTOMER_ROLE,
+  MARKETPLACE_USERS_COLLECTION,
+} from "../../constants/marketplaceUsers";
 
 const AuthContext = React.createContext();
 
@@ -24,6 +29,24 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
+  async function fetchMarketplaceCustomerRole(uid) {
+    try {
+      const marketplaceUserDoc = await getDoc(doc(db, MARKETPLACE_USERS_COLLECTION, uid));
+      if (marketplaceUserDoc.exists()) {
+        return marketplaceUserDoc.data().role || MARKETPLACE_CUSTOMER_ROLE;
+      }
+    } catch (error) {
+      if (error?.code === 'permission-denied') {
+        console.warn(
+          'marketplaceUsers: deploy Firestore rules for this collection (see docs/Marketplace-Firestore-Rules.snippet.txt)'
+        );
+      } else {
+        console.warn('marketplaceUsers role lookup failed', error);
+      }
+    }
+    return null;
+  }
+
   async function initializeUser(user) {
     if (user) {
       setCurrentUser({ ...user });
@@ -43,33 +66,39 @@ export function AuthProvider({ children }) {
   
       // Fetch user role from Firestore
       try {
-        let userRole = 'user'; // Default role if not found in any collection
-  
-        // Check in 'users' collection
-        const userDocRef = doc(db, 'users', user.uid);
-        const userDoc = await getDoc(userDocRef);
+        let resolvedRole = 'user';
+
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
-          userRole = userDoc.data().role;
+          resolvedRole = userDoc.data().role;
         } else {
-          // Check in 'coordinators' collection
-          const coordinatorDocRef = doc(db, 'coordinators', user.uid);
-          const coordinatorDoc = await getDoc(coordinatorDocRef);
-          if (coordinatorDoc.exists()) {
-            userRole = 'coordinator';
+          const marketplaceRole = await fetchMarketplaceCustomerRole(user.uid);
+          if (marketplaceRole) {
+            resolvedRole = marketplaceRole;
           } else {
-            // Check in 'businesses' collection
-            const businessDocRef = doc(db, 'businesses', user.uid);
-            const businessDoc = await getDoc(businessDocRef);
-            if (businessDoc.exists()) {
-              userRole = isDeliveryDriverAccount(businessDoc.data()) ? 'driver' : 'business';
+            const coordinatorDoc = await getDoc(doc(db, 'coordinators', user.uid));
+            if (coordinatorDoc.exists()) {
+              resolvedRole = 'coordinator';
+            } else {
+              const localBusinessDoc = await getDoc(doc(db, LOCAL_BUSINESS_COLLECTION, user.uid));
+              if (localBusinessDoc.exists()) {
+                resolvedRole = 'localBusiness';
+              } else {
+                const businessDoc = await getDoc(doc(db, 'businesses', user.uid));
+                if (businessDoc.exists()) {
+                  resolvedRole = isDeliveryDriverAccount(businessDoc.data())
+                    ? 'driver'
+                    : 'business';
+                }
+              }
             }
           }
         }
-  
-        setUserRole(userRole);
+
+        setUserRole(resolvedRole);
       } catch (error) {
         console.error("Error fetching user role:", error);
-        setUserRole('user'); // Default to 'user' in case of error
+        setUserRole('user');
       }
     } else {
       setCurrentUser(null);

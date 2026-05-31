@@ -12,6 +12,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db, storage } from '../../firebase/firebase';
+import { getSellerAccountProfile } from '../../utils/sellerAccount';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useNavigate, useParams } from 'react-router-dom';
 import './MyStore.css';
@@ -36,6 +37,7 @@ const MyStore = () => {
   const [profileImageUrl, setProfileImageUrl] = useState('');
 
   const isOwner = currentUser && businessData && currentUser.uid === businessId;
+  const profileCollection = businessData?.accountCollection || 'businesses';
 
   const businessPhone = businessData?.phone || '0500000000';
   const whatsappLink = `https://wa.me/972${businessPhone.replace(/^0/, '').replace(/-/g, '')}`;
@@ -50,10 +52,9 @@ const MyStore = () => {
 
   const fetchBusinessData = async () => {
     try {
-      const businessDocRef = doc(db, 'businesses', businessId);
-      const businessDocSnap = await getDoc(businessDocRef);
-      if (businessDocSnap.exists()) {
-        const data = businessDocSnap.data();
+      const profile = await getSellerAccountProfile(businessId);
+      if (profile) {
+        const data = profile;
         setBusinessData(data);
         setStoreDescription(data.storeDescription || '');
         setStoreMoreInfo(data.storeMoreInfo || '');
@@ -245,7 +246,7 @@ const MyStore = () => {
 
   const handleDescriptionSave = async () => {
     try {
-      await updateDoc(doc(db, 'businesses', businessId), {
+      await updateDoc(doc(db, profileCollection, businessId), {
         storeDescription,
       });
       setEditingDescription(false);
@@ -260,7 +261,7 @@ const MyStore = () => {
 
   const handleMoreInfoSave = async () => {
     try {
-      await updateDoc(doc(db, 'businesses', businessId), {
+      await updateDoc(doc(db, profileCollection, businessId), {
         storeMoreInfo,
       });
       setEditingMoreInfo(false);
@@ -294,7 +295,7 @@ const MyStore = () => {
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
 
-      await updateDoc(doc(db, 'businesses', businessId), {
+      await updateDoc(doc(db, profileCollection, businessId), {
         backgroundImageUrl: downloadURL,
       });
       setBackgroundImageUrl(downloadURL);
@@ -312,7 +313,7 @@ const MyStore = () => {
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
 
-      await updateDoc(doc(db, 'businesses', businessId), {
+      await updateDoc(doc(db, profileCollection, businessId), {
         profileImageUrl: downloadURL,
       });
       setProfileImageUrl(downloadURL);

@@ -149,6 +149,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'שוק הבסטות',
+    description: 'הפעלה/כיבוי קישורי תשלום בעמוד אישור הזמנה (Bit, PayBox וכו׳)',
+    to: '/admin/marketplace-settings',
+    featured: true
+  },
+  {
     title: 'הנחות קהילה',
     description: 'הגדרת רמות הנחה לפי סכום הזמנות שבועי של קהילה (סף תצוגה + סף אמיתי)',
     to: '/admin/community-discount',
