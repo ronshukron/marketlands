@@ -254,7 +254,7 @@ const MarketplaceMyStore = () => {
           <h2 className="mp-section-title">פרטי הבסטה</h2>
           <div className="grid gap-4 md:grid-cols-2">
             <label className="mp-form-label">
-              שם הכרטיס בשוק
+              <span className="mp-form-label-text">שם הכרטיס בשוק</span>
               <input
                 className="mp-input"
                 value={form.title}
@@ -263,7 +263,7 @@ const MarketplaceMyStore = () => {
               />
             </label>
             <label className="mp-form-label">
-              טלפון ליצירת קשר
+              <span className="mp-form-label-text">טלפון ליצירת קשר</span>
               <input
                 className="mp-input"
                 value={form.phone}
@@ -272,7 +272,7 @@ const MarketplaceMyStore = () => {
               />
             </label>
             <label className="mp-form-label md:col-span-2">
-              תיאור קצר (מופיע בכרטיס בשוק)
+              <span className="mp-form-label-text">תיאור קצר (מופיע בכרטיס בשוק)</span>
               <textarea
                 className="mp-input"
                 rows={2}
@@ -281,7 +281,7 @@ const MarketplaceMyStore = () => {
               />
             </label>
             <label className="mp-form-label md:col-span-2">
-              תיאור מלא (מופיע בדף הבסטה)
+              <span className="mp-form-label-text">תיאור מלא (מופיע בדף הבסטה)</span>
               <textarea
                 className="mp-input"
                 rows={5}
@@ -290,7 +290,7 @@ const MarketplaceMyStore = () => {
               />
             </label>
             <label className="mp-form-label">
-              קהילת בית
+              <span className="mp-form-label-text">קהילת בית</span>
               <select
                 className="mp-input"
                 value={form.homeCommunity}
@@ -305,7 +305,7 @@ const MarketplaceMyStore = () => {
               </select>
             </label>
             <label className="mp-form-label">
-              תגיות (מופרדות בפסיקים)
+              <span className="mp-form-label-text">תגיות (מופרדות בפסיקים)</span>
               <input
                 className="mp-input"
                 value={form.tags}

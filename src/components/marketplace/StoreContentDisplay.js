@@ -1,8 +1,17 @@
 import React from 'react';
 import { buildWhatsappLink, normalizeStoreContent } from '../../constants/marketplaceStoreContent';
+import { normalizeStoreFulfillment } from '../../constants/marketplaceFulfillment';
 
-const StoreContentDisplay = ({ store, business }) => {
+const StoreContentDisplay = ({
+  store,
+  business,
+  showDeliverySection = true,
+  hideAbout = false,
+}) => {
   const content = normalizeStoreContent(store);
+  const fulfillment = normalizeStoreFulfillment(store);
+  const hasStructuredFulfillment =
+    fulfillment.pickupEnabled || fulfillment.deliveryEnabled;
   const phone = store?.phone || business?.phone;
   const primaryWhatsapp = buildWhatsappLink(phone);
   const email = content.email;
@@ -12,7 +21,7 @@ const StoreContentDisplay = ({ store, business }) => {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const hasAbout = Boolean(content.aboutUs?.trim());
+  const hasAbout = !hideAbout && Boolean(content.aboutUs?.trim());
   const hasNotice = Boolean(content.customerNotice?.trim());
   const hasContact =
     Boolean(content.contactIntro?.trim()) ||
@@ -22,7 +31,10 @@ const StoreContentDisplay = ({ store, business }) => {
     (content.whatsappContacts || []).length > 0;
   const hasNotes = Boolean(content.additionalNotes?.trim());
   const hasReturns = Boolean(content.returnsPolicy?.trim());
-  const hasDelivery = Boolean(content.deliveryOptions?.trim());
+  const hasDelivery =
+    showDeliverySection &&
+    !hasStructuredFulfillment &&
+    Boolean(content.deliveryOptions?.trim());
   const hasSocial = socialLines.length > 0 || websiteUrl;
 
   if (!hasAbout && !hasNotice && !hasContact && !hasNotes && !hasReturns && !hasDelivery && !hasSocial) {

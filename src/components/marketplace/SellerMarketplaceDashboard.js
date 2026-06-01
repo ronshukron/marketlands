@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
 import { pickupSpots } from '../../data/pickupSpots';
@@ -20,10 +20,11 @@ import {
   normalizePromotionFulfillment,
   storeFulfillmentToForm,
 } from '../../constants/marketplaceFulfillment';
-import VolunteerPickupPlaceholder from './VolunteerPickupPlaceholder';
 import StoreContentEditor from './StoreContentEditor';
 import MarketplaceFulfillmentEditor from './MarketplaceFulfillmentEditor';
 import MarketplacePaymentLinksEditor from './MarketplacePaymentLinksEditor';
+import MarketplacePromotionEditor from './MarketplacePromotionEditor';
+import MarketplacePromotionsManager from './MarketplacePromotionsManager';
 import {
   DEFAULT_STORE_PAYMENT_LINKS,
   normalizeStorePaymentLinks,
@@ -86,6 +87,7 @@ const SellerMarketplaceDashboard = () => {
   const { currentUser, userRole } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [activeSection, setActiveSection] = useState('overview');
   const [business, setBusiness] = useState(null);
   const [approvedProducts, setApprovedProducts] = useState([]);
@@ -99,14 +101,17 @@ const SellerMarketplaceDashboard = () => {
   const [globalSettings, setGlobalSettings] = useState(null);
 
   useEffect(() => {
+    const sectionParam = searchParams.get('section');
     if (location.pathname.includes('/promotions/new')) {
       setActiveSection('promotion');
+    } else if (sectionParam === 'promotions') {
+      setActiveSection('promotions');
     } else if (location.pathname.includes('/store')) {
       setActiveSection('store');
     } else {
       setActiveSection('overview');
     }
-  }, [location.pathname]);
+  }, [location.pathname, searchParams]);
 
   useEffect(() => {
     const preselected = location.state?.preselectedProductIds;
@@ -168,15 +173,11 @@ const SellerMarketplaceDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
-  const selectedProductSet = useMemo(
-    () => new Set(promotionForm.productIds),
-    [promotionForm.productIds]
-  );
-
   const handleSectionChange = (section) => {
     setActiveSection(section);
     if (section === 'store') navigate('/marketplace/store');
     if (section === 'promotion') navigate('/marketplace/promotions/new');
+    if (section === 'promotions') navigate('/marketplace/dashboard?section=promotions');
     if (section === 'overview') navigate('/marketplace/dashboard');
   };
 
@@ -316,8 +317,14 @@ const SellerMarketplaceDashboard = () => {
             <SectionButton active={activeSection === 'store'} onClick={() => handleSectionChange('store')}>
               כרטיס הבסטה
             </SectionButton>
+            <SectionButton
+              active={activeSection === 'promotions'}
+              onClick={() => handleSectionChange('promotions')}
+            >
+              ניהול קידומים
+            </SectionButton>
             <SectionButton active={activeSection === 'promotion'} onClick={() => handleSectionChange('promotion')}>
-              קידום שבועי חדש
+              קידום חדש
             </SectionButton>
           </div>
         </div>
@@ -353,8 +360,11 @@ const SellerMarketplaceDashboard = () => {
                           <h3 className="font-semibold text-gray-900">{promotion.title}</h3>
                           <p className="text-xs text-gray-500">עד {formatDate(promotion.endsAt)}</p>
                         </div>
-                        <Link to={`/community-marketplace/order/${promotion.id}`} className="text-sm text-blue-700">
-                          צפייה
+                        <Link
+                          to={`/marketplace/promotions/${promotion.id}/orders`}
+                          className="text-sm text-blue-700"
+                        >
+                          הזמנות וסיכום
                         </Link>
                       </div>
                     </div>
@@ -482,103 +492,36 @@ const SellerMarketplaceDashboard = () => {
           </form>
         )}
 
+        {activeSection === 'promotions' && (
+          <MarketplacePromotionsManager
+            promotions={promotions}
+            approvedProducts={approvedProducts}
+            storeForm={storeForm}
+            business={business}
+            businessId={currentUser.uid}
+            onReload={loadData}
+            initialEditId={searchParams.get('edit')}
+          />
+        )}
+
         {activeSection === 'promotion' && (
-          <form onSubmit={handleSavePromotion} className="mp-panel space-y-5">
-            <h2 className="mp-section-title">הזמנה שבועית מצטברת</h2>
-            <p className="mp-section-note text-sm">
+          <div className="mp-panel">
+            <h2 className="mp-section-title mb-2">הזמנה שבועית מצטברת — חדש</h2>
+            <p className="mp-section-note text-sm mb-4">
               הלקוחות מזמינים לאורך השבוע; בסוף התקופה תבצעו משלוח מרוכז (או איסוף עצמי לפי ההגדרות).
             </p>
-            <input
-              value={promotionForm.title}
-              onChange={(event) => setPromotionForm((current) => ({ ...current, title: event.target.value }))}
-              placeholder="שם ההזמנה השבועית"
-              className="mp-input"
-              required
+            <MarketplacePromotionEditor
+              form={promotionForm}
+              onChange={setPromotionForm}
+              approvedProducts={approvedProducts}
+              storeForm={storeForm}
+              onToggleProduct={togglePromotionProduct}
+              onTogglePaymentMethod={(method) => togglePaymentMethod(method, 'promotion')}
+              onSubmit={handleSavePromotion}
+              saving={savingPromotion}
+              submitLabel="פרסום הזמנה שבועית"
             />
-            <textarea
-              value={promotionForm.description}
-              onChange={(event) => setPromotionForm((current) => ({ ...current, description: event.target.value }))}
-              placeholder="תיאור ההזמנה השבועית"
-              rows={3}
-              className="mp-textarea"
-            />
-            <MarketplaceFulfillmentEditor
-              mode="promotion"
-              value={promotionForm}
-              storeFulfillment={storeFulfillmentToForm(storeForm)}
-              onChange={(patch) => setPromotionForm((current) => ({ ...current, ...patch }))}
-            />
-            <VolunteerPickupPlaceholder />
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">בחירת מוצרים להזמנה השבועית</p>
-              <p className="mp-promotion-products-intro">
-                סמנו את המוצרים המאושרים שיופיעו בדף ההזמנה. ניתן גם להוסיף מוצר מראש מ{' '}
-                <Link to="/marketplace/products">רשימת המוצרים</Link> בלחיצה על &quot;הוסף לקידום שבועי&quot;.
-              </p>
-              {approvedProducts.length === 0 ? (
-                <div className="text-sm text-gray-600 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-                  אין מוצרים מאושרים לבחירה. הוסיפו מוצרים ב{' '}
-                  <Link to="/marketplace/products" className="text-green-800 font-semibold underline">
-                    המוצרים שלי
-                  </Link>
-                  {' '}והמתינו לאישור מנהל.
-                </div>
-              ) : (
-                <>
-                  <p className="mp-promotion-selected-count">
-                    נבחרו {promotionForm.productIds.length} מתוך {approvedProducts.length} מוצרים
-                  </p>
-                  <div className="mp-promotion-product-grid">
-                    {approvedProducts.map((product) => {
-                      const isSelected = selectedProductSet.has(product.id);
-                      return (
-                        <label
-                          key={product.id}
-                          className={`mp-promotion-product-option ${isSelected ? 'is-selected' : ''}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => togglePromotionProduct(product.id)}
-                          />
-                          <span className="mp-promotion-product-option-text">
-                            <span className="block font-medium text-gray-900">{product.name}</span>
-                            <span className="block text-sm text-gray-600">{formatCurrency(product.price)}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">אמצעי תשלום ידניים</p>
-              <div className="flex flex-wrap gap-2">
-                {DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => (
-                  <label key={method} className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={promotionForm.manualPaymentMethods.includes(method)}
-                      onChange={() => togglePaymentMethod(method, 'promotion')}
-                    />
-                    {PAYMENT_METHOD_LABELS[method]}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <button
-              type="submit"
-              disabled={savingPromotion || approvedProducts.length === 0}
-              className="mp-btn mp-btn-wood"
-              style={{ opacity: savingPromotion || approvedProducts.length === 0 ? 0.6 : 1 }}
-            >
-              {savingPromotion ? 'יוצר הזמנה...' : 'פרסום הזמנה שבועית'}
-            </button>
-            <p className="text-xs text-gray-500">
-              בחירה בפועל נשמרת רק עם מוצרים מאושרים. מוצרים ממתינים או דחויים לא ייכנסו לקידום.
-            </p>
-          </form>
+          </div>
         )}
       </div>
     </div>

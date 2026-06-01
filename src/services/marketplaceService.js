@@ -1,16 +1,19 @@
 import {
   addDoc,
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
+import { MARKETPLACE_PRODUCTS_COLLECTION } from '../constants/marketplaceProducts';
 import { auth, db } from '../firebase/firebase';
 import { functionsEndpoint } from '../utils/functionsClient';
 import { getSellerAccountProfile } from '../utils/sellerAccount';
@@ -362,15 +365,47 @@ export const getSellerMarketplacePromotions = async (businessId) => {
     .sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
 };
 
+export const getSellerMarketplacePromotion = async (businessId, promotionId) => {
+  if (!businessId || !promotionId) return null;
+  const promotion = await getMarketplacePromotion(promotionId);
+  if (!promotion || promotion.businessId !== businessId) return null;
+  return promotion;
+};
+
+export const getSellerPromotionOrders = async (businessId, promotionId) => {
+  if (!businessId || !promotionId) return [];
+  const orders = await getSellerMarketplaceOrders(businessId);
+  return orders.filter((order) => order.promotionId === promotionId);
+};
+
+export const updateMarketplacePromotionStatus = async ({ businessId, promotionId, status }) => {
+  if (!businessId || !promotionId) {
+    throw new Error('Missing promotion or business');
+  }
+
+  const promotionRef = doc(db, MARKETPLACE_COLLECTIONS.promotions, promotionId);
+  const snap = await getDoc(promotionRef);
+  if (!snap.exists() || snap.data().businessId !== businessId) {
+    throw new Error('הקידום לא נמצא או שאין הרשאה');
+  }
+
+  await updateDoc(promotionRef, {
+    status,
+    updatedAt: serverTimestamp(),
+  });
+
+  return { id: promotionId, status };
+};
+
 export const getMarketplaceOrder = async (orderId) => {
   if (!orderId) return null;
   const snap = await getDoc(doc(db, MARKETPLACE_COLLECTIONS.orders, orderId));
   return snap.exists() ? mapDoc(snap) : null;
 };
 
-const COMPLETABLE_STATUSES = new Set(['new', 'confirmed', 'ready']);
+const READY_FROM_STATUSES = new Set(['new', 'confirmed']);
 
-export const completeMarketplaceOrder = async ({ orderId, businessId }) => {
+const loadSellerOwnedOrder = async ({ orderId, businessId }) => {
   if (!orderId || !businessId) {
     throw new Error('חסר מזהה הזמנה או עסק');
   }
@@ -385,18 +420,121 @@ export const completeMarketplaceOrder = async ({ orderId, businessId }) => {
   if (order.businessId !== businessId) {
     throw new Error('אין הרשאה לעדכן הזמנה זו');
   }
-  if (order.fulfillmentStatus === 'completed') {
+
+  return { orderRef, order };
+};
+
+export const markMarketplaceOrderPaid = async ({ orderId, businessId }) => {
+  const { orderRef, order } = await loadSellerOwnedOrder({ orderId, businessId });
+
+  if (order.paymentStatus === 'paid') {
     return order;
   }
-  if (order.fulfillmentStatus === 'cancelled') {
-    throw new Error('לא ניתן להשלים הזמנה שבוטלה');
+  if (order.paymentStatus === 'cancelled') {
+    throw new Error('לא ניתן לסמן תשלום להזמנה שבוטלה');
   }
-  if (!COMPLETABLE_STATUSES.has(order.fulfillmentStatus)) {
-    throw new Error('לא ניתן להשלים הזמנה בסטטוס הנוכחי');
+
+  await updateDoc(orderRef, {
+    paymentStatus: 'paid',
+    paidAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return { ...order, paymentStatus: 'paid' };
+};
+
+export const unmarkMarketplaceOrderPaid = async ({ orderId, businessId }) => {
+  const { orderRef, order } = await loadSellerOwnedOrder({ orderId, businessId });
+
+  if (order.paymentStatus !== 'paid') {
+    return order;
+  }
+
+  await updateDoc(orderRef, {
+    paymentStatus: 'manual_pending',
+    paidAt: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return { ...order, paymentStatus: 'manual_pending', paidAt: null };
+};
+
+export const markMarketplaceOrderReady = async ({ orderId, businessId }) => {
+  const { orderRef, order } = await loadSellerOwnedOrder({ orderId, businessId });
+
+  if (order.fulfillmentStatus === 'cancelled') {
+    throw new Error('לא ניתן לעדכן הזמנה שבוטלה');
+  }
+  if (order.fulfillmentStatus === 'ready') {
+    return order;
+  }
+  if (order.fulfillmentStatus === 'completed') {
+    throw new Error('ההזמנה כבר הושלמה');
+  }
+  if (!READY_FROM_STATUSES.has(order.fulfillmentStatus)) {
+    throw new Error('ניתן לסמן מוכנה רק להזמנות חדשות או מאושרות');
+  }
+
+  await updateDoc(orderRef, {
+    fulfillmentStatus: 'ready',
+    fulfillmentStatusBeforeReady: order.fulfillmentStatus,
+    readyAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    ...order,
+    fulfillmentStatus: 'ready',
+    fulfillmentStatusBeforeReady: order.fulfillmentStatus,
+  };
+};
+
+export const unmarkMarketplaceOrderReady = async ({ orderId, businessId }) => {
+  const { orderRef, order } = await loadSellerOwnedOrder({ orderId, businessId });
+
+  if (order.fulfillmentStatus !== 'ready') {
+    return order;
+  }
+
+  const previousStatus = order.fulfillmentStatusBeforeReady || 'new';
+
+  await updateDoc(orderRef, {
+    fulfillmentStatus: previousStatus,
+    fulfillmentStatusBeforeReady: deleteField(),
+    readyAt: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    ...order,
+    fulfillmentStatus: previousStatus,
+    fulfillmentStatusBeforeReady: null,
+    readyAt: null,
+  };
+};
+
+/** Final step: picked up / delivered — moves order to הושלמו */
+export const markMarketplaceOrderHandoff = async ({ orderId, businessId, handoffStatus }) => {
+  const { orderRef, order } = await loadSellerOwnedOrder({ orderId, businessId });
+
+  if (order.fulfillmentStatus === 'cancelled') {
+    throw new Error('לא ניתן לעדכן הזמנה שבוטלה');
+  }
+  if (handoffStatus !== 'picked_up' && handoffStatus !== 'delivered') {
+    throw new Error('סטטוס איסוף/משלוח לא תקין');
+  }
+  if (order.fulfillmentStatus === 'completed') {
+    return { ...order, handoffStatus: order.handoffStatus || handoffStatus };
+  }
+  if (order.fulfillmentStatus !== 'ready') {
+    throw new Error('יש לסמן את ההזמנה כמוכנה לפני איסוף או משלוח');
   }
 
   await updateDoc(orderRef, {
     fulfillmentStatus: 'completed',
+    fulfillmentStatusBeforeComplete: 'ready',
+    handoffStatus,
+    handoffAt: serverTimestamp(),
     completedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -404,8 +542,49 @@ export const completeMarketplaceOrder = async ({ orderId, businessId }) => {
   return {
     ...order,
     fulfillmentStatus: 'completed',
+    handoffStatus,
   };
 };
+
+export const unmarkMarketplaceOrderHandoff = async ({ orderId, businessId }) => {
+  const { orderRef, order } = await loadSellerOwnedOrder({ orderId, businessId });
+
+  if (order.fulfillmentStatus !== 'completed') {
+    return order;
+  }
+
+  await updateDoc(orderRef, {
+    fulfillmentStatus: 'ready',
+    fulfillmentStatusBeforeComplete: deleteField(),
+    handoffStatus: 'pending',
+    handoffAt: deleteField(),
+    completedAt: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    ...order,
+    fulfillmentStatus: 'ready',
+    handoffStatus: 'pending',
+    handoffAt: null,
+    completedAt: null,
+  };
+};
+
+/** @deprecated Use markMarketplaceOrderHandoff — completes on pickup/delivery */
+export const completeMarketplaceOrder = async ({ orderId, businessId, handoffStatus }) => {
+  const { order } = await loadSellerOwnedOrder({ orderId, businessId });
+  if (order.fulfillmentStatus === 'ready') {
+    return markMarketplaceOrderHandoff({
+      orderId,
+      businessId,
+      handoffStatus: handoffStatus || 'picked_up',
+    });
+  }
+  return markMarketplaceOrderReady({ orderId, businessId });
+};
+
+export const unmarkMarketplaceOrderCompleted = unmarkMarketplaceOrderHandoff;
 
 export const getSellerMarketplaceOrders = async (businessId) => {
   if (!businessId) return [];
@@ -492,6 +671,44 @@ const buildMarketplaceOrderLines = (lines, validProductIds, priceByProductId) =>
       };
     });
 
+/**
+ * Decrement product stock after a successful order.
+ * Products without a numeric `stockAmount` (unlimited) are skipped.
+ * Best-effort: failures are logged but never block the order.
+ */
+const decrementMarketplaceProductStock = async (orderLines = []) => {
+  const decrements = orderLines
+    .map((line) => ({
+      productId: line.productId,
+      quantity: Math.max(0, Math.floor(Number(line.quantity) || 0)),
+    }))
+    .filter((entry) => entry.productId && entry.quantity > 0);
+
+  if (decrements.length === 0) return;
+
+  await Promise.all(
+    decrements.map(async ({ productId, quantity }) => {
+      const ref = doc(db, MARKETPLACE_PRODUCTS_COLLECTION, productId);
+      try {
+        await runTransaction(db, async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists()) return;
+          const current = snap.data().stockAmount;
+          if (current === null || current === undefined) return; // unlimited
+          const amount = Number(current);
+          if (!Number.isFinite(amount)) return;
+          tx.update(ref, {
+            stockAmount: Math.max(0, amount - quantity),
+            updatedAt: serverTimestamp(),
+          });
+        });
+      } catch (error) {
+        console.warn('Failed to decrement marketplace stock', productId, error);
+      }
+    })
+  );
+};
+
 export const placeMarketplaceStoreCartOrder = async ({
   businessId,
   businessName = '',
@@ -561,6 +778,7 @@ export const placeMarketplaceStoreCartOrder = async ({
     total,
     paymentMethod,
     paymentStatus: 'manual_pending',
+    handoffStatus: 'pending',
     fulfillmentStatus: 'new',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -590,6 +808,7 @@ export const placeMarketplaceStoreCartOrder = async ({
   }
 
   const created = await addDoc(collection(db, MARKETPLACE_COLLECTIONS.orders), payload);
+  await decrementMarketplaceProductStock(orderLines);
   return { id: created.id, ...payload };
 };
 
@@ -650,12 +869,14 @@ export const placeMarketplaceManualOrder = async ({
     total,
     paymentMethod,
     paymentStatus: 'manual_pending',
+    handoffStatus: 'pending',
     fulfillmentStatus: 'new',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
   const created = await addDoc(collection(db, MARKETPLACE_COLLECTIONS.orders), payload);
+  await decrementMarketplaceProductStock(orderLines);
   return { id: created.id, ...payload };
 };
 

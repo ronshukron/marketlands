@@ -3,8 +3,20 @@ import { Link } from 'react-router-dom';
 import { PAYMENT_METHOD_LABELS } from '../../services/marketplaceService';
 import {
   MARKETPLACE_FULFILLMENT_STATUS_LABELS,
+  MARKETPLACE_HANDOFF_STATUS,
+  MARKETPLACE_HANDOFF_STATUS_LABELS,
   MARKETPLACE_PAYMENT_STATUS_LABELS,
 } from '../../constants/marketplaceOrders';
+import {
+  canFinishMarketplaceOrderHandoff,
+  canMarkMarketplaceOrderReady,
+  getMarketplaceHandoffActionLabel,
+  getMarketplaceHandoffUnmarkLabel,
+  isMarketplaceOrderFulfilled,
+  isMarketplaceOrderHandoffDone,
+  isMarketplaceOrderPaid,
+  isMarketplaceOrderReady,
+} from '../../utils/marketplaceOrderStatus';
 import { toDate } from '../../services/marketplaceService';
 import {
   buildOrderReadyWhatsAppMessage,
@@ -29,23 +41,44 @@ const formatDateTime = (value) => {
 const MarketplaceOrderCard = ({
   order,
   view = 'customer',
-  onComplete,
-  completing = false,
-  completionNotice = null,
+  onMarkReady,
+  onUnmarkReady,
+  onMarkPaid,
+  onUnmarkPaid,
+  onMarkHandoff,
+  onUnmarkHandoff,
+  statusUpdating = false,
+  readyNotice = null,
+  handoffNotice = null,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const lines = Array.isArray(order.lines) ? order.lines : [];
   const total = Number(order.total ?? order.subtotal ?? 0);
   const deliveryFee = Number(order.deliveryFee || 0);
-  const isCompleted = order.fulfillmentStatus === 'completed';
+  const isReady = isMarketplaceOrderReady(order);
+  const isCompleted = isMarketplaceOrderFulfilled(order);
   const isCancelled = order.fulfillmentStatus === 'cancelled';
-  const canComplete = view === 'business' && !isCompleted && !isCancelled && Boolean(onComplete);
+  const isPaid = isMarketplaceOrderPaid(order);
+  const handoffStatus = order.handoffStatus || MARKETPLACE_HANDOFF_STATUS.pending;
+  const handoffDone = isMarketplaceOrderHandoffDone(order);
+  const canManage = view === 'business' && !isCancelled;
+  const canMarkReady = canManage && canMarkMarketplaceOrderReady(order) && Boolean(onMarkReady);
+  const canUnmarkReady = canManage && isReady && Boolean(onUnmarkReady);
+  const canMarkPaid = canManage && !isPaid && Boolean(onMarkPaid);
+  const canUnmarkPaid = canManage && isPaid && Boolean(onUnmarkPaid);
+  const canMarkHandoff =
+    canManage && canFinishMarketplaceOrderHandoff(order) && Boolean(onMarkHandoff);
+  const canUnmarkHandoff = canManage && isCompleted && Boolean(onUnmarkHandoff);
+  const handoffActionLabel = getMarketplaceHandoffActionLabel(order);
+  const handoffUnmarkLabel = getMarketplaceHandoffUnmarkLabel(order);
 
   const whatsappUrl = useMemo(() => {
-    if (view !== 'business' || !isCompleted || !order.customerPhone) {
-      return completionNotice?.whatsappUrl || '';
+    if (view !== 'business' || !isReady || isCompleted) {
+      return '';
     }
-    if (completionNotice?.whatsappUrl) return completionNotice.whatsappUrl;
+    if (readyNotice?.whatsappUrl) return readyNotice.whatsappUrl;
+
+    if (!order.customerPhone) return '';
 
     const myOrdersUrl =
       typeof window !== 'undefined'
@@ -62,13 +95,22 @@ const MarketplaceOrderCard = ({
     });
 
     return buildOrderReadyWhatsAppUrl({ phone: order.customerPhone, message });
-  }, [view, isCompleted, order, total, completionNotice?.whatsappUrl]);
+  }, [view, isReady, isCompleted, order, total, readyNotice?.whatsappUrl]);
+
+  const showBusinessActions =
+    canMarkReady
+    || canUnmarkReady
+    || canMarkPaid
+    || canUnmarkPaid
+    || canMarkHandoff
+    || canUnmarkHandoff
+    || (isReady && whatsappUrl);
 
   return (
     <article
       className={`mp-order-card${isCompleted ? ' mp-order-card--completed' : ''}${
-        isCancelled ? ' mp-order-card--cancelled' : ''
-      }`}
+        isReady && !isCompleted ? ' mp-order-card--ready' : ''
+      }${isCancelled ? ' mp-order-card--cancelled' : ''}`}
     >
       {isCompleted && view === 'customer' && (
         <div className="mp-order-card-completed-banner" role="status">
@@ -77,6 +119,18 @@ const MarketplaceOrderCard = ({
             <span className="mp-order-card-completed-date">
               {' '}
               · {formatDateTime(order.completedAt)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {isReady && !isCompleted && view === 'customer' && (
+        <div className="mp-order-card-ready-banner" role="status">
+          ההזמנה מוכנה לאיסוף / משלוח
+          {order.readyAt && (
+            <span className="mp-order-card-completed-date">
+              {' '}
+              · {formatDateTime(order.readyAt)}
             </span>
           )}
         </div>
@@ -110,57 +164,137 @@ const MarketplaceOrderCard = ({
       <div className="mp-order-card-tags">
         <span
           className={`mp-tag${isCompleted ? ' mp-tag-completed' : ''}${
-            isCancelled ? ' mp-tag-cancelled' : ''
-          }`}
+            isReady && !isCompleted ? ' mp-tag-ready' : ''
+          }${isCancelled ? ' mp-tag-cancelled' : ''}`}
         >
           {MARKETPLACE_FULFILLMENT_STATUS_LABELS[order.fulfillmentStatus] ||
             order.fulfillmentStatus ||
             'חדשה'}
         </span>
-        <span className="mp-tag">
+        <span className={`mp-tag${isPaid ? ' mp-tag-paid' : ''}`}>
           {MARKETPLACE_PAYMENT_STATUS_LABELS[order.paymentStatus] ||
             order.paymentStatus ||
             'תשלום ידני'}
         </span>
+        {isCompleted && (
+          <span className={`mp-tag${handoffDone ? ' mp-tag-handoff-done' : ''}`}>
+            {MARKETPLACE_HANDOFF_STATUS_LABELS[handoffStatus] || handoffStatus}
+          </span>
+        )}
         {order.fulfillmentLabel && <span className="mp-badge">{order.fulfillmentLabel}</span>}
       </div>
 
-      {view === 'business' && (canComplete || isCompleted) && (
+      {view === 'business' && showBusinessActions && (
         <div className="mp-order-card-actions">
-          {canComplete && (
-            <button
-              type="button"
-              className="mp-btn mp-btn-wood mp-order-complete-btn"
-              disabled={completing}
-              onClick={() => onComplete(order)}
-            >
-              {completing ? 'מסמן כהושלם...' : 'סמן הזמנה כהושלמה'}
-            </button>
+          {(canMarkReady || canUnmarkReady) && (
+            <div className="mp-order-card-step">
+              <p className="mp-order-card-step-label">1. הזמנה מוכנה</p>
+              <div className="mp-order-card-status-actions">
+                {canMarkReady && (
+                  <button
+                    type="button"
+                    className="mp-btn mp-btn-wood mp-order-status-btn"
+                    disabled={statusUpdating}
+                    onClick={() => onMarkReady(order)}
+                  >
+                    סמן הזמנה כמוכנה
+                  </button>
+                )}
+                {canUnmarkReady && (
+                  <button
+                    type="button"
+                    className="mp-btn mp-btn-ghost mp-order-status-btn"
+                    disabled={statusUpdating}
+                    onClick={() => onUnmarkReady(order)}
+                  >
+                    בטל סימון מוכנה
+                  </button>
+                )}
+              </div>
+              {isReady && !isCompleted && (
+                <div className="mp-order-card-post-ready">
+                  {whatsappUrl ? (
+                    <a
+                      href={whatsappUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mp-btn mp-btn-wood mp-whatsapp-btn"
+                    >
+                      שליחת וואטסאפ ללקוח
+                    </a>
+                  ) : (
+                    <p className="mp-order-card-notice">אין מספר טלפון ללקוח — שלחו וואטסאפ ידנית</p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
-          {isCompleted && (
-            <div className="mp-order-card-post-complete">
-              {completionNotice?.emailSent && (
-                <p className="mp-order-card-notice mp-order-card-notice-success">
-                  נשלח אימייל ללקוח שההזמנה מוכנה
-                </p>
-              )}
-              {completionNotice?.emailAttempted && !completionNotice?.emailSent && (
-                <p className="mp-order-card-notice mp-order-card-notice-warn">
-                  לא ניתן היה לשלוח אימייל ללקוח (בדקו הגדרות מייל)
-                </p>
-              )}
-              {whatsappUrl ? (
-                <a
-                  href={whatsappUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mp-btn mp-btn-wood mp-whatsapp-btn"
+          {(canMarkPaid || canUnmarkPaid) && (
+            <div className="mp-order-card-step">
+              <p className="mp-order-card-step-label">2. תשלום</p>
+              <div className="mp-order-card-status-actions">
+                {canMarkPaid && (
+                  <button
+                    type="button"
+                    className="mp-btn mp-btn-outline mp-order-status-btn"
+                    disabled={statusUpdating}
+                    onClick={() => onMarkPaid(order)}
+                  >
+                    סמן כשולם
+                  </button>
+                )}
+                {canUnmarkPaid && (
+                  <button
+                    type="button"
+                    className="mp-btn mp-btn-ghost mp-order-status-btn"
+                    disabled={statusUpdating}
+                    onClick={() => onUnmarkPaid(order)}
+                  >
+                    בטל סימון שולם
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(isReady || isCompleted) && (canMarkHandoff || canUnmarkHandoff) && (
+            <div className="mp-order-card-step">
+              <p className="mp-order-card-step-label">3. סיום — איסוף / משלוח</p>
+              <div className="mp-order-card-status-actions">
+                {canMarkHandoff && (
+                  <button
+                    type="button"
+                    className="mp-btn mp-btn-outline mp-order-status-btn"
+                    disabled={statusUpdating}
+                    onClick={() => onMarkHandoff(order)}
+                  >
+                    {handoffActionLabel}
+                  </button>
+                )}
+                {canUnmarkHandoff && (
+                  <button
+                    type="button"
+                    className="mp-btn mp-btn-ghost mp-order-status-btn"
+                    disabled={statusUpdating}
+                    onClick={() => onUnmarkHandoff(order)}
+                  >
+                    {handoffUnmarkLabel}
+                  </button>
+                )}
+              </div>
+              {isCompleted && handoffNotice?.emailAttempted && (
+                <p
+                  className={`mp-order-card-notice ${
+                    handoffNotice.emailSent
+                      ? 'mp-order-card-notice-success'
+                      : 'mp-order-card-notice-warn'
+                  }`}
                 >
-                  שליחת וואטסאפ ללקוח
-                </a>
-              ) : (
-                <p className="mp-order-card-notice">אין מספר טלפון ללקוח — שלחו וואטסאפ ידנית</p>
+                  {handoffNotice.emailSent
+                    ? 'נשלח אימייל ללקוח על השלמת ההזמנה'
+                    : 'לא ניתן היה לשלוח אימייל ללקוח'}
+                </p>
               )}
             </div>
           )}

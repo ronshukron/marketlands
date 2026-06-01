@@ -3,6 +3,7 @@ const SKIPPED_REASONS = new Set([
   'no_customer_email',
   'already_sent',
   'missing_seller_template_id',
+  'emails_disabled',
 ]);
 
 export const isEmailSkipped = (result) =>

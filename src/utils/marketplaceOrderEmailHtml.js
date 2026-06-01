@@ -143,12 +143,67 @@ const buildDetailsTableHtml = (rows) => `
     ${rows}
   </table>`;
 
+const isPromotionOrderEmail = (payload) => payload?.orderKind === 'promotion';
+
+const buildPromotionSellerIntroHtml = (payload) => `
+  <p dir="rtl" style="margin:0 0 16px;font-size:15px;${RTL}">
+    התקבלה <strong>הזמנה מצטברת חדשה</strong> לבסטה שלך דרך ${BASTA_BASKET_FROM_NAME}.
+    ההזמנה נספרת יחד עם שאר ההזמנות עד סגירת חלון ההזמנה.
+  </p>`;
+
+const buildPromotionCustomerIntroHtml = (payload) => {
+  const scheduleBits = [
+    payload.promotionEndsAtLabel ? `סגירת הזמנות: ${escapeHtml(payload.promotionEndsAtLabel)}` : '',
+    payload.promotionDeliveryDate
+      ? `משלוח מרוכז: ${escapeHtml(payload.promotionDeliveryDate)}`
+      : '',
+  ].filter(Boolean);
+
+  const scheduleHtml = scheduleBits.length
+    ? `<p dir="rtl" style="margin:0 0 12px;font-size:14px;color:#6b5a45;${RTL}">${scheduleBits.join(' · ')}</p>`
+    : '';
+
+  return `
+    <p dir="rtl" style="margin:0 0 8px;font-size:16px;${RTL}">שלום ${escapeHtml(payload.customerName || '')},</p>
+    <p dir="rtl" style="margin:0 0 8px;${RTL}">
+      קיבלנו את <strong>ההזמנה המצטברת</strong> שלך לבסטה
+      <strong>${escapeHtml(payload.businessName || '')}</strong>
+      ${payload.promotionTitle ? ` (${escapeHtml(payload.promotionTitle)})` : ''} ב־${BASTA_BASKET_FROM_NAME}.
+    </p>
+    ${scheduleHtml}`;
+};
+
+const buildPromotionWhatNextHtml = (payload) => `
+  <div dir="rtl" style="margin:16px 0;padding:14px 16px;background:#f0f7ee;border:1px solid #c5dcc0;border-radius:8px;${RTL}">
+    <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#4a7c3f;${RTL}">מה עכשיו?</p>
+    <ol dir="rtl" style="margin:0;padding:0 24px 0 0;list-style-position:outside;color:#3d2f1f;font-size:14px;line-height:1.7;${RTL}">
+      <li style="margin-bottom:6px;">שלמו לבסטה ישירות באמצעי: <strong>${escapeHtml(payload.paymentLabel || 'לפי תיאום')}</strong>.</li>
+      <li style="margin-bottom:6px;">ניתן להוסיף פריטים להזמנה עד סגירת חלון ההזמנה השבועי (אם עדיין פתוח).</li>
+      <li style="margin-bottom:6px;">תיאום פרטים — ישירות מול הבסטה (טלפון / וואטסאפ / אימייל).</li>
+      <li>לאחר סגירת ההזמנה — הבסטה תרכז את כל ההזמנות ותעדכן לגבי איסוף או משלוח מרוכז.</li>
+    </ol>
+  </div>`;
+
 export const buildSellerOrderEmailHtml = (payload) => {
+  const isPromotion = isPromotionOrderEmail(payload);
+  const introHtml = isPromotion
+    ? buildPromotionSellerIntroHtml(payload)
+    : `<p dir="rtl" style="margin:0 0 16px;font-size:15px;${RTL}">התקבלה <strong>הזמנה חדשה</strong> לבסטה שלך דרך ${BASTA_BASKET_FROM_NAME}.</p>`;
+
   const bodyHtml = `
-    <p dir="rtl" style="margin:0 0 16px;font-size:15px;${RTL}">התקבלה <strong>הזמנה חדשה</strong> לבסטה שלך דרך ${BASTA_BASKET_FROM_NAME}.</p>
+    ${introHtml}
     ${buildDetailsTableHtml([
       detailRow('מס׳ הזמנה', payload.orderId, { ltrValue: true }),
       detailRow('בסטה', payload.businessName),
+      ...(isPromotion && payload.promotionTitle
+        ? [detailRow('הזמנה מצטברת', payload.promotionTitle)]
+        : []),
+      ...(isPromotion && payload.promotionDeliveryDate
+        ? [detailRow('משלוח מרוכז', payload.promotionDeliveryDate)]
+        : []),
+      ...(isPromotion && payload.promotionEndsAtLabel
+        ? [detailRow('סגירת הזמנות', payload.promotionEndsAtLabel)]
+        : []),
       detailRow('שם הלקוח', payload.customerName),
       detailRow('טלפון', payload.customerPhone, { ltrValue: true }),
       detailRow('אימייל', payload.customerEmail, { ltrValue: true }),
@@ -171,21 +226,27 @@ export const buildSellerOrderEmailHtml = (payload) => {
   `;
 
   return emailShell({
-    title: `הזמנה חדשה — ${payload.businessName || 'הבסטה שלך'}`,
-    preheader: `הזמנה חדשה מ־${payload.customerName || 'לקוח'} · ${formatCurrency(payload.total)}`,
+    title: isPromotion
+      ? `הזמנה מצטברת חדשה — ${payload.businessName || 'הבסטה שלך'}`
+      : `הזמנה חדשה — ${payload.businessName || 'הבסטה שלך'}`,
+    preheader: isPromotion
+      ? `הזמנה מצטברת מ־${payload.customerName || 'לקוח'} · ${formatCurrency(payload.total)}`
+      : `הזמנה חדשה מ־${payload.customerName || 'לקוח'} · ${formatCurrency(payload.total)}`,
     bodyHtml,
   });
 };
 
 export const buildCustomerOrderEmailHtml = (payload) => {
-  const bodyHtml = `
+  const isPromotion = isPromotionOrderEmail(payload);
+  const introHtml = isPromotion
+    ? buildPromotionCustomerIntroHtml(payload)
+    : `
     <p dir="rtl" style="margin:0 0 8px;font-size:16px;${RTL}">שלום ${escapeHtml(payload.customerName || '')},</p>
-    <p dir="rtl" style="margin:0 0 16px;${RTL}">קיבלנו את ההזמנה שלך לבסטה <strong>${escapeHtml(payload.businessName || '')}</strong> ב־${BASTA_BASKET_FROM_NAME}.</p>
-    ${buildDetailsTableHtml([
-      detailRow('מס׳ הזמנה', payload.orderId, { ltrValue: true }),
-      detailRow('אספקה', payload.fulfillmentLabel),
-      detailRow('תשלום', payload.paymentLabel),
-    ])}
+    <p dir="rtl" style="margin:0 0 16px;${RTL}">קיבלנו את ההזמנה שלך לבסטה <strong>${escapeHtml(payload.businessName || '')}</strong> ב־${BASTA_BASKET_FROM_NAME}.</p>`;
+
+  const whatNextHtml = isPromotion
+    ? buildPromotionWhatNextHtml(payload)
+    : `
     <div dir="rtl" style="margin:16px 0;padding:14px 16px;background:#f0f7ee;border:1px solid #c5dcc0;border-radius:8px;${RTL}">
       <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#4a7c3f;${RTL}">מה עכשיו?</p>
       <ol dir="rtl" style="margin:0;padding:0 24px 0 0;list-style-position:outside;color:#3d2f1f;font-size:14px;line-height:1.7;${RTL}">
@@ -193,7 +254,19 @@ export const buildCustomerOrderEmailHtml = (payload) => {
         <li style="margin-bottom:6px;">תיאום פרטים — ישירות מול הבסטה (טלפון / וואטסאפ / אימייל).</li>
         <li>כשההזמנה מוכנה — הבסטה תעדכן אתכם לאיסוף או למשלוח.</li>
       </ol>
-    </div>
+    </div>`;
+
+  const bodyHtml = `
+    ${introHtml}
+    ${buildDetailsTableHtml([
+      detailRow('מס׳ הזמנה', payload.orderId, { ltrValue: true }),
+      ...(isPromotion && payload.promotionTitle
+        ? [detailRow('הזמנה מצטברת', payload.promotionTitle)]
+        : []),
+      detailRow('אספקה', payload.fulfillmentLabel),
+      detailRow('תשלום', payload.paymentLabel),
+    ])}
+    ${whatNextHtml}
     <h2 dir="rtl" style="margin:20px 0 8px;font-size:16px;color:#3d2f1f;${RTL}">סיכום ההזמנה</h2>
     ${payload.linesHtml || buildOrderLinesTableHtml(payload.lines)}
     ${buildTotalsBlockHtml(payload)}
@@ -206,8 +279,12 @@ export const buildCustomerOrderEmailHtml = (payload) => {
     : '';
 
   return emailShell({
-    title: `אישור הזמנה — ${payload.businessName || 'הבסטה'}`,
-    preheader: `ההזמנה התקבלה · ${formatCurrency(payload.total)}`,
+    title: isPromotion
+      ? `אישור הזמנה המצטברת — ${payload.businessName || 'הבסטה'}`
+      : `אישור הזמנה — ${payload.businessName || 'הבסטה'}`,
+    preheader: isPromotion
+      ? `ההזמנה המצטברת התקבלה · ${formatCurrency(payload.total)}`
+      : `ההזמנה התקבלה · ${formatCurrency(payload.total)}`,
     bodyHtml: bodyHtml + ordersLink,
   });
 };

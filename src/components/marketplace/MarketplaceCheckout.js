@@ -408,10 +408,10 @@ const MarketplaceCheckout = () => {
                     </p>
                   </div>
                   <Link
-                    to={`/community-marketplace/store/${group.businessId}`}
+                    to={`/community-marketplace/store/${group.businessId}/shop`}
                     className="mp-link text-sm"
                   >
-                    לדף הבסטה
+                    לחנות הבסטה
                   </Link>
                 </div>
 

@@ -1,9 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
 import { usePickupSpot } from '../../contexts/PickupSpotContext';
-import { resolveMarketplaceOrderAccount } from '../../services/marketplaceUserService';
+import {
+  loadCheckoutCustomerProfile,
+  resolveMarketplaceOrderAccount,
+} from '../../services/marketplaceUserService';
 import MarketplaceCheckoutAccount from './MarketplaceCheckoutAccount';
 import {
   getDeliveryFeeForMethod,
@@ -21,7 +24,6 @@ import { notifyMarketplaceOrderForBusinessId } from '../../services/marketplaceO
 import { summarizeEmailNotifications } from '../../utils/marketplaceEmailSummary';
 import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceSubmittingOverlay from './MarketplaceSubmittingOverlay';
-import VolunteerPickupPlaceholder from './VolunteerPickupPlaceholder';
 import MarketplaceFulfillmentSummary from './MarketplaceFulfillmentSummary';
 import MarketplaceFulfillmentPicker from './MarketplaceFulfillmentPicker';
 import { saveOrderConfirmationSession } from '../../utils/marketplaceOrderConfirmation';
@@ -64,6 +66,8 @@ const MarketplaceOrderForm = () => {
   const [fulfillmentMethod, setFulfillmentMethod] = useState('');
   const [fulfillmentLabel, setFulfillmentLabel] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('bit');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const profilePrefilledRef = useRef(false);
 
   useEffect(() => {
     const loadPromotion = async () => {
@@ -90,21 +94,64 @@ const MarketplaceOrderForm = () => {
   }, [promotionId]);
 
   useEffect(() => {
-    if (!currentUser) return;
-    setCustomer((current) => ({
-      ...current,
-      email: current.email || currentUser.email || '',
-      userId: current.userId || currentUser.uid || '',
-    }));
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (selectedPickupSpot && !customer.community) {
-      setCustomer((current) => ({ ...current, community: selectedPickupSpot }));
+    if (!userLoggedIn || !currentUser?.uid) {
+      profilePrefilledRef.current = false;
+      return;
     }
-  }, [customer.community, selectedPickupSpot]);
+
+    if (profilePrefilledRef.current) return;
+
+    let cancelled = false;
+    const prefillProfile = async () => {
+      setProfileLoading(true);
+      try {
+        const profile = await loadCheckoutCustomerProfile(currentUser);
+        if (cancelled || !profile) return;
+
+        profilePrefilledRef.current = true;
+        setWantsCreateAccount(false);
+        setCustomer((current) => ({
+          ...current,
+          name: current.name || profile.name || '',
+          phone: current.phone || profile.phone || '',
+          email: current.email || profile.email || currentUser.email || '',
+          community: current.community || profile.community || selectedPickupSpot || '',
+          userId: profile.userId || currentUser.uid,
+        }));
+      } catch (error) {
+        console.warn('Failed to prefill promotion order profile', error);
+        if (!cancelled) {
+          setCustomer((current) => ({
+            ...current,
+            email: current.email || currentUser.email || '',
+            userId: current.userId || currentUser.uid || '',
+          }));
+          setWantsCreateAccount(false);
+        }
+      } finally {
+        if (!cancelled) setProfileLoading(false);
+      }
+    };
+
+    prefillProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [userLoggedIn, currentUser, selectedPickupSpot]);
 
   useEffect(() => {
+    if (selectedPickupSpot) {
+      setCustomer((current) => ({
+        ...current,
+        community: current.community || selectedPickupSpot,
+      }));
+    }
+  }, [selectedPickupSpot]);
+
+  const prevCommunityRef = useRef(customer.community);
+  useEffect(() => {
+    if (prevCommunityRef.current === customer.community) return;
+    prevCommunityRef.current = customer.community;
     setFulfillmentMethod('');
     setFulfillmentLabel('');
   }, [customer.community]);
@@ -142,10 +189,10 @@ const MarketplaceOrderForm = () => {
     setQuantities((current) => ({ ...current, [productId]: quantity }));
   };
 
-  const handleFulfillmentChange = (method, label) => {
+  const handleFulfillmentChange = useCallback((method, label) => {
     setFulfillmentMethod(method);
     setFulfillmentLabel(label);
-  };
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -246,6 +293,13 @@ const MarketplaceOrderForm = () => {
         paymentMethod,
         fulfillmentLabel,
         storeTitle: promotion.businessName,
+        orderKind: 'promotion',
+        promotion: {
+          id: promotion.id,
+          title: promotion.title,
+          deliveryDate: promotion.deliveryDate,
+          endsAt: promotion.endsAt,
+        },
       });
 
       const confirmationPayload = {
@@ -342,47 +396,72 @@ const MarketplaceOrderForm = () => {
                 אין מוצרים מאושרים זמינים בהזמנה הזו כרגע.
               </div>
             ) : (
-              <div>
-                {products.map((product) => (
-                  <div key={product.id} className="mp-product-row">
-                    {Array.isArray(product.images) && product.images[0] && (
-                      <img src={product.images[0]} alt={product.name} />
-                    )}
-                    <div className="flex-1">
-                      <h3 className="font-bold" style={{ color: '#3d2f1f' }}>
-                        {product.name}
-                      </h3>
-                      {product.description && (
-                        <p className="text-sm line-clamp-2 mt-1" style={{ color: '#6b5a45' }}>
-                          {product.description}
-                        </p>
+              <div className="mp-store-products-grid">
+                {products.map((product) => {
+                  const qty = Number(quantities[product.id] || 0);
+                  const inStock = isMarketplaceProductInStock(product);
+                  const stockLimit = getProductStockLimit(product);
+                  const atMaxStock = stockLimit !== null && qty >= stockLimit;
+
+                  return (
+                    <div key={product.id} className="mp-store-product-tile mp-order-product-card">
+                      {product.images?.[0] ? (
+                        <img src={product.images[0]} alt={product.name} />
+                      ) : (
+                        <div className="mp-store-product-tile-placeholder">ללא תמונה</div>
                       )}
-                      <div className="text-sm font-bold mt-2" style={{ color: '#4a7c3f' }}>
-                        {formatCurrency(product.price)}
+                      <div className="mp-store-product-tile-body">
+                        <h3>{product.name}</h3>
+                        {product.description && (
+                          <p
+                            className="text-xs line-clamp-2 mt-1"
+                            style={{ color: '#6b5a45', fontWeight: 400 }}
+                          >
+                            {product.description}
+                          </p>
+                        )}
+                        <p>{formatCurrency(product.price)}</p>
+                        {stockLimit !== null && (
+                          <p
+                            className="text-xs mt-1"
+                            style={{ color: inStock ? '#6b5a45' : '#b91c1c', fontWeight: 400 }}
+                          >
+                            {inStock ? `מלאי: ${stockLimit}` : 'אזל המלאי'}
+                          </p>
+                        )}
+                        <div className="mp-order-product-qty">
+                          <button
+                            type="button"
+                            className="mp-cart-qty-btn"
+                            onClick={() => handleQuantityChange(product.id, qty - 1)}
+                            disabled={qty <= 0}
+                            aria-label={`הפחתת כמות ${product.name}`}
+                            style={qty <= 0 ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                              <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                          <span className="mp-cart-qty" aria-live="polite">
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            className="mp-cart-qty-btn"
+                            onClick={() => handleQuantityChange(product.id, qty + 1)}
+                            disabled={!inStock || atMaxStock}
+                            aria-label={`הוספת כמות ${product.name}`}
+                            style={!inStock || atMaxStock ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                              <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
-                      {getProductStockLimit(product) !== null && (
-                        <p className="text-xs mt-1" style={{ color: isMarketplaceProductInStock(product) ? '#6b5a45' : '#b91c1c' }}>
-                          {isMarketplaceProductInStock(product)
-                            ? `מלאי: ${getProductStockLimit(product)}`
-                            : 'אזל המלאי'}
-                        </p>
-                      )}
                     </div>
-                    <div style={{ width: '5rem' }}>
-                      <label className="mp-filter-label">כמות</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max={getProductStockLimit(product) ?? undefined}
-                        step="1"
-                        value={quantities[product.id] || ''}
-                        onChange={(event) => handleQuantityChange(product.id, event.target.value)}
-                        className="mp-input text-center"
-                        disabled={!isMarketplaceProductInStock(product)}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -391,6 +470,9 @@ const MarketplaceOrderForm = () => {
         <aside>
           <div className="mp-order-panel">
             <h2 className="mp-section-title mb-4">פרטי הזמנה</h2>
+            {profileLoading && (
+              <p className="mp-section-note text-sm mb-3">טוען את הפרטים מהחשבון שלכם...</p>
+            )}
             <div className="space-y-3">
               <input
                 type="text"
@@ -398,6 +480,7 @@ const MarketplaceOrderForm = () => {
                 onChange={(event) => setCustomer((current) => ({ ...current, name: event.target.value }))}
                 placeholder="שם מלא *"
                 className="mp-input"
+                autoComplete="name"
               />
               <input
                 type="tel"
@@ -405,6 +488,7 @@ const MarketplaceOrderForm = () => {
                 onChange={(event) => setCustomer((current) => ({ ...current, phone: event.target.value }))}
                 placeholder="טלפון *"
                 className="mp-input"
+                autoComplete="tel"
               />
               <input
                 type="email"
@@ -426,17 +510,25 @@ const MarketplaceOrderForm = () => {
                 loginRedirectPath={`/community-marketplace/order/${promotionId}`}
               />
 
-              <MarketplaceFulfillmentPicker
-                fulfillment={fulfillment}
-                community={customer.community}
-                value={fulfillmentMethod}
-                onChange={handleFulfillmentChange}
-                onCommunityChange={(community) =>
-                  setCustomer((current) => ({ ...current, community }))
-                }
-              />
+              <div
+                style={{
+                  borderTop: '2px solid #e8dcc8',
+                  marginTop: '0.5rem',
+                  paddingTop: '1rem',
+                }}
+              >
+                <MarketplaceFulfillmentPicker
+                  fulfillment={fulfillment}
+                  community={customer.community}
+                  value={fulfillmentMethod}
+                  onChange={handleFulfillmentChange}
+                  onCommunityChange={(community) =>
+                    setCustomer((current) => ({ ...current, community }))
+                  }
+                  radioGroupName={`fulfillment-order-${promotionId}`}
+                />
+              </div>
 
-              <VolunteerPickupPlaceholder />
               <select
                 value={paymentMethod}
                 onChange={(event) => setPaymentMethod(event.target.value)}

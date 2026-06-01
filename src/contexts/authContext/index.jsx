@@ -69,26 +69,28 @@ export function AuthProvider({ children }) {
         let resolvedRole = 'user';
 
         const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          resolvedRole = userDoc.data().role;
+        const explicitUserRole = userDoc.exists() ? userDoc.data().role : null;
+
+        if (explicitUserRole && explicitUserRole !== 'user') {
+          resolvedRole = explicitUserRole;
         } else {
-          const marketplaceRole = await fetchMarketplaceCustomerRole(user.uid);
-          if (marketplaceRole) {
-            resolvedRole = marketplaceRole;
+          const coordinatorDoc = await getDoc(doc(db, 'coordinators', user.uid));
+          if (coordinatorDoc.exists()) {
+            resolvedRole = 'coordinator';
           } else {
-            const coordinatorDoc = await getDoc(doc(db, 'coordinators', user.uid));
-            if (coordinatorDoc.exists()) {
-              resolvedRole = 'coordinator';
+            const localBusinessDoc = await getDoc(doc(db, LOCAL_BUSINESS_COLLECTION, user.uid));
+            if (localBusinessDoc.exists()) {
+              resolvedRole = 'localBusiness';
             } else {
-              const localBusinessDoc = await getDoc(doc(db, LOCAL_BUSINESS_COLLECTION, user.uid));
-              if (localBusinessDoc.exists()) {
-                resolvedRole = 'localBusiness';
+              const businessDoc = await getDoc(doc(db, 'businesses', user.uid));
+              if (businessDoc.exists()) {
+                resolvedRole = isDeliveryDriverAccount(businessDoc.data())
+                  ? 'driver'
+                  : 'business';
               } else {
-                const businessDoc = await getDoc(doc(db, 'businesses', user.uid));
-                if (businessDoc.exists()) {
-                  resolvedRole = isDeliveryDriverAccount(businessDoc.data())
-                    ? 'driver'
-                    : 'business';
+                const marketplaceRole = await fetchMarketplaceCustomerRole(user.uid);
+                if (marketplaceRole) {
+                  resolvedRole = marketplaceRole;
                 }
               }
             }

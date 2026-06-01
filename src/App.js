@@ -102,10 +102,12 @@ import MarketplaceAddProduct from './components/marketplace/products/Marketplace
 import MarketplaceEditProduct from './components/marketplace/products/MarketplaceEditProduct';
 import MarketplaceMyStore from './components/marketplace/MarketplaceMyStore';
 import MarketplaceStorePage from './components/marketplace/MarketplaceStorePage';
+import MarketplaceStoreShop from './components/marketplace/MarketplaceStoreShop';
 import MarketplaceCheckout from './components/marketplace/MarketplaceCheckout';
 import MarketplaceOrderConfirmation from './components/marketplace/MarketplaceOrderConfirmation';
 import MarketplaceMyOrders from './components/marketplace/MarketplaceMyOrders';
 import MarketplaceBusinessOrders from './components/marketplace/MarketplaceBusinessOrders';
+import MarketplacePromotionOrders from './components/marketplace/MarketplacePromotionOrders';
 import MarketplaceSettingsAdmin from './components/admin/MarketplaceSettingsAdmin';
 
 const App = () => {
@@ -220,6 +222,10 @@ const App = () => {
                     element={<MarketplaceOrderConfirmation />}
                   />
                   <Route path="/community-marketplace/store/:businessId" element={<MarketplaceStorePage />} />
+                  <Route
+                    path="/community-marketplace/store/:businessId/shop"
+                    element={<MarketplaceStoreShop />}
+                  />
                   <Route path="/community-marketplace/my-orders" element={<MarketplaceMyOrders />} />
                   <Route path="/community-marketplace/order/:promotionId" element={<MarketplaceOrderForm />} />
                   <Route path="/marketplace/my-store" element={<MarketplaceMyStore />} />
@@ -227,6 +233,10 @@ const App = () => {
                   <Route path="/marketplace/dashboard" element={<SellerMarketplaceDashboard />} />
                   <Route path="/marketplace/store" element={<SellerMarketplaceDashboard />} />
                   <Route path="/marketplace/promotions/new" element={<SellerMarketplaceDashboard />} />
+                  <Route
+                    path="/marketplace/promotions/:promotionId/orders"
+                    element={<MarketplacePromotionOrders />}
+                  />
                   <Route path="/marketplace/products" element={<MarketplaceProductsList />} />
                   <Route path="/marketplace/products/new" element={<MarketplaceAddProduct />} />
                   <Route path="/marketplace/products/:productId/edit" element={<MarketplaceEditProduct />} />

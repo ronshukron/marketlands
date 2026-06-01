@@ -35,7 +35,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </p>
 
       <label className="mp-form-label">
-        קצת עלינו
+        <span className="mp-form-label-text">קצת עלינו</span>
         <textarea
           className="mp-input"
           rows={4}
@@ -46,7 +46,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </label>
 
       <label className="mp-form-label">
-        הודעה ללקוחות
+        <span className="mp-form-label-text">הודעה ללקוחות</span>
         <textarea
           className="mp-input"
           rows={3}
@@ -57,7 +57,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </label>
 
       <label className="mp-form-label">
-        יצירת קשר — הקדמה
+        <span className="mp-form-label-text">יצירת קשר — הקדמה</span>
         <textarea
           className="mp-input"
           rows={2}
@@ -68,7 +68,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </label>
 
       <label className="mp-form-label">
-        אימייל ליצירת קשר
+        <span className="mp-form-label-text">אימייל ליצירת קשר</span>
         <input
           className="mp-input"
           type="email"
@@ -109,7 +109,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </div>
 
       <label className="mp-form-label">
-        הערות ומידע נוסף
+        <span className="mp-form-label-text">הערות ומידע נוסף</span>
         <textarea
           className="mp-input"
           rows={3}
@@ -119,7 +119,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </label>
 
       <label className="mp-form-label">
-        מדיניות החזרות וביטולים
+        <span className="mp-form-label-text">מדיניות החזרות וביטולים</span>
         <textarea
           className="mp-input"
           rows={4}
@@ -129,7 +129,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </label>
 
       <label className="mp-form-label">
-        אתר / קישור חיצוני
+        <span className="mp-form-label-text">אתר / קישור חיצוני</span>
         <input
           className="mp-input"
           value={form.websiteUrl}
@@ -139,7 +139,7 @@ const StoreContentEditor = ({ form, setForm }) => {
       </label>
 
       <label className="mp-form-label">
-        רשתות חברתיות (קישור אחד בכל שורה)
+        <span className="mp-form-label-text">רשתות חברתיות (קישור אחד בכל שורה)</span>
         <textarea
           className="mp-input"
           rows={2}

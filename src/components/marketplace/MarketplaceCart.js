@@ -35,7 +35,7 @@ const MarketplaceCart = ({ isOpen, onClose }) => {
         </div>
 
         {cartItems.length === 0 ? (
-          <p className="mp-cart-empty">הסל ריק. הוסיפו מוצרים מדף הבסטה.</p>
+          <p className="mp-cart-empty">הסל ריק. הוסיפו מוצרים מחנות הבסטה.</p>
         ) : (
           <>
             <div className="mp-cart-body">
@@ -44,11 +44,11 @@ const MarketplaceCart = ({ isOpen, onClose }) => {
                   <div className="mp-cart-store-head">
                     <h3>{group.storeTitle || 'בסטה'}</h3>
                     <Link
-                      to={`/community-marketplace/store/${group.businessId}`}
+                      to={`/community-marketplace/store/${group.businessId}/shop`}
                       className="mp-link text-sm"
                       onClick={onClose}
                     >
-                      לדף הבסטה
+                      לחנות הבסטה
                     </Link>
                   </div>
 

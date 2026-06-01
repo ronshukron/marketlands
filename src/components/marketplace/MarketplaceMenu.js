@@ -4,15 +4,12 @@ import { useAuth } from '../../contexts/authContext';
 import { doSignOut } from '../../firebase/auth';
 import { useMarketplaceCart } from '../../contexts/MarketplaceCartContext';
 import {
-  isCommunityMarketplaceShopper,
-  isMarketplaceOnlyCustomer,
-} from '../../utils/marketplaceAccount';
-import {
   MARKETPLACE_LOGIN_PATH,
   MARKETPLACE_REGISTER_PATH,
   isCommunityMarketplacePath,
   isSellerMarketplacePath,
 } from '../../utils/marketplaceRoutes';
+import { isMarketplaceSellerRole } from '../../utils/marketplaceSellerRole';
 import MarketplaceCart from './MarketplaceCart';
 import './MarketplaceMenu.css';
 
@@ -31,9 +28,7 @@ const MarketplaceMenu = () => {
 
   const isCommunityShop = isCommunityMarketplacePath(location.pathname);
   const isSellerArea = isSellerMarketplacePath(location.pathname);
-  const isSeller = userLoggedIn && userRole === 'localBusiness';
-  const isShopper = isCommunityMarketplaceShopper({ userLoggedIn, userRole });
-  const marketplaceOnly = isMarketplaceOnlyCustomer(userRole);
+  const isSeller = userLoggedIn && isMarketplaceSellerRole(userRole);
 
   const isActive = (path, { prefix = false } = {}) =>
     prefix ? location.pathname.startsWith(path) : location.pathname === path;
@@ -86,14 +81,33 @@ const MarketplaceMenu = () => {
           to="/community-marketplace/my-orders"
           className={navLinkClass(isActive('/community-marketplace/my-orders'))}
         >
-          {marketplaceOnly ? 'ההזמנות שלי' : 'הזמנות בשוק'}
+          ההזמנות שלי
         </Link>
       )}
-      {!marketplaceOnly && userLoggedIn && (
-        <Link to="/my-orders" className={navLinkClass(isActive('/my-orders'))}>
-          הזמנות שבועיות
-        </Link>
-      )}
+    </>
+  );
+
+  /** Seller browsing the public shop — marketplace routes only (no legacy /my-orders). */
+  const sellerBrowsingShopLinks = (
+    <>
+      <Link
+        to="/community-marketplace"
+        className={navLinkClass(isCommunityBrowseActive)}
+      >
+        שוק הבסטות
+      </Link>
+      <Link
+        to="/marketplace/orders"
+        className={navLinkClass(isActive('/marketplace/orders'))}
+      >
+        הזמנות מהשוק
+      </Link>
+      <Link
+        to="/marketplace/dashboard"
+        className={navLinkClass(isActive('/marketplace', { prefix: true }) && isSellerArea)}
+      >
+        ניהול הבסטה
+      </Link>
     </>
   );
 
@@ -104,6 +118,14 @@ const MarketplaceMenu = () => {
         className={navLinkClass(isActive('/marketplace/dashboard'))}
       >
         לוח הבסטה
+      </Link>
+      <Link
+        to="/marketplace/dashboard?section=promotions"
+        className={navLinkClass(
+          isActive('/marketplace/dashboard') && location.search.includes('section=promotions')
+        )}
+      >
+        קידומים שבועיים
       </Link>
       <Link
         to="/marketplace/my-store"
@@ -133,21 +155,9 @@ const MarketplaceMenu = () => {
   );
 
   const renderNavLinks = () => {
-    if (isSeller && isSellerArea) return sellerLinks;
-    if (isSeller && isCommunityShop) {
-      return (
-        <>
-          {shopperLinks}
-          <Link
-            to="/marketplace/dashboard"
-            className={navLinkClass(isActive('/marketplace', { prefix: true }) && isSellerArea)}
-          >
-            ניהול הבסטה
-          </Link>
-        </>
-      );
+    if (isSeller) {
+      return isSellerArea ? sellerLinks : sellerBrowsingShopLinks;
     }
-    if (isSeller) return sellerLinks;
     return shopperLinks;
   };
 
@@ -181,9 +191,6 @@ const MarketplaceMenu = () => {
 
           <nav className="mp-menu-nav" aria-label="תפריט שוק הבסטות">
             {renderNavLinks()}
-            <Link to="/" className={navLinkClass(false)}>
-              לאתר הראשי
-            </Link>
           </nav>
 
           <div className="mp-menu-actions">
@@ -223,9 +230,6 @@ const MarketplaceMenu = () => {
 
         <div className={`mp-menu-drawer${isOpen ? ' is-open' : ''}`}>
           {renderNavLinks()}
-          <Link to="/" className={navLinkClass(false)}>
-            לאתר הראשי
-          </Link>
           <div className="mp-menu-mobile-only mt-3 pt-3 border-t border-[#e0d4c0] flex flex-col gap-2">
             {userLoggedIn ? (
               <button type="button" className="mp-menu-btn mp-menu-btn-logout w-full" onClick={handleLogout}>

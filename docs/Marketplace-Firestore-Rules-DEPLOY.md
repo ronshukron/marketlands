@@ -27,12 +27,20 @@ Add the helper functions and matches below (before the final `match /{document=*
       allow delete: if false;
     }
 
+    function isMarketplaceOrderSellerUpdate() {
+      return (isMarketplaceOrderSeller() || isAdmin())
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.customerUserId == resource.data.customerUserId
+        && request.resource.data.customerEmail == resource.data.customerEmail;
+    }
+
     match /marketplaceOrders/{orderId} {
       allow create: if true;
       allow read: if isAdmin()
         || isMarketplaceOrderSeller()
         || isMarketplaceOrderCustomer();
-      allow update, delete: if false;
+      allow update: if isMarketplaceOrderSellerUpdate();
+      allow delete: if false;
     }
 ```
 

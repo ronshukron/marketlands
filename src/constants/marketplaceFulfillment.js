@@ -1,3 +1,5 @@
+import { pickupSpotsData } from '../data/pickupSpots';
+
 /** @typedef {'all' | 'selected'} PickupScope */
 /** @typedef {'pickup' | 'delivery'} FulfillmentMethod */
 /** @typedef {'accumulation'} PromotionType */
@@ -49,16 +51,78 @@ export const DEFAULT_PROMOTION_FULFILLMENT = {
   deliveryPriceInheritFromStore: true,
 };
 
+const INVALID_COMMUNITY_STRINGS = new Set(['[object Object]', 'undefined', 'null']);
+
+export const normalizeCommunityName = (name) =>
+  String(name || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const toCommunityString = (item) => {
+  if (item == null) return '';
+  if (typeof item === 'string') return normalizeCommunityName(item);
+  if (typeof item === 'object') {
+    return normalizeCommunityName(
+      item.name || item.label || item.community || item.value || item.spot || ''
+    );
+  }
+  const raw = String(item).trim();
+  if (!raw || INVALID_COMMUNITY_STRINGS.has(raw)) return '';
+  return normalizeCommunityName(raw);
+};
+
 const uniqueStrings = (values = []) =>
-  [...new Set(values.map((v) => String(v || '').trim()).filter(Boolean))];
+  [...new Set(values.map(toCommunityString).filter(Boolean))];
 
 const listFromUnknown = (value) => {
   if (Array.isArray(value)) return uniqueStrings(value);
   if (typeof value === 'string') {
-    return uniqueStrings(value.split(','));
+    return uniqueStrings(value.split(/[,;|]/));
+  }
+  if (value && typeof value === 'object') {
+    return uniqueStrings(Object.values(value));
   }
   return [];
 };
+
+let communityAliasToCanonical = null;
+
+const buildCommunityAliasMap = () => {
+  const map = new Map();
+  Object.entries(pickupSpotsData || {}).forEach(([key, data]) => {
+    const canonical = normalizeCommunityName(key);
+    if (!canonical) return;
+    map.set(canonical, canonical);
+    const displayName = normalizeCommunityName(data?.name);
+    if (displayName) map.set(displayName, canonical);
+  });
+  return map;
+};
+
+/** Map any known community label to the canonical pickupSpots key. */
+export const getCanonicalCommunityName = (name) => {
+  const normalized = normalizeCommunityName(name);
+  if (!normalized) return '';
+  if (!communityAliasToCanonical) {
+    communityAliasToCanonical = buildCommunityAliasMap();
+  }
+  return communityAliasToCanonical.get(normalized) || normalized;
+};
+
+export const communityNamesMatch = (configuredName, selectedName) => {
+  const a = getCanonicalCommunityName(configuredName);
+  const b = getCanonicalCommunityName(selectedName);
+  return Boolean(a && b && a === b);
+};
+
+export const communityListIncludes = (list, communityName) => {
+  if (!Array.isArray(list) || list.length === 0) return false;
+  return list.some((entry) => communityNamesMatch(entry, communityName));
+};
+
+const mergeCommunityLists = (...sources) =>
+  uniqueStrings(sources.flatMap((source) => listFromUnknown(source)));
 
 /** Normalize store document → fulfillment settings (with legacy field migration). */
 export const normalizeStoreFulfillment = (source) => {
@@ -153,22 +217,37 @@ export const resolvePromotionFulfillment = (promotion, store) => {
         ? PICKUP_SCOPE_SELECTED
         : PICKUP_SCOPE_ALL;
 
-  const pickupCommunities =
+  let pickupCommunities =
     promoF.pickupScope === PICKUP_SCOPE_INHERIT
       ? storeF.pickupCommunities
       : promoF.pickupCommunities;
 
-  const deliveryCommunities =
+  pickupCommunities = mergeCommunityLists(
+    pickupCommunities,
+    promoF.pickupScope === PICKUP_SCOPE_INHERIT ? promotion?.targetCommunities : promotion?.pickupCommunities
+  );
+
+  let deliveryCommunities =
     promoF.deliveryInheritFromStore && promoF.deliveryCommunities.length === 0
       ? storeF.deliveryCommunities
       : promoF.deliveryCommunities;
 
+  deliveryCommunities = mergeCommunityLists(
+    deliveryCommunities,
+    promotion?.serviceRegions,
+    promoF.deliveryInheritFromStore ? store?.serviceRegions : null
+  );
+
+  const isAccumulation = promoF.promotionType === PROMOTION_TYPE_ACCUMULATION;
+
   return {
     promotionType: promoF.promotionType,
-    pickupEnabled: promoF.allowSelfPickup && storeF.pickupEnabled,
+    pickupEnabled: promoF.allowSelfPickup && storeF.pickupEnabled !== false,
     pickupScope,
     pickupCommunities,
-    deliveryEnabled: promoF.deliveryEnabled && storeF.deliveryEnabled,
+    deliveryEnabled:
+      promoF.deliveryEnabled &&
+      (storeF.deliveryEnabled || isAccumulation || promoF.deliveryCommunities.length > 0),
     deliveryCommunities,
     deliveryPrice:
       promoF.deliveryPriceInheritFromStore !== false
@@ -184,15 +263,36 @@ export const resolvePromotionFulfillment = (promotion, store) => {
 
 export const communityCanPickup = (fulfillment, communityName) => {
   if (!fulfillment?.pickupEnabled) return false;
-  if (!communityName) return true;
   if (fulfillment.pickupScope === PICKUP_SCOPE_ALL) return true;
-  return fulfillment.pickupCommunities.includes(communityName);
+  if (!communityName) return false;
+  if (!fulfillment.pickupCommunities?.length) return false;
+  return communityListIncludes(fulfillment.pickupCommunities, communityName);
 };
 
 export const communityCanDelivery = (fulfillment, communityName) => {
   if (!fulfillment?.deliveryEnabled) return false;
-  if (!communityName) return fulfillment.deliveryCommunities.length > 0;
-  return fulfillment.deliveryCommunities.includes(communityName);
+  if (!communityName) return false;
+  if (!fulfillment.deliveryCommunities?.length) return true;
+  return communityListIncludes(fulfillment.deliveryCommunities, communityName);
+};
+
+/** Labels shown to customers for configured pickup/delivery communities. */
+export const getConfiguredCommunityLabels = (fulfillment) => {
+  if (!fulfillment) return [];
+  const labels = new Set();
+  if (fulfillment.pickupEnabled && fulfillment.pickupScope !== PICKUP_SCOPE_ALL) {
+    fulfillment.pickupCommunities?.forEach((name) => {
+      const canonical = getCanonicalCommunityName(name);
+      if (canonical) labels.add(canonical);
+    });
+  }
+  if (fulfillment.deliveryEnabled && fulfillment.deliveryCommunities?.length) {
+    fulfillment.deliveryCommunities.forEach((name) => {
+      const canonical = getCanonicalCommunityName(name);
+      if (canonical) labels.add(canonical);
+    });
+  }
+  return [...labels];
 };
 
 export const isCommunityServed = (fulfillment, communityName) => {
@@ -272,16 +372,27 @@ export const preparePromotionFulfillmentForSave = (promotionData = {}, store) =>
   };
 };
 
-export const promotionToCustomerFulfillment = (promotion) => ({
-  pickupEnabled: promotion?.allowSelfPickup !== false,
-  pickupScope: promotion?.pickupScope || PICKUP_SCOPE_ALL,
-  pickupCommunities: Array.isArray(promotion?.pickupCommunities) ? promotion.pickupCommunities : [],
-  deliveryEnabled: Boolean(promotion?.deliveryEnabled),
-  deliveryCommunities: Array.isArray(promotion?.deliveryCommunities)
-    ? promotion.deliveryCommunities
-    : [],
-  deliveryPrice: parseDeliveryPrice(promotion?.deliveryPrice),
-});
+export const promotionToCustomerFulfillment = (promotion) => {
+  const normalized = normalizePromotionFulfillment(promotion);
+  return {
+    promotionType: normalized.promotionType,
+    pickupEnabled: normalized.allowSelfPickup,
+    pickupScope:
+      normalized.pickupScope === PICKUP_SCOPE_INHERIT
+        ? PICKUP_SCOPE_ALL
+        : normalized.pickupScope,
+    pickupCommunities: mergeCommunityLists(
+      normalized.pickupCommunities,
+      promotion?.targetCommunities
+    ),
+    deliveryEnabled: normalized.deliveryEnabled,
+    deliveryCommunities: mergeCommunityLists(
+      normalized.deliveryCommunities,
+      promotion?.serviceRegions
+    ),
+    deliveryPrice: parseDeliveryPrice(normalized.deliveryPrice),
+  };
+};
 
 export const formatPromotionCardLines = (promotion) =>
   formatFulfillmentSummaryLines({

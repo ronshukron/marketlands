@@ -71,14 +71,11 @@ const MarketplaceMyOrders = () => {
           </Link>
           <h1 className="mp-section-title mt-3">ההזמנות שלי בשוק הבסטות</h1>
           <p className="mp-section-note mt-1">
-            הזמנות שביצעתם מבסטות בשוק תחת החשבון שלכם (לא כולל הזמנות שבועיות רגילות של האתר).
+            הזמנות שביצעתם מבסטות בשוק תחת החשבון שלכם.
           </p>
           <p className="text-sm text-gray-600 mt-2">
             מוצגות הזמנות המשויכות לחשבון: <strong>{currentUser.email}</strong>
           </p>
-          <Link to="/my-orders" className="mp-link text-sm mt-2 inline-block">
-            הזמנות שבועיות / עצמאיות באתר
-          </Link>
         </div>
 
         {loading && (

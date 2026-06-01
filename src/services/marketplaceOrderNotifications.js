@@ -3,6 +3,7 @@ import { auth } from '../firebase/firebase';
 import {
   MARKETPLACE_EMAILJS_BROWSER,
   MARKETPLACE_EMAIL_REQUIRE_AUTH,
+  MARKETPLACE_EMAILS_ENABLED,
   MARKETPLACE_USE_BROWSER_EMAIL_FALLBACK,
   getMarketplaceSellerTemplateId,
 } from '../constants/marketplaceEmailNotifications';
@@ -24,6 +25,18 @@ import {
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 
+const MARKETPLACE_EMAIL_DISABLED_RESULT = {
+  attempted: false,
+  sent: false,
+  skippedReason: 'emails_disabled',
+};
+
+const disabledOrderPartiesResult = (payload) => ({
+  seller: { ...MARKETPLACE_EMAIL_DISABLED_RESULT },
+  customer: { ...MARKETPLACE_EMAIL_DISABLED_RESULT },
+  ...(payload ? { payload: enrichPayloadForEmail(payload) } : {}),
+});
+
 export const resolveSellerNotificationEmail = (store, business) => {
   const candidates = [
     store?.ownerEmail,
@@ -42,6 +55,13 @@ export const resolveSellerNotificationEmail = (store, business) => {
 const getSiteOrigin = () =>
   typeof window !== 'undefined' ? window.location.origin : 'https://your-site.example';
 
+const formatEmailDate = (value) => {
+  if (!value) return '';
+  const date = typeof value.toDate === 'function' ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || '').trim();
+  return date.toLocaleDateString('he-IL');
+};
+
 /**
  * Payload for Cloud Function `notifyMarketplaceNewOrder`.
  */
@@ -52,11 +72,20 @@ export const buildMarketplaceOrderNotificationPayload = ({
   customer,
   paymentMethod,
   fulfillmentLabel = '',
+  orderKind = 'store',
+  promotion = null,
 }) => {
   const lines = order?.lines || [];
   const paymentLabel = PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod || '';
+  const isPromotion = orderKind === 'promotion' || Boolean(promotion?.id || promotion?.title);
 
   return {
+    orderKind: isPromotion ? 'promotion' : 'store',
+    promotionTitle: promotion?.title || order?.promotionTitle || '',
+    promotionDeliveryDate: promotion?.deliveryDate || order?.promotionDeliveryDate || '',
+    promotionEndsAtLabel: formatEmailDate(
+      promotion?.endsAt || order?.promotionEndsAt || promotion?.endsAtLabel
+    ),
     orderId: order?.id || '',
     businessId: order?.businessId || '',
     businessName: businessName || '',
@@ -108,17 +137,25 @@ const enrichPayloadForEmail = (payload) => {
 };
 
 const buildSellerEmailParamsFromEnriched = (emailPayload) => {
+  const isPromotion = emailPayload.orderKind === 'promotion';
+  const subject = isPromotion
+    ? `${BASTA_BASKET_FROM_NAME} — הזמנה מצטברת חדשה · ${emailPayload.businessName}`
+    : `${BASTA_BASKET_FROM_NAME} — הזמנה חדשה · ${emailPayload.businessName}`;
   const params = {
     to_email: emailPayload.sellerEmail,
     to_name: emailPayload.businessName || 'בסטה',
     from_name: BASTA_BASKET_FROM_NAME,
     from_email: emailPayload.customerEmail || 'no-reply@marketplace.local',
-    subject: `${BASTA_BASKET_FROM_NAME} — הזמנה חדשה · ${emailPayload.businessName}`,
+    subject,
     order_id: emailPayload.orderId,
     business_name: emailPayload.businessName,
     lines_html: emailPayload.linesHtml,
     message: emailPayload.sellerMessageHtml,
     message_html: emailPayload.sellerMessageHtml,
+    // Backward-compat with legacy template placeholders ({{title}}, {{name}}, {{email}})
+    title: subject,
+    name: emailPayload.businessName || 'בסטה',
+    email: emailPayload.customerEmail || '',
   };
   if (emailPayload.customerEmail) {
     params.reply_to = emailPayload.customerEmail;
@@ -126,19 +163,29 @@ const buildSellerEmailParamsFromEnriched = (emailPayload) => {
   return params;
 };
 
-const buildCustomerEmailParamsFromEnriched = (emailPayload) => ({
-  to_email: emailPayload.customerEmail,
-  to_name: emailPayload.customerName || 'לקוח',
-  from_name: BASTA_BASKET_FROM_NAME,
-  subject: `${BASTA_BASKET_FROM_NAME} — אישור הזמנה · ${emailPayload.businessName}`,
-  order_id: emailPayload.orderId,
-  business_name: emailPayload.businessName,
-  payment_method: emailPayload.paymentLabel,
-  my_orders_url: emailPayload.myOrdersUrl,
-  lines_html: emailPayload.linesHtml,
-  message: emailPayload.customerMessageHtml,
-  message_html: emailPayload.customerMessageHtml,
-});
+const buildCustomerEmailParamsFromEnriched = (emailPayload) => {
+  const subject =
+    emailPayload.orderKind === 'promotion'
+      ? `${BASTA_BASKET_FROM_NAME} — אישור הזמנה המצטברת · ${emailPayload.businessName}`
+      : `${BASTA_BASKET_FROM_NAME} — אישור הזמנה · ${emailPayload.businessName}`;
+  return {
+    to_email: emailPayload.customerEmail,
+    to_name: emailPayload.customerName || 'לקוח',
+    from_name: BASTA_BASKET_FROM_NAME,
+    subject,
+    order_id: emailPayload.orderId,
+    business_name: emailPayload.businessName,
+    payment_method: emailPayload.paymentLabel,
+    my_orders_url: emailPayload.myOrdersUrl,
+    lines_html: emailPayload.linesHtml,
+    message: emailPayload.customerMessageHtml,
+    message_html: emailPayload.customerMessageHtml,
+    // Backward-compat with legacy template placeholders ({{title}}, {{name}}, {{email}})
+    title: subject,
+    name: emailPayload.customerName || 'לקוח',
+    email: emailPayload.customerEmail || '',
+  };
+};
 
 const normalizePartyResult = (raw, defaultSkipped) => {
   if (!raw || typeof raw !== 'object') {
@@ -217,6 +264,14 @@ export const notifyMarketplaceSellerNewOrder = async ({
     paymentMethod,
     fulfillmentLabel,
   });
+
+  if (!MARKETPLACE_EMAILS_ENABLED) {
+    return {
+      seller: { ...MARKETPLACE_EMAIL_DISABLED_RESULT },
+      customer: normalizePartyResult(null, 'no_customer_email'),
+    };
+  }
+
   const enriched = enrichPayloadForEmail(payload);
   const sellerOnlyBody = {
     ...enriched,
@@ -335,6 +390,10 @@ export const buildCombinedCustomerNotificationPayload = ({ orders = [], customer
 
 /** One buyer email for entire multi-store checkout (uses same notifyMarketplaceNewOrder endpoint). */
 export const notifyMarketplaceCustomerCombinedCheckout = async ({ orders, customer, paymentMethod }) => {
+  if (!MARKETPLACE_EMAILS_ENABLED) {
+    return { ...MARKETPLACE_EMAIL_DISABLED_RESULT };
+  }
+
   const payload = buildCombinedCustomerNotificationPayload({ orders, customer, paymentMethod });
 
   if (!payload.customerEmail) {
@@ -435,6 +494,8 @@ export const notifyMarketplaceOrderParties = async ({
   customer,
   paymentMethod,
   fulfillmentLabel = '',
+  orderKind = 'store',
+  promotion = null,
 }) => {
   const payload = buildMarketplaceOrderNotificationPayload({
     order,
@@ -443,7 +504,13 @@ export const notifyMarketplaceOrderParties = async ({
     customer,
     paymentMethod,
     fulfillmentLabel,
+    orderKind,
+    promotion,
   });
+
+  if (!MARKETPLACE_EMAILS_ENABLED) {
+    return disabledOrderPartiesResult(payload);
+  }
 
   if (!MARKETPLACE_USE_BROWSER_EMAIL_FALLBACK) {
     try {
@@ -541,12 +608,16 @@ export const notifyMarketplaceOrderCompleted = async ({
     fulfillmentLabel,
   });
 
+  if (!MARKETPLACE_EMAILS_ENABLED) {
+    return { ...MARKETPLACE_EMAIL_DISABLED_RESULT };
+  }
+
   if (!MARKETPLACE_USE_BROWSER_EMAIL_FALLBACK) {
     try {
       return await notifyOrderCompletedViaCloudFunction(base);
     } catch (error) {
-      console.warn('notifyMarketplaceOrderCompleted cloud failed, trying browser fallback', error);
-      return notifyOrderCompletedViaBrowserEmailJs(base);
+      console.warn('notifyMarketplaceOrderCompleted cloud failed', error);
+      return { attempted: true, sent: false, skippedReason: 'cloud_function_failed' };
     }
   }
 
@@ -560,6 +631,8 @@ export const notifyMarketplaceOrderForBusinessId = async ({
   paymentMethod,
   fulfillmentLabel = '',
   storeTitle = '',
+  orderKind = 'store',
+  promotion = null,
 }) => {
   const [business, store] = await Promise.all([
     getBusinessProfile(businessId),
@@ -576,5 +649,7 @@ export const notifyMarketplaceOrderForBusinessId = async ({
     customer,
     paymentMethod,
     fulfillmentLabel,
+    orderKind,
+    promotion,
   });
 };

@@ -6,12 +6,15 @@ import {
   getPublicMarketplaceStorePage,
   toDate,
 } from '../../services/marketplaceService';
+import { getStoreAboutText } from '../../constants/marketplaceStoreContent';
 import LoadingSpinner from '../LoadingSpinner';
 import defaultBackground from '../../images/Field.jpg';
 import StoreContentDisplay from './StoreContentDisplay';
 import MarketplaceFulfillmentSummary from './MarketplaceFulfillmentSummary';
 import MarketplaceStoreProductTile from './MarketplaceStoreProductTile';
 import './marketplace.css';
+
+const FEATURED_PRODUCT_COUNT = 4;
 
 const formatDate = (value) => {
   const date = toDate(value);
@@ -79,6 +82,11 @@ const MarketplaceStorePage = () => {
   }
 
   const title = store.title || store.businessName || business?.businessName || 'בסטה';
+  const aboutText = getStoreAboutText(store, business);
+  const shopEnabled = storeCartEnabled !== false;
+  const featuredProducts = products.slice(0, FEATURED_PRODUCT_COUNT);
+  const hasMoreProducts = products.length > FEATURED_PRODUCT_COUNT;
+
   return (
     <div className="mp-page pb-12" dir="rtl">
       <div className="mp-store-public-hero">
@@ -131,36 +139,78 @@ const MarketplaceStorePage = () => {
         )}
 
         {isOwner && (
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
             <Link to="/marketplace/my-store" className="mp-btn mp-btn-wood">
               עריכת דף הבסטה
             </Link>
+            {shopEnabled && products.length > 0 && (
+              <Link
+                to={`/community-marketplace/store/${businessId}/shop`}
+                className="mp-btn mp-btn-primary"
+              >
+                תצוגת חנות מלאה
+              </Link>
+            )}
           </div>
         )}
 
-        {(store.storeDescription || business?.storeDescription) && (
-          <div className="mp-panel">
-            <h2 className="mp-section-title mb-3">אודות הבסטה</h2>
-            <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-              {store.storeDescription || business?.storeDescription}
-            </p>
+        {/* 2 — Products (preview + link to full shop) */}
+        {shopEnabled && (
+          <div className="mp-panel mp-store-products-preview">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div>
+                <h2 className="mp-section-title">מוצרים</h2>
+                <p className="mp-section-note text-sm mt-1">
+                  {products.length > 0
+                    ? 'הוסיפו לסל ועברו לתשלום — או צפו בכל המוצרים בדף החנות.'
+                    : 'בקרוב יתווספו מוצרים לרכישה.'}
+                </p>
+              </div>
+              {products.length > 0 && (
+                <Link
+                  to={`/community-marketplace/store/${businessId}/shop`}
+                  className="mp-btn mp-btn-wood"
+                >
+                  לכל המוצרים והסל ({products.length})
+                </Link>
+              )}
+            </div>
+
+            {products.length === 0 ? (
+              <p className="mp-section-note">
+                אין מוצרים זמינים לרכישה מיידית כרגע. בדקו הזמנות שבועיות למטה.
+              </p>
+            ) : (
+              <>
+                <div className="mp-store-products-grid">
+                  {featuredProducts.map((product) => (
+                    <MarketplaceStoreProductTile
+                      key={product.id}
+                      product={product}
+                      businessId={businessId}
+                      storeTitle={title}
+                    />
+                  ))}
+                </div>
+                {hasMoreProducts && (
+                  <div className="mp-store-shop-cta mt-4">
+                    <p className="text-sm" style={{ color: '#4a3d2e' }}>
+                      מוצגים {FEATURED_PRODUCT_COUNT} מתוך {products.length} מוצרים
+                    </p>
+                    <Link
+                      to={`/community-marketplace/store/${businessId}/shop`}
+                      className="mp-btn mp-btn-wood"
+                    >
+                      לחנות המלאה ולסל
+                    </Link>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
-        <StoreContentDisplay store={store} business={business} />
-
-        <MarketplaceFulfillmentSummary store={store} />
-
-        {Array.isArray(store.tags) && store.tags.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {store.tags.map((tag) => (
-              <span key={tag} className="mp-tag">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
+        {/* 3 — Weekly promotions */}
         {promotions.length > 0 && (
           <div className="mp-panel">
             <h2 className="mp-section-title mb-4">הזמנות שבועיות פעילות</h2>
@@ -185,32 +235,34 @@ const MarketplaceStorePage = () => {
           </div>
         )}
 
-        {storeCartEnabled !== false && (
+        {/* About — single section */}
+        {aboutText && (
           <div className="mp-panel">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <h2 className="mp-section-title">מוצרים</h2>
-              <span className="text-sm text-gray-500">{products.length} מוצרים</span>
-            </div>
-            {products.length === 0 ? (
-              <p className="mp-section-note">
-                אין מוצרים זמינים לרכישה בחנות הקבועה כרגע. בדקו הזמנות שבועיות למטה.
-              </p>
-            ) : (
-              <div className="mp-store-products-grid">
-                {products.map((product) => (
-                  <MarketplaceStoreProductTile
-                    key={product.id}
-                    product={product}
-                    businessId={businessId}
-                    storeTitle={title}
-                  />
-                ))}
-              </div>
-            )}
+            <h2 className="mp-section-title mb-3">אודות הבסטה</h2>
+            <p className="mp-store-content-text whitespace-pre-wrap">{aboutText}</p>
           </div>
         )}
 
-        {storeCartEnabled === false && promotions.length === 0 && (
+        <StoreContentDisplay
+          store={store}
+          business={business}
+          showDeliverySection={false}
+          hideAbout={Boolean(aboutText)}
+        />
+
+        <MarketplaceFulfillmentSummary store={store} />
+
+        {Array.isArray(store.tags) && store.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {store.tags.map((tag) => (
+              <span key={tag} className="mp-tag">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {shopEnabled === false && promotions.length === 0 && (
           <div className="mp-panel">
             <p className="mp-section-note">
               הבסטה פעילה כרגע בהזמנות שבועיות בלבד. חזרו בקרוב או פנו לבעל העסק.
