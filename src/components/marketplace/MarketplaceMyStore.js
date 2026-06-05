@@ -6,10 +6,7 @@ import { storage } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import { pickupSpots } from '../../data/pickupSpots';
 import { MARKETPLACE_STORES_STORAGE_PREFIX } from '../../constants/marketplaceStores';
-import {
-  DEFAULT_MARKETPLACE_STORE_CONTENT,
-  mergeStoreContentSources,
-} from '../../constants/marketplaceStoreContent';
+import { DEFAULT_MARKETPLACE_STORE_CONTENT, normalizeStoreContent } from '../../constants/marketplaceStoreContent';
 import { DEFAULT_STORE_FULFILLMENT, storeFulfillmentToForm } from '../../constants/marketplaceFulfillment';
 import {
   DEFAULT_STORE_PAYMENT_LINKS,
@@ -91,15 +88,14 @@ const MarketplaceMyStore = () => {
         ]);
         setBusiness(profile);
         setGlobalSettings(settings);
-        const mergedContent = mergeStoreContentSources(store, profile);
         setForm({
           ...emptyForm,
-          ...mergedContent,
+          ...normalizeStoreContent(store),
           ...storeFulfillmentToForm(store),
           paymentLinks: normalizeStorePaymentLinks(store),
           title: store?.title || profile?.businessName || '',
-          shortDescription: store?.shortDescription || profile?.shortDescription || '',
-          storeDescription: mergedContent.storeDescription,
+          shortDescription: store?.shortDescription || '',
+          storeDescription: store?.storeDescription || '',
           coverImageUrl: store?.coverImageUrl || profile?.backgroundImageUrl || '',
           profileImageUrl: store?.profileImageUrl || profile?.profileImageUrl || '',
           phone: store?.phone || profile?.phone || '',

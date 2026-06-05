@@ -19,6 +19,13 @@ import { notifyMarketplaceCustomerCombinedCheckout } from '../../services/market
 import { summarizeEmailNotifications } from '../../utils/marketplaceEmailSummary';
 import { saveOrderConfirmationSession } from '../../utils/marketplaceOrderConfirmation';
 import {
+  normalizeCustomerPhone,
+  validateCheckoutCustomer,
+  validateCustomerEmail,
+  validateCustomerName,
+  validateCustomerPhone,
+} from '../../utils/marketplaceCustomerValidation';
+import {
   loadCheckoutCustomerProfile,
   resolveMarketplaceOrderAccount,
 } from '../../services/marketplaceUserService';
@@ -55,7 +62,32 @@ const MarketplaceCheckout = () => {
     community: selectedPickupSpot || '',
   });
   const [profileLoading, setProfileLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({ name: '', phone: '', email: '' });
+  const [touchedFields, setTouchedFields] = useState({ name: false, phone: false, email: false });
   const profilePrefilledRef = useRef(false);
+
+  const validateField = (field, value) => {
+    let result = { valid: true, message: '' };
+    if (field === 'name') result = validateCustomerName(value);
+    if (field === 'phone') result = validateCustomerPhone(value);
+    if (field === 'email') result = validateCustomerEmail(value);
+    setFieldErrors((current) => ({ ...current, [field]: result.message }));
+    return result.valid;
+  };
+
+  const handleCustomerFieldChange = (field, value) => {
+    setCustomer((current) => ({ ...current, [field]: value }));
+    if (touchedFields[field]) {
+      validateField(field, value);
+    } else if (fieldErrors[field]) {
+      setFieldErrors((current) => ({ ...current, [field]: '' }));
+    }
+  };
+
+  const handleCustomerFieldBlur = (field, value) => {
+    setTouchedFields((current) => ({ ...current, [field]: true }));
+    validateField(field, value);
+  };
 
   useEffect(() => {
     const loadStores = async () => {
@@ -190,8 +222,25 @@ const MarketplaceCheckout = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    if (!customer.name.trim() || !customer.phone.trim()) {
-      Swal.fire({ icon: 'warning', title: 'חסרים פרטי קשר', text: 'שם וטלפון הם שדות חובה.' });
+    const emailForOrder = (customer.email || currentUser?.email || '').trim();
+    const customerValidation = validateCheckoutCustomer({
+      name: customer.name,
+      phone: customer.phone,
+      email: emailForOrder,
+    });
+
+    if (!customerValidation.valid) {
+      setFieldErrors(customerValidation.errors);
+      setTouchedFields({ name: true, phone: true, email: true });
+      const firstError =
+        customerValidation.errors.name ||
+        customerValidation.errors.phone ||
+        customerValidation.errors.email;
+      Swal.fire({
+        icon: 'warning',
+        title: 'פרטי קשר לא תקינים',
+        text: firstError,
+      });
       return;
     }
 
@@ -200,15 +249,12 @@ const MarketplaceCheckout = () => {
       return;
     }
 
-    const emailForOrder = (customer.email || currentUser?.email || '').trim();
-    if (!emailForOrder) {
-      Swal.fire({
-        icon: 'warning',
-        title: 'נדרש אימייל',
-        text: 'הזינו אימייל לשיוך ההזמנה לחשבון.',
-      });
-      return;
-    }
+    const normalizedPhone = normalizeCustomerPhone(customer.phone);
+    const customerForOrder = {
+      ...customer,
+      phone: normalizedPhone,
+      email: emailForOrder,
+    };
 
     if (!userLoggedIn && !wantsCreateAccount) {
       Swal.fire({
@@ -255,7 +301,7 @@ const MarketplaceCheckout = () => {
       try {
         orderAccount = await resolveMarketplaceOrderAccount({
           currentUser: userLoggedIn ? currentUser : null,
-          customer,
+          customer: customerForOrder,
           createAccount: wantsCreateAccount,
           password: signupPassword,
           source: 'marketplace_cart_checkout',
@@ -283,7 +329,7 @@ const MarketplaceCheckout = () => {
             storeTitle: group.storeTitle,
             lines: group.items,
             customer: {
-              ...customer,
+              ...customerForOrder,
               email: orderAccount.email,
               userId: orderAccount.userId,
               fulfillmentMethod: fulfillmentChoice.method,
@@ -306,7 +352,7 @@ const MarketplaceCheckout = () => {
       if (sendCombinedCustomerEmail && createdOrders.length > 0) {
         combinedCustomerNotification = await notifyMarketplaceCustomerCombinedCheckout({
           orders: createdOrders,
-          customer: { ...customer, email: orderAccount.email },
+          customer: { ...customerForOrder, email: orderAccount.email },
           paymentMethod,
         });
       }
@@ -344,7 +390,7 @@ const MarketplaceCheckout = () => {
           notifications: order.notifications,
         })),
         paymentMethod,
-        customer,
+        customer: customerForOrder,
         emailSummary,
       };
       saveOrderConfirmationSession(confirmationPayload);
@@ -492,33 +538,52 @@ const MarketplaceCheckout = () => {
             {profileLoading && userLoggedIn && (
               <p className="mp-section-note text-sm">טוען פרטים מהחשבון...</p>
             )}
-            <input
-              type="text"
-              className="mp-input"
-              placeholder="שם מלא *"
-              value={customer.name}
-              onChange={(e) => setCustomer((c) => ({ ...c, name: e.target.value }))}
-              autoComplete="name"
-              required
-            />
-            <input
-              type="tel"
-              className="mp-input"
-              placeholder="טלפון *"
-              value={customer.phone}
-              onChange={(e) => setCustomer((c) => ({ ...c, phone: e.target.value }))}
-              autoComplete="tel"
-              required
-            />
-            <input
-              type="email"
-              className="mp-input"
-              placeholder="אימייל *"
-              value={customer.email}
-              onChange={(e) => setCustomer((c) => ({ ...c, email: e.target.value }))}
-              required
-              autoComplete="email"
-            />
+            <label className="mp-form-label">
+              שם מלא *
+              <input
+                type="text"
+                className={`mp-input mt-1${fieldErrors.name ? ' has-error' : ''}`}
+                placeholder="שם מלא"
+                value={customer.name}
+                onChange={(e) => handleCustomerFieldChange('name', e.target.value)}
+                onBlur={(e) => handleCustomerFieldBlur('name', e.target.value)}
+                autoComplete="name"
+                required
+                aria-invalid={Boolean(fieldErrors.name)}
+              />
+              {fieldErrors.name && <p className="mp-form-error mt-1">{fieldErrors.name}</p>}
+            </label>
+            <label className="mp-form-label">
+              טלפון *
+              <input
+                type="tel"
+                className={`mp-input mt-1${fieldErrors.phone ? ' has-error' : ''}`}
+                placeholder="05X-XXXXXXX"
+                value={customer.phone}
+                onChange={(e) => handleCustomerFieldChange('phone', e.target.value)}
+                onBlur={(e) => handleCustomerFieldBlur('phone', e.target.value)}
+                autoComplete="tel"
+                inputMode="tel"
+                required
+                aria-invalid={Boolean(fieldErrors.phone)}
+              />
+              {fieldErrors.phone && <p className="mp-form-error mt-1">{fieldErrors.phone}</p>}
+            </label>
+            <label className="mp-form-label">
+              אימייל *
+              <input
+                type="email"
+                className={`mp-input mt-1${fieldErrors.email ? ' has-error' : ''}`}
+                placeholder="name@example.com"
+                value={customer.email}
+                onChange={(e) => handleCustomerFieldChange('email', e.target.value)}
+                onBlur={(e) => handleCustomerFieldBlur('email', e.target.value)}
+                required
+                autoComplete="email"
+                aria-invalid={Boolean(fieldErrors.email)}
+              />
+              {fieldErrors.email && <p className="mp-form-error mt-1">{fieldErrors.email}</p>}
+            </label>
 
             <MarketplaceCheckoutAccount
               userLoggedIn={userLoggedIn}

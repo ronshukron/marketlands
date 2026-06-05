@@ -66,7 +66,7 @@ const MarketplaceStoreShop = () => {
     return (
       <div className="mp-page py-12" dir="rtl">
         <div className="mp-main mp-market-empty">
-          <h3 className="mp-market-empty-title">הדוכן לא נמצא</h3>
+          <h3 className="mp-market-empty-title">הבסטה לא נמצאה</h3>
           <Link to="/community-marketplace" className="mp-btn mp-btn-wood mp-mt-4">
             חזרה לשוק הבסטות
           </Link>
@@ -81,7 +81,7 @@ const MarketplaceStoreShop = () => {
     return (
       <div className="mp-page py-12" dir="rtl">
         <div className="mp-main mp-market-empty">
-          <h3 className="mp-market-empty-title">הדוכן עדיין לא פורסם</h3>
+          <h3 className="mp-market-empty-title">הבסטה עדיין לא פורסמה</h3>
           <Link to="/community-marketplace" className="mp-btn mp-btn-wood mp-mt-4">
             חזרה לשוק הבסטות
           </Link>
@@ -90,7 +90,7 @@ const MarketplaceStoreShop = () => {
     );
   }
 
-  const title = store.title || store.businessName || business?.businessName || 'דוכן';
+  const title = store.title || store.businessName || business?.businessName || 'בסטה';
   const shopEnabled = storeCartEnabled !== false;
   const showStickyBar = shopEnabled && products.length > 0;
 
@@ -99,11 +99,11 @@ const MarketplaceStoreShop = () => {
       <div className="mp-main mp-stack">
         <header className="mp-panel mp-shop-header">
           <Link to={`/community-marketplace/store/${businessId}`} className="mp-shop-back">
-            ← חזרה לדף הדוכן
+            ← חזרה לדף הבסטה
           </Link>
           <div className="mp-shop-header-row">
             <div>
-              <p className="mp-section-kicker">חנות הדוכן</p>
+              <p className="mp-section-kicker">חנות הבסטה</p>
               <h1 className="mp-section-title mp-section-title-chalk">מוצרים — {title}</h1>
               <p className="mp-section-note text-sm mt-1">
                 תוויות מחיר מהשדה — הוסיפו לסל השוק ועברו לקופה
@@ -116,17 +116,17 @@ const MarketplaceStoreShop = () => {
         {!shopEnabled ? (
           <div className="mp-panel mp-market-empty">
             <p className="mp-market-empty-text">
-              החנות הקבועה כבויה כרגע. חזרו לדף הדוכן להזמנות שבועיות.
+              החנות הקבועה כבויה כרגע. חזרו לדף הבסטה להזמנות שבועיות.
             </p>
             <Link to={`/community-marketplace/store/${businessId}`} className="mp-btn mp-btn-wood mt-4">
-              דף הדוכן
+              דף הבסטה
             </Link>
           </div>
         ) : products.length === 0 ? (
           <div className="mp-panel mp-market-empty">
             <p className="mp-market-empty-text">אין מוצרים זמינים לרכישה כרגע.</p>
             <Link to={`/community-marketplace/store/${businessId}`} className="mp-btn mp-btn-wood mt-4">
-              דף הדוכן
+              דף הבסטה
             </Link>
           </div>
         ) : (
@@ -152,10 +152,17 @@ const MarketplaceStoreShop = () => {
               onClick={openMarketCart}
               aria-label="פתיחת סל השוק"
             >
-              <span className="mp-shop-sticky-label">סל השוק</span>
+              <div className="mp-shop-sticky-summary-top">
+                <span className="mp-shop-sticky-label">סל השוק</span>
+                {storeItemCount > 0 && (
+                  <span className="mp-shop-sticky-badge" aria-hidden="true">
+                    {storeItemCount}
+                  </span>
+                )}
+              </div>
               <span className="mp-shop-sticky-meta">
                 {storeItemCount > 0
-                  ? `${storeItemCount} פריטים מדוכן זה · ${formatCurrency(storeSubtotal)}`
+                  ? `${storeItemCount} פריטים מבסטה זו · ${formatCurrency(storeSubtotal)}`
                   : 'הוסיפו מוצרים לסל'}
               </span>
             </button>
@@ -165,7 +172,7 @@ const MarketplaceStoreShop = () => {
               onClick={handleStickyCheckout}
               disabled={totalItems === 0}
             >
-              {totalItems > 0 ? 'לתשלום בשוק' : 'הוסף לסל השוק'}
+              {totalItems > 0 ? 'לתשלום בשוק' : 'הוסיפו לסל'}
             </button>
           </div>
         </div>

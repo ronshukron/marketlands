@@ -13,10 +13,7 @@ import {
   toDate,
 } from '../../services/marketplaceService';
 import LoadingSpinner from '../LoadingSpinner';
-import {
-  DEFAULT_MARKETPLACE_STORE_CONTENT,
-  mergeStoreContentSources,
-} from '../../constants/marketplaceStoreContent';
+import { DEFAULT_MARKETPLACE_STORE_CONTENT, normalizeStoreContent } from '../../constants/marketplaceStoreContent';
 import {
   DEFAULT_PROMOTION_FULFILLMENT,
   DEFAULT_STORE_FULFILLMENT,
@@ -37,7 +34,6 @@ import './marketplace.css';
 const emptyStoreForm = {
   title: '',
   shortDescription: '',
-  storeDescription: '',
   coverImageUrl: '',
   tags: '',
   homeCommunity: '',
@@ -148,15 +144,13 @@ const SellerMarketplaceDashboard = () => {
       setApprovedProducts(data.approvedProducts);
       setPromotions(data.promotions);
       setOrders(data.orders);
-      const mergedContent = mergeStoreContentSources(data.store, data.business);
       setStoreForm({
         ...emptyStoreForm,
-        ...mergedContent,
+        ...normalizeStoreContent(data.store),
         ...storeFulfillmentToForm(data.store),
         paymentLinks: normalizeStorePaymentLinks(data.store),
         title: data.store?.title || data.business?.businessName || '',
         shortDescription: data.store?.shortDescription || '',
-        storeDescription: mergedContent.storeDescription,
         coverImageUrl: data.store?.coverImageUrl || '',
         tags: (data.store?.tags || []).join(', '),
         homeCommunity: data.store?.homeCommunity || data.business?.communityName || '',
