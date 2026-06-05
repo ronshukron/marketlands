@@ -38,6 +38,53 @@ const formatDateTime = (value) => {
   });
 };
 
+const CUSTOMER_TIMELINE_LABELS = [
+  { key: 'sent', label: 'נשלח' },
+  { key: 'confirmed', label: 'אושר' },
+  { key: 'ready', label: 'מוכן' },
+  { key: 'handoff', label: 'נאסף' },
+];
+
+const getCustomerOrderTimeline = (order) => {
+  const cancelled = order.fulfillmentStatus === 'cancelled';
+  const confirmed = ['confirmed', 'ready', 'completed'].includes(order.fulfillmentStatus);
+  const ready =
+    isMarketplaceOrderReady(order) || isMarketplaceOrderFulfilled(order);
+  const handoff =
+    isMarketplaceOrderHandoffDone(order) || isMarketplaceOrderFulfilled(order);
+
+  const completion = {
+    sent: Boolean(order.createdAt),
+    confirmed,
+    ready,
+    handoff,
+  };
+
+  if (cancelled) {
+    return CUSTOMER_TIMELINE_LABELS.map((step) => ({
+      ...step,
+      complete: step.key === 'sent',
+      isActive: false,
+      cancelled: true,
+    }));
+  }
+
+  const firstIncompleteIndex = CUSTOMER_TIMELINE_LABELS.findIndex(
+    (step) => !completion[step.key]
+  );
+  const activeIndex =
+    firstIncompleteIndex === -1
+      ? CUSTOMER_TIMELINE_LABELS.length - 1
+      : firstIncompleteIndex;
+
+  return CUSTOMER_TIMELINE_LABELS.map((step, index) => ({
+    ...step,
+    complete: completion[step.key],
+    isActive: !completion[step.key] && index === activeIndex,
+    cancelled: false,
+  }));
+};
+
 const MarketplaceOrderCard = ({
   order,
   view = 'customer',
@@ -61,6 +108,7 @@ const MarketplaceOrderCard = ({
   const isPaid = isMarketplaceOrderPaid(order);
   const handoffStatus = order.handoffStatus || MARKETPLACE_HANDOFF_STATUS.pending;
   const handoffDone = isMarketplaceOrderHandoffDone(order);
+  const isCustomer = view === 'customer';
   const canManage = view === 'business' && !isCancelled;
   const canMarkReady = canManage && canMarkMarketplaceOrderReady(order) && Boolean(onMarkReady);
   const canUnmarkReady = canManage && isReady && Boolean(onUnmarkReady);
@@ -71,6 +119,11 @@ const MarketplaceOrderCard = ({
   const canUnmarkHandoff = canManage && isCompleted && Boolean(onUnmarkHandoff);
   const handoffActionLabel = getMarketplaceHandoffActionLabel(order);
   const handoffUnmarkLabel = getMarketplaceHandoffUnmarkLabel(order);
+
+  const customerTimeline = useMemo(
+    () => (isCustomer ? getCustomerOrderTimeline(order) : []),
+    [isCustomer, order]
+  );
 
   const whatsappUrl = useMemo(() => {
     if (view !== 'business' || !isReady || isCompleted) {
@@ -108,45 +161,53 @@ const MarketplaceOrderCard = ({
 
   return (
     <article
-      className={`mp-order-card${isCompleted ? ' mp-order-card--completed' : ''}${
+      className={`mp-ticket mp-order-card${
+        isCustomer ? ' mp-ticket--customer' : ' mp-ticket--business'
+      }${isCompleted ? ' mp-order-card--completed' : ''}${
         isReady && !isCompleted ? ' mp-order-card--ready' : ''
       }${isCancelled ? ' mp-order-card--cancelled' : ''}`}
     >
-      {isCompleted && view === 'customer' && (
-        <div className="mp-order-card-completed-banner" role="status">
+      {isCustomer && isCompleted && (
+        <div className="mp-ticket-ribbon mp-ticket-ribbon--done" role="status">
           ההזמנה הושלמה
           {order.completedAt && (
-            <span className="mp-order-card-completed-date">
-              {' '}
-              · {formatDateTime(order.completedAt)}
-            </span>
+            <span className="mp-ticket-ribbon-date"> · {formatDateTime(order.completedAt)}</span>
           )}
         </div>
       )}
 
-      {isReady && !isCompleted && view === 'customer' && (
-        <div className="mp-order-card-ready-banner" role="status">
-          ההזמנה מוכנה לאיסוף / משלוח
+      {isCustomer && isReady && !isCompleted && (
+        <div className="mp-ticket-ribbon mp-ticket-ribbon--ready" role="status">
+          מוכנה לאיסוף / משלוח
           {order.readyAt && (
-            <span className="mp-order-card-completed-date">
-              {' '}
-              · {formatDateTime(order.readyAt)}
-            </span>
+            <span className="mp-ticket-ribbon-date"> · {formatDateTime(order.readyAt)}</span>
           )}
         </div>
       )}
+
+      {isCustomer && isCancelled && (
+        <div className="mp-ticket-ribbon mp-ticket-ribbon--cancelled" role="status">
+          ההזמנה בוטלה
+        </div>
+      )}
+
+      <div className="mp-ticket-notch mp-ticket-notch--start" aria-hidden="true" />
+      <div className="mp-ticket-notch mp-ticket-notch--end" aria-hidden="true" />
 
       <button
         type="button"
-        className="mp-order-card-head"
+        className="mp-ticket-head mp-order-card-head"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
         <div className="mp-order-card-head-main">
-          <h3 className="mp-order-card-title">
+          {isCustomer && (
+            <span className="mp-ticket-kicker">כרטיס הזמנה</span>
+          )}
+          <h3 className="mp-order-card-title mp-section-title-chalk">
             {view === 'business'
               ? order.customerName || 'לקוח'
-              : order.businessName || 'בסטה'}
+              : order.businessName || 'דוכן'}
           </h3>
           <p className="mp-order-card-meta">
             {formatDateTime(order.createdAt)}
@@ -157,11 +218,36 @@ const MarketplaceOrderCard = ({
         </div>
         <div className="mp-order-card-head-side">
           <span className="mp-order-card-total">{formatCurrency(total)}</span>
-          <span className="mp-order-card-chevron">{expanded ? '▲' : '▼'}</span>
+          <span className="mp-order-card-chevron" aria-hidden="true">
+            {expanded ? '▲' : '▼'}
+          </span>
         </div>
       </button>
 
-      <div className="mp-order-card-tags">
+      {isCustomer && customerTimeline.length > 0 && (
+        <div
+          className="mp-ticket-timeline"
+          role="list"
+          aria-label="מעקב הזמנה: נשלח, אושר, מוכן, נאסף"
+        >
+          {customerTimeline.map((step, index) => (
+            <div
+              key={step.key}
+              role="listitem"
+              className={`mp-ticket-timeline-step${
+                step.complete ? ' is-done' : ''
+              }${step.isActive ? ' is-active' : ''}${
+                step.cancelled ? ' is-cancelled' : ''
+              }${index === customerTimeline.length - 1 ? ' is-last' : ''}`}
+            >
+              <span className="mp-ticket-timeline-dot" aria-hidden="true" />
+              <span className="mp-ticket-timeline-label">{step.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mp-ticket-meta mp-order-card-tags">
         <span
           className={`mp-tag${isCompleted ? ' mp-tag-completed' : ''}${
             isReady && !isCompleted ? ' mp-tag-ready' : ''
@@ -174,9 +260,9 @@ const MarketplaceOrderCard = ({
         <span className={`mp-tag${isPaid ? ' mp-tag-paid' : ''}`}>
           {MARKETPLACE_PAYMENT_STATUS_LABELS[order.paymentStatus] ||
             order.paymentStatus ||
-            'תשלום ידני'}
+            'תשלום בשוק'}
         </span>
-        {isCompleted && (
+        {(isCompleted || handoffDone) && (
           <span className={`mp-tag${handoffDone ? ' mp-tag-handoff-done' : ''}`}>
             {MARKETPLACE_HANDOFF_STATUS_LABELS[handoffStatus] || handoffStatus}
           </span>
@@ -185,7 +271,7 @@ const MarketplaceOrderCard = ({
       </div>
 
       {view === 'business' && showBusinessActions && (
-        <div className="mp-order-card-actions">
+        <div className="mp-ticket-business-actions mp-order-card-actions">
           {(canMarkReady || canUnmarkReady) && (
             <div className="mp-order-card-step">
               <p className="mp-order-card-step-label">1. הזמנה מוכנה</p>
@@ -223,7 +309,9 @@ const MarketplaceOrderCard = ({
                       שליחת וואטסאפ ללקוח
                     </a>
                   ) : (
-                    <p className="mp-order-card-notice">אין מספר טלפון ללקוח — שלחו וואטסאפ ידנית</p>
+                    <p className="mp-order-card-notice">
+                      אין מספר טלפון ללקוח — שלחו וואטסאפ ידנית
+                    </p>
                   )}
                 </div>
               )}
@@ -302,7 +390,7 @@ const MarketplaceOrderCard = ({
       )}
 
       {expanded && (
-        <div className="mp-order-card-body">
+        <div className="mp-ticket-body mp-order-card-body">
           {view === 'business' && (
             <div className="mp-order-card-contact">
               <p>
@@ -326,15 +414,15 @@ const MarketplaceOrderCard = ({
             </div>
           )}
 
-          {view === 'customer' && order.businessId && (
-            <p className="text-sm mb-2">
+          {isCustomer && order.businessId && (
+            <p className="mp-ticket-store-link">
               <Link to={`/community-marketplace/store/${order.businessId}`} className="mp-link">
-                לדף הבסטה
+                לדוכן
               </Link>
             </p>
           )}
 
-          <ul className="mp-order-lines">
+          <ul className="mp-order-lines mp-ticket-lines">
             {lines.map((line) => (
               <li key={`${line.productId}-${line.name}`} className="mp-order-line">
                 {line.imageUrl && (
@@ -347,28 +435,29 @@ const MarketplaceOrderCard = ({
             ))}
           </ul>
 
-          <div className="mp-order-card-totals">
-            <div className="flex justify-between text-sm">
+          <div className="mp-order-card-totals mp-receipt-totals">
+            <div className="mp-receipt-totals-row">
               <span>מוצרים</span>
               <span>{formatCurrency(order.subtotal)}</span>
             </div>
             {deliveryFee > 0 && (
-              <div className="flex justify-between text-sm">
+              <div className="mp-receipt-totals-row">
                 <span>משלוח</span>
                 <span>{formatCurrency(deliveryFee)}</span>
               </div>
             )}
-            <div className="flex justify-between font-bold mt-1">
+            <div className="mp-receipt-totals-row is-total">
               <span>סה״כ</span>
               <span>{formatCurrency(total)}</span>
             </div>
             {order.paymentMethod && (
-              <p className="text-sm text-gray-600 mt-2">
-                תשלום: {PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod}
+              <p className="mp-ticket-payment-note">
+                תשלום בשוק:{' '}
+                {PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod}
               </p>
             )}
             {order.customerNotes && (
-              <p className="text-sm mt-2 whitespace-pre-wrap">
+              <p className="mp-ticket-notes">
                 <strong>הערות:</strong> {order.customerNotes}
               </p>
             )}

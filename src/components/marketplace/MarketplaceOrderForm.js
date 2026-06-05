@@ -24,14 +24,16 @@ import { notifyMarketplaceOrderForBusinessId } from '../../services/marketplaceO
 import { summarizeEmailNotifications } from '../../utils/marketplaceEmailSummary';
 import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceSubmittingOverlay from './MarketplaceSubmittingOverlay';
-import MarketplaceFulfillmentSummary from './MarketplaceFulfillmentSummary';
 import MarketplaceFulfillmentPicker from './MarketplaceFulfillmentPicker';
 import { saveOrderConfirmationSession } from '../../utils/marketplaceOrderConfirmation';
+import { getPromotionDeadlineChip } from '../../utils/marketplacePromotionDeadline';
+import { PAYMENT_CHIP_ICONS } from '../../utils/marketplacePaymentChips';
 import {
   clampCartQuantityToStock,
   getProductStockLimit,
   isMarketplaceProductInStock,
 } from '../../utils/marketplaceProductStock';
+import VolunteerPickupPlaceholder from './VolunteerPickupPlaceholder';
 import './marketplace.css';
 
 const formatCurrency = (value) =>
@@ -180,6 +182,9 @@ const MarketplaceOrderForm = () => {
   const subtotal = orderLines.reduce((sum, line) => sum + line.price * line.quantity, 0);
   const deliveryFee = getDeliveryFeeForMethod(fulfillment, fulfillmentMethod);
   const orderTotal = subtotal + deliveryFee;
+
+  const submitDisabled =
+    submitting || products.length === 0 || (!userLoggedIn && !wantsCreateAccount);
 
   const handleQuantityChange = (productId, value) => {
     const product = products.find((entry) => entry.id === productId);
@@ -353,127 +358,151 @@ const MarketplaceOrderForm = () => {
     );
   }
 
+  const deadlineChip = getPromotionDeadlineChip(promotion.endsAt);
+
   return (
-    <div className="mp-page py-8" dir="rtl">
-      {submitting && <MarketplaceSubmittingOverlay message="שולח את ההזמנה..." />}
-      <form onSubmit={handleSubmit} className="mp-main mp-order-layout">
-        <div className="mp-stack">
-          <div className="mp-order-panel">
-            <Link to="/community-marketplace" className="mp-link">
-              חזרה לשוק הבסטות
-            </Link>
-            <span className="mp-promo-label" style={{ display: 'inline-block', marginTop: '0.75rem' }}>
-              הזמנה מצטברת
-            </span>
-            <h1 className="mp-section-title" style={{ marginTop: '0.5rem' }}>
-              {promotion.title}
-            </h1>
-            <p className="mp-promo-business">{promotion.businessName}</p>
-            {promotion.description && (
-              <p className="mp-section-note" style={{ marginTop: '1rem' }}>
-                {promotion.description}
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2 mt-4">
-              {formatDate(promotion.startsAt) && (
-                <span className="mp-tag">נפתח {formatDate(promotion.startsAt)}</span>
-              )}
-              {formatDate(promotion.endsAt) && (
-                <span className="mp-tag">סגירה {formatDate(promotion.endsAt)}</span>
-              )}
-              {promotion.deliveryDate && (
-                <span className="mp-badge">משלוח מרוכז {promotion.deliveryDate}</span>
-              )}
-            </div>
-          </div>
-
-          <MarketplaceFulfillmentSummary store={store} promotion={promotion} />
-
-          <div className="mp-order-panel">
-            <h2 className="mp-section-title mb-4">בחירת מוצרים מהבסטה</h2>
-            {products.length === 0 ? (
-              <div className="mp-alert mp-alert-warn">
-                אין מוצרים מאושרים זמינים בהזמנה הזו כרגע.
+    <div className="mp-page mp-order-form-page" dir="rtl">
+      {submitting && <MarketplaceSubmittingOverlay message="שולח את ההזמנה לשוק..." />}
+      <form onSubmit={handleSubmit} className="mp-main">
+        <div className="mp-order-layout">
+          <div className="mp-stack">
+            <header className="mp-order-panel mp-order-panel-hero">
+              <Link to="/community-marketplace" className="mp-link">
+                ← חזרה לשוק הבסטות
+              </Link>
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <span className="mp-weekly-board-label">מהשדה השבוע</span>
+                {deadlineChip && !deadlineChip.past && (
+                  <span
+                    className={`mp-deadline-chip${deadlineChip.soon ? ' is-soon' : ''}`}
+                  >
+                    {deadlineChip.text}
+                  </span>
+                )}
               </div>
-            ) : (
-              <div className="mp-store-products-grid">
-                {products.map((product) => {
-                  const qty = Number(quantities[product.id] || 0);
-                  const inStock = isMarketplaceProductInStock(product);
-                  const stockLimit = getProductStockLimit(product);
-                  const atMaxStock = stockLimit !== null && qty >= stockLimit;
+              <h1 className="mp-section-title mp-section-title-chalk mt-2">
+                {promotion.title}
+              </h1>
+              <p className="mp-weekly-board-business">{promotion.businessName}</p>
+              {promotion.description && (
+                <p className="mp-section-note mt-3">{promotion.description}</p>
+              )}
+              <div className="flex flex-wrap gap-2 mt-4">
+                {formatDate(promotion.startsAt) && (
+                  <span className="mp-tag">נפתח {formatDate(promotion.startsAt)}</span>
+                )}
+                {formatDate(promotion.endsAt) && (
+                  <span className="mp-tag">סגירה {formatDate(promotion.endsAt)}</span>
+                )}
+                {promotion.deliveryDate && (
+                  <span className="mp-badge mp-crate-badge">
+                    משלוח מרוכז {promotion.deliveryDate}
+                  </span>
+                )}
+              </div>
+            </header>
 
-                  return (
-                    <div key={product.id} className="mp-store-product-tile mp-order-product-card">
-                      {product.images?.[0] ? (
-                        <img src={product.images[0]} alt={product.name} />
-                      ) : (
-                        <div className="mp-store-product-tile-placeholder">ללא תמונה</div>
-                      )}
-                      <div className="mp-store-product-tile-body">
-                        <h3>{product.name}</h3>
-                        {product.description && (
-                          <p
-                            className="text-xs line-clamp-2 mt-1"
-                            style={{ color: '#6b5a45', fontWeight: 400 }}
-                          >
-                            {product.description}
-                          </p>
+            <section
+              id="order-step-products"
+              className="mp-order-panel mp-order-panel-step"
+              data-step-label="שלב 1 · מוצרים"
+              aria-labelledby="order-products-title"
+            >
+              <h2 id="order-products-title" className="mp-section-title mp-section-title-chalk mb-4">
+                בחרו מהדוכן
+              </h2>
+              {products.length === 0 ? (
+                <div className="mp-alert mp-alert-warn">
+                  אין מוצרים מאושרים זמינים בהזמנה הזו כרגע.
+                </div>
+              ) : (
+                <ul className="mp-order-slip-list">
+                  {products.map((product) => {
+                    const qty = Number(quantities[product.id] || 0);
+                    const inStock = isMarketplaceProductInStock(product);
+                    const stockLimit = getProductStockLimit(product);
+                    const atMaxStock = stockLimit !== null && qty >= stockLimit;
+
+                    return (
+                      <li
+                        key={product.id}
+                        className={`mp-order-slip-line${qty > 0 ? ' is-selected' : ''}`}
+                      >
+                        {product.images?.[0] ? (
+                          <img
+                            src={product.images[0]}
+                            alt=""
+                            className="mp-order-slip-thumb"
+                          />
+                        ) : (
+                          <div className="mp-order-slip-thumb mp-order-slip-thumb-placeholder">
+                            —
+                          </div>
                         )}
-                        <p>{formatCurrency(product.price)}</p>
-                        {stockLimit !== null && (
-                          <p
-                            className="text-xs mt-1"
-                            style={{ color: inStock ? '#6b5a45' : '#b91c1c', fontWeight: 400 }}
-                          >
-                            {inStock ? `מלאי: ${stockLimit}` : 'אזל המלאי'}
-                          </p>
-                        )}
-                        <div className="mp-order-product-qty">
-                          <button
-                            type="button"
-                            className="mp-cart-qty-btn"
-                            onClick={() => handleQuantityChange(product.id, qty - 1)}
-                            disabled={qty <= 0}
-                            aria-label={`הפחתת כמות ${product.name}`}
-                            style={qty <= 0 ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                              <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-                            </svg>
-                          </button>
-                          <span className="mp-cart-qty" aria-live="polite">
-                            {qty}
-                          </span>
-                          <button
-                            type="button"
-                            className="mp-cart-qty-btn"
-                            onClick={() => handleQuantityChange(product.id, qty + 1)}
-                            disabled={!inStock || atMaxStock}
-                            aria-label={`הוספת כמות ${product.name}`}
-                            style={!inStock || atMaxStock ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                              <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                            </svg>
-                          </button>
+                        <div className="mp-order-slip-body">
+                          <div className="mp-order-slip-name">{product.name}</div>
+                          {product.description && (
+                            <p className="mp-order-slip-desc">{product.description}</p>
+                          )}
+                          <div className="mp-order-slip-meta">
+                            <span className="mp-order-slip-price">
+                              {formatCurrency(product.price)}
+                            </span>
+                            {stockLimit !== null && (
+                              <span
+                                className={`mp-order-slip-stock${
+                                  !inStock ? ' is-out' : ''
+                                }`}
+                              >
+                                {inStock ? `מלאי: ${stockLimit}` : 'אזל המלאי'}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                        <div className="mp-order-slip-qty">
+                          <span className="mp-order-slip-qty-label">כמות</span>
+                          <div className="mp-order-product-qty">
+                            <button
+                              type="button"
+                              className="mp-cart-qty-btn"
+                              onClick={() => handleQuantityChange(product.id, qty - 1)}
+                              disabled={qty <= 0}
+                              aria-label={`הפחתת כמות ${product.name}`}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                            <span className="mp-cart-qty" aria-live="polite">
+                              {qty}
+                            </span>
+                            <button
+                              type="button"
+                              className="mp-cart-qty-btn"
+                              onClick={() => handleQuantityChange(product.id, qty + 1)}
+                              disabled={!inStock || atMaxStock}
+                              aria-label={`הוספת כמות ${product.name}`}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
           </div>
-        </div>
 
-        <aside>
-          <div className="mp-order-panel">
-            <h2 className="mp-section-title mb-4">פרטי הזמנה</h2>
-            {profileLoading && (
-              <p className="mp-section-note text-sm mb-3">טוען את הפרטים מהחשבון שלכם...</p>
-            )}
-            <div className="space-y-3">
+          <aside className="mp-order-sidebar-panel">
+            <div className="mp-order-panel mp-stack">
+              <h2 className="mp-section-title mp-section-title-chalk">פרטי ההזמנה</h2>
+              {profileLoading && (
+                <p className="mp-section-note text-sm">טוען את הפרטים מהחשבון שלכם...</p>
+              )}
               <input
                 type="text"
                 value={customer.name}
@@ -510,12 +539,10 @@ const MarketplaceOrderForm = () => {
                 loginRedirectPath={`/community-marketplace/order/${promotionId}`}
               />
 
-              <div
-                style={{
-                  borderTop: '2px solid #e8dcc8',
-                  marginTop: '0.5rem',
-                  paddingTop: '1rem',
-                }}
+              <section
+                id="order-step-fulfillment"
+                className="mp-order-section-divider mp-order-panel-step"
+                data-step-label="שלב 2 · איסוף"
               >
                 <MarketplaceFulfillmentPicker
                   fulfillment={fulfillment}
@@ -527,69 +554,91 @@ const MarketplaceOrderForm = () => {
                   }
                   radioGroupName={`fulfillment-order-${promotionId}`}
                 />
-              </div>
+                <VolunteerPickupPlaceholder />
+              </section>
 
-              <select
-                value={paymentMethod}
-                onChange={(event) => setPaymentMethod(event.target.value)}
-                className="mp-select"
+              <section
+                id="order-step-payment"
+                className="mp-order-section-divider mp-order-panel-step"
+                data-step-label="שלב 3 · תשלום"
               >
-                {paymentMethods.map((method) => (
-                  <option key={method} value={method}>
-                    {PAYMENT_METHOD_LABELS[method] || method}
-                  </option>
-                ))}
-              </select>
-              <textarea
-                value={customer.notes}
-                onChange={(event) => setCustomer((current) => ({ ...current, notes: event.target.value }))}
-                placeholder="הערות לבסטה"
-                rows={3}
-                className="mp-textarea"
-              />
-            </div>
-
-            <div style={{ borderTop: '2px solid #e8dcc8', marginTop: '1.25rem', paddingTop: '1rem' }}>
-              <div className="flex justify-between text-sm" style={{ color: '#6b5a45' }}>
-                <span>סכום מוצרים</span>
-                <span>{formatCurrency(subtotal)}</span>
-              </div>
-              {deliveryFee > 0 && (
-                <div className="flex justify-between text-sm mt-1" style={{ color: '#6b5a45' }}>
-                  <span>דמי משלוח</span>
-                  <span>{formatCurrency(deliveryFee)}</span>
+                <div className="mp-checkout-payment-panel mp-payment-wood-panel">
+                  <h3 className="mp-payment-wood-title">תשלום בשוק</h3>
+                  <p className="mp-payment-wood-note">
+                    בחרו אמצעי תשלום — ישירות לדוכן, לא דרך האתר
+                  </p>
+                  <div
+                    className="mp-payment-chips mp-checkout-payment-chips"
+                    role="radiogroup"
+                    aria-label="אמצעי תשלום"
+                  >
+                    {paymentMethods.map((method) => (
+                      <label
+                        key={method}
+                        className={`mp-payment-chip mp-payment-chip-select${
+                          paymentMethod === method ? ' is-selected' : ''
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="orderPaymentMethod"
+                          value={method}
+                          checked={paymentMethod === method}
+                          onChange={() => setPaymentMethod(method)}
+                        />
+                        <span className="mp-payment-chip-icon" aria-hidden="true">
+                          {PAYMENT_CHIP_ICONS[method] || '•'}
+                        </span>
+                        {PAYMENT_METHOD_LABELS[method] || method}
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              )}
-              <div className="flex justify-between text-lg font-bold mt-2" style={{ color: '#3d2f1f' }}>
-                <span>סה"כ לתשלום ידני</span>
-                <span>{formatCurrency(orderTotal)}</span>
-              </div>
-              <p className="mp-section-note mt-2">
-                התשלום ישירות לבסטה לפי האמצעי שבחרתם. לאחר התשלום — הבסטה תעדכן אתכם כשההזמנה מוכנה.
-              </p>
-            </div>
+                <textarea
+                  value={customer.notes}
+                  onChange={(event) =>
+                    setCustomer((current) => ({ ...current, notes: event.target.value }))
+                  }
+                  placeholder="הערות לדוכן (אופציונלי)"
+                  rows={3}
+                  className="mp-textarea mt-3"
+                />
+              </section>
 
-            <button
-              type="submit"
-              disabled={
-                submitting ||
-                products.length === 0 ||
-                (!userLoggedIn && !wantsCreateAccount)
-              }
-              className="mp-btn mp-btn-wood w-full mt-5"
-              style={{
-                opacity:
-                  submitting ||
-                  products.length === 0 ||
-                  (!userLoggedIn && !wantsCreateAccount)
-                    ? 0.6
-                    : 1,
-              }}
-            >
-              {submitting ? 'שולח הזמנה...' : 'שליחת הזמנה'}
-            </button>
-          </div>
-        </aside>
+              <section
+                id="order-step-submit"
+                className="mp-order-totals-box mp-order-panel-step"
+                data-step-label="שלב 4 · שליחה"
+              >
+                <div className="mp-order-totals-row">
+                  <span>סכום מוצרים</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </div>
+                {deliveryFee > 0 && (
+                  <div className="mp-order-totals-row">
+                    <span>דמי משלוח</span>
+                    <span>{formatCurrency(deliveryFee)}</span>
+                  </div>
+                )}
+                <div className="mp-order-totals-row is-grand">
+                  <span>סה״כ לתשלום בשוק</span>
+                  <span>{formatCurrency(orderTotal)}</span>
+                </div>
+                <p className="mp-section-note mt-2 text-sm">
+                  התשלום ישירות לדוכן לפי האמצעי שבחרתם. לאחר התשלום — הדוכן יעדכן כשההזמנה
+                  מוכנה.
+                </p>
+                <button
+                  type="submit"
+                  disabled={submitDisabled}
+                  className="mp-btn mp-btn-wood w-full mt-4"
+                >
+                  {submitting ? 'שולח הזמנה...' : 'שליחת ההזמנה לשוק'}
+                </button>
+              </section>
+            </div>
+          </aside>
+        </div>
       </form>
     </div>
   );

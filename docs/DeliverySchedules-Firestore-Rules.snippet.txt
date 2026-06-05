@@ -1,0 +1,21 @@
+// Paste into Firebase Console → Firestore → Rules
+// (before the final catch-all deny rule)
+//
+// Required for /admin/delivery-schedules saves and for store checkout
+// to read community delivery dates.
+
+    match /deliverySchedules/{communityName} {
+      // Checkout and category store read schedules without admin login
+      allow read: if true;
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+// Ensure your project already defines isAdmin(), for example:
+//
+//   function isAdmin() {
+//     return isAuthenticated() && (
+//       request.auth.uid == 'rfHOLhNoJOW8ByNypCtm3hlSNKs2'
+//       || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+//     );
+//   }

@@ -58,6 +58,7 @@ import {
   writeDraftStore,
   writeStaticScopeData,
 } from './v7/offlineSyncV7';
+import { readCommunityOrder, saveCommunityOrder } from './v7/localStorageSafeV7';
 import { getWeekKey, toLocalDateKey } from '../../../utils/deliveryScheduleUtils';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -209,6 +210,11 @@ const TR = {
     syncBlockedByPending: 'יש שינויים מקומיים שממתינים לסנכרון או נתקעו בקונפליקט.',
     offlineEditOnlineOnly: 'הפעולה הזו זמינה רק אונליין.',
     conflictTitle: 'קונפליקטים אחרונים',
+    conflictHelp: 'נוצר כשהענן השתנה בזמן שהשקילה נשמרה מקומית. בחרו איזה ערך לשמור.',
+    conflictSameValues: 'המשקל זהה — אפשר לנקות את ההתראה.',
+    acceptCloud: 'קבל ערך בענן',
+    keepLocal: 'שמור מקומי לענן',
+    dismissConflict: 'נקה התראה',
     localAttempt: 'ניסיון מקומי',
     cloudValue: 'ערך בענן',
     conflictLine: 'שורה',
@@ -322,6 +328,11 @@ const TR = {
     syncBlockedByPending: 'ยังมีการเปลี่ยนแปลงในเครื่องที่รอซิงก์หรือมีความขัดแย้ง',
     offlineEditOnlineOnly: 'การกระทำนี้ใช้งานได้เฉพาะตอนออนไลน์',
     conflictTitle: 'ความขัดแย้งล่าสุด',
+    conflictHelp: 'เกิดเมื่อคลาวด์เปลี่ยนระหว่างบันทึกในเครื่อง เลือกค่าที่ต้องการเก็บ',
+    conflictSameValues: 'น้ำหนักเท่ากัน — ล้างการแจ้งเตือนได้',
+    acceptCloud: 'ใช้ค่าคลาวด์',
+    keepLocal: 'บันทึกค่าในเครื่องขึ้นคลาวด์',
+    dismissConflict: 'ล้างการแจ้งเตือน',
     localAttempt: 'ค่าที่พยายามบันทึก',
     cloudValue: 'ค่าในคลาวด์',
     conflictLine: 'บรรทัด',
@@ -523,8 +534,66 @@ function normalizeWeightSnapshot(entry) {
   };
 }
 
+const WEIGHT_COMPARE_EPSILON = 0.0005;
+
+function extractWeightSnapshot(snapshot) {
+  if (!snapshot) return null;
+  if (Object.prototype.hasOwnProperty.call(snapshot, 'weight')) {
+    return normalizeWeightSnapshot(snapshot.weight);
+  }
+  return normalizeWeightSnapshot(snapshot);
+}
+
+function areWeightSnapshotsEqual(a, b) {
+  const left = extractWeightSnapshot(a);
+  const right = extractWeightSnapshot(b);
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  if (left.actualQuantity == null && right.actualQuantity == null) return true;
+  if (left.actualQuantity == null || right.actualQuantity == null) return false;
+  return Math.abs(left.actualQuantity - right.actualQuantity) <= WEIGHT_COMPARE_EPSILON;
+}
+
 function areOpSnapshotsEqual(a, b) {
+  if (areWeightSnapshotsEqual(a, b)) return true;
+  if (Object.prototype.hasOwnProperty.call(a || {}, 'removed') || Object.prototype.hasOwnProperty.call(b || {}, 'removed')) {
+    return Boolean(a?.removed) === Boolean(b?.removed);
+  }
+  if (Object.prototype.hasOwnProperty.call(a || {}, 'status') || Object.prototype.hasOwnProperty.call(b || {}, 'status')) {
+    return String(a?.status || '') === String(b?.status || '');
+  }
   return JSON.stringify(a || null) === JSON.stringify(b || null);
+}
+
+function conflictLocalSnapshot(conflict) {
+  if (!conflict) return null;
+  if (conflict.type === 'setWeight' || conflict.type === 'clearWeight') {
+    return { weight: normalizeWeightSnapshot(conflict.localValue) };
+  }
+  if (conflict.type === 'removeLine') return { removed: true };
+  if (conflict.type === 'restoreLine') return { removed: false };
+  return { status: conflict.localValue?.status || '' };
+}
+
+function applyCloudSnapshotToDraft(draft, conflict) {
+  const next = {
+    ...(draft || {}),
+    weightsByLineId: { ...((draft || {}).weightsByLineId || {}) },
+    removedLineIds: { ...((draft || {}).removedLineIds || {}) },
+  };
+  if (conflict.type === 'setWeight' || conflict.type === 'clearWeight') {
+    const cloudWeight = conflict.cloudValue?.weight;
+    next.weightsByLineId[conflict.lineId] = cloudWeight?.actualQuantity != null
+      ? cloudWeight
+      : { actualQuantity: null, source: cloudWeight?.source || 'manual' };
+  } else if (conflict.type === 'removeLine') {
+    next.removedLineIds[conflict.lineId] = true;
+  } else if (conflict.type === 'restoreLine') {
+    delete next.removedLineIds[conflict.lineId];
+  } else if (conflict.type === 'setStatus') {
+    next.status = conflict.cloudValue?.status || next.status || '';
+  }
+  return next;
 }
 
 function isDelayedOrderSettledData(data = {}) {
@@ -748,9 +817,7 @@ export default function DeliveryManagementV7() {
   const autoWeighActiveRef = useRef(false);
   const [communityFilter, setCommunityFilter] = useState('__all__');
   const [showCompleted, setShowCompleted] = useState(false);
-  const [communityOrder, setCommunityOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(COMMUNITY_ORDER_KEY) || '[]'); } catch { return []; }
-  });
+  const [communityOrder, setCommunityOrder] = useState(() => readCommunityOrder(COMMUNITY_ORDER_KEY));
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const showToast = useCallback((msg, dur = 2500) => {
@@ -1496,6 +1563,98 @@ export default function DeliveryManagementV7() {
     selectedOrder ? syncConflicts.filter((conflict) => conflict.orderId === selectedOrder.id) : []
   ), [selectedOrder, syncConflicts]);
 
+  const persistConflictResolution = useCallback((nextConflicts, orderId, alignedDraft) => {
+    const nextRemote = { ...remoteDraftsByOrder, [orderId]: alignedDraft };
+    const nextLocal = { ...localDraftsByOrder, [orderId]: alignedDraft };
+    setSyncConflicts(nextConflicts);
+    setRemoteDraftsByOrder(nextRemote);
+    setLocalDraftsByOrder(nextLocal);
+    if (currentScopeKey) {
+      writeDraftScopeData(currentScopeKey, {
+        remoteDraftsByOrder: nextRemote,
+        workingDraftsByOrder: nextLocal,
+        pendingOps,
+        conflicts: nextConflicts,
+      });
+    }
+  }, [currentScopeKey, localDraftsByOrder, pendingOps, remoteDraftsByOrder]);
+
+  const resolveConflictAcceptCloud = useCallback(async (conflict) => {
+    if (!conflict?.orderId) return;
+    const baseDraft = remoteDraftsByOrder[conflict.orderId]
+      || localDraftsByOrder[conflict.orderId]
+      || {};
+    const alignedDraft = applyCloudSnapshotToDraft(baseDraft, conflict);
+    const nextConflicts = syncConflicts.filter((entry) => entry.id !== conflict.id);
+    persistConflictResolution(nextConflicts, conflict.orderId, alignedDraft);
+    showToast(tRef.current.syncDone);
+  }, [localDraftsByOrder, persistConflictResolution, remoteDraftsByOrder, showToast, syncConflicts]);
+
+  const resolveConflictKeepLocal = useCallback(async (conflict) => {
+    if (!conflict?.orderId || !selectedWeek) return;
+    if (!isOnline) {
+      showToast(tRef.current.offlineEditOnlineOnly);
+      return;
+    }
+    try {
+      if (conflict.type === 'setWeight') {
+        await setDraftLineWeightV7({
+          weekKey: selectedWeek,
+          orderId: conflict.orderId,
+          lineId: conflict.lineId,
+          actualQuantity: conflict.localValue?.actualQuantity,
+          source: conflict.localValue?.source,
+          status: conflict.localValue?.status,
+          session,
+        });
+      } else if (conflict.type === 'clearWeight') {
+        await clearDraftLineWeightV7({
+          weekKey: selectedWeek,
+          orderId: conflict.orderId,
+          lineId: conflict.lineId,
+          status: conflict.localValue?.status,
+          session,
+        });
+      } else if (conflict.type === 'removeLine' || conflict.type === 'restoreLine') {
+        await setDraftLineRemovedV7({
+          weekKey: selectedWeek,
+          orderId: conflict.orderId,
+          lineId: conflict.lineId,
+          removed: conflict.type === 'removeLine',
+          session,
+        });
+      } else if (conflict.type === 'setStatus') {
+        await saveOrderDraftV7({
+          weekKey: selectedWeek,
+          orderId: conflict.orderId,
+          draftPatch: { status: conflict.localValue?.status || '' },
+          session,
+        });
+      }
+      const alignedDraft = applyOpToDraft(remoteDraftsByOrder[conflict.orderId] || {}, {
+        type: conflict.type,
+        orderId: conflict.orderId,
+        lineId: conflict.lineId,
+        value: conflict.localValue,
+      });
+      const nextConflicts = syncConflicts.filter((entry) => entry.id !== conflict.id);
+      persistConflictResolution(nextConflicts, conflict.orderId, alignedDraft);
+      showToast(tRef.current.syncDone);
+    } catch (error) {
+      console.error('Failed to resolve conflict with local value:', error);
+      showToast(tRef.current.syncBlockedByPending);
+    }
+  }, [
+    isOnline,
+    localDraftsByOrder,
+    persistConflictResolution,
+    remoteDraftsByOrder,
+    selectedWeek,
+    session,
+    showToast,
+    syncConflicts,
+  ]);
+
   const orderCommunities = useMemo(() => {
     const set = new Set();
     orders.forEach((o) => {
@@ -1521,9 +1680,9 @@ export default function DeliveryManagementV7() {
     const merged = [...saved, ...newOnes];
     if (JSON.stringify(merged) !== JSON.stringify(communityOrder)) {
       setCommunityOrder(merged);
-      localStorage.setItem(COMMUNITY_ORDER_KEY, JSON.stringify(merged));
+      saveCommunityOrder(COMMUNITY_ORDER_KEY, merged, currentScopeKey ? [currentScopeKey] : []);
     }
-  }, [orderCommunities, communityOrder]);
+  }, [orderCommunities, communityOrder, currentScopeKey]);
 
   const moveCommunity = useCallback((community, direction) => {
     setCommunityOrder((prev) => {
@@ -1533,10 +1692,10 @@ export default function DeliveryManagementV7() {
       const newIdx = idx + direction;
       if (newIdx < 0 || newIdx >= arr.length) return arr;
       [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
-      localStorage.setItem(COMMUNITY_ORDER_KEY, JSON.stringify(arr));
+      saveCommunityOrder(COMMUNITY_ORDER_KEY, arr, currentScopeKey ? [currentScopeKey] : []);
       return arr;
     });
-  }, []);
+  }, [currentScopeKey]);
 
   const filteredOrders = useMemo(() => {
     const rankMap = {};
@@ -2931,23 +3090,51 @@ export default function DeliveryManagementV7() {
 
                   {selectedOrderConflicts.length > 0 && (
                     <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
-                      <div className="font-bold text-sm text-red-800 mb-2">{t.conflictTitle}</div>
+                      <div className="font-bold text-sm text-red-800 mb-1">{t.conflictTitle}</div>
+                      <p className="text-xs text-red-700 mb-2">{t.conflictHelp}</p>
                       <div className="space-y-2">
                         {selectedOrderConflicts.map((conflict) => {
                           const item = items.find((entry) => entry.lineId === conflict.lineId);
                           const itemLabel = item ? itemDisplayName(item) : (conflict.lineId || t.conflictStatus);
-                          const localSnapshot = (conflict.type === 'setWeight' || conflict.type === 'clearWeight')
-                            ? { weight: normalizeWeightSnapshot(conflict.localValue) }
-                            : conflict.type === 'removeLine'
-                              ? { removed: true }
-                              : conflict.type === 'restoreLine'
-                                ? { removed: false }
-                                : { status: conflict.localValue?.status || '' };
+                          const localSnapshot = conflictLocalSnapshot(conflict);
+                          const valuesMatch = areOpSnapshotsEqual(localSnapshot, conflict.cloudValue);
                           return (
                             <div key={conflict.id} className="rounded-lg bg-white border border-red-100 p-2 text-xs text-red-900">
                               <div className="font-bold">{itemLabel}</div>
                               <div>{t.localAttempt}: {formatConflictValue(localSnapshot, t)}</div>
                               <div>{t.cloudValue}: {formatConflictValue(conflict.cloudValue, t)}</div>
+                              {valuesMatch && (
+                                <p className="mt-1 text-emerald-800 font-semibold">{t.conflictSameValues}</p>
+                              )}
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {valuesMatch ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => resolveConflictAcceptCloud(conflict)}
+                                    className="px-2.5 py-1.5 rounded-md bg-emerald-600 text-white font-bold hover:bg-emerald-700"
+                                  >
+                                    {t.dismissConflict}
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => resolveConflictAcceptCloud(conflict)}
+                                      className="px-2.5 py-1.5 rounded-md bg-white border border-red-300 text-red-900 font-bold hover:bg-red-50"
+                                    >
+                                      {t.acceptCloud}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => resolveConflictKeepLocal(conflict)}
+                                      disabled={!isOnline}
+                                      className="px-2.5 py-1.5 rounded-md bg-red-700 text-white font-bold hover:bg-red-800 disabled:bg-gray-400"
+                                    >
+                                      {t.keepLocal}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           );
                         })}

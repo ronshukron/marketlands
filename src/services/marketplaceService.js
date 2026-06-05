@@ -18,7 +18,8 @@ import { auth, db } from '../firebase/firebase';
 import { functionsEndpoint } from '../utils/functionsClient';
 import { getSellerAccountProfile } from '../utils/sellerAccount';
 import {
-  normalizeStoreContent,
+  cleanShortDescription,
+  extractStoreContentFields,
   normalizeWhatsappContacts,
 } from '../constants/marketplaceStoreContent';
 import {
@@ -263,10 +264,9 @@ export const saveMarketplaceStore = async ({ businessId, businessData = {}, stor
     businessKind: businessData.businessKind || storeData.businessKind || '',
     ownerEmail: businessData.email || storeData.ownerEmail || '',
     title: storeData.title || businessData.businessName || '',
-    shortDescription: storeData.shortDescription || '',
+    shortDescription: cleanShortDescription(storeData.shortDescription) || '',
     coverImageUrl: storeData.coverImageUrl || businessData.backgroundImageUrl || '',
     profileImageUrl: storeData.profileImageUrl || businessData.profileImageUrl || '',
-    storeDescription: storeData.storeDescription || '',
     phone: storeData.phone || businessData.phone || '',
     tags: normalizeList(storeData.tags),
     homeCommunity: storeData.homeCommunity || businessData.communityName || '',
@@ -277,7 +277,7 @@ export const saveMarketplaceStore = async ({ businessId, businessData = {}, stor
     manualPaymentMethods: normalizeList(storeData.manualPaymentMethods).length > 0
       ? normalizeList(storeData.manualPaymentMethods)
       : DEFAULT_MANUAL_PAYMENT_METHODS,
-    ...normalizeStoreContent(storeData),
+    ...extractStoreContentFields(storeData, { clean: true }),
     whatsappContacts: normalizeWhatsappContacts(storeData.whatsappContacts),
     paymentLinks: normalizeStorePaymentLinks(storeData),
     visible: storeData.visible !== false,

@@ -5,6 +5,7 @@ import {
   MARKETPLACE_REGISTER_PATH,
   marketplaceLoginLinkState,
 } from '../../utils/marketplaceRoutes';
+import './marketplace.css';
 
 const MarketplaceCheckoutAccount = ({
   userLoggedIn,
@@ -17,9 +18,9 @@ const MarketplaceCheckoutAccount = ({
 }) => {
   if (userLoggedIn) {
     return (
-      <div className="mp-panel mp-checkout-account-box">
-        <p className="text-sm font-semibold text-green-900">מחוברים כמשתמש</p>
-        <p className="text-sm text-gray-600 mt-1">
+      <div className="mp-checkout-account-ticket is-logged-in">
+        <p className="mp-checkout-account-title">מחוברים לשוק</p>
+        <p className="mp-section-note text-sm mt-1">
           ההזמנה תישויך לחשבון: <strong>{currentUserEmail}</strong>
         </p>
       </div>
@@ -27,10 +28,10 @@ const MarketplaceCheckoutAccount = ({
   }
 
   return (
-    <div className="mp-panel mp-checkout-account-box">
-      <h3 className="mp-section-title text-base">חשבון לשוק הבסטות</h3>
+    <div className="mp-checkout-account-ticket">
+      <h3 className="mp-checkout-account-title">חשבון בשוק הבסטות</h3>
       <p className="mp-section-note text-sm mt-1">
-        כדי לשלוח הזמנה יש ליצור חשבון בשוק (או להתחבר). ההזמנה תישויך לאימייל שתזינו.
+        כדי לשלוח הזמנה יש ליצור חשבון (או להתחבר). ההזמנה תישויך לאימייל שתזינו.
       </p>
 
       <label className="mp-checkout-confirm-label mt-3">
@@ -41,12 +42,12 @@ const MarketplaceCheckoutAccount = ({
           required
         />
         <span>
-          צרו לי חשבון בשוק הבסטות ושלחו את ההזמנה <span className="text-red-700">*</span>
+          צרו לי חשבון בשוק ושלחו את ההזמנה <span className="text-red-700">*</span>
         </span>
       </label>
 
       {!createAccount && (
-        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+        <p className="mp-checkout-account-warn">
           יש לסמן את האפשרות למעלה כדי להמשיך, או{' '}
           <Link
             to={MARKETPLACE_LOGIN_PATH}
@@ -72,14 +73,14 @@ const MarketplaceCheckoutAccount = ({
         />
       )}
 
-      <p className="text-sm mt-3">
-        כבר יש חשבון בשוק?{' '}
+      <p className="mp-auth-footer-text mt-3">
+        כבר יש חשבון?{' '}
         <Link
           to={MARKETPLACE_LOGIN_PATH}
           state={marketplaceLoginLinkState(loginRedirectPath)}
           className="mp-link font-semibold"
         >
-          התחברות לשוק הבסטות
+          התחברות לשוק
         </Link>
         {!createAccount && (
           <>

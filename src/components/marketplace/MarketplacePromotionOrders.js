@@ -14,10 +14,20 @@ import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceOrderCard from './MarketplaceOrderCard';
 import './marketplace.css';
 
+const ORDER_BOARD_COLUMNS = [
+  { id: 'new', label: 'חדשות' },
+  { id: 'confirmed', label: 'אושרו' },
+  { id: 'ready', label: 'מוכנות' },
+  { id: 'completed', label: 'הושלמו' },
+  { id: 'cancelled', label: 'בוטלו' },
+];
+
 const formatDate = (value) => {
   const date = toDate(value);
   return date ? date.toLocaleDateString('he-IL') : '—';
 };
+
+const getOrderBoardStatus = (order) => order.fulfillmentStatus || 'new';
 
 const MarketplacePromotionOrders = () => {
   const { promotionId } = useParams();
@@ -74,16 +84,33 @@ const MarketplacePromotionOrders = () => {
 
   const filteredOrders = orders.filter((order) => {
     if (filter === 'all') return true;
-    return order.fulfillmentStatus === filter;
+    return getOrderBoardStatus(order) === filter;
   });
 
   const isSeller = isMarketplaceSellerRole(userRole) || hasSellerProfile;
 
+  const renderOrderCard = (order) => (
+    <MarketplaceOrderCard
+      key={order.id}
+      order={order}
+      view="business"
+      onMarkReady={handleMarkReady}
+      onUnmarkReady={handleUnmarkReady}
+      onMarkPaid={handleMarkPaid}
+      onUnmarkPaid={handleUnmarkPaid}
+      onMarkHandoff={handleMarkHandoff}
+      onUnmarkHandoff={handleUnmarkHandoff}
+      statusUpdating={statusUpdatingOrderId === order.id}
+      readyNotice={readyNoticeByOrderId[order.id]}
+      handoffNotice={handoffNoticeByOrderId[order.id]}
+    />
+  );
+
   if (!userLoggedIn) {
     return (
-      <div className="mp-page py-12" dir="rtl">
-        <div className="mp-main mp-empty text-center">
-          <h1 className="mp-section-title mb-3">הזמנות קידום שבועי</h1>
+      <div className="mp-page mp-bench-page" dir="rtl">
+        <div className="mp-main mp-bench mp-empty text-center">
+          <h1 className="mp-section-title mp-section-title-chalk mb-3">הזמנות קידום שבועי</h1>
           <Link to="/login" className="mp-btn mp-btn-wood">
             התחברות
           </Link>
@@ -94,9 +121,9 @@ const MarketplacePromotionOrders = () => {
 
   if (!loading && !isSeller) {
     return (
-      <div className="mp-page py-12" dir="rtl">
-        <div className="mp-main mp-empty text-center">
-          <h1 className="mp-section-title mb-3">גישה לבעלי בסטה בלבד</h1>
+      <div className="mp-page mp-bench-page" dir="rtl">
+        <div className="mp-main mp-bench mp-empty text-center">
+          <h1 className="mp-section-title mp-section-title-chalk mb-3">גישה לבעלי דוכן בלבד</h1>
           <Link to="/community-marketplace" className="mp-btn mp-btn-wood mt-4">
             לשוק הבסטות
           </Link>
@@ -107,11 +134,11 @@ const MarketplacePromotionOrders = () => {
 
   if (!loading && !promotion) {
     return (
-      <div className="mp-page py-12" dir="rtl">
-        <div className="mp-main mp-empty text-center">
-          <h1 className="mp-section-title mb-3">הקידום לא נמצא</h1>
+      <div className="mp-page mp-bench-page" dir="rtl">
+        <div className="mp-main mp-bench mp-empty text-center">
+          <h1 className="mp-section-title mp-section-title-chalk mb-3">הקידום לא נמצא</h1>
           <Link to="/marketplace/dashboard" className="mp-link">
-            חזרה ללוח הבסטה
+            חזרה ללוח הדוכן
           </Link>
         </div>
       </div>
@@ -119,50 +146,48 @@ const MarketplacePromotionOrders = () => {
   }
 
   return (
-    <div className="mp-page py-8" dir="rtl">
-      <div className="mp-main mp-stack">
-        <div className="mp-panel">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-            <div>
-              <Link to="/marketplace/dashboard?section=promotions" className="mp-link">
-                ← ניהול קידומים
-              </Link>
-              <span className="mp-promo-label" style={{ display: 'inline-block', marginTop: '0.5rem' }}>
-                הזמנה מצטברת
-              </span>
-              <h1 className="mp-section-title mt-2">{promotion?.title}</h1>
-              <p className="mp-section-note mt-1">
-                {formatDate(promotion?.startsAt)} — {formatDate(promotion?.endsAt)}
-                {promotion?.deliveryDate && ` · משלוח ${promotion.deliveryDate}`}
-              </p>
-              <p className="text-sm mt-2" style={{ color: '#6b5a45' }}>
-                סטטוס:{' '}
-                <strong>
-                  {PROMOTION_STATUS_LABELS[promotion?.status] || promotion?.status || 'פעיל'}
-                </strong>
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                to={`/community-marketplace/order/${promotionId}`}
-                className="mp-btn mp-btn-primary text-sm"
-                target="_blank"
-                rel="noreferrer"
-              >
-                דף הזמנה ללקוחות
-              </Link>
-              <Link
-                to={`/marketplace/dashboard?section=promotions&edit=${promotionId}`}
-                className="mp-btn mp-btn-wood text-sm"
-              >
-                עריכת קידום
-              </Link>
-            </div>
+    <div className="mp-page mp-bench-page" dir="rtl">
+      <div className="mp-main mp-bench mp-stack">
+        <header className="mp-bench-header">
+          <div className="mp-bench-header-main">
+            <Link to="/marketplace/dashboard?section=promotions" className="mp-link">
+              ← השבוע בשוק
+            </Link>
+            <span className="mp-weekly-board-label mt-2">מהשדה השבוע</span>
+            <h1 className="mp-bench-title mp-section-title-chalk mt-1">{promotion?.title}</h1>
+            <p className="mp-bench-subtitle">
+              {formatDate(promotion?.startsAt)} — {formatDate(promotion?.endsAt)}
+              {promotion?.deliveryDate && ` · משלוח ${promotion.deliveryDate}`}
+            </p>
+            <p className="mp-bench-promo-status">
+              סטטוס קידום:{' '}
+              <strong>
+                {PROMOTION_STATUS_LABELS[promotion?.status] || promotion?.status || 'פעיל'}
+              </strong>
+            </p>
           </div>
-        </div>
+          <div className="mp-bench-header-actions">
+            <Link
+              to={`/community-marketplace/order/${promotionId}`}
+              className="mp-btn mp-btn-outline mp-bench-btn-sm"
+              target="_blank"
+              rel="noreferrer"
+            >
+              דף הזמנה ללקוחות
+            </Link>
+            <Link
+              to={`/marketplace/dashboard?section=promotions&edit=${promotionId}`}
+              className="mp-btn mp-btn-wood mp-bench-btn-sm"
+            >
+              עריכת קידום
+            </Link>
+          </div>
+        </header>
 
-        <div className="mp-panel">
-          <h2 className="mp-section-title mb-4">סיכום מצטבר לפי מוצר</h2>
+        <section className="mp-bench-panel">
+          <h2 className="mp-bench-panel-title mp-section-title-chalk mb-4">
+            סיכום מצטבר לפי מוצר
+          </h2>
           {summary.items.length === 0 ? (
             <p className="mp-section-note">עדיין אין הזמנות בקידום זה.</p>
           ) : (
@@ -194,38 +219,38 @@ const MarketplacePromotionOrders = () => {
                 </table>
               </div>
               <div className="mp-promotion-aggregate-totals">
-                <div className="flex justify-between text-sm">
+                <div className="mp-receipt-totals-row">
                   <span>מספר הזמנות</span>
                   <strong>{summary.orderCount}</strong>
                 </div>
-                <div className="flex justify-between text-sm mt-1">
+                <div className="mp-receipt-totals-row">
                   <span>סכום מוצרים</span>
                   <strong>{summary.formatCurrency(summary.subtotal)}</strong>
                 </div>
                 {summary.deliveryFees > 0 && (
-                  <div className="flex justify-between text-sm mt-1">
+                  <div className="mp-receipt-totals-row">
                     <span>דמי משלוח (מצטבר)</span>
                     <strong>{summary.formatCurrency(summary.deliveryFees)}</strong>
                   </div>
                 )}
-                <div className="flex justify-between text-lg font-bold mt-2 mp-promotion-aggregate-grand">
+                <div className="mp-receipt-totals-row is-total mp-promotion-aggregate-grand">
                   <span>סה״כ כולל</span>
                   <span>{summary.formatCurrency(summary.grandTotal)}</span>
                 </div>
               </div>
             </>
           )}
-        </div>
+        </section>
 
-        <div className="mp-panel">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <h2 className="mp-section-title">הזמנות לפי לקוח</h2>
+        <section className="mp-bench-panel">
+          <div className="mp-bench-panel-head">
+            <h2 className="mp-bench-panel-title mp-section-title-chalk">הזמנות לפי לקוח</h2>
             <span className="mp-badge">{orders.length} הזמנות</span>
           </div>
 
-          <div className="mp-order-filters">
+          <div className="mp-bench-tabs mp-order-board-filters mt-3" role="tablist" aria-label="סינון הזמנות">
             {[
-              { id: 'all', label: 'הכל' },
+              { id: 'all', label: 'לוח מלא' },
               { id: 'new', label: 'חדשות' },
               { id: 'ready', label: 'מוכנות' },
               { id: 'completed', label: 'הושלמו' },
@@ -233,7 +258,9 @@ const MarketplacePromotionOrders = () => {
               <button
                 key={item.id}
                 type="button"
-                className={`mp-toggle-btn ${filter === item.id ? 'is-active' : ''}`}
+                role="tab"
+                aria-selected={filter === item.id}
+                className={`mp-bench-tab${filter === item.id ? ' is-active' : ''}`}
                 onClick={() => setFilter(item.id)}
               >
                 {item.label}
@@ -255,27 +282,41 @@ const MarketplacePromotionOrders = () => {
             </p>
           )}
 
-          {!loading && filteredOrders.length > 0 && (
-            <div className="mp-order-list mt-4">
-              {filteredOrders.map((order) => (
-                <MarketplaceOrderCard
-                  key={order.id}
-                  order={order}
-                  view="business"
-                  onMarkReady={handleMarkReady}
-                  onUnmarkReady={handleUnmarkReady}
-                  onMarkPaid={handleMarkPaid}
-                  onUnmarkPaid={handleUnmarkPaid}
-                  onMarkHandoff={handleMarkHandoff}
-                  onUnmarkHandoff={handleUnmarkHandoff}
-                  statusUpdating={statusUpdatingOrderId === order.id}
-                  readyNotice={readyNoticeByOrderId[order.id]}
-                  handoffNotice={handoffNoticeByOrderId[order.id]}
-                />
-              ))}
+          {!loading && filter === 'all' && filteredOrders.length > 0 && (
+            <div className="mp-orders-board mt-4" role="region" aria-label="לוח הזמנות לפי סטטוס">
+              {ORDER_BOARD_COLUMNS.map((column) => {
+                const columnOrders = orders.filter(
+                  (order) => getOrderBoardStatus(order) === column.id
+                );
+                return (
+                  <section
+                    key={column.id}
+                    className={`mp-orders-board-column mp-orders-board-column--${column.id}`}
+                    aria-label={`${column.label}, ${columnOrders.length} הזמנות`}
+                  >
+                    <header className="mp-orders-board-column-head">
+                      <h3 className="mp-orders-board-column-title">{column.label}</h3>
+                      <span className="mp-orders-board-count">{columnOrders.length}</span>
+                    </header>
+                    <div className="mp-orders-board-cards">
+                      {columnOrders.length === 0 ? (
+                        <p className="mp-orders-board-empty">אין הזמנות</p>
+                      ) : (
+                        columnOrders.map((order) => renderOrderCard(order))
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           )}
-        </div>
+
+          {!loading && filter !== 'all' && filteredOrders.length > 0 && (
+            <div className="mp-order-list mp-orders-board-list mt-4">
+              {filteredOrders.map((order) => renderOrderCard(order))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

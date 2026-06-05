@@ -27,6 +27,7 @@ import MarketplaceFulfillmentPicker from './MarketplaceFulfillmentPicker';
 import { pickupSpots } from '../../data/pickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceSubmittingOverlay from './MarketplaceSubmittingOverlay';
+import { PAYMENT_CHIP_ICONS } from '../../utils/marketplacePaymentChips';
 import './marketplace.css';
 
 const formatCurrency = (value) =>
@@ -364,28 +365,35 @@ const MarketplaceCheckout = () => {
     );
   }
 
+  const submitDisabled =
+    submitting ||
+    !allConfirmed ||
+    !allFulfillmentValid ||
+    (!userLoggedIn && !wantsCreateAccount);
+
   return (
-    <div className="mp-page py-8" dir="rtl">
+    <div className="mp-page mp-checkout-page" dir="rtl">
       {submitting && (
         <MarketplaceSubmittingOverlay
           message={
             storeGroups.length > 1
-              ? `שולח ${storeGroups.length} הזמנות לבסטות...`
-              : 'שולח את ההזמנה...'
+              ? `שולח ${storeGroups.length} הזמנות לדוכנים...`
+              : 'שולח את ההזמנה לשוק...'
           }
         />
       )}
       <form onSubmit={handleSubmit} className="mp-main mp-checkout-layout">
         <div className="mp-stack">
-          <div className="mp-panel">
+          <header className="mp-panel mp-checkout-ticket-header">
             <Link to="/community-marketplace" className="mp-link">
               ← חזרה לשוק הבסטות
             </Link>
-            <h1 className="mp-section-title mt-3">אישור הזמנה</h1>
-            <p className="mp-section-note mt-1">
-              הסל מחולק לפי בסטה. לכל בסטה בחרו איסוף או משלוח, אשרו את המקטע, ואז שלחו.
+            <p className="mp-checkout-ticket-kicker mt-3">קופת השוק</p>
+            <h1 className="mp-section-title mp-section-title-chalk mt-1">קבלת הזמנה</h1>
+            <p className="mp-section-note mt-2">
+              הסל מחולק לפי דוכן. לכל דוכן — איסוף או משלוח, אישור, ואז שליחה.
             </p>
-          </div>
+          </header>
 
           {storeGroups.map((group) => {
             const store = storeMap[group.businessId];
@@ -395,11 +403,14 @@ const MarketplaceCheckout = () => {
             const groupTotal = group.total + groupDeliveryFee;
 
             return (
-              <section key={group.businessId} className="mp-panel mp-checkout-store-section">
+              <section
+                key={group.businessId}
+                className="mp-panel mp-checkout-ticket-stub mp-checkout-store-section"
+              >
                 <div className="mp-checkout-store-head">
                   <div>
-                    <h2 className="mp-section-title">{group.storeTitle || 'בסטה'}</h2>
-                    <p className="text-sm text-gray-600 mt-1">
+                    <h2 className="mp-section-title">{group.storeTitle || 'דוכן'}</h2>
+                    <p className="mp-checkout-store-meta">
                       {group.items.length} פריטים · מוצרים {formatCurrency(group.total)}
                       {groupDeliveryFee > 0 && (
                         <> · משלוח {formatCurrency(groupDeliveryFee)}</>
@@ -411,7 +422,7 @@ const MarketplaceCheckout = () => {
                     to={`/community-marketplace/store/${group.businessId}/shop`}
                     className="mp-link text-sm"
                   >
-                    לחנות הבסטה
+                    לדוכן
                   </Link>
                 </div>
 
@@ -419,15 +430,15 @@ const MarketplaceCheckout = () => {
                   {group.items.map((item) => (
                     <li key={item.uid} className="mp-checkout-line">
                       {item.images?.[0] ? (
-                        <img src={item.images[0]} alt={item.name} className="mp-checkout-line-img" />
+                        <img src={item.images[0]} alt="" className="mp-checkout-line-img" />
                       ) : (
                         <div className="mp-checkout-line-img mp-checkout-line-img-placeholder">
-                          ללא
+                          —
                         </div>
                       )}
                       <div className="mp-checkout-line-body">
-                        <span className="font-semibold">{item.name}</span>
-                        <span className="text-sm text-gray-600">
+                        <span className="mp-checkout-line-name">{item.name}</span>
+                        <span className="mp-checkout-line-qty">
                           {item.quantity} × {formatCurrency(item.price)}
                         </span>
                       </div>
@@ -448,16 +459,16 @@ const MarketplaceCheckout = () => {
                 />
 
                 <label className="mp-form-label mt-3">
-                  הערות לבסטה זו
+                  הערות לדוכן זה
                   <textarea
                     className="mp-input mt-1"
                     rows={2}
-                    placeholder={`הערות ל${group.storeTitle || 'בסטה'} (אופציונלי)`}
+                    placeholder={`הערות ל${group.storeTitle || 'דוכן'} (אופציונלי)`}
                     value={notesByStore[group.businessId] || ''}
                     onChange={(e) => setStoreNotes(group.businessId, e.target.value)}
                   />
-                  <span className="text-xs text-gray-500 mt-1 block">
-                    הערה זו תישלח רק ל{group.storeTitle || 'בסטה זו'}, לא לשאר הבסטות בסל.
+                  <span className="mp-section-note text-xs mt-1 block">
+                    הערה זו תישלח רק ל{group.storeTitle || 'דוכן זה'}, לא לשאר הדוכנים בסל.
                   </span>
                 </label>
 
@@ -467,18 +478,19 @@ const MarketplaceCheckout = () => {
                     checked={Boolean(confirmedStores[group.businessId])}
                     onChange={() => toggleConfirmStore(group.businessId)}
                   />
-                  אישרתי את ההזמנה מ{group.storeTitle || 'בסטה זו'}
+                  <span>אישרתי את ההזמנה מ{group.storeTitle || 'דוכן זה'}</span>
                 </label>
               </section>
             );
           })}
         </div>
 
-        <aside className="mp-checkout-sidebar">
-          <div className="mp-panel mp-stack">
-            <h2 className="mp-section-title">פרטי קשר</h2>
+        <aside className="mp-checkout-sidebar mp-checkout-receipt-sidebar">
+          <div className="mp-panel mp-stack mp-checkout-receipt-panel">
+            <p className="mp-checkout-ticket-kicker">קבלה</p>
+            <h2 className="mp-section-title mp-section-title-chalk">פרטי קשר</h2>
             {profileLoading && userLoggedIn && (
-              <p className="text-sm text-gray-500">טוען פרטים מהחשבון...</p>
+              <p className="mp-section-note text-sm">טוען פרטים מהחשבון...</p>
             )}
             <input
               type="text"
@@ -518,7 +530,7 @@ const MarketplaceCheckout = () => {
             />
 
             <label className="mp-form-label">
-              הקהילה שלי (משפיע על אפשרויות אספקה בכל בסטה)
+              הקהילה שלי (משפיע על אפשרויות אספקה בכל דוכן)
               <select
                 className="mp-select"
                 value={customer.community}
@@ -533,60 +545,62 @@ const MarketplaceCheckout = () => {
               </select>
             </label>
 
-            <h2 className="mp-section-title mt-2">אמצעי תשלום</h2>
-            <select
-              className="mp-select"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-            >
-              {DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => (
-                <option key={method} value={method}>
-                  {PAYMENT_METHOD_LABELS[method] || method}
-                </option>
-              ))}
-            </select>
+            <div className="mp-checkout-payment-panel mp-payment-wood-panel">
+              <h2 className="mp-payment-wood-title">תשלום בשוק</h2>
+              <p className="mp-payment-wood-note">
+                בחרו אמצעי תשלום — התשלום ישירות לכל דוכן, לא דרך האתר
+              </p>
+              <div className="mp-payment-chips mp-checkout-payment-chips" role="radiogroup" aria-label="אמצעי תשלום">
+                {DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => (
+                  <label
+                    key={method}
+                    className={`mp-payment-chip mp-payment-chip-select${
+                      paymentMethod === method ? ' is-selected' : ''
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="checkoutPaymentMethod"
+                      value={method}
+                      checked={paymentMethod === method}
+                      onChange={() => setPaymentMethod(method)}
+                    />
+                    <span className="mp-payment-chip-icon" aria-hidden="true">
+                      {PAYMENT_CHIP_ICONS[method] || '•'}
+                    </span>
+                    {PAYMENT_METHOD_LABELS[method] || method}
+                  </label>
+                ))}
+              </div>
+            </div>
 
             <div className="mp-checkout-total-box">
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="mp-checkout-total-row">
                 <span>סכום מוצרים</span>
                 <span>{formatCurrency(checkoutTotals.productsTotal)}</span>
               </div>
               {checkoutTotals.deliveryFeesTotal > 0 && (
-                <div className="flex justify-between text-sm text-gray-600 mt-1">
+                <div className="mp-checkout-total-row">
                   <span>דמי משלוח</span>
                   <span>{formatCurrency(checkoutTotals.deliveryFeesTotal)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-lg font-bold mt-2">
-                <span>סה״כ ({storeGroups.length} בסטות)</span>
+              <div className="mp-checkout-total-row is-grand">
+                <span>סה״כ ({storeGroups.length} דוכנים)</span>
                 <span>{formatCurrency(checkoutTotals.grandTotal)}</span>
               </div>
               <p className="mp-section-note mt-2 text-sm">
-                ייווצרו {storeGroups.length} הזמנות נפרדות — אחת לכל בסטה. התשלום ישירות לכל בסטה, לא
-                דרך האתר.
+                ייווצרו {storeGroups.length} הזמנות נפרדות — אחת לכל דוכן. תשלום בשוק ישירות לבעל
+                כל דוכן.
               </p>
             </div>
 
             <button
               type="submit"
               className="mp-btn mp-btn-wood w-full"
-              disabled={
-                submitting ||
-                !allConfirmed ||
-                !allFulfillmentValid ||
-                (!userLoggedIn && !wantsCreateAccount)
-              }
-              style={{
-                opacity:
-                  submitting ||
-                  !allConfirmed ||
-                  !allFulfillmentValid ||
-                  (!userLoggedIn && !wantsCreateAccount)
-                    ? 0.6
-                    : 1,
-              }}
+              disabled={submitDisabled}
             >
-              {submitting ? 'שולח הזמנות...' : 'אישור ושליחה'}
+              {submitting ? 'שולח הזמנות...' : 'אישור ושליחה לשוק'}
             </button>
           </div>
         </aside>

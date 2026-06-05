@@ -156,10 +156,12 @@ const MarketplacePromotionsManager = ({
   };
 
   return (
-    <div className="mp-stack">
+    <div className="mp-bench-content mp-stack">
       {editingId && editForm ? (
-        <div className="mp-panel">
-          <h2 className="mp-section-title mb-4">עריכת קידום שבועי</h2>
+        <div className="mp-bench-panel">
+          <h2 className="mp-bench-panel-title mp-section-title-chalk mb-4">
+            עריכת הזמנה שבועית
+          </h2>
           <MarketplacePromotionEditor
             form={editForm}
             onChange={setEditForm}
@@ -176,18 +178,28 @@ const MarketplacePromotionsManager = ({
         </div>
       ) : null}
 
-      <div className="mp-panel">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <h2 className="mp-section-title">קידומים שבועיים</h2>
-          <Link to="/marketplace/promotions/new" className="mp-btn mp-btn-wood text-sm">
-            קידום חדש
+      <div className="mp-bench-panel">
+        <div className="mp-bench-panel-head">
+          <div>
+            <h2 className="mp-bench-panel-title mp-section-title-chalk">השבוע בשוק</h2>
+            <p className="mp-section-note text-sm mt-1">
+              קידומים שבועיים שמוצגים ללקוחות בשוק
+            </p>
+          </div>
+          <Link to="/marketplace/promotions/new" className="mp-btn mp-btn-wood mp-bench-btn-sm">
+            פתיחת הזמנה שבועית
           </Link>
         </div>
 
         {promotions.length === 0 ? (
-          <p className="mp-section-note">עדיין לא נוצרו קידומים. לחצו על &quot;קידום חדש&quot;.</p>
+          <div className="mp-bench-empty">
+            <p className="mp-section-note">עדיין לא נוצרו קידומים.</p>
+            <Link to="/marketplace/promotions/new" className="mp-btn mp-btn-wood mt-3">
+              פתיחת קידום ראשון
+            </Link>
+          </div>
         ) : (
-          <div className="mp-promotions-list">
+          <ul className="mp-bench-promo-list">
             {promotions.map((promotion) => {
               const isActive = promotion.status === 'active' || !promotion.status;
               const productCount = Array.isArray(promotion.productIds)
@@ -195,44 +207,43 @@ const MarketplacePromotionsManager = ({
                 : 0;
 
               return (
-                <div key={promotion.id} className="mp-promotion-list-card">
-                  <div className="mp-promotion-list-card-main">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-bold text-gray-900">{promotion.title}</h3>
+                <li key={promotion.id} className="mp-bench-promo-card">
+                  <div className="mp-bench-promo-main">
+                    <div className="mp-bench-promo-head">
+                      <h3 className="mp-bench-promo-title">{promotion.title}</h3>
                       <span
-                        className={`mp-promotion-status-badge ${isActive ? 'is-active' : 'is-paused'}`}
+                        className={`mp-bench-promo-badge${
+                          isActive ? ' is-active' : ' is-paused'
+                        }`}
                       >
                         {PROMOTION_STATUS_LABELS[promotion.status] || (isActive ? 'פעיל' : 'מושהה')}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="mp-bench-promo-meta">
                       {formatDate(promotion.startsAt)} — {formatDate(promotion.endsAt)}
                       {promotion.deliveryDate && ` · משלוח ${promotion.deliveryDate}`}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">{productCount} מוצרים בקידום</p>
+                    <p className="mp-bench-promo-count">{productCount} מוצרים בקידום</p>
                   </div>
-                  <div className="mp-promotion-list-card-actions">
+                  <div className="mp-bench-promo-actions">
                     <Link
                       to={`/marketplace/promotions/${promotion.id}/orders`}
-                      className="mp-btn mp-btn-wood text-sm"
+                      className="mp-btn mp-btn-wood mp-bench-btn-sm"
                     >
                       הזמנות וסיכום
                     </Link>
                     <button
                       type="button"
-                      className="mp-btn mp-btn-primary text-sm"
+                      className="mp-btn mp-btn-outline mp-bench-btn-sm"
                       onClick={() => startEdit(promotion)}
                     >
                       עריכה
                     </button>
                     <button
                       type="button"
-                      className="mp-btn text-sm"
-                      style={{
-                        background: isActive ? '#fef3c7' : '#eef5eb',
-                        border: `1px solid ${isActive ? '#e6c200' : '#4a7c3f'}`,
-                        color: '#3d2f1f',
-                      }}
+                      className={`mp-btn mp-bench-btn-sm${
+                        isActive ? ' mp-bench-btn-pause' : ' mp-bench-btn-resume'
+                      }`}
                       disabled={statusUpdatingId === promotion.id}
                       onClick={() => handleToggleStatus(promotion)}
                     >
@@ -244,17 +255,17 @@ const MarketplacePromotionsManager = ({
                     </button>
                     <Link
                       to={`/community-marketplace/order/${promotion.id}`}
-                      className="text-sm mp-link"
+                      className="mp-link mp-bench-promo-preview"
                       target="_blank"
                       rel="noreferrer"
                     >
                       צפייה ללקוח
                     </Link>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
       </div>
     </div>

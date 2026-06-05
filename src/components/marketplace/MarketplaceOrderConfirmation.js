@@ -9,6 +9,7 @@ import {
   clearOrderConfirmationSession,
   loadOrderConfirmationSession,
 } from '../../utils/marketplaceOrderConfirmation';
+import { PAYMENT_CHIP_ICONS } from '../../utils/marketplacePaymentChips';
 import './marketplace.css';
 
 const formatCurrency = (value) =>
@@ -74,45 +75,54 @@ const MarketplaceOrderConfirmation = () => {
   if (loading) {
     return (
       <div className="mp-page flex items-center justify-center py-20">
-        <p className="text-gray-600">טוען פרטי אישור...</p>
+        <p className="mp-section-note">טוען קבלת שוק...</p>
       </div>
     );
   }
 
   return (
-    <div className="mp-page py-10" dir="rtl">
-      <div className="mp-main mp-stack" style={{ maxWidth: '40rem' }}>
-        <div className="mp-panel mp-confirmation-hero">
-          <span className="mp-confirmation-icon" aria-hidden="true">
+    <div className="mp-page mp-receipt-page" dir="rtl">
+      <div className="mp-main mp-stack">
+        <header className="mp-panel mp-receipt-hero mp-confirmation-hero">
+          <span className="mp-receipt-stamp" aria-hidden="true">
             ✓
           </span>
-          <h1 className="mp-section-title">ההזמנה התקבלה</h1>
+          <p className="mp-receipt-kicker">קבלת שוק · מהשדה לשכונה</p>
+          <h1 className="mp-section-title">ההזמנה ברשות השוק</h1>
           <p className="mp-section-note mt-2">
             {settings?.confirmationIntroText ||
-              'ההזמנה הועברה לבסטה. מכאן הכל ביניכם לבין הבסטה — תשלום, תיאום ואיסוף או משלוח.'}
+              'ההזמנה הועברה לדוכן. מכאן הכל ביניכם — תשלום בשוק, תיאום ואיסוף או משלוח.'}
           </p>
-        </div>
+          {paymentMethod && (
+            <p className="mp-section-note text-sm mt-3">
+              אמצעי תשלום שבחרתם:{' '}
+              <span className="mp-payment-chip mp-payment-chip-inline">
+                <span className="mp-payment-chip-icon" aria-hidden="true">
+                  {PAYMENT_CHIP_ICONS[paymentMethod] || '•'}
+                </span>
+                {PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod}
+              </span>
+            </p>
+          )}
+        </header>
 
-        <div className="mp-panel mp-stack">
-          <h2 className="mp-section-title text-base">מה קורה עכשיו?</h2>
-          <ol className="mp-confirmation-steps">
+        <section className="mp-panel mp-receipt-panel">
+          <h2 className="mp-section-title mp-section-title-chalk text-base">מה קורה עכשיו?</h2>
+          <ol className="mp-receipt-steps">
             <li>
-              <strong>תשלום:</strong> שלמו לבסטה באמצעי שבחרתם (
-              {PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod || 'לפי תיאום'}) — ישירות אליה, בהקדם
-              אחרי סיום ההזמנה.
+              <strong>תשלום בשוק:</strong> שלמו לדוכן באמצעי שבחרתם — ישירות אליו, בהקדם אחרי
+              סיום ההזמנה.
             </li>
             <li>
-              <strong>תיאום:</strong> פרטי תשלום, שאלות והערות — ישירות מול הבסטה (טלפון, וואטסאפ או אימייל
-              שתקבלו ממנה).
+              <strong>תיאום:</strong> פרטי תשלום, שאלות והערות — ישירות מול הדוכן (טלפון, וואטסאפ
+              או אימייל).
             </li>
             <li>
-              <strong>איסוף / משלוח:</strong> כשההזמנה מוכנה, הבסטה תעדכן אתכם. רק אז תגיעו לאסוף או תמתינו
-              למשלוח לפי מה שסיכמתם.
+              <strong>איסוף / משלוח:</strong> כשההזמנה מוכנה, הדוכן יעדכן אתכם. רק אז תגיעו לאסוף
+              או תמתינו למשלוח.
             </li>
             {showPaymentLinks && (
-              <li>
-                אם הבסטה פרסמה קישור או הוראות תשלום — הן מופיעות למטה לנוחותכם.
-              </li>
+              <li>אם הדוכן פרסם קישור תשלום — הוא מופיע בקבלת הדוכן למטה.</li>
             )}
           </ol>
           {settings?.confirmationNextStepsText && (
@@ -120,12 +130,12 @@ const MarketplaceOrderConfirmation = () => {
               {settings.confirmationNextStepsText}
             </p>
           )}
-        </div>
+        </section>
 
         {emailSummary && (
-          <div className="mp-panel mp-checkout-account-box">
+          <section className="mp-panel mp-receipt-email-panel">
             <h2 className="mp-section-title text-base mb-2">אימיילים</h2>
-            <ul className="text-sm text-gray-800 space-y-1 list-disc list-inside">
+            <ul className="mp-receipt-email-list">
               {emailSummary.customerSent && customer.email && (
                 <li>
                   נשלח אימייל אישור ל־<strong>{customer.email}</strong>
@@ -142,22 +152,22 @@ const MarketplaceOrderConfirmation = () => {
               )}
               {emailSummary.sellerSent > 0 && (
                 <li>
-                  נשלחה התראה לבסטה/ות ({emailSummary.sellerSent}{' '}
+                  נשלחה התראה לדוכן/ים ({emailSummary.sellerSent}{' '}
                   {emailSummary.sellerSent === 1 ? 'מייל' : 'מיילים'})
                 </li>
               )}
               {emailSummary.sellerSkipped > 0 && (
                 <li>
                   {emailSummary.sellerSkipped === 1
-                    ? 'בסטה אחת לא קיבלה מייל — חסר אימייל בפרופיל.'
-                    : `${emailSummary.sellerSkipped} בסטות לא קיבלו מייל — חסר אימייל בפרופיל.`}
+                    ? 'דוכן אחד לא קיבל מייל — חסר אימייל בפרופיל.'
+                    : `${emailSummary.sellerSkipped} דוכנים לא קיבלו מייל — חסר אימייל בפרופיל.`}
                 </li>
               )}
               {emailSummary.sellerFailed > 0 && (
-                <li>חלק מהבסטות לא קיבלו מייל — שגיאת שליחה. נסו ליצור קשר עם הבסטה ישירות.</li>
+                <li>חלק מהדוכנים לא קיבלו מייל — נסו ליצור קשר ישירות.</li>
               )}
             </ul>
-          </div>
+          </section>
         )}
 
         {orders.map((order) => {
@@ -167,55 +177,57 @@ const MarketplaceOrderConfirmation = () => {
             : [];
 
           return (
-            <div key={order.id} className="mp-panel mp-stack">
-              <h2 className="mp-section-title text-base">
-                {order.businessName || store?.title || 'בסטה'}
-              </h2>
-              <p className="text-sm text-gray-600">
-                מס׳ הזמנה: <span className="font-mono">{order.id}</span>
-              </p>
+            <article key={order.id} className="mp-panel mp-receipt-slip mp-stack">
+              <div className="mp-receipt-slip-head">
+                <h2 className="mp-section-title text-base m-0">
+                  {order.businessName || store?.title || 'דוכן'}
+                </h2>
+                <span className="mp-receipt-order-id">#{order.id}</span>
+              </div>
               {order.fulfillmentLabel && (
-                <p className="text-sm text-gray-600">אספקה: {order.fulfillmentLabel}</p>
+                <p className="mp-section-note text-sm">אספקה: {order.fulfillmentLabel}</p>
               )}
-              <div className="text-sm mt-2">
-                <div className="flex justify-between">
+              <div className="mp-receipt-totals">
+                <div className="mp-receipt-totals-row">
                   <span>מוצרים</span>
                   <span>{formatCurrency(order.subtotal)}</span>
                 </div>
                 {Number(order.deliveryFee) > 0 && (
-                  <div className="flex justify-between">
+                  <div className="mp-receipt-totals-row">
                     <span>משלוח</span>
                     <span>{formatCurrency(order.deliveryFee)}</span>
                   </div>
                 )}
-                <div className="flex justify-between font-bold mt-1">
-                  <span>סה״כ</span>
+                <div className="mp-receipt-totals-row is-total">
+                  <span>סה״כ לדוכן</span>
                   <span>{formatCurrency(order.total ?? order.subtotal)}</span>
                 </div>
               </div>
 
               {showPaymentLinks && links.length > 0 && (
-                <div className="mp-confirmation-pay-block">
-                  <p className="mp-form-label mb-2">פרטי תשלום ששיתפה הבסטה</p>
+                <div className="mp-receipt-payment-block mp-confirmation-pay-block">
+                  <p className="mp-form-label mb-2">קבלת תשלום — מהדוכן</p>
                   {links.map((link) => (
-                    <div key={link.method} className="mp-confirmation-pay-item">
+                    <div key={link.method} className="mp-receipt-pay-item mp-confirmation-pay-item">
                       {link.url ? (
                         <a
                           href={link.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="mp-btn mp-btn-wood w-full justify-center"
+                          className="mp-btn mp-btn-primary mp-receipt-pay-link w-full justify-center"
                         >
                           שלמו ב־{link.label}
                         </a>
                       ) : (
-                        <div className="mp-confirmation-bank-box">
+                        <div className="mp-receipt-bank-box mp-confirmation-bank-box">
                           <strong>{link.label}</strong>
                           <p className="whitespace-pre-wrap text-sm mt-1">{link.instructions}</p>
                         </div>
                       )}
                       {link.url && link.instructions && (
-                        <p className="text-xs text-gray-600 mt-1">{link.instructions}</p>
+                        <p className="mp-section-note mp-receipt-pay-note text-xs mt-1">
+                          {link.instructions}
+                        </p>
                       )}
                     </div>
                   ))}
@@ -223,34 +235,34 @@ const MarketplaceOrderConfirmation = () => {
               )}
 
               {showPaymentLinks && links.length === 0 && paymentMethod && (
-                <p className="mp-section-note text-sm">
-                  לתשלום ב־{PAYMENT_LINK_LABELS[paymentMethod] || paymentMethod}: צרו קשר עם הבסטה לקבלת
-                  פרטים וסגירת התשלום.
+                <p className="mp-section-note text-sm mt-2">
+                  לתשלום ב־{PAYMENT_LINK_LABELS[paymentMethod] || paymentMethod}: צרו קשר עם הדוכן
+                  לקבלת פרטים.
                 </p>
               )}
-            </div>
+            </article>
           );
         })}
 
         {orders.length > 1 && (
-          <div className="mp-panel">
-            <div className="flex justify-between text-lg font-bold">
-              <span>סה״כ כל ההזמנות</span>
-              <span>{formatCurrency(grandTotal)}</span>
+          <section className="mp-panel mp-receipt-grand">
+            <div className="mp-receipt-grand-row">
+              <span>סה״כ כל ההזמנות בשוק</span>
+              <span className="mp-receipt-grand-amount">{formatCurrency(grandTotal)}</span>
             </div>
-          </div>
+          </section>
         )}
 
         {!showPaymentLinks && (
-          <div className="mp-panel mp-checkout-account-box">
-            <p className="text-sm text-gray-800">
-              שלמו לבסטה לפי האמצעי שבחרתם ותיאמתם איתה ישירות. כשההזמנה תהיה מוכנה — תקבלו ממנה עדכון
+          <section className="mp-panel mp-checkout-account-ticket">
+            <p className="mp-section-note text-sm">
+              שלמו לדוכן לפי האמצעי שבחרתם ותיאמתם איתו ישירות. כשההזמנה תהיה מוכנה — תקבלו עדכון
               לאיסוף או למשלוח.
             </p>
-          </div>
+          </section>
         )}
 
-        <div className="flex flex-wrap gap-3">
+        <div className="mp-receipt-actions">
           <Link
             to="/community-marketplace"
             className="mp-btn mp-btn-wood"

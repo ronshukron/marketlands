@@ -59,107 +59,118 @@ const MarketplaceRegister = () => {
   };
 
   return (
-    <div className="mp-page py-12" dir="rtl">
-      <div className="mp-main" style={{ maxWidth: '28rem' }}>
-        <div className="mp-panel mp-stack">
-          <Link to="/community-marketplace" className="mp-link text-sm">
-            ← חזרה לשוק הבסטות
-          </Link>
-
-          <div>
-            <p className="mp-eyebrow" style={{ color: '#6b5a45' }}>
-              שוק הבסטות
-            </p>
-            <h1 className="mp-section-title">הרשמה לשוק הבסטות</h1>
-            <p className="mp-section-note mt-2">
-              חשבון חדש לעקוב אחר הזמנות מבסטות בשוק — נפרד מההזמנות השבועיות של האתר.
+    <div className="mp-page mp-auth-page" dir="rtl">
+      <div className="mp-auth-split">
+        <aside className="mp-auth-visual" aria-hidden="true">
+          <div className="mp-auth-visual-inner">
+            <span className="mp-auth-visual-kicker">שדה ושכונה</span>
+            <h2 className="mp-auth-visual-title">הצטרפו לשכונה</h2>
+            <p className="mp-auth-visual-text">
+              פתחו חשבון בשוק — הזמינו מהשבוע, עקבו אחר כרטיסי ההזמנה, ושלמו ישירות לדוכן.
             </p>
           </div>
+        </aside>
 
-          <form onSubmit={onSubmit} className="mp-stack" style={{ gap: '1rem' }}>
-            <label className="mp-form-label">
-              שם מלא *
-              <input
-                className="mp-input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </label>
-
-            <label className="mp-form-label">
-              אימייל *
-              <input
-                type="email"
-                className="mp-input"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </label>
-
-            <label className="mp-form-label">
-              טלפון
-              <input
-                type="tel"
-                className="mp-input"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </label>
-
-            <label className="mp-form-label">
-              קהילה
-              <select
-                className="mp-input"
-                value={community}
-                onChange={(e) => setCommunity(e.target.value)}
-              >
-                <option value="">בחרו קהילה</option>
-                {pickupSpots.map((spot) => (
-                  <option key={spot} value={spot}>
-                    {spot}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="mp-form-label">
-              סיסמה (לפחות 6 תווים) *
-              <input
-                type="password"
-                className="mp-input"
-                autoComplete="new-password"
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </label>
-
-            {errorMessage && <p className="text-sm text-red-700 font-medium">{errorMessage}</p>}
-
-            <button
-              type="submit"
-              className="mp-btn mp-btn-wood w-full justify-center"
-              disabled={submitting}
-              style={{ opacity: submitting ? 0.7 : 1 }}
-            >
-              {submitting ? 'יוצרים חשבון...' : 'יצירת חשבון'}
-            </button>
-          </form>
-
-          <p className="text-sm text-gray-700">
-            כבר יש חשבון?{' '}
-            <Link
-              to={MARKETPLACE_LOGIN_PATH}
-              state={{ from: redirectTo }}
-              className="mp-link font-semibold"
-            >
-              התחברות
+        <div className="mp-auth-form-panel">
+          <div className="mp-auth-form-inner">
+            <Link to="/community-marketplace" className="mp-link mp-auth-back">
+              ← חזרה לשוק הבסטות
             </Link>
-          </p>
+
+            <header className="mp-auth-form-header">
+              <span className="mp-weekly-board-label">שוק הבסטות</span>
+              <h1 className="mp-section-title mp-section-title-chalk">הרשמה לשוק</h1>
+              <p className="mp-section-note">
+                חשבון חדש לעקוב אחר הזמנות מהדוכנים — נפרד מההזמנות השבועיות של האתר.
+              </p>
+            </header>
+
+            <form onSubmit={onSubmit} className="mp-stack mp-stack-form">
+              <label className="mp-form-label">
+                שם מלא *
+                <input
+                  className="mp-input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  autoComplete="name"
+                />
+              </label>
+
+              <label className="mp-form-label">
+                אימייל *
+                <input
+                  type="email"
+                  className="mp-input"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </label>
+
+              <label className="mp-form-label">
+                טלפון
+                <input
+                  type="tel"
+                  className="mp-input"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  autoComplete="tel"
+                />
+              </label>
+
+              <label className="mp-form-label">
+                קהילה
+                <select
+                  className="mp-input"
+                  value={community}
+                  onChange={(e) => setCommunity(e.target.value)}
+                >
+                  <option value="">בחרו קהילה</option>
+                  {pickupSpots.map((spot) => (
+                    <option key={spot} value={spot}>
+                      {spot}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="mp-form-label">
+                סיסמה (לפחות 6 תווים) *
+                <input
+                  type="password"
+                  className="mp-input"
+                  autoComplete="new-password"
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </label>
+
+              {errorMessage && <p className="mp-form-error" role="alert">{errorMessage}</p>}
+
+              <button
+                type="submit"
+                className="mp-btn mp-btn-wood w-full justify-center"
+                disabled={submitting}
+              >
+                {submitting ? 'יוצרים חשבון...' : 'יצירת חשבון'}
+              </button>
+            </form>
+
+            <p className="mp-auth-footer-text">
+              כבר יש חשבון?{' '}
+              <Link
+                to={MARKETPLACE_LOGIN_PATH}
+                state={{ from: redirectTo }}
+                className="mp-link mp-link-emphasis"
+              >
+                התחברות
+              </Link>
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -11,6 +11,42 @@ import CommunityFilterToggle from './CommunityFilterToggle';
 import PromotionHighlights from './PromotionHighlights';
 import './marketplace.css';
 
+const GateBasketIcon = () => (
+  <svg
+    className="mp-gate-eyebrow-icon"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M6 10h15l-1.5 9H7.5L6 10z" />
+    <path d="M6 10L5 4H2" />
+    <path d="M9 14h6" />
+  </svg>
+);
+
+const StallCtaIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 64 64"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M8 28 L32 12 L56 28 V52 H8 Z" />
+    <path d="M20 52 V36 H44 V52" />
+    <path d="M8 28 H56" />
+    <path d="M26 20 L32 12 L38 20" />
+  </svg>
+);
+
 const MarketplaceHome = () => {
   const { selectedPickupSpot, updatePickupSpot, hasLoadedFromStorage } = usePickupSpot();
   const [communityName, setCommunityName] = useState('');
@@ -59,8 +95,8 @@ const MarketplaceHome = () => {
   }, [communityName, communityMode]);
 
   const scopeLabel = useMemo(() => {
-    if (communityMode === 'all') return 'כל הקהילות';
-    return communityName || 'הקהילה שלי';
+    if (communityMode === 'all') return 'כל השכונות';
+    return communityName || 'השכונה שלי';
   }, [communityMode, communityName]);
 
   const handleCommunityChange = (nextCommunity) => {
@@ -70,34 +106,40 @@ const MarketplaceHome = () => {
 
   return (
     <div className="mp-page" dir="rtl">
-      <section className="mp-hero">
-        <div className="mp-hero-inner">
-          <p className="mp-eyebrow">שוק הבסטות</p>
-          <h1 className="mp-hero-title">
-            בסטות מקומיות והזמנות שבועיות מהשדה אליכם
-          </h1>
-          <p className="mp-hero-subtitle">
-            התחילו מהקהילה שלכם, גלו בסטות מקהילות אחרות, והזמינו ישירות בתשלום ידני — ביט, מזומן ועוד.
+      <section className="mp-gate" aria-labelledby="mp-gate-title">
+        <div className="mp-gate-topo" aria-hidden="true" />
+        <div className="mp-gate-inner">
+          <p className="mp-gate-eyebrow">
+            <GateBasketIcon />
+            שוק הבסטות · מהשדה לשכונה
           </p>
-          <div className="mp-hero-actions">
+          <h1 id="mp-gate-title" className="mp-gate-title">
+            שוק שכונתי של אוכל מהשדה והמשק
+          </h1>
+          <p className="mp-gate-subtitle">
+            בחרו את השכונה, גלו מהשבוע בשוק, והזמינו מבסטות מקומיות — תשלום בשוק (ביט, מזומן ועוד).
+          </p>
+
+          <CommunityFilterToggle
+            variant="rail"
+            communityName={communityName}
+            communityMode={communityMode}
+            onCommunityChange={handleCommunityChange}
+            onModeChange={setCommunityMode}
+          />
+
+          <div className="mp-gate-actions">
             <a href="#weekly-promotions" className="mp-btn mp-btn-primary">
-              הזמנות שבועיות
+              מהשדה השבוע
             </a>
-            <a href="#bastot" className="mp-btn mp-btn-secondary">
-              הבסטות בשוק
+            <a href="#stalls" className="mp-btn mp-btn-secondary">
+              הבסטות
             </a>
           </div>
         </div>
       </section>
 
       <main className="mp-main mp-stack">
-        <CommunityFilterToggle
-          communityName={communityName}
-          communityMode={communityMode}
-          onCommunityChange={handleCommunityChange}
-          onModeChange={setCommunityMode}
-        />
-
         {settings?.enabled === false && (
           <div className="mp-alert mp-alert-warn">
             השוק כבוי כרגע בהגדרות המערכת.
@@ -108,41 +150,54 @@ const MarketplaceHome = () => {
           <div className="mp-alert mp-alert-error">{error}</div>
         )}
 
-        <section id="weekly-promotions">
+        <section id="weekly-promotions" aria-labelledby="weekly-section-title">
           <div className="mp-section-head">
             <div>
               <p className="mp-section-kicker">{scopeLabel}</p>
-              <h2 className="mp-section-title">הזמנות שבועיות מודגשות</h2>
+              <h2 id="weekly-section-title" className="mp-section-title mp-section-title-chalk">
+                מהשדה השבוע
+              </h2>
+              <p className="mp-section-note">
+                הזמנות מצטברות מבסטות בשכונה — גללו את לוח השוק
+              </p>
             </div>
-            <Link to="/local-business-register" className="mp-link">
-              רוצה לפתוח בסטה בשוק?
-            </Link>
           </div>
           <PromotionHighlights promotions={promotions} loading={loading} />
         </section>
 
-        <section id="bastot">
+        <section id="stalls" aria-labelledby="stalls-section-title">
           <div className="mp-section-head">
             <div>
               <p className="mp-section-kicker">{scopeLabel}</p>
-              <h2 className="mp-section-title">הבסטות בשוק</h2>
+              <h2 id="stalls-section-title" className="mp-section-title mp-section-title-chalk">
+                הבסטות
+              </h2>
               <p className="mp-section-note">
-                הבסקט הראשית מובילה למכירה השבועית בדף הבית. שאר הבסטות נפתחות בדף החנות שלהן.
+                כרטיסי בסטה בשכונה — לחצו לדף החנות והזמנות שבועיות
               </p>
             </div>
           </div>
           <BusinessCardGrid stores={stores} loading={loading} />
         </section>
 
-        <div className="mp-cta-banner">
-          <p className="mp-cta-banner-title">חקלאי או יצרן מקומי?</p>
-          <p className="mp-cta-banner-text">
-            פתחו בסטה משלכם בשוק הקהילתי והציעו מוצרים והזמנות שבועיות לשכנים.
-          </p>
-          <Link to="/local-business-register" className="mp-btn mp-btn-wood" style={{ marginTop: '1rem' }}>
-            רוצה לפתוח בסטה בשוק
-          </Link>
-        </div>
+        <aside className="mp-cta-stall" aria-labelledby="cta-stall-title">
+          <div className="mp-cta-stall-art">
+            <StallCtaIcon />
+          </div>
+          <div>
+            <h2 id="cta-stall-title" className="mp-cta-stall-title">
+              חקלאי, יצרן או משק משפחתי?
+            </h2>
+            <p className="mp-cta-stall-text">
+              פתחו בסטה משלכם בשוק השכונתי — מכירה שבועית, מוצרים ושכנים שמכירים אתכם בשם.
+            </p>
+          </div>
+          <div className="mp-cta-stall-action">
+            <Link to="/local-business-register" className="mp-btn mp-btn-wood">
+              פתחו בסטה בשוק
+            </Link>
+          </div>
+        </aside>
       </main>
     </div>
   );

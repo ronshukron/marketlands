@@ -1,0 +1,112 @@
+/**
+ * שדה ושכונה — Marketplace design tokens
+ * Import before marketplace.css / MarketplaceMenu.css
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700&family=Rubik:wght@600;700;800&display=swap');
+
+:root {
+  /* Surfaces — soil to linen */
+  --mp-soil-900: #1a1410;
+  --mp-soil-800: #2d2419;
+  --mp-soil-700: #3d2f1f;
+  --mp-bark-600: #5c4a35;
+  --mp-bark-500: #6b5a45;
+  --mp-linen-100: #faf6ee;
+  --mp-linen-200: #f4efe4;
+  --mp-linen-300: #efe6d4;
+
+  /* Living greens */
+  --mp-leaf-700: #2f5a28;
+  --mp-leaf-600: #4a7c3f;
+  --mp-leaf-500: #5f9a52;
+  --mp-leaf-100: #e8f0e4;
+
+  /* Harvest accents */
+  --mp-terracotta: #c45c3e;
+  --mp-sunflower: #e8b84a;
+  --mp-berry: #7a3b55;
+
+  /* Wood & craft */
+  --mp-wood-700: #6b4423;
+  --mp-wood-500: #8b5a2b;
+  --mp-wood-300: #a67c52;
+
+  /* Semantic */
+  --mp-success: #3d7a47;
+  --mp-warning: #b8860b;
+  --mp-error: #a33d2f;
+  --mp-info: #3a5f8c;
+
+  /* Derived borders & overlays */
+  --mp-border-soft: #d4c4a8;
+  --mp-border-panel: var(--mp-border-soft);
+  --mp-overlay-soil: rgba(61, 47, 31, 0.45);
+  --mp-overlay-hero: rgba(45, 36, 25, 0.88);
+  --mp-hero-fade: var(--mp-linen-200);
+  --mp-eyebrow-text: #e8d5b5;
+  --mp-hero-subtitle: #f0e6d2;
+  --mp-toggle-track: #e8dcc8;
+  --mp-input-bg: #fffdf8;
+  --mp-kicker-green: #6d8b4a;
+  --mp-alert-error-bg: #fde8e4;
+  --mp-alert-error-border: #e8a89a;
+  --mp-alert-warn-bg: #fef6e8;
+  --mp-alert-warn-border: #e8c89a;
+
+  /* Typography */
+  --mp-font-display: 'Rubik', sans-serif;
+  --mp-font-body: 'Assistant', 'Rubik', sans-serif;
+  --mp-font-label: 'Rubik', sans-serif;
+  --mp-font-price: 'Rubik', sans-serif;
+
+  --mp-text-display: clamp(1.75rem, 4vw, 2.75rem);
+  --mp-text-headline: clamp(1.35rem, 2.5vw, 1.75rem);
+  --mp-text-body: 1rem;
+  --mp-text-label: 0.8rem;
+  --mp-text-small: 0.875rem;
+
+  /* Space */
+  --mp-space-xs: 4px;
+  --mp-space-sm: 8px;
+  --mp-space-md: 12px;
+  --mp-space-lg: 16px;
+  --mp-space-xl: 24px;
+  --mp-space-2xl: 32px;
+  --mp-space-3xl: 48px;
+  --mp-space-4xl: 64px;
+
+  /* Radius */
+  --mp-radius-sm: 6px;
+  --mp-radius-md: 12px;
+  --mp-radius-lg: 20px;
+  --mp-radius-stall: 24px 24px 8px 8px;
+  --mp-radius-pill: 999px;
+
+  /* Elevation */
+  --mp-shadow-card: 0 4px 0 var(--mp-wood-500);
+  --mp-shadow-card-hover: 0 7px 0 var(--mp-wood-700);
+  --mp-shadow-soft: 0 4px 16px rgba(26, 20, 16, 0.08);
+  --mp-shadow-hero: 0 8px 24px rgba(26, 20, 16, 0.2);
+  --mp-shadow-menu: 0 4px 16px rgba(26, 20, 16, 0.12);
+
+  /* Motion */
+  --mp-ease-snap: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --mp-duration-snap: 180ms;
+  --mp-duration-gentle: 320ms;
+
+  /* Layout */
+  --mp-content-max: 72rem;
+  --mp-header-height: 4.25rem;
+  --mp-header-height-mobile: 4.75rem;
+
+  /* Grain texture (SVG noise, lightweight) */
+  --mp-texture-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --mp-duration-snap: 0ms;
+    --mp-duration-gentle: 0ms;
+  }
+}

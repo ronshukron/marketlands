@@ -6,6 +6,7 @@ import {
   getRemainingProductStock,
   isMarketplaceProductInStock,
 } from '../../utils/marketplaceProductStock';
+import './marketplace.css';
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(Number(value || 0));
@@ -50,42 +51,63 @@ const MarketplaceStoreProductTile = ({ product, businessId, storeTitle }) => {
         ? 'אזל המלאי'
         : `נותרו ${remaining} יחידות`;
 
+  const isLowStock = stockHint && inStock && remaining > 0 && remaining <= 3;
+
   return (
-    <div className="mp-store-product-tile">
-      {product.images?.[0] ? (
-        <img src={product.images[0]} alt={product.name} />
-      ) : (
-        <div className="mp-store-product-tile-placeholder">ללא תמונה</div>
-      )}
-      <div className="mp-store-product-tile-body">
-        <h3>{product.name}</h3>
-        <p>{formatCurrency(product.price)}</p>
-        {product.category && <span className="text-xs text-gray-500">{product.category}</span>}
+    <article
+      className={`mp-crate-label mp-store-product-tile${!inStock ? ' is-sold-out' : ''}${
+        quantityInCart > 0 ? ' is-in-cart' : ''
+      }`}
+    >
+      <div className="mp-crate-label-stamp" aria-hidden="true">
+        <span className="mp-crate-label-stamp-price">{formatCurrency(product.price)}</span>
+      </div>
+
+      <div className="mp-crate-label-media">
+        {product.images?.[0] ? (
+          <img src={product.images[0]} alt={product.name} />
+        ) : (
+          <div className="mp-store-product-tile-placeholder">ללא תמונה</div>
+        )}
+      </div>
+
+      <div className="mp-crate-label-body mp-store-product-tile-body">
+        {product.category && (
+          <span className="mp-crate-label-category">{product.category}</span>
+        )}
+        <h3 className="mp-crate-label-name">{product.name}</h3>
+
         {stockHint && (
-          <p className={`text-xs mt-1 ${!inStock || remaining === 0 ? 'text-red-600' : 'text-gray-500'}`}>
+          <p
+            className={`mp-crate-label-stock${
+              !inStock || remaining === 0 ? ' is-out' : isLowStock ? ' is-low' : ''
+            }`}
+          >
             {stockHint}
           </p>
         )}
+
         <button
           type="button"
-          className="mp-btn mp-btn-wood mp-store-add-btn"
+          className="mp-btn mp-btn-wood mp-store-add-btn mp-crate-label-add"
           onClick={handleAdd}
           disabled={!canAdd}
-          style={!canAdd ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+          aria-disabled={!canAdd}
         >
           {quantityInCart > 0
-            ? `בסל (${quantityInCart})`
+            ? `בסל השוק (${quantityInCart})`
             : inStock
-              ? 'הוספה לסל'
+              ? 'הוסף לסל השוק'
               : 'אזל המלאי'}
         </button>
+
         {addBlockedMessage && (
-          <p className="text-xs text-red-600 mt-1" role="status">
+          <p className="mp-crate-label-error" role="status">
             {addBlockedMessage}
           </p>
         )}
       </div>
-    </div>
+    </article>
   );
 };
 

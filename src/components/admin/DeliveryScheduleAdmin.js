@@ -10,6 +10,7 @@ import {
 } from '../../utils/deliveryScheduleUtils';
 import LoadingSpinner from '../LoadingSpinner';
 
+const FIREBASE_PROJECT_ID = process.env.REACT_APP_FIREBASE_PROJECT_ID || '';
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
 const WEEK_DAYS = [
@@ -33,9 +34,21 @@ const emptyException = {
 const defaultForm = {
   active: true,
   weeklyDays: [],
-  cutoffHours: 10,
-  horizonWeeks: 8,
+  cutoffHours: '10',
+  horizonWeeks: '8',
   exceptions: [],
+};
+
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number.parseInt(String(value).trim(), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+const formatFirestoreError = (err) => {
+  if (err?.code === 'permission-denied') {
+    return 'אין הרשאת כתיבה ל-Firestore. הוסיפו את כללי deliverySchedules (ראו docs/DeliverySchedules-Firestore-Rules.snippet.txt) ופרסמו אותם ב-Firebase Console.';
+  }
+  return err?.message || 'שגיאה לא ידועה';
 };
 
 const toDatetimeLocal = (value) => {
@@ -47,7 +60,7 @@ const toDatetimeLocal = (value) => {
 };
 
 const DeliveryScheduleAdmin = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userRole } = useAuth();
   const [selectedCommunity, setSelectedCommunity] = useState(pickupSpots[0] || '');
   const [form, setForm] = useState(defaultForm);
   const [loading, setLoading] = useState(true);
@@ -56,11 +69,13 @@ const DeliveryScheduleAdmin = () => {
   const [bulkSelectedCommunities, setBulkSelectedCommunities] = useState([]);
   const [bulkWeeklyDays, setBulkWeeklyDays] = useState([]);
   const [bulkActive, setBulkActive] = useState(true);
-  const [bulkCutoffHours, setBulkCutoffHours] = useState(10);
-  const [bulkHorizonWeeks, setBulkHorizonWeeks] = useState(8);
+  const [bulkCutoffHours, setBulkCutoffHours] = useState('10');
+  const [bulkHorizonWeeks, setBulkHorizonWeeks] = useState('8');
   const [error, setError] = useState('');
 
-  const isAdmin = currentUser && ADMIN_UIDS.includes(currentUser.uid);
+  const isAdmin = Boolean(
+    currentUser && (userRole === 'admin' || ADMIN_UIDS.includes(currentUser.uid))
+  );
 
   useEffect(() => {
     if (!currentUser) return;
@@ -88,8 +103,8 @@ const DeliveryScheduleAdmin = () => {
       setForm({
         active: data.active !== false,
         weeklyDays: Array.isArray(data.weeklyDays) ? data.weeklyDays.map(Number) : [],
-        cutoffHours: Number(data.defaultCutoff?.hoursBeforeDelivery ?? 10),
-        horizonWeeks: Number(data.horizonWeeks ?? 8),
+        cutoffHours: String(data.defaultCutoff?.hoursBeforeDelivery ?? 10),
+        horizonWeeks: String(data.horizonWeeks ?? 8),
         exceptions: Object.entries(data.exceptions || {})
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([date, exception]) => ({
@@ -151,6 +166,14 @@ const DeliveryScheduleAdmin = () => {
 
   const handleSave = async () => {
     if (!selectedCommunity) return;
+
+    const cutoffHours = parsePositiveInt(form.cutoffHours, null);
+    const horizonWeeks = parsePositiveInt(form.horizonWeeks, null);
+    if (cutoffHours === null || horizonWeeks === null || horizonWeeks < 1) {
+      Swal.fire('שגיאה', 'שעות חיתוך ומספר שבועות חייבים להיות מספרים תקינים (שבועות לפחות 1)', 'error');
+      return;
+    }
+
     const exceptions = {};
     for (const exception of form.exceptions) {
       if (!exception.date) continue;
@@ -169,16 +192,17 @@ const DeliveryScheduleAdmin = () => {
         active: Boolean(form.active),
         weeklyDays: form.weeklyDays,
         defaultCutoff: {
-          hoursBeforeDelivery: Number(form.cutoffHours) || 0,
+          hoursBeforeDelivery: cutoffHours,
         },
-        horizonWeeks: Number(form.horizonWeeks) || 8,
+        horizonWeeks,
         exceptions,
         updatedAt: serverTimestamp(),
       }, { merge: true });
-      Swal.fire('נשמר', 'לוח המשלוחים נשמר בהצלחה', 'success');
+      await loadSchedule(selectedCommunity);
+      Swal.fire('נשמר', `לוח המשלוחים נשמר ב-Firebase (${FIREBASE_PROJECT_ID})`, 'success');
     } catch (err) {
       console.error('Error saving delivery schedule:', err);
-      Swal.fire('שגיאה', 'שמירת לוח המשלוחים נכשלה', 'error');
+      Swal.fire('שגיאה', formatFirestoreError(err), 'error');
     } finally {
       setSaving(false);
     }
@@ -190,6 +214,13 @@ const DeliveryScheduleAdmin = () => {
       return;
     }
 
+    const cutoffHours = parsePositiveInt(bulkCutoffHours, null);
+    const horizonWeeks = parsePositiveInt(bulkHorizonWeeks, null);
+    if (cutoffHours === null || horizonWeeks === null || horizonWeeks < 1) {
+      Swal.fire('שגיאה', 'שעות חיתוך ומספר שבועות חייבים להיות מספרים תקינים (שבועות לפחות 1)', 'error');
+      return;
+    }
+
     setBulkSaving(true);
     try {
       await Promise.all(bulkSelectedCommunities.map((communityName) => (
@@ -198,9 +229,9 @@ const DeliveryScheduleAdmin = () => {
           active: Boolean(bulkActive),
           weeklyDays: bulkWeeklyDays,
           defaultCutoff: {
-            hoursBeforeDelivery: Number(bulkCutoffHours) || 0,
+            hoursBeforeDelivery: cutoffHours,
           },
-          horizonWeeks: Number(bulkHorizonWeeks) || 8,
+          horizonWeeks,
           updatedAt: serverTimestamp(),
         }, { merge: true })
       )));
@@ -212,17 +243,20 @@ const DeliveryScheduleAdmin = () => {
       Swal.fire('נשמר', `ימי המשלוח נשמרו עבור ${bulkSelectedCommunities.length} קהילות`, 'success');
     } catch (err) {
       console.error('Error saving bulk delivery schedules:', err);
-      Swal.fire('שגיאה', 'שמירת ימי המשלוח לקהילות נכשלה', 'error');
+      Swal.fire('שגיאה', formatFirestoreError(err), 'error');
     } finally {
       setBulkSaving(false);
     }
   };
 
+  const previewCutoffHours = parsePositiveInt(form.cutoffHours, 10);
+  const previewHorizonWeeks = Math.max(1, parsePositiveInt(form.horizonWeeks, 8));
+
   const previewDates = generateAvailableDeliveryDates({
     active: form.active,
     weeklyDays: form.weeklyDays,
-    defaultCutoff: { hoursBeforeDelivery: Number(form.cutoffHours) || 0 },
-    horizonWeeks: Number(form.horizonWeeks) || 8,
+    defaultCutoff: { hoursBeforeDelivery: previewCutoffHours },
+    horizonWeeks: previewHorizonWeeks,
     exceptions: form.exceptions.reduce((acc, exception) => {
       if (!exception.date) return acc;
       acc[exception.date] = {
@@ -247,7 +281,13 @@ const DeliveryScheduleAdmin = () => {
 
   return (
     <div className="max-w-5xl mx-auto p-6" dir="rtl">
-      <h1 className="text-2xl font-bold mb-6">ניהול לוחות משלוחים לקהילות</h1>
+      <h1 className="text-2xl font-bold mb-2">ניהול לוחות משלוחים לקהילות</h1>
+      {FIREBASE_PROJECT_ID && (
+        <p className="text-sm text-gray-600 mb-6">
+          שמירה מ-localhost נכנסת ישירות ל-Firebase: <strong>{FIREBASE_PROJECT_ID}</strong>
+          {' '}(אותו פרויקט כמו האתר בפרודקשן, אם ה-.env.local מצביע אליו).
+        </p>
+      )}
 
       <div className="bg-white rounded-lg shadow p-5 mb-6 space-y-4">
         <div>
@@ -335,16 +375,23 @@ const DeliveryScheduleAdmin = () => {
             <input
               type="number"
               min="0"
+              step="1"
+              inputMode="numeric"
               value={bulkCutoffHours}
               onChange={(event) => setBulkCutoffHours(event.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
+            <span className="text-xs text-gray-500 mt-1 block">
+              יותר שעות = חיתוך מוקדם יותר (פחות זמן להזמנה). להארכת חלון הזמנה — הורידו שעות או הוסיפו חריג עם תאריך חיתוך מאוחר.
+            </span>
           </label>
           <label>
             <span className="block text-sm font-medium text-gray-700 mb-1">כמה שבועות קדימה להציג</span>
             <input
               type="number"
               min="1"
+              step="1"
+              inputMode="numeric"
               value={bulkHorizonWeeks}
               onChange={(event) => setBulkHorizonWeeks(event.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
@@ -409,16 +456,23 @@ const DeliveryScheduleAdmin = () => {
             <input
               type="number"
               min="0"
+              step="1"
+              inputMode="numeric"
               value={form.cutoffHours}
               onChange={(event) => setForm((prev) => ({ ...prev, cutoffHours: event.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
+            <span className="text-xs text-gray-500 mt-1 block">
+              יותר שעות = חיתוך מוקדם יותר. לאחר שינוי — לחצו «שמור לוח משלוחים» בתחתית העמוד.
+            </span>
           </label>
           <label>
             <span className="block text-sm font-medium text-gray-700 mb-1">כמה שבועות קדימה להציג</span>
             <input
               type="number"
               min="1"
+              step="1"
+              inputMode="numeric"
               value={form.horizonWeeks}
               onChange={(event) => setForm((prev) => ({ ...prev, horizonWeeks: event.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
@@ -492,7 +546,7 @@ const DeliveryScheduleAdmin = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             {previewDates.map((dateKey) => {
               const cutoff = getEffectiveCutoffAt(dateKey, {
-                defaultCutoff: { hoursBeforeDelivery: Number(form.cutoffHours) || 0 },
+                defaultCutoff: { hoursBeforeDelivery: previewCutoffHours },
                 exceptions: form.exceptions.reduce((acc, exception) => {
                   if (!exception.date) return acc;
                   acc[exception.date] = { enabled: exception.enabled, cutoffAt: exception.cutoffAt };

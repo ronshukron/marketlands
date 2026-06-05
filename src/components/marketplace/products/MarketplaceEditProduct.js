@@ -68,17 +68,17 @@ const MarketplaceEditProduct = () => {
   if (!product) return null;
 
   return (
-    <div className="mp-page py-8" dir="rtl">
-      <div className="mp-main mp-stack">
-        <div className="mp-panel">
-          <Link to="/marketplace/products" className="mp-link text-sm">
+    <div className="mp-page mp-bench-page" dir="rtl">
+      <div className="mp-main mp-bench mp-stack">
+        <header className="mp-bench-panel">
+          <Link to="/marketplace/products" className="mp-link">
             ← חזרה למוצרים
           </Link>
-          <h1 className="mp-hero-title mt-2" style={{ fontSize: '1.5rem' }}>
+          <h1 className="mp-bench-panel-title mp-section-title-chalk mt-2">
             עריכת מוצר: {product.name}
           </h1>
-        </div>
-        <div className="mp-panel">
+        </header>
+        <div className="mp-bench-panel mp-bench-panel--form">
           <MarketplaceProductForm
             key={product.id}
             currentUser={currentUser}

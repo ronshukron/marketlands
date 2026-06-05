@@ -6,11 +6,14 @@ import {
   getPublicMarketplaceStorePage,
   toDate,
 } from '../../services/marketplaceService';
-import { getStoreAboutText } from '../../constants/marketplaceStoreContent';
+import { cleanShortDescription } from '../../constants/marketplaceStoreContent';
+import { getPromotionDeadlineChip } from '../../utils/marketplacePromotionDeadline';
+import { PAYMENT_CHIP_ICONS } from '../../utils/marketplacePaymentChips';
 import LoadingSpinner from '../LoadingSpinner';
 import defaultBackground from '../../images/Field.jpg';
-import StoreContentDisplay from './StoreContentDisplay';
+import StoreContentDisplay, { hasStorePageEditorContent } from './StoreContentDisplay';
 import MarketplaceFulfillmentSummary from './MarketplaceFulfillmentSummary';
+import MarketplacePaymentLinksDisplay from './MarketplacePaymentLinksDisplay';
 import MarketplaceStoreProductTile from './MarketplaceStoreProductTile';
 import './marketplace.css';
 
@@ -55,9 +58,9 @@ const MarketplaceStorePage = () => {
   if (!pageData) {
     return (
       <div className="mp-page py-12" dir="rtl">
-        <div className="mp-main mp-empty">
-          <h3 className="mp-empty-title">הבסטה לא נמצאה</h3>
-          <Link to="/community-marketplace" className="mp-btn mp-btn-wood" style={{ marginTop: '1rem' }}>
+        <div className="mp-main mp-market-empty">
+          <h3 className="mp-market-empty-title">הבסטה לא נמצאה</h3>
+          <Link to="/community-marketplace" className="mp-btn mp-btn-wood mp-mt-4">
             חזרה לשוק הבסטות
           </Link>
         </div>
@@ -70,10 +73,10 @@ const MarketplaceStorePage = () => {
   if (!isPublished && !isOwner) {
     return (
       <div className="mp-page py-12" dir="rtl">
-        <div className="mp-main mp-empty">
-          <h3 className="mp-empty-title">הבסטה עדיין לא פורסמה</h3>
-          <p className="mp-empty-text">בעל הבסטה יכול לפרסם אותה מהגדרות דף החנות.</p>
-          <Link to="/community-marketplace" className="mp-btn mp-btn-wood" style={{ marginTop: '1rem' }}>
+        <div className="mp-main mp-market-empty">
+          <h3 className="mp-market-empty-title">הבסטה עדיין לא פורסמה</h3>
+          <p className="mp-market-empty-text">בעל הבסטה יכול לפרסם אותה מהגדרות דף החנות.</p>
+          <Link to="/community-marketplace" className="mp-btn mp-btn-wood mp-mt-4">
             חזרה לשוק הבסטות
           </Link>
         </div>
@@ -82,54 +85,88 @@ const MarketplaceStorePage = () => {
   }
 
   const title = store.title || store.businessName || business?.businessName || 'בסטה';
-  const aboutText = getStoreAboutText(store, business);
+  const shortDescription = cleanShortDescription(store.shortDescription);
+  const phone = store.phone || business?.phone;
+  const homeCommunity = store.homeCommunity || business?.communityName || '';
   const shopEnabled = storeCartEnabled !== false;
   const featuredProducts = products.slice(0, FEATURED_PRODUCT_COUNT);
   const hasMoreProducts = products.length > FEATURED_PRODUCT_COUNT;
+  const paymentMethods = Array.isArray(store.manualPaymentMethods)
+    ? store.manualPaymentMethods
+    : [];
+  const tags = Array.isArray(store.tags) ? store.tags : [];
+  const hasBastaDetails = Boolean(homeCommunity) || tags.length > 0 || Boolean(phone);
+  const showStorePageContent = hasStorePageEditorContent(store, business);
+
+  const primaryShopCta =
+    shopEnabled && products.length > 0
+      ? {
+          to: `/community-marketplace/store/${businessId}/shop`,
+          label: 'לחנות ולסל השוק',
+        }
+      : null;
 
   return (
     <div className="mp-page pb-12" dir="rtl">
-      <div className="mp-store-public-hero">
+      <header className="mp-stall-cover mp-store-public-hero">
         <img
           src={store.coverImageUrl || defaultBackground}
           alt=""
-          className="mp-store-public-cover"
+          className="mp-stall-cover-image mp-store-public-cover"
         />
-        <div className="mp-store-public-hero-overlay" />
-        <div className="mp-main mp-store-public-hero-content">
-          <Link to="/community-marketplace" className="mp-store-public-back">
-            ← שוק הבסטות
+        <div className="mp-stall-cover-topo" aria-hidden="true" />
+        <div className="mp-stall-cover-overlay mp-store-public-hero-overlay" />
+        <div className="mp-main mp-stall-cover-content mp-store-public-hero-content">
+          <Link to="/community-marketplace" className="mp-stall-cover-back mp-store-public-back">
+            ← חזרה לשוק הבסטות
           </Link>
-          <div className="mp-store-public-header">
-            <div className="mp-store-public-avatar-wrap">
+          <div className="mp-stall-cover-header mp-store-public-header">
+            <div className="mp-stall-cover-avatar-wrap mp-store-public-avatar-wrap">
               <img
                 src={store.profileImageUrl || store.coverImageUrl || defaultBackground}
                 alt={title}
-                className="mp-store-public-avatar"
+                className="mp-stall-cover-avatar mp-store-public-avatar"
               />
             </div>
             <div>
-              <h1 className="mp-store-public-title">{title}</h1>
+              <h1 className="mp-stall-cover-title mp-store-public-title">{title}</h1>
               {store.businessKind && (
-                <span className="mp-badge" style={{ marginTop: '0.35rem' }}>
+                <span className="mp-badge mp-crate-badge mp-mt-1">
                   {store.businessKind}
                 </span>
               )}
-              <p className="mp-store-public-meta">
-                {store.homeCommunity || business?.communityName || 'שוק הבסטות'}
-              </p>
-              {store.shortDescription && (
-                <p className="mp-store-public-tagline">{store.shortDescription}</p>
+              {homeCommunity && (
+                <p className="mp-stall-cover-meta mp-store-public-meta">{homeCommunity}</p>
               )}
+              {shortDescription && (
+                <p className="mp-stall-cover-tagline mp-store-public-tagline">{shortDescription}</p>
+              )}
+              <div className="mp-stall-cover-actions">
+                {shopEnabled && products.length > 0 && (
+                  <a href="#stall-products" className="mp-btn mp-btn-primary">
+                    למוצרים
+                  </a>
+                )}
+                {promotions.length > 0 && (
+                  <a href="#stall-weekly" className="mp-btn mp-btn-wood">
+                    הזמנה שבועית
+                  </a>
+                )}
+                {primaryShopCta && (
+                  <Link to={primaryShopCta.to} className="mp-btn mp-btn-wood">
+                    {primaryShopCta.label}
+                  </Link>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="mp-main mp-stack" style={{ marginTop: '-2rem', position: 'relative', zIndex: 2 }}>
+      <div className="mp-main mp-stack mp-stall-page-body">
         {isOwner && !isPublished && (
-          <div className="mp-panel" style={{ borderColor: '#e6c200', background: '#fffbeb' }}>
-            <p className="text-sm text-amber-900">
+          <div className="mp-panel mp-store-notice">
+            <p className="mp-text-soil text-sm">
               הדף לא מוצג לציבור.{' '}
               <Link to="/marketplace/my-store" className="font-bold underline">
                 פרסמו את הבסטה
@@ -143,26 +180,29 @@ const MarketplaceStorePage = () => {
             <Link to="/marketplace/my-store" className="mp-btn mp-btn-wood">
               עריכת דף הבסטה
             </Link>
-            {shopEnabled && products.length > 0 && (
-              <Link
-                to={`/community-marketplace/store/${businessId}/shop`}
-                className="mp-btn mp-btn-primary"
-              >
+            {primaryShopCta && (
+              <Link to={primaryShopCta.to} className="mp-btn mp-btn-primary">
                 תצוגת חנות מלאה
               </Link>
             )}
           </div>
         )}
 
-        {/* 2 — Products (preview + link to full shop) */}
+        {/* 1. מוצרים — ראשון */}
         {shopEnabled && (
-          <div className="mp-panel mp-store-products-preview">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <section
+            id="stall-products"
+            className="mp-panel mp-crate-row-section"
+            aria-labelledby="stall-products-title"
+          >
+            <div className="mp-crate-row-head">
               <div>
-                <h2 className="mp-section-title">מוצרים</h2>
+                <h2 id="stall-products-title" className="mp-section-title mp-section-title-chalk">
+                  מוצרים מהבסטה
+                </h2>
                 <p className="mp-section-note text-sm mt-1">
                   {products.length > 0
-                    ? 'הוסיפו לסל ועברו לתשלום — או צפו בכל המוצרים בדף החנות.'
+                    ? 'גללו את שורת המוצרים — הוסיפו לסל השוק'
                     : 'בקרוב יתווספו מוצרים לרכישה.'}
                 </p>
               </div>
@@ -171,18 +211,19 @@ const MarketplaceStorePage = () => {
                   to={`/community-marketplace/store/${businessId}/shop`}
                   className="mp-btn mp-btn-wood"
                 >
-                  לכל המוצרים והסל ({products.length})
+                  לכל המוצרים ({products.length})
                 </Link>
               )}
             </div>
 
             {products.length === 0 ? (
-              <p className="mp-section-note">
-                אין מוצרים זמינים לרכישה מיידית כרגע. בדקו הזמנות שבועיות למטה.
+              <p className="mp-section-note px-5 pb-4">
+                אין מוצרים זמינים לרכישה מיידית.
+                {promotions.length > 0 ? ' בדקו את ההזמנה השבועית למטה.' : ''}
               </p>
             ) : (
               <>
-                <div className="mp-store-products-grid">
+                <div className="mp-crate-row-scroll">
                   {featuredProducts.map((product) => (
                     <MarketplaceStoreProductTile
                       key={product.id}
@@ -193,74 +234,125 @@ const MarketplaceStorePage = () => {
                   ))}
                 </div>
                 {hasMoreProducts && (
-                  <div className="mp-store-shop-cta mt-4">
-                    <p className="text-sm" style={{ color: '#4a3d2e' }}>
+                  <div className="mp-crate-row-footer">
+                    <span className="mp-crate-row-count">
                       מוצגים {FEATURED_PRODUCT_COUNT} מתוך {products.length} מוצרים
-                    </p>
+                    </span>
                     <Link
                       to={`/community-marketplace/store/${businessId}/shop`}
                       className="mp-btn mp-btn-wood"
                     >
-                      לחנות המלאה ולסל
+                      לחנות המלאה ←
                     </Link>
                   </div>
                 )}
               </>
             )}
-          </div>
+          </section>
         )}
 
-        {/* 3 — Weekly promotions */}
+        {/* 2. תוכן דף הבסטה — קצת עלינו, הודעות, קשר, מדיניות, רשתות */}
+        {showStorePageContent && (
+          <StoreContentDisplay
+            store={store}
+            business={business}
+            showDeliverySection
+            showGroupTitle
+          />
+        )}
+
+        {/* הזמנות שבועיות פעילות */}
         {promotions.length > 0 && (
-          <div className="mp-panel">
-            <h2 className="mp-section-title mb-4">הזמנות שבועיות פעילות</h2>
-            <div className="mp-grid-promos">
-              {promotions.map((promotion) => (
-                <Link
-                  key={promotion.id}
-                  to={`/community-marketplace/order/${promotion.id}`}
-                  className="mp-promo-card"
-                >
-                  <span className="mp-promo-label">הזמנה מצטברת</span>
-                  <h3 className="mp-promo-title">{promotion.title || 'הזמנה שבועית'}</h3>
-                  {formatDate(promotion.endsAt) && (
-                    <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
-                      עד {formatDate(promotion.endsAt)}
-                    </p>
-                  )}
-                  <div className="mp-card-cta">להזמנה</div>
-                </Link>
+          <section id="stall-weekly" className="mp-panel" aria-labelledby="stall-weekly-title">
+            <h2 id="stall-weekly-title" className="mp-section-title mp-section-title-chalk mb-4">
+              הזמנה שבועית מהבסטה
+            </h2>
+            <div className="mp-stall-weekly-inline">
+              {promotions.map((promotion) => {
+                const deadline = getPromotionDeadlineChip(promotion.endsAt);
+                return (
+                  <Link
+                    key={promotion.id}
+                    to={`/community-marketplace/order/${promotion.id}`}
+                    className="mp-weekly-board-card"
+                  >
+                    <div className="mp-weekly-board-card-head">
+                      <span className="mp-weekly-board-label">הזמנה מצטברת</span>
+                      {deadline && !deadline.past && (
+                        <span
+                          className={`mp-deadline-chip${deadline.soon ? ' is-soon' : ''}`}
+                        >
+                          {deadline.text}
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="mp-weekly-board-title">
+                      {promotion.title || 'הזמנה שבועית'}
+                    </h3>
+                    {formatDate(promotion.endsAt) && !deadline?.soon && (
+                      <p className="mp-weekly-board-business">עד {formatDate(promotion.endsAt)}</p>
+                    )}
+                    <div className="mp-weekly-board-cta">להזמין ←</div>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* פרטי הבסטה — כמו בדף my-store */}
+        {hasBastaDetails && (
+          <section className="mp-panel mp-basta-quick-facts" aria-label="פרטי הבסטה">
+            <h2 className="mp-section-title mp-section-title-chalk mb-3">פרטי הבסטה</h2>
+            {homeCommunity && (
+              <p className="mp-section-note text-sm mb-2">
+                <strong>קהילת בית:</strong> {homeCommunity}
+              </p>
+            )}
+            {tags.length > 0 && (
+              <div className="mp-basta-quick-facts-tags">
+                {tags.map((tag) => (
+                  <span key={tag} className="mp-tag">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+            {phone && (
+              <div className="mp-basta-quick-facts-contact">
+                <a href={`tel:${phone}`} className="mp-btn mp-btn-outline mp-bench-btn-sm">
+                  {phone}
+                </a>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* אפשרויות אספקה — כמו בדף my-store */}
+        <MarketplaceFulfillmentSummary store={store} title="אפשרויות אספקה" />
+
+        {/* אמצעי תשלום ידניים */}
+        {paymentMethods.length > 0 && (
+          <section className="mp-payment-wood-panel" aria-labelledby="stall-payment-title">
+            <h2 id="stall-payment-title" className="mp-payment-wood-title">
+              תשלום בשוק
+            </h2>
+            <p className="mp-payment-wood-note">תשלום ידני ישירות לבעל הבסטה לאחר ההזמנה</p>
+            <div className="mp-payment-chips">
+              {paymentMethods.map((method) => (
+                <span key={method} className="mp-payment-chip">
+                  <span className="mp-payment-chip-icon" aria-hidden="true">
+                    {PAYMENT_CHIP_ICONS[method] || '•'}
+                  </span>
+                  {PAYMENT_METHOD_LABELS[method] || method}
+                </span>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* About — single section */}
-        {aboutText && (
-          <div className="mp-panel">
-            <h2 className="mp-section-title mb-3">אודות הבסטה</h2>
-            <p className="mp-store-content-text whitespace-pre-wrap">{aboutText}</p>
-          </div>
-        )}
-
-        <StoreContentDisplay
-          store={store}
-          business={business}
-          showDeliverySection={false}
-          hideAbout={Boolean(aboutText)}
-        />
-
-        <MarketplaceFulfillmentSummary store={store} />
-
-        {Array.isArray(store.tags) && store.tags.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {store.tags.map((tag) => (
-              <span key={tag} className="mp-tag">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* קישורי תשלום */}
+        <MarketplacePaymentLinksDisplay store={store} />
 
         {shopEnabled === false && promotions.length === 0 && (
           <div className="mp-panel">
@@ -270,13 +362,10 @@ const MarketplaceStorePage = () => {
           </div>
         )}
 
-        {Array.isArray(store.manualPaymentMethods) && store.manualPaymentMethods.length > 0 && (
-          <div className="mp-panel">
-            <h2 className="mp-section-title mb-2">אמצעי תשלום</h2>
-            <p className="text-sm text-gray-600">
-              {store.manualPaymentMethods.map((m) => PAYMENT_METHOD_LABELS[m] || m).join(' · ')}
-            </p>
-          </div>
+        {!shopEnabled && promotions.length > 0 && (
+          <p className="mp-section-note text-sm">
+            החנות הקבועה כבויה — ניתן להזמין דרך ההזמנה השבועית למעלה.
+          </p>
         )}
       </div>
     </div>

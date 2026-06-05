@@ -1,3 +1,5 @@
+import { pruneDeliveryV7Storage } from './localStorageSafeV7';
+
 // Static data (orders, productDetails, permanentNumbersMap) — written once per week load.
 const STORAGE_KEY = 'deliveryV7::offlineStore';
 // Hot data (remoteDraftsByOrder, workingDraftsByOrder, pendingOps, conflicts) — written on every weight save.
@@ -27,10 +29,16 @@ function readRawStore(key) {
 }
 
 function writeRawStore(key, store) {
+  const payload = JSON.stringify(normalizeStore(store));
   try {
-    localStorage.setItem(key, JSON.stringify(normalizeStore(store)));
+    localStorage.setItem(key, payload);
   } catch {
-    // Ignore quota/storage errors and keep the app usable online.
+    try {
+      pruneDeliveryV7Storage({ maxScopes: 2 });
+      localStorage.setItem(key, payload);
+    } catch {
+      // Ignore quota/storage errors and keep the app usable online.
+    }
   }
 }
 

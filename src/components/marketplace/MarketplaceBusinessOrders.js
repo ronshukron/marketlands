@@ -19,6 +19,16 @@ import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceOrderCard from './MarketplaceOrderCard';
 import './marketplace.css';
 
+const ORDER_BOARD_COLUMNS = [
+  { id: 'new', label: 'חדשות' },
+  { id: 'confirmed', label: 'אושרו' },
+  { id: 'ready', label: 'מוכנות' },
+  { id: 'completed', label: 'הושלמו' },
+  { id: 'cancelled', label: 'בוטלו' },
+];
+
+const getOrderBoardStatus = (order) => order.fulfillmentStatus || 'new';
+
 const MarketplaceBusinessOrders = () => {
   const { currentUser, userRole, userLoggedIn } = useAuth();
   const [orders, setOrders] = useState([]);
@@ -57,7 +67,7 @@ const MarketplaceBusinessOrders = () => {
 
   const filteredOrders = orders.filter((order) => {
     if (filter === 'all') return true;
-    return order.fulfillmentStatus === filter;
+    return getOrderBoardStatus(order) === filter;
   });
 
   const isSeller = isMarketplaceSellerRole(userRole) || hasSellerProfile;
@@ -93,7 +103,7 @@ const MarketplaceBusinessOrders = () => {
     const confirm = await Swal.fire({
       icon: 'question',
       title: 'לסמן הזמנה כמוכנה?',
-      text: 'ההזמנה תעבור ל"מוכנות". לאחר מכן תוכלו לשלוח וואטסאפ ללקוח.',
+      text: 'ההזמנה תעבור ל"מוכנות". לאחר מכך תוכלו לשלוח וואטסאפ ללקוח.',
       showCancelButton: true,
       confirmButtonText: 'כן, מוכנה',
       cancelButtonText: 'ביטול',
@@ -247,11 +257,28 @@ const MarketplaceBusinessOrders = () => {
     });
   };
 
+  const renderOrderCard = (order) => (
+    <MarketplaceOrderCard
+      key={order.id}
+      order={order}
+      view="business"
+      onMarkReady={handleMarkReady}
+      onUnmarkReady={handleUnmarkReady}
+      onMarkPaid={handleMarkPaid}
+      onUnmarkPaid={handleUnmarkPaid}
+      onMarkHandoff={handleMarkHandoff}
+      onUnmarkHandoff={handleUnmarkHandoff}
+      statusUpdating={statusUpdatingOrderId === order.id}
+      readyNotice={readyNoticeByOrderId[order.id]}
+      handoffNotice={handoffNoticeByOrderId[order.id]}
+    />
+  );
+
   if (!userLoggedIn) {
     return (
-      <div className="mp-page py-12" dir="rtl">
-        <div className="mp-main mp-empty text-center">
-          <h1 className="mp-section-title mb-3">הזמנות מהשוק</h1>
+      <div className="mp-page mp-bench-page" dir="rtl">
+        <div className="mp-main mp-bench mp-empty text-center">
+          <h1 className="mp-section-title mp-section-title-chalk mb-3">הזמנות מהשוק</h1>
           <Link to="/login" className="mp-btn mp-btn-wood">
             התחברות
           </Link>
@@ -262,9 +289,9 @@ const MarketplaceBusinessOrders = () => {
 
   if (!loading && !isSeller) {
     return (
-      <div className="mp-page py-12" dir="rtl">
-        <div className="mp-main mp-empty text-center">
-          <h1 className="mp-section-title mb-3">גישה לבעלי בסטה בלבד</h1>
+      <div className="mp-page mp-bench-page" dir="rtl">
+        <div className="mp-main mp-bench mp-empty text-center">
+          <h1 className="mp-section-title mp-section-title-chalk mb-3">גישה לבעלי דוכן בלבד</h1>
           <Link to="/community-marketplace" className="mp-btn mp-btn-wood mt-4">
             לשוק הבסטות
           </Link>
@@ -274,25 +301,25 @@ const MarketplaceBusinessOrders = () => {
   }
 
   return (
-    <div className="mp-page py-8" dir="rtl">
-      <div className="mp-main mp-stack">
-        <div className="mp-panel">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <Link to="/marketplace/dashboard" className="mp-link">
-                ← לוח הבסטה
-              </Link>
-              <h1 className="mp-section-title mt-2">הזמנות מהשוק</h1>
-              <p className="mp-section-note mt-1">
-                שלבים: מוכנה → תשלום → נאסף/נמסר (הושלמו).
-              </p>
-            </div>
-            <span className="mp-badge">{orders.length} הזמנות</span>
+    <div className="mp-page mp-bench-page" dir="rtl">
+      <div className="mp-main mp-bench mp-stack">
+        <header className="mp-bench-header">
+          <div className="mp-bench-header-main">
+            <Link to="/marketplace/dashboard" className="mp-link">
+              ← לוח הדוכן
+            </Link>
+            <h1 className="mp-bench-title mp-section-title-chalk mt-2">הזמנות מהשוק</h1>
+            <p className="mp-bench-subtitle">
+              לוח עבודה: חדשות → אושרו → מוכנות → הושלמו. שלבים: מוכנה → תשלום → נאסף/נמסר.
+            </p>
           </div>
+          <span className="mp-badge mp-bench-orders-badge">{orders.length} הזמנות</span>
+        </header>
 
-          <div className="mp-order-filters mt-4">
+        <div className="mp-bench-panel">
+          <div className="mp-bench-tabs mp-order-board-filters" role="tablist" aria-label="סינון הזמנות">
             {[
-              { id: 'all', label: 'הכל' },
+              { id: 'all', label: 'לוח מלא' },
               { id: 'new', label: 'חדשות' },
               { id: 'confirmed', label: 'אושרו' },
               { id: 'ready', label: 'מוכנות' },
@@ -301,7 +328,9 @@ const MarketplaceBusinessOrders = () => {
               <button
                 key={item.id}
                 type="button"
-                className={`mp-toggle-btn ${filter === item.id ? 'is-active' : ''}`}
+                role="tab"
+                aria-selected={filter === item.id}
+                className={`mp-bench-tab${filter === item.id ? ' is-active' : ''}`}
                 onClick={() => setFilter(item.id)}
               >
                 {item.label}
@@ -317,34 +346,48 @@ const MarketplaceBusinessOrders = () => {
         )}
 
         {!loading && filteredOrders.length === 0 && (
-          <div className="mp-panel mp-empty text-center">
-            <h2 className="mp-empty-title">אין הזמנות להצגה</h2>
-            <p className="mp-empty-text">
+          <div className="mp-bench-panel mp-bench-empty text-center">
+            <h2 className="mp-empty-title mp-section-title-chalk">אין הזמנות להצגה</h2>
+            <p className="mp-empty-text mp-section-note">
               {orders.length === 0
-                ? 'כשלקוחות יזמינו מהבסטה — ההזמנות יופיעו כאן.'
+                ? 'כשלקוחות יזמינו מהדוכן — ההזמנות יופיעו כאן.'
                 : 'אין הזמנות בסינון שנבחר.'}
             </p>
           </div>
         )}
 
-        {!loading && filteredOrders.length > 0 && (
-          <div className="mp-order-list">
-            {filteredOrders.map((order) => (
-              <MarketplaceOrderCard
-                key={order.id}
-                order={order}
-                view="business"
-                onMarkReady={handleMarkReady}
-                onUnmarkReady={handleUnmarkReady}
-                onMarkPaid={handleMarkPaid}
-                onUnmarkPaid={handleUnmarkPaid}
-                onMarkHandoff={handleMarkHandoff}
-                onUnmarkHandoff={handleUnmarkHandoff}
-                statusUpdating={statusUpdatingOrderId === order.id}
-                readyNotice={readyNoticeByOrderId[order.id]}
-                handoffNotice={handoffNoticeByOrderId[order.id]}
-              />
-            ))}
+        {!loading && filter === 'all' && filteredOrders.length > 0 && (
+          <div className="mp-orders-board" role="region" aria-label="לוח הזמנות לפי סטטוס">
+            {ORDER_BOARD_COLUMNS.map((column) => {
+              const columnOrders = orders.filter(
+                (order) => getOrderBoardStatus(order) === column.id
+              );
+              return (
+                <section
+                  key={column.id}
+                  className={`mp-orders-board-column mp-orders-board-column--${column.id}`}
+                  aria-label={`${column.label}, ${columnOrders.length} הזמנות`}
+                >
+                  <header className="mp-orders-board-column-head">
+                    <h2 className="mp-orders-board-column-title">{column.label}</h2>
+                    <span className="mp-orders-board-count">{columnOrders.length}</span>
+                  </header>
+                  <div className="mp-orders-board-cards">
+                    {columnOrders.length === 0 ? (
+                      <p className="mp-orders-board-empty">אין הזמנות</p>
+                    ) : (
+                      columnOrders.map((order) => renderOrderCard(order))
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
+
+        {!loading && filter !== 'all' && filteredOrders.length > 0 && (
+          <div className="mp-order-list mp-orders-board-list">
+            {filteredOrders.map((order) => renderOrderCard(order))}
           </div>
         )}
       </div>

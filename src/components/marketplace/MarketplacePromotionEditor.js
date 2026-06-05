@@ -117,7 +117,6 @@ const MarketplacePromotionEditor = ({
           type="submit"
           disabled={saving || approvedProducts.length === 0}
           className="mp-btn mp-btn-wood"
-          style={{ opacity: saving || approvedProducts.length === 0 ? 0.6 : 1 }}
         >
           {saving ? 'שומר...' : submitLabel}
         </button>

@@ -166,12 +166,12 @@ const MarketplaceProductForm = ({
           value={stockAmount}
           onChange={(e) => setStockAmount(e.target.value)}
         />
-        <span className="text-xs text-gray-500 mt-1 block">
+        <span className="mp-form-hint">
           0 = לא ניתן להוסיף לסל. השאירו ריק רק אם לא מעקבים מלאי (מוצרים ישנים).
         </span>
       </label>
 
-      <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+      <label className="mp-form-checkbox">
         <input
           type="checkbox"
           checked={showInStore}
@@ -195,7 +195,7 @@ const MarketplaceProductForm = ({
           />
           <button
             type="button"
-            className="mp-btn mp-options-add-btn"
+            className="mp-btn mp-btn-outline mp-options-add-btn"
             onClick={handleAddOption}
             disabled={!currentOption.trim()}
           >
@@ -262,16 +262,16 @@ const MarketplaceProductForm = ({
             id="mp-product-images"
             onChange={(e) => handleFiles(e.target.files)}
           />
-          <label htmlFor="mp-product-images" className="cursor-pointer text-sm text-gray-600">
+          <label htmlFor="mp-product-images" className="mp-dropzone-label">
             גרור תמונות או לחץ לבחירה
           </label>
         </div>
         {selectedFiles.length > 0 && (
-          <p className="text-xs text-gray-500 mt-1">{selectedFiles.length} תמונות חדשות לעלאה</p>
+          <p className="mp-form-hint">{selectedFiles.length} תמונות חדשות לעלאה</p>
         )}
       </div>
 
-      <button type="submit" className="mp-btn-primary" disabled={busy}>
+      <button type="submit" className="mp-btn mp-btn-wood" disabled={busy}>
         {busy ? 'שומר...' : submitLabel}
       </button>
     </form>

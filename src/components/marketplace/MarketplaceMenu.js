@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/authContext';
+import { usePickupSpot } from '../../contexts/PickupSpotContext';
 import { doSignOut } from '../../firebase/auth';
 import { useMarketplaceCart } from '../../contexts/MarketplaceCartContext';
 import {
@@ -15,8 +16,45 @@ import './MarketplaceMenu.css';
 
 const navLinkClass = (active) => `mp-menu-link${active ? ' is-active' : ''}`;
 
+const MarketBasketIcon = () => (
+  <svg
+    className="mp-menu-cart-icon"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M6 10h15l-1.5 9H7.5L6 10z" />
+    <path d="M6 10L5 4H2" />
+    <path d="M9 14h6" />
+    <path d="M10 6h4" />
+  </svg>
+);
+
+const CommunityPinIcon = () => (
+  <svg
+    className="mp-menu-community-icon"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 21s7-4.5 7-11a7 7 0 10-14 0c0 6.5 7 11 7 11z" />
+    <circle cx="12" cy="10" r="2.5" />
+  </svg>
+);
+
 const MarketplaceMenu = () => {
   const { userLoggedIn, userRole } = useAuth();
+  const { selectedPickupSpot } = usePickupSpot();
   const { totalItems: marketplaceTotalItems } = useMarketplaceCart();
   const location = useLocation();
   const navigate = useNavigate();
@@ -29,6 +67,22 @@ const MarketplaceMenu = () => {
   const isCommunityShop = isCommunityMarketplacePath(location.pathname);
   const isSellerArea = isSellerMarketplacePath(location.pathname);
   const isSeller = userLoggedIn && isMarketplaceSellerRole(userRole);
+
+  const communityLabel = selectedPickupSpot || 'בחרו קהילה';
+
+  const renderCommunityChip = () => {
+    if (!isCommunityShop) return null;
+    return (
+      <Link
+        to="/community-marketplace#community-filter"
+        className={`mp-menu-community${selectedPickupSpot ? '' : ' is-empty'}`}
+        title="שינוי קהילה"
+      >
+        <CommunityPinIcon />
+        <span className="mp-menu-community-label">אתם בשוק: {communityLabel}</span>
+      </Link>
+    );
+  };
 
   const isActive = (path, { prefix = false } = {}) =>
     prefix ? location.pathname.startsWith(path) : location.pathname === path;
@@ -46,6 +100,12 @@ const MarketplaceMenu = () => {
   useEffect(() => {
     setIsOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const openCartFromShop = () => setIsCartOpen(true);
+    window.addEventListener('marketplace-open-cart', openCartFromShop);
+    return () => window.removeEventListener('marketplace-open-cart', openCartFromShop);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -87,7 +147,6 @@ const MarketplaceMenu = () => {
     </>
   );
 
-  /** Seller browsing the public shop — marketplace routes only (no legacy /my-orders). */
   const sellerBrowsingShopLinks = (
     <>
       <Link
@@ -185,9 +244,11 @@ const MarketplaceMenu = () => {
       >
         <div className="mp-menu-inner">
           <Link to="/community-marketplace" className="mp-menu-brand">
-            <span className="mp-menu-brand-title">Basta Basket</span>
-            <span className="mp-menu-brand-sub">שוק הבסטות</span>
+            <span className="mp-menu-brand-title">שוק הבסטות</span>
+            <span className="mp-menu-brand-sub">מהשדה לשכונה</span>
           </Link>
+
+          {renderCommunityChip()}
 
           <nav className="mp-menu-nav" aria-label="תפריט שוק הבסטות">
             {renderNavLinks()}
@@ -199,9 +260,11 @@ const MarketplaceMenu = () => {
                 type="button"
                 className="mp-menu-cart-btn"
                 onClick={() => setIsCartOpen((open) => !open)}
-                aria-label="סל הבסטה"
+                aria-label={`סל השוק${marketplaceTotalItems > 0 ? `, ${marketplaceTotalItems} פריטים` : ''}`}
+                aria-expanded={isCartOpen}
               >
-                <span aria-hidden="true">🧺</span>
+                <MarketBasketIcon />
+                <span className="mp-menu-cart-btn-label">סל השוק</span>
                 {marketplaceTotalItems > 0 && (
                   <span className="mp-menu-cart-badge">{marketplaceTotalItems}</span>
                 )}
@@ -229,8 +292,11 @@ const MarketplaceMenu = () => {
         </div>
 
         <div className={`mp-menu-drawer${isOpen ? ' is-open' : ''}`}>
+          {isCommunityShop && (
+            <div className="mp-menu-drawer-community">{renderCommunityChip()}</div>
+          )}
           {renderNavLinks()}
-          <div className="mp-menu-mobile-only mt-3 pt-3 border-t border-[#e0d4c0] flex flex-col gap-2">
+          <div className="mp-menu-mobile-divider mp-menu-mobile-only">
             {userLoggedIn ? (
               <button type="button" className="mp-menu-btn mp-menu-btn-logout w-full" onClick={handleLogout}>
                 התנתק
