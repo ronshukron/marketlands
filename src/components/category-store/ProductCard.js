@@ -238,6 +238,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
         <div className="flex-1 p-3">
           <h3 className="text-base font-bold text-gray-900 mb-1 flex items-center gap-2 flex-wrap">
             {product.name}
+            {product.category === 'משתלה' && (
+              <span className="text-xs font-bold bg-lime-100 text-lime-800 px-2 py-0.5 rounded-full">🪴 משתלה</span>
+            )}
             {(product.isSample || Number(product.price) === 0) && (
               <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">דגימה בחינם</span>
             )}
@@ -372,6 +375,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
         <div className="flex-1 p-2.5">
           <h3 className="text-sm font-bold text-gray-900 mb-0.5 flex items-center gap-1 flex-wrap">
             {product.name}
+            {product.category === 'משתלה' && (
+              <span className="text-[10px] font-bold bg-lime-100 text-lime-800 px-1.5 py-0.5 rounded-full">🪴 משתלה</span>
+            )}
             {(product.isSample || Number(product.price) === 0) && (
               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">דגימה בחינם</span>
             )}

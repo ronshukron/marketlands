@@ -17,6 +17,11 @@ import {
   sanitizeDraftForItems,
   weekKeyToRangeLabel,
 } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import {
+  computeCommunityOrderNumbers,
+  readShowCommunityNumbering,
+  saveShowCommunityNumbering,
+} from '../adminV5/deliveryWeighingV5/v7/communityOrderNumbering';
 import './DeliveryDriverV7.css';
 
 const DRIVER_SETUP_KEY = 'driverDeliveryV7::setup';
@@ -361,6 +366,7 @@ export default function DeliveryDriverV7() {
   const [loadingWeeks, setLoadingWeeks] = useState(false);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [error, setError] = useState('');
+  const [showCommunityNumbering, setShowCommunityNumbering] = useState(() => readShowCommunityNumbering());
 
   const selectedCommunityList = useMemo(
     () => Array.from(selectedCommunities).filter(Boolean),
@@ -564,6 +570,26 @@ export default function DeliveryDriverV7() {
     });
     return unique;
   }, [communityOrderMap, orderViews]);
+
+  const computedCommunityOrderNumbers = useMemo(() => (
+    computeCommunityOrderNumbers({
+      orders: orderViews.map((view) => ({
+        id: view.order.id,
+        customerDetails: view.customerDetails,
+        pickupSpot: view.community,
+      })),
+      communities,
+      customerNumbersMap,
+    })
+  ), [orderViews, communities, customerNumbersMap]);
+
+  const toggleCommunityNumbering = useCallback(() => {
+    setShowCommunityNumbering((prev) => {
+      const next = !prev;
+      saveShowCommunityNumbering(next);
+      return next;
+    });
+  }, []);
 
   const visibleOrderViews = useMemo(() => {
     const list = communityFilter === '__all__'
@@ -798,7 +824,11 @@ export default function DeliveryDriverV7() {
             <div className="text-gray-500 text-center py-6">אין משלוחים עד הבית בטווח שנטען.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {homeDeliveryViews.map((view) => (
+              {homeDeliveryViews.map((view) => {
+                const communityNum = showCommunityNumbering
+                  ? computedCommunityOrderNumbers[view.community]?.[view.order.id]
+                  : null;
+                return (
                 <button
                   type="button"
                   key={view.order.id}
@@ -806,8 +836,15 @@ export default function DeliveryDriverV7() {
                   className="driver-home-card text-right rounded-2xl p-4 hover:bg-gray-100 transition-colors"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="w-11 h-11 rounded-full bg-yellow-500 text-white font-black flex items-center justify-center shrink-0">
-                      {view.customerNumber || '-'}
+                    <div className="relative shrink-0">
+                      <div className="w-11 h-11 rounded-full bg-yellow-500 text-white font-black flex items-center justify-center">
+                        {view.customerNumber || '-'}
+                      </div>
+                      {communityNum && (
+                        <span className="absolute -bottom-1 -left-1 min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[9px] font-black flex items-center justify-center leading-none">
+                          #{communityNum}
+                        </span>
+                      )}
                     </div>
                     <div className="min-w-0">
                       <div className="font-black text-gray-900">{view.customerDetails.name || 'לקוח ללא שם'}</div>
@@ -828,7 +865,8 @@ export default function DeliveryDriverV7() {
                     </div>
                   </div>
                 </button>
-              ))}
+              );
+              })}
             </div>
           )}
         </CollapsibleSection>
@@ -842,7 +880,18 @@ export default function DeliveryDriverV7() {
             onToggle={() => toggleSection('manifest')}
             className="self-start"
           >
-            <div className="p-4 border-b border-gray-100">
+            <div className="p-4 border-b border-gray-100 space-y-3">
+              <button
+                type="button"
+                onClick={toggleCommunityNumbering}
+                className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                  showCommunityNumbering
+                    ? 'bg-indigo-600 text-white border-indigo-700'
+                    : 'bg-white text-gray-600 border-gray-200'
+                }`}
+              >
+                מספר לפי קהילה {showCommunityNumbering ? 'פעיל' : 'כבוי'}
+              </button>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -880,6 +929,9 @@ export default function DeliveryDriverV7() {
               )}
               {!loadingOrders && visibleOrderViews.map((view) => {
                 const active = selectedOrderView?.order.id === view.order.id;
+                const communityNum = showCommunityNumbering
+                  ? computedCommunityOrderNumbers[view.community]?.[view.order.id]
+                  : null;
                 return (
                   <button
                     type="button"
@@ -890,8 +942,15 @@ export default function DeliveryDriverV7() {
                     }`}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-full bg-yellow-500 text-white font-black flex items-center justify-center text-lg shrink-0">
-                        {view.customerNumber || '-'}
+                      <div className="relative shrink-0">
+                        <div className="w-12 h-12 rounded-full bg-yellow-500 text-white font-black flex items-center justify-center text-lg">
+                          {view.customerNumber || '-'}
+                        </div>
+                        {communityNum && (
+                          <span className="absolute -bottom-1 -left-1 min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[9px] font-black flex items-center justify-center leading-none">
+                            #{communityNum}
+                          </span>
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
@@ -940,8 +999,15 @@ export default function DeliveryDriverV7() {
               <div className="space-y-5">
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                   <div className="flex items-start gap-4">
-                    <div className="w-16 h-16 rounded-full bg-yellow-500 text-white font-black flex items-center justify-center text-2xl">
-                      {selectedOrderView.customerNumber || '-'}
+                    <div className="relative">
+                      <div className="w-16 h-16 rounded-full bg-yellow-500 text-white font-black flex items-center justify-center text-2xl">
+                        {selectedOrderView.customerNumber || '-'}
+                      </div>
+                      {showCommunityNumbering && computedCommunityOrderNumbers[selectedOrderView.community]?.[selectedOrderView.order.id] && (
+                        <span className="absolute -bottom-1 -left-1 min-w-[22px] h-[22px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center leading-none">
+                          #{computedCommunityOrderNumbers[selectedOrderView.community][selectedOrderView.order.id]}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <h2 className="text-2xl font-black text-gray-900">

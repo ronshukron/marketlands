@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import {
-  getDelayedPaymentSpots,
+  getDelayedPaymentSpotsForAdmin,
   setDelayedPaymentSpots,
   getPaymentRoutingConfig,
   setPaymentRoutingConfig,
   getReusableCartonConfig,
-  setReusableCartonConfig
+  setReusableCartonConfig,
 } from '../../services/paymentConfigService';
 import Swal from 'sweetalert2';
 
 const PaymentConfigAdmin = () => {
   const navigate = useNavigate();
+  const { pickupSpots, loaded: pickupSpotsLoaded } = usePickupSpots();
   const [delayedSpots, setDelayedSpots] = useState([]);
+  const [newDelayedCommunities, setNewDelayedCommunities] = useState([]);
   const [regularPaymentProvider, setRegularPaymentProvider] = useState('bit_legacy');
   const [delayedPaymentGateway, setDelayedPaymentGateway] = useState('grow_j5_legacy');
   const [reusableCartonEnabledSpots, setReusableCartonEnabledSpots] = useState([]);
@@ -23,18 +25,20 @@ const PaymentConfigAdmin = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
+    if (!pickupSpotsLoaded) return;
     loadConfig();
-  }, []);
+  }, [pickupSpotsLoaded, pickupSpots]);
 
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const [spots, routingConfig, reusableCartonConfig] = await Promise.all([
-        getDelayedPaymentSpots(),
+      const [delayedConfig, routingConfig, reusableCartonConfig] = await Promise.all([
+        getDelayedPaymentSpotsForAdmin(pickupSpots),
         getPaymentRoutingConfig(),
-        getReusableCartonConfig()
+        getReusableCartonConfig(),
       ]);
-      setDelayedSpots(spots);
+      setDelayedSpots(delayedConfig.delayedPaymentSpots);
+      setNewDelayedCommunities(delayedConfig.newCommunities || []);
       setRegularPaymentProvider(routingConfig.regularPaymentProvider);
       setDelayedPaymentGateway(routingConfig.delayedPaymentGateway);
       setReusableCartonEnabledSpots(reusableCartonConfig.enabledSpots || []);
@@ -100,7 +104,7 @@ const PaymentConfigAdmin = () => {
     setSaving(true);
     try {
       const [spotsSaved, routingSaved, reusableCartonSaved] = await Promise.all([
-        setDelayedPaymentSpots(delayedSpots),
+        setDelayedPaymentSpots(delayedSpots, pickupSpots),
         setPaymentRoutingConfig({
           regularPaymentProvider,
           delayedPaymentGateway
@@ -112,12 +116,13 @@ const PaymentConfigAdmin = () => {
       ]);
 
       if (spotsSaved && routingSaved && reusableCartonSaved) {
+        setNewDelayedCommunities([]);
         Swal.fire({
           icon: 'success',
           title: 'נשמר בהצלחה',
           text: 'הגדרות התשלום עודכנו',
           timer: 2000,
-          showConfirmButton: false
+          showConfirmButton: false,
         });
       } else {
         throw new Error('Failed to save');
@@ -139,7 +144,7 @@ const PaymentConfigAdmin = () => {
   const reusableCartonCount = reusableCartonEnabledSpots.length;
   const reusableCartonDefaultCount = reusableCartonDefaultSpots.length;
 
-  if (loading) {
+  if (loading || !pickupSpotsLoaded) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
         <div className="text-center">
@@ -232,6 +237,14 @@ const PaymentConfigAdmin = () => {
           </div>
         </div>
 
+        {newDelayedCommunities.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-sm text-amber-900">
+            <p className="font-medium mb-1">קהילות חדשות זוהו — הוגדרו אוטומטית לתשלום מושהה:</p>
+            <p>{newDelayedCommunities.join(', ')}</p>
+            <p className="text-xs mt-2 text-amber-700">לחצו «שמור שינויים» כדי לשמור, או בטלו ידנית אם צריך תשלום רגיל.</p>
+          </div>
+        )}
+
         {/* Search and Actions */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -279,9 +292,13 @@ const PaymentConfigAdmin = () => {
           </div>
           
           <div className="p-4 max-h-[500px] overflow-y-auto">
+            {pickupSpots.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-8">לא נמצאו קהילות פעילות ב-Firestore.</p>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredPickupSpots.map((spot) => {
                 const isDelayed = delayedSpots.includes(spot);
+                const isNewDefault = newDelayedCommunities.includes(spot);
                 return (
                   <button
                     key={spot}
@@ -306,11 +323,13 @@ const PaymentConfigAdmin = () => {
                     </div>
                     <div className={`text-xs mt-1 ${isDelayed ? 'text-purple-600' : 'text-gray-500'}`}>
                       {isDelayed ? 'תשלום מושהה (J5)' : 'תשלום רגיל'}
+                      {isNewDefault && ' · חדש'}
                     </div>
                   </button>
                 );
               })}
             </div>
+            )}
           </div>
         </div>
 
@@ -400,6 +419,7 @@ const PaymentConfigAdmin = () => {
                 <li>הבחירה בנקודת איסוף קובעת אם הלקוח הולך לתשלום רגיל או מושהה</li>
                 <li>רשימות הספקים למעלה קובעות איזה endpoint יופעל בכל זרימה</li>
                 <li>אם הלקוח משנה נקודת איסוף בדף התשלום, הוא יועבר אוטומטית לדף הנכון</li>
+                <li>קהילות חדשות שנוספו ל-DB מוגדרות אוטומטית לתשלום מושהה</li>
                 <li>לקוחות שלא בחרו נקודת איסוף יועברו לתשלום רגיל כברירת מחדל</li>
               </ul>
             </div>

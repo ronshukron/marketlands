@@ -9,10 +9,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Slider from 'react-slick';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
-import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled } from '../../utils/deliveryScheduleUtils';
+import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
-const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'אחר'];
+const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'משתלה', 'אחר'];
 const hebrewPickupSpotCollator = new Intl.Collator('he');
 
 const sortPickupSpotsByHebrewAlphabet = (spots) =>
@@ -525,10 +525,16 @@ const CategoryStore = () => {
   };
 
   // Determine which products to display with community filter
-  const baseProducts = isSearchActive 
-    ? searchResults 
-    : selectedCategory === 'הכל' 
-      ? products 
+  const baseProducts = isSearchActive
+    ? searchResults
+    : selectedCategory === 'הכל'
+      ? products.filter((product) => {
+          const productCategory = product.category || 'אחר';
+          if (productCategory === 'משתלה') {
+            return Boolean(product.showInAllCategory);
+          }
+          return true;
+        })
       : products.filter(product => {
           const productCategory = product.category || 'אחר';
           // Special handling for "ירוקים ופטריות" - match both "ירוקים" and "ירוקים ופטריות"
@@ -684,6 +690,11 @@ const CategoryStore = () => {
 
         {selectedCommunity && availableDeliveryDates.length > 0 && (
           <div className="mb-3 px-1">
+            {isShowingNextDeliveryWeek(availableDeliveryDates) && (
+              <p className="text-lg font-black text-amber-900 bg-amber-100 border-2 border-amber-400 rounded-lg p-3 mb-3 text-right">
+                שימו לב: אין משלוח השבוע — ההזמנה תישלח בשבוע הבא!
+              </p>
+            )}
             <p className="text-sm font-medium text-gray-700 mb-2 text-right">
               תאריך משלוח:
             </p>
@@ -733,6 +744,7 @@ const CategoryStore = () => {
                   'ירקות': '🥬',
                   'פירות': '🍎',
                   'ירוקים ופטריות': '🌿',
+                  'משתלה': '🪴',
                   'אחר': '🏷️'
                 };
                 

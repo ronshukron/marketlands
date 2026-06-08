@@ -26,6 +26,7 @@ import PaymentCancel from './components/PaymentCancel';
 import PaymentSuccess from './components/PaymentSuccess';
 import TermsOfService from './components/TermsOfService';
 import MyOrders from './components/MyOrders';
+import CustomerOrderDetail from './components/CustomerOrderDetail';
 import './App.css';
 import OngoingOrders from './components/OngoingOrders';
 import BusinessRegister from './components/auth/BusinessRegister';
@@ -154,6 +155,7 @@ const App = () => {
                   <Route path="/payment-success/*" element={<PaymentSuccess />} />    
                   <Route path="/terms-of-service" element={<TermsOfService />} />  
                   <Route path="/my-orders" element={<MyOrders />} />
+                  <Route path="/my-orders/:orderId" element={<CustomerOrderDetail />} />
                   <Route path="/ongoing-orders" element={<OngoingOrders />} />
                   <Route path="/business-register" element={<BusinessRegister />} />
                   <Route path="/local-business-register" element={<LocalBusinessRegister />} />

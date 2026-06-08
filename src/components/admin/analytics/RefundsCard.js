@@ -23,7 +23,10 @@ const RefundsCard = ({ refunds }) => {
 
       return {
           count: filtered.length,
-          total: filtered.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+          total: filtered.reduce((sum, r) => {
+            const amount = r.approvedRefundAmount ?? r.requestedRefundAmount ?? r.orderAmount ?? r.amount ?? 0;
+            return sum + (Number(amount) || 0);
+          }, 0)
       };
   }, [refunds, startDate, endDate]);
 

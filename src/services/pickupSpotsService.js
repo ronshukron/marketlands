@@ -274,6 +274,8 @@ export async function saveCommunity(community) {
   const name = String(community.name || '').trim();
   if (!name) throw new Error('שם יישוב חובה');
   const ref = doc(db, 'communities', name);
+  const existingSnap = await getDoc(ref);
+  const isNew = !existingSnap.exists();
   await setDoc(ref, {
     name,
     region: community.region || 'אחר',
@@ -288,6 +290,13 @@ export async function saveCommunity(community) {
     broadcastDeliveryNote: String(community.broadcastDeliveryNote || '').trim(),
     updatedAt: new Date().toISOString(),
   }, { merge: true });
+
+  const { addNewCommunityToPaymentConfig, readPaymentConfigSnapshot } = await import('./paymentConfigService');
+  const paymentConfig = await readPaymentConfigSnapshot();
+  const knownCommunities = paymentConfig.knownCommunities;
+  if (isNew || (Array.isArray(knownCommunities) && !knownCommunities.includes(name))) {
+    await addNewCommunityToPaymentConfig(name);
+  }
 }
 
 async function collectCommunityDeleteRefs(name) {
@@ -330,6 +339,9 @@ export async function deleteCommunity(name) {
   const batch = writeBatch(db);
   refsToDelete.forEach((ref) => batch.delete(ref));
   await batch.commit();
+
+  const { removeCommunityFromPaymentConfig } = await import('./paymentConfigService');
+  await removeCommunityFromPaymentConfig(trimmed);
 }
 
 export async function migrateNitzanimNames() {

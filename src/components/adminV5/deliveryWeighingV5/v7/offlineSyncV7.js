@@ -226,3 +226,18 @@ export function getCurrentFieldValueForOp(draft = {}, op) {
   }
   return {};
 }
+
+/** Target field value after applying a pending op (used to detect false sync conflicts). */
+export function getDesiredFieldValueForOp(op) {
+  if (!op) return {};
+  if (op.type === 'setWeight') {
+    return { weight: normalizeWeightEntry(op.value) };
+  }
+  if (op.type === 'clearWeight') {
+    return { weight: normalizeWeightEntry({ actualQuantity: null, source: op.value?.source || 'manual' }) };
+  }
+  if (op.type === 'removeLine') return { removed: true };
+  if (op.type === 'restoreLine') return { removed: false };
+  if (op.type === 'setStatus') return { status: op.value?.status || '' };
+  return {};
+}

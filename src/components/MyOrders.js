@@ -4,6 +4,13 @@ import { db, auth } from '../firebase/firebase';
 import { useAuth } from '../contexts/authContext';
 import LoadingSpinner from './LoadingSpinner';
 import { Link } from 'react-router-dom';
+import {
+    fetchCustomerOrderById,
+    shouldIncludeCustomerOrderInList,
+    getOrderDeliveryDateFromCustomerOrder,
+    getOrderPickupSpot,
+} from '../services/customerOrderService';
+import RefundRequestForm from './RefundRequestForm';
 
 const MyOrders = () => {
     const { currentUser } = useAuth();
@@ -11,8 +18,8 @@ const MyOrders = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
-    const [refundReason, setRefundReason] = useState('');
     const [currentOrderId, setCurrentOrderId] = useState(null);
+    const [isExternalRefund, setIsExternalRefund] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [refundSuccess, setRefundSuccess] = useState(false);
     const [refundStatuses, setRefundStatuses] = useState({});
@@ -55,9 +62,23 @@ const MyOrders = () => {
                     const fetchWeeklyByUserPromise = (async () => {
                         if (weeklyOrderIds.length > 0) return [];
                         try {
-                            const qWeekly = query(collection(db, 'customerOrders'), where('userId', '==', currentUser.uid));
-                            const snap = await getDocs(qWeekly);
-                            return snap.docs.map((d) => ({ id: d.id, ...d.data(), isIndependent: false }));
+                            const [standardSnap, delayedSnap] = await Promise.all([
+                                getDocs(query(collection(db, 'customerOrders'), where('userId', '==', currentUser.uid))),
+                                getDocs(query(collection(db, 'customerOrdersDelayed'), where('userId', '==', currentUser.uid))),
+                            ]);
+                            const standard = standardSnap.docs.map((d) => ({
+                                id: d.id,
+                                customerOrderSource: 'customerOrders',
+                                ...d.data(),
+                                isIndependent: false,
+                            }));
+                            const delayed = delayedSnap.docs.map((d) => ({
+                                id: d.id,
+                                customerOrderSource: 'customerOrdersDelayed',
+                                ...d.data(),
+                                isIndependent: false,
+                            }));
+                            return [...standard, ...delayed];
                         } catch (e) {
                             console.error('Failed weekly fallback query', e);
                             return [];
@@ -80,14 +101,12 @@ const MyOrders = () => {
                         Promise.all(
                             weeklyOrderIds.map(async (orderId) => {
                                 try {
-                                    const orderDocRef = doc(db, "customerOrders", orderId);
-                                    const orderDocSnap = await getDoc(orderDocRef);
-                                    if (orderDocSnap.exists()) {
-                                        return { id: orderId, ...orderDocSnap.data(), isIndependent: false };
-                                    } else {
-                                        console.warn(`Order with ID ${orderId} not found.`);
-                                        return null;
+                                    const order = await fetchCustomerOrderById(orderId);
+                                    if (order) {
+                                        return { ...order, isIndependent: false };
                                     }
+                                    console.warn(`Order with ID ${orderId} not found.`);
+                                    return null;
                                 } catch (orderError) {
                                     console.error(`Error fetching order ${orderId}:`, orderError);
                                     return null;
@@ -127,13 +146,8 @@ const MyOrders = () => {
                     const weeklyCombined = mergeUnique([...(fetchedWeekly || []).filter(Boolean), ...(weeklyByUser || [])]);
                     const independentCombined = mergeUnique([...(fetchedIndependent || []).filter(Boolean), ...(independentByUser || [])]);
 
-                    // Keep weekly logic: include only completed/paid
                     const validWeekly = (weeklyCombined || [])
-                        .filter((order) => {
-                            if (order === null) return false;
-                            const status = derivePaymentStatus(order);
-                            return status === 'completed' || status === 'paid';
-                        });
+                        .filter((order) => order !== null && shouldIncludeCustomerOrderInList(order));
 
                     // Independent: include all so we can show status (held/pending/etc.)
                     const validIndependent = (independentCombined || []).filter((order) => order !== null);
@@ -267,45 +281,38 @@ const MyOrders = () => {
         );
     };
 
-    const handleRefundRequest = async (e) => {
-        e.preventDefault();
-        
-        if (!refundReason.trim()) {
-            alert('אנא הזן סיבה לבקשת ההחזר');
-            return;
-        }
-        
+    const handleRefundRequest = async (formData) => {
         setIsSubmitting(true);
-        
+
         try {
-            // Get user details from Firestore
             const userDocRef = doc(db, "users", auth.currentUser.uid);
             const userDocSnap = await getDoc(userDocRef);
             const userData = userDocSnap.exists() ? userDocSnap.data() : {};
-            
+
             let refundData = {
                 userId: auth.currentUser.uid,
                 userEmail: auth.currentUser.email,
                 userName: userData.name || auth.currentUser.displayName || '',
                 userPhone: userData.phone || '',
-                reason: refundReason,
-                status: 'pending', // pending, approved, rejected
+                reason: formData.reason,
+                status: 'pending',
                 createdAt: serverTimestamp(),
-                isExternalOrder: currentOrderId ? false : true
+                isExternalOrder: !formData.orderId,
+                refundItems: formData.refundItems || [],
+                requestedRefundAmount: formData.requestedRefundAmount || 0,
             };
-            
-            // If we have an order ID, include order details
-            if (currentOrderId) {
-                const orderToRefund = orders.find(order => order.id === currentOrderId);
+
+            if (formData.orderId) {
+                const orderToRefund = orders.find((order) => order.id === formData.orderId);
                 refundData = {
                     ...refundData,
-                    orderId: currentOrderId,
-                    orderAmount: orderToRefund.totalAmount || orderToRefund.grandTotal || 0,
-                    orderDate: orderToRefund.createdAt || serverTimestamp(),
-                    businessId: orderToRefund.businessId || '',
-                    businessName: orderToRefund.businessName || 'Unknown Business',
-                    items: orderToRefund.items || orderToRefund.orderItems || [],
-                    orderBreakdown: orderToRefund.orderBreakdown || {}
+                    orderId: formData.orderId,
+                    orderAmount: orderToRefund?.totalAmount || orderToRefund?.grandTotal || formData.orderAmount || 0,
+                    orderDate: orderToRefund?.createdAt || serverTimestamp(),
+                    businessId: orderToRefund?.businessId || '',
+                    businessName: orderToRefund?.businessName || 'Unknown Business',
+                    items: orderToRefund?.items || orderToRefund?.orderItems || [],
+                    orderBreakdown: orderToRefund?.orderBreakdown || {},
                 };
             }
 
@@ -314,8 +321,8 @@ const MyOrders = () => {
             setRefundSuccess(true);
             setTimeout(() => {
                 setIsRefundModalOpen(false);
-                setRefundReason('');
                 setCurrentOrderId(null);
+                setIsExternalRefund(false);
                 setRefundSuccess(false);
             }, 2000);
         } catch (error) {
@@ -328,6 +335,7 @@ const MyOrders = () => {
 
     const openRefundModal = (orderId = null) => {
         setCurrentOrderId(orderId);
+        setIsExternalRefund(!orderId);
         setIsRefundModalOpen(true);
     };
 
@@ -441,19 +449,18 @@ const MyOrders = () => {
                                         ₪{order.grandTotal?.toFixed(2) || order.totalAmount?.toFixed(2) || '0.00'}
                                     </span>
                                 </div>
-                                {order.customerDetails?.pickupSpot && (
-                                     <p className="text-sm text-gray-500 mt-2">נקודת איסוף: <span className="font-medium">{order.customerDetails.pickupSpot}</span></p>
+                                {getOrderPickupSpot(order) && (
+                                     <p className="text-sm text-gray-500 mt-2">נקודת איסוף: <span className="font-medium">{getOrderPickupSpot(order)}</span></p>
                                 )}
-                                 {order.pickupSpotName && (
-                                     <p className="text-sm text-gray-500 mt-2">נקודת איסוף: <span className="font-medium">{order.pickupSpotName}</span></p>
+                                {getOrderDeliveryDateFromCustomerOrder(order) && (
+                                    <p className="text-sm text-gray-500 mt-1">תאריך משלוח: <span className="font-medium">{getOrderDeliveryDateFromCustomerOrder(order)}</span></p>
                                 )}
-                                {/* Add a link/button to view full order details if you have such a page */}
-                                {/* <div className="mt-4 text-right">
-                                    <Link to={`/order-details/${order.id}`} className="text-sm text-blue-600 hover:underline">
+                                <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                                    <Link to={`/my-orders/${order.id}`} className="text-sm text-blue-600 hover:underline">
                                         פרטים נוספים
                                     </Link>
-                                </div> */}
-                                <div className="mt-4 text-right">
+                                </div>
+                                <div className="mt-2 text-right">
                                     {refundStatuses[order.id] ? (
                                         <div className="text-sm text-gray-500">
                                             {refundStatuses[order.id].status === 'completed' ? 
@@ -507,41 +514,18 @@ const MyOrders = () => {
                                 <p className="text-gray-500 mt-2">נאשר את בקשתך בהקדם האפשרי.</p>
                             </div>
                         ) : (
-                            <form onSubmit={handleRefundRequest}>
-                                <div className="mb-4">
-                                    <label htmlFor="refundReason" className="block text-sm font-medium text-gray-700 mb-1">
-                                        הזיכוי מאושר אוטמטית נשמח להסבר כדי להשתפר בעתיד :)
-                                    </label>
-                                    <textarea
-                                        id="refundReason"
-                                        value={refundReason}
-                                        onChange={(e) => setRefundReason(e.target.value)}
-                                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        rows="4"
-                                        placeholder="אנא הסבירו כאן על איזה מוצר תרצו לקבל זיכוי"
-                                        required
-                                    ></textarea>
-                                </div>
-                                
-                                <div className="flex justify-between mt-6">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsRefundModalOpen(false)}
-                                        className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
-                                    >
-                                        ביטול
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={isSubmitting}
-                                        className={`px-4 py-2 bg-red-600 text-white rounded-md transition-colors ${
-                                            isSubmitting ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
-                                        }`}
-                                    >
-                                        {isSubmitting ? 'שולח בקשה...' : 'שלח בקשת החזר'}
-                                    </button>
-                                </div>
-                            </form>
+                            <RefundRequestForm
+                                orders={orders}
+                                selectedOrderId={isExternalRefund ? null : currentOrderId}
+                                isExternalOrder={isExternalRefund}
+                                onSubmit={handleRefundRequest}
+                                onCancel={() => {
+                                    setIsRefundModalOpen(false);
+                                    setCurrentOrderId(null);
+                                    setIsExternalRefund(false);
+                                }}
+                                isSubmitting={isSubmitting}
+                            />
                         )}
                     </div>
                 </div>

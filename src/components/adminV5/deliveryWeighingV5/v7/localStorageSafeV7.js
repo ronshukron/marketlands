@@ -125,3 +125,24 @@ export function saveCommunityOrder(storageKey, order, keepScopeKeys = []) {
   const sanitized = sanitizeCommunityOrder(order);
   return safeSetLocalStorage(storageKey, JSON.stringify(sanitized), { keepScopeKeys });
 }
+
+const COMMUNITY_COLORS_KEY = 'deliveryV7::communityColors';
+
+export function readCommunityColorOverrides() {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(COMMUNITY_COLORS_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveCommunityColorOverride(communityName, color) {
+  if (!communityName || typeof localStorage === 'undefined') return false;
+  const current = readCommunityColorOverrides();
+  return safeSetLocalStorage(
+    COMMUNITY_COLORS_KEY,
+    JSON.stringify({ ...current, [communityName]: color }),
+  );
+}

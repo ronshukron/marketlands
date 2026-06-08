@@ -25,6 +25,7 @@ const EditProduct = () => {
     description: '',
     price: '',
     category: '',
+    showInAllCategory: false,
     options: [],
     tags: [],
     stockAmount: 0,
@@ -82,6 +83,7 @@ const EditProduct = () => {
             description: data.description || '',
             price: data.price ? data.price.toString() : '',
             category: data.category || '',
+            showInAllCategory: Boolean(data.showInAllCategory),
             options: data.options || [],
             tags: data.tags || [],
             stockAmount: data.stockAmount || 0,
@@ -261,6 +263,7 @@ const handleSubmit = async (e) => {
         : 1,
       ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
       ...(formData.category !== '' ? { category: formData.category } : {}),
+      showInAllCategory: formData.category === 'משתלה' ? Boolean(formData.showInAllCategory) : false,
       ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {}),
       isSample: isSample || parseFloat(price) === 0,
     });
@@ -509,21 +512,44 @@ const handleSubmit = async (e) => {
               name="category"
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               value={formData.category}
-              onChange={(e) => 
+              onChange={(e) => {
+                const nextCategory = e.target.value;
                 setFormData({
                   ...formData,
-                  category: e.target.value
-                })
-              }
+                  category: nextCategory,
+                  showInAllCategory: nextCategory === 'משתלה' ? formData.showInAllCategory : false,
+                });
+              }}
             >
               <option value="">בחר קטגוריה (אופציונלי)</option>
               <option value="ירקות">ירקות</option>
               <option value="פירות">פירות</option>
               <option value="ירוקים">ירוקים</option>
+              <option value="משתלה">משתלה</option>
               <option value="אחר">אחר</option>
             </select>
             <p className="mt-1 text-xs text-gray-500">בחירת קטגוריה תאפשר למוצר להופיע בתצוגת הקטגוריות בחנות</p>
           </div>
+
+          {formData.category === 'משתלה' && (
+            <div className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.showInAllCategory}
+                  onChange={(e) => setFormData((prev) => ({
+                    ...prev,
+                    showInAllCategory: e.target.checked,
+                  }))}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">הצג גם בקטגוריית &quot;הכל&quot;</span>
+              </label>
+              <p className="mt-1 text-xs text-gray-500 mr-6">
+                מוצרי משתלה מוצגים רק בקטגוריית משתלה, אלא אם מסומן כאן
+              </p>
+            </div>
+          )}
 
           {/* Thai Name - Only for non-independent farmers */}
           {!isIndependent && (

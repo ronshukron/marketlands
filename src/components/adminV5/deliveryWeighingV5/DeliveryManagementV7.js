@@ -50,6 +50,7 @@ import {
   buildBaseSnapshotForOp,
   buildOfflineScopeKey,
   getCurrentFieldValueForOp,
+  getDesiredFieldValueForOp,
   getOfflineScope,
   mergePendingOps,
   readDraftStore,
@@ -58,7 +59,12 @@ import {
   writeDraftStore,
   writeStaticScopeData,
 } from './v7/offlineSyncV7';
-import { readCommunityOrder, saveCommunityOrder } from './v7/localStorageSafeV7';
+import { readCommunityOrder, readCommunityColorOverrides, saveCommunityColorOverride, saveCommunityOrder } from './v7/localStorageSafeV7';
+import {
+  computeCommunityOrderNumbers,
+  readShowCommunityNumbering,
+  saveShowCommunityNumbering,
+} from './v7/communityOrderNumbering';
 import { getWeekKey, toLocalDateKey } from '../../../utils/deliveryScheduleUtils';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -592,6 +598,13 @@ function areOpSnapshotsEqual(a, b) {
   return JSON.stringify(a || null) === JSON.stringify(b || null);
 }
 
+function filterResolvedConflicts(conflicts = []) {
+  return (conflicts || []).filter((conflict) => {
+    const localSnapshot = conflictLocalSnapshot(conflict);
+    return !areOpSnapshotsEqual(localSnapshot, conflict.cloudValue);
+  });
+}
+
 function conflictLocalSnapshot(conflict) {
   if (!conflict) return null;
   if (conflict.type === 'setWeight' || conflict.type === 'clearWeight') {
@@ -832,6 +845,7 @@ export default function DeliveryManagementV7() {
   const [localDraftsByOrder, setLocalDraftsByOrder] = useState({});
   const [pendingOps, setPendingOps] = useState([]);
   const pendingOpsRef = useRef([]);
+  const applyingOpsOnlineRef = useRef(false);
   const [syncConflicts, setSyncConflicts] = useState([]);
   const [syncingOffline, setSyncingOffline] = useState(false);
   const imageMemoryCacheRef = useRef({});
@@ -849,6 +863,9 @@ export default function DeliveryManagementV7() {
   const [communityFilter, setCommunityFilter] = useState('__all__');
   const [showCompleted, setShowCompleted] = useState(false);
   const [communityOrder, setCommunityOrder] = useState(() => readCommunityOrder(COMMUNITY_ORDER_KEY));
+  const [communityColorOverrides, setCommunityColorOverrides] = useState(() => readCommunityColorOverrides());
+  const [pendingCommunityColors, setPendingCommunityColors] = useState({});
+  const [showCommunityNumbering, setShowCommunityNumbering] = useState(() => readShowCommunityNumbering());
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const showToast = useCallback((msg, dur = 2500) => {
@@ -1115,7 +1132,7 @@ export default function DeliveryManagementV7() {
     const filteredPendingOps = (cachedScope.pendingOps || []).filter((op) => !op?.lineId || isCanonicalLineIdV7(op.lineId));
     setLocalDraftsByOrder(cachedScope.workingDraftsByOrder || applyOpsToDrafts(cachedScope.remoteDraftsByOrder || {}, filteredPendingOps));
     setPendingOps(filteredPendingOps);
-    setSyncConflicts(cachedScope.conflicts || []);
+    setSyncConflicts(filterResolvedConflicts(cachedScope.conflicts || []));
     setError(null);
     setCommunityFilter('__all__');
     setSelectedOrderId((prev) => {
@@ -1166,6 +1183,7 @@ export default function DeliveryManagementV7() {
       showToast(tRef.current.offlineDraftSaved);
       return queuedOps;
     }
+    applyingOpsOnlineRef.current = true;
     try {
       await remoteWrite(queuedOps);
       const nextRemoteDrafts = { ...remoteDraftsByOrder };
@@ -1173,6 +1191,8 @@ export default function DeliveryManagementV7() {
         nextRemoteDrafts[op.orderId] = applyOpToDraft(nextRemoteDrafts[op.orderId] || {}, op);
       });
       ackManyDraftOps(queuedOps, nextRemoteDrafts);
+      const ackKeys = new Set(queuedOps.map((op) => `${op.orderId}::${op.lineId || ''}::${op.type}`));
+      setSyncConflicts((prev) => prev.filter((conflict) => !ackKeys.has(`${conflict.orderId}::${conflict.lineId || ''}::${conflict.type}`)));
       if (successToast) showToast(successToast);
       return queuedOps;
     } catch (error) {
@@ -1183,6 +1203,8 @@ export default function DeliveryManagementV7() {
       setPendingOps((prev) => prev.filter((queued) => !queuedOps.some((op) => op.id === queued.id)));
       rollbackQueuedDraftOps();
       throw error;
+    } finally {
+      applyingOpsOnlineRef.current = false;
     }
   }, [
     ackManyDraftOps,
@@ -1254,7 +1276,10 @@ export default function DeliveryManagementV7() {
           orderOps.sort((a, b) => String(a.localTimestamp || '').localeCompare(String(b.localTimestamp || '')));
           for (const op of orderOps) {
             const currentFieldValue = getCurrentFieldValueForOp(currentRemoteDraft, op);
-            if (!areOpSnapshotsEqual(currentFieldValue, op.baseSnapshot)) {
+            const desiredFieldValue = getDesiredFieldValueForOp(op);
+            const cloudChangedSinceBase = !areOpSnapshotsEqual(currentFieldValue, op.baseSnapshot);
+            const cloudAlreadyMatchesDesired = areOpSnapshotsEqual(currentFieldValue, desiredFieldValue);
+            if (cloudChangedSinceBase && !cloudAlreadyMatchesDesired) {
               resolvedConflicts.push({
                 id: op.id,
                 orderId: op.orderId,
@@ -1264,6 +1289,10 @@ export default function DeliveryManagementV7() {
                 cloudValue: currentFieldValue,
                 localTimestamp: op.localTimestamp,
               });
+              continue;
+            }
+            if (cloudChangedSinceBase && cloudAlreadyMatchesDesired) {
+              currentRemoteDraft = applyOpToDraft(currentRemoteDraft, op);
               continue;
             }
             if (op.type === 'setWeight') {
@@ -1316,7 +1345,7 @@ export default function DeliveryManagementV7() {
               remoteDraftsByOrder: remoteDrafts,
               workingDraftsByOrder,
               pendingOps: remainingPending,
-              conflicts: resolvedConflicts,
+              conflicts: filterResolvedConflicts(resolvedConflicts),
             },
           },
         };
@@ -1324,8 +1353,9 @@ export default function DeliveryManagementV7() {
           setRemoteDraftsByOrder(remoteDrafts);
           setLocalDraftsByOrder(workingDraftsByOrder);
           setPendingOps(remainingPending);
-          setSyncConflicts(resolvedConflicts);
-          currentScopeConflicts = resolvedConflicts;
+          const activeConflicts = filterResolvedConflicts(resolvedConflicts);
+          setSyncConflicts(activeConflicts);
+          currentScopeConflicts = activeConflicts;
           currentScopePending = remainingPending.length;
         }
       }
@@ -1340,9 +1370,13 @@ export default function DeliveryManagementV7() {
   }, [currentScopeKey, isOnline, pendingOps.length, session, showToast, syncConflicts.length, syncingOffline]);
 
   useEffect(() => {
-    if (!isOnline || pendingOps.length === 0) return;
-    syncOfflineOpsNow({ quiet: true }).catch(console.error);
-  }, [isOnline, pendingOps.length, syncOfflineOpsNow]);
+    if (!isOnline || pendingOps.length === 0) return undefined;
+    const timer = setTimeout(() => {
+      if (applyingOpsOnlineRef.current || syncingOffline) return;
+      syncOfflineOpsNow({ quiet: true }).catch(console.error);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [isOnline, pendingOps.length, syncOfflineOpsNow, syncingOffline]);
 
   useEffect(() => {
     if (!selectedWeek) return () => {};
@@ -1751,6 +1785,49 @@ export default function DeliveryManagementV7() {
       return arr;
     });
   }, [currentScopeKey]);
+
+  const getEffectiveCommunityColor = useCallback((communityName) => {
+    if (pendingCommunityColors[communityName]) return pendingCommunityColors[communityName];
+    if (communityColorOverrides[communityName]) return communityColorOverrides[communityName];
+    return getCommunityColor(communityName);
+  }, [communityColorOverrides, pendingCommunityColors]);
+
+  const acceptCommunityColor = useCallback((communityName) => {
+    const color = pendingCommunityColors[communityName];
+    if (!color) return;
+    saveCommunityColorOverride(communityName, color);
+    setCommunityColorOverrides((prev) => ({ ...prev, [communityName]: color }));
+    setPendingCommunityColors((prev) => {
+      const next = { ...prev };
+      delete next[communityName];
+      return next;
+    });
+    showToast(lang === 'th' ? 'สีถูกบันทึก' : 'צבע הקהילה נשמר');
+  }, [lang, pendingCommunityColors, showToast]);
+
+  const cancelCommunityColor = useCallback((communityName) => {
+    setPendingCommunityColors((prev) => {
+      const next = { ...prev };
+      delete next[communityName];
+      return next;
+    });
+  }, []);
+
+  const computedCommunityOrderNumbers = useMemo(() => (
+    computeCommunityOrderNumbers({
+      orders,
+      communities: orderCommunities,
+      customerNumbersMap: permanentNumbersMap,
+    })
+  ), [orders, orderCommunities, permanentNumbersMap]);
+
+  const toggleCommunityNumbering = useCallback(() => {
+    setShowCommunityNumbering((prev) => {
+      const next = !prev;
+      saveShowCommunityNumbering(next);
+      return next;
+    });
+  }, []);
 
   const filteredOrders = useMemo(() => {
     const rankMap = {};
@@ -2940,6 +3017,19 @@ export default function DeliveryManagementV7() {
 
               {orderCommunities.length > 0 && (
                 <div className="px-3 py-2 border-b">
+                  <div className="flex flex-wrap gap-1 items-center mb-2">
+                    <button
+                      type="button"
+                      onClick={toggleCommunityNumbering}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-colors border ${
+                        showCommunityNumbering
+                          ? 'bg-indigo-600 text-white border-indigo-700'
+                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      מספר לפי קהילה {showCommunityNumbering ? 'פעיל' : 'כבוי'}
+                    </button>
+                  </div>
                   <div className="flex flex-wrap gap-1 items-center">
                     <button
                       onClick={() => setCommunityFilter('__all__')}
@@ -2963,14 +3053,45 @@ export default function DeliveryManagementV7() {
                               {isRTL ? '\u25B6' : '\u25C0'}
                             </button>
                           )}
+                          <input
+                            type="color"
+                            value={getEffectiveCommunityColor(c)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setPendingCommunityColors((prev) => ({ ...prev, [c]: e.target.value }));
+                            }}
+                            className="w-5 h-5 rounded border border-gray-300 cursor-pointer shrink-0 p-0"
+                            title={lang === 'th' ? 'เปลี่ยนสี' : 'שנה צבע קהילה'}
+                          />
+                          {pendingCommunityColors[c] && pendingCommunityColors[c] !== (communityColorOverrides[c] || getCommunityColor(c)) && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); acceptCommunityColor(c); }}
+                                className="w-5 h-5 flex items-center justify-center text-[10px] font-black text-white bg-green-600 hover:bg-green-700 rounded"
+                                title={lang === 'th' ? 'אשר צבע' : 'אשר צבע'}
+                              >
+                                ✓
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); cancelCommunityColor(c); }}
+                                className="w-5 h-5 flex items-center justify-center text-[10px] font-black text-gray-600 bg-gray-100 hover:bg-gray-200 rounded"
+                                title={lang === 'th' ? 'בטל' : 'בטל'}
+                              >
+                                ✕
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => setCommunityFilter(c)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors border-r-4 ${
+                            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors border-r-[6px] ${
                               communityFilter === c ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                             }`}
-                            style={{ borderRightColor: getCommunityColor(c) }}
+                            style={{ borderRightColor: getEffectiveCommunityColor(c) }}
                           >
-                            <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCommunityColor(c) }} />
+                            <span className="inline-block w-4 h-4 rounded-full mr-1" style={{ backgroundColor: getEffectiveCommunityColor(c) }} />
                             <span className="font-black mr-1 text-[10px] opacity-60">{ci + 1}.</span>{c} ({count})
                           </button>
                           {!isLast && (
@@ -2997,6 +3118,10 @@ export default function DeliveryManagementV7() {
                   const isActive = o.id === selectedOrderId;
                   const cid = o?.customerDetails?.phone || o?.customerDetails?.email || null;
                   const custNum = cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-';
+                  const orderCommunity = o?.customerDetails?.pickupSpot || o?.pickupSpot || '';
+                  const communityNum = showCommunityNumbering && orderCommunity
+                    ? computedCommunityOrderNumbers[orderCommunity]?.[o.id]
+                    : null;
                   const oItems = Array.isArray(o.items) ? o.items.length : 0;
                   const isDone = effectiveStatus === 'completed';
                   const claim = claimsByOrder[o.id];
@@ -3016,17 +3141,24 @@ export default function DeliveryManagementV7() {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className={`relative w-10 h-10 rounded-full font-black flex items-center justify-center text-lg flex-shrink-0 ${
-                          isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-600 text-white ring-2 ring-blue-300' : 'bg-yellow-500 text-white'
-                        }`}>
-                          {isDone ? <span className="text-xl leading-none">&#10003;</span> : custNum}
+                        <div className="relative flex-shrink-0">
+                          <div className={`relative w-10 h-10 rounded-full font-black flex items-center justify-center text-lg ${
+                            isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-600 text-white ring-2 ring-blue-300' : 'bg-yellow-500 text-white'
+                          }`}>
+                            {isDone ? <span className="text-xl leading-none">&#10003;</span> : custNum}
+                          </div>
+                          {communityNum && (
+                            <span className="absolute -bottom-1 -left-1 min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[9px] font-black flex items-center justify-center leading-none">
+                              #{communityNum}
+                            </span>
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className={`font-bold text-sm truncate ${isDone ? 'text-green-800 line-through' : isActive ? 'text-blue-900' : 'text-gray-900'}`}>
                             {o.customerDetails?.name || t.customer}
                           </div>
                           <div className={`text-[11px] truncate flex items-center gap-1 ${isDone ? 'text-green-600' : isActive ? 'text-blue-700' : 'text-gray-500'}`}>
-                            <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getCommunityColor(o.customerDetails?.pickupSpot || o.pickupSpot) }} />
+                            <span className="inline-block w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: getEffectiveCommunityColor(o.customerDetails?.pickupSpot || o.pickupSpot) }} />
                             <span className="truncate">{o.customerDetails?.pickupSpot || o.pickupSpot || ''} {o.customerDetails?.phone ? `• ${o.customerDetails.phone}` : ''}</span>
                           </div>
                           {wantsReusableCartons && (
@@ -3742,7 +3874,7 @@ export default function DeliveryManagementV7() {
                         onChange={() => toggleMissingModalCommunity(community)}
                         className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                       />
-                      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: getCommunityColor(community) }} />
+                      <span className="inline-block w-3.5 h-3.5 rounded-full" style={{ backgroundColor: getEffectiveCommunityColor(community) }} />
                       {community}
                     </label>
                   ))}

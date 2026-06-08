@@ -31,6 +31,8 @@ const AddProduct = () => {
   const [averageWeightKg, setAverageWeightKg] = useState('1'); // For 'unit' items: estimated kg per unit
   const [isIndependent, setIsIndependent] = useState(false);
   const [isSample, setIsSample] = useState(false);
+  const [category, setCategory] = useState('');
+  const [showInAllCategory, setShowInAllCategory] = useState(false);
 
   // Predefined unit size options (in kg)
   const UNIT_SIZE_OPTIONS = [
@@ -211,6 +213,8 @@ const AddProduct = () => {
           : 1,
         ...(merchantPrice !== '' ? { merchantPrice: parseFloat(merchantPrice) } : {}),
         ...(thaiName !== '' ? { thaiName: thaiName } : {}),
+        ...(category !== '' ? { category } : {}),
+        showInAllCategory: category === 'משתלה' ? showInAllCategory : false,
         verified: false,
         rejected: false,
         isSample: isSample || parseFloat(price) === 0,
@@ -317,6 +321,51 @@ const AddProduct = () => {
             />
             <span className="text-sm text-gray-700">דגימה בחינם (מוצג כתגית באתר; מחיר 0 מאפשר הזמנה ללא תשלום)</span>
           </label>
+
+          {/* Category */}
+          <div className="mb-4">
+            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+              קטגוריה
+            </label>
+            <select
+              id="category"
+              name="category"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={category}
+              onChange={(e) => {
+                const nextCategory = e.target.value;
+                setCategory(nextCategory);
+                if (nextCategory !== 'משתלה') {
+                  setShowInAllCategory(false);
+                }
+              }}
+            >
+              <option value="">בחר קטגוריה (אופציונלי)</option>
+              <option value="ירקות">ירקות</option>
+              <option value="פירות">פירות</option>
+              <option value="ירוקים">ירוקים</option>
+              <option value="משתלה">משתלה</option>
+              <option value="אחר">אחר</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">בחירת קטגוריה תאפשר למוצר להופיע בתצוגת הקטגוריות בחנות</p>
+          </div>
+
+          {category === 'משתלה' && (
+            <div className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showInAllCategory}
+                  onChange={(e) => setShowInAllCategory(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">הצג גם בקטגוריית &quot;הכל&quot;</span>
+              </label>
+              <p className="mt-1 text-xs text-gray-500 mr-6">
+                מוצרי משתלה מוצגים רק בקטגוריית משתלה, אלא אם מסומן כאן
+              </p>
+            </div>
+          )}
 
           {/* Merchant Price (optional) */}
           <div className="mb-4">

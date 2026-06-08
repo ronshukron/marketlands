@@ -9,6 +9,43 @@ const DEFAULT_REUSABLE_CARTON_CONFIG = {
   defaultSelectedSpots: [],
 };
 
+async function readPaymentConfigDoc() {
+  const configRef = doc(db, CONFIG_DOC_PATH);
+  const configSnap = await getDoc(configRef);
+  return configSnap.exists() ? configSnap.data() : {};
+}
+
+export async function readPaymentConfigSnapshot() {
+  return readPaymentConfigDoc();
+}
+
+/**
+ * Merge Firestore payment config with the current community list from DB.
+ * Communities not in knownCommunities are treated as new and default to delayed payment.
+ */
+export const mergePaymentConfigWithCommunities = (allCommunities, config = {}) => {
+  const delayedPaymentSpots = Array.isArray(config.delayedPaymentSpots) ? [...config.delayedPaymentSpots] : [];
+  const knownCommunities = Array.isArray(config.knownCommunities) ? [...config.knownCommunities] : null;
+  const all = Array.isArray(allCommunities) ? allCommunities.filter(Boolean) : [];
+
+  if (!knownCommunities) {
+    return {
+      delayedPaymentSpots,
+      knownCommunities: all,
+      newCommunities: [],
+    };
+  }
+
+  const newCommunities = all.filter((name) => !knownCommunities.includes(name));
+  const mergedDelayed = [...new Set([...delayedPaymentSpots, ...newCommunities])];
+
+  return {
+    delayedPaymentSpots: mergedDelayed,
+    knownCommunities: all,
+    newCommunities,
+  };
+};
+
 const normalizeReusableCartonConfig = (config = {}) => {
   const enabledSpots = Array.isArray(config.enabledSpots) ? config.enabledSpots : [];
   const defaultSelectedSpots = Array.isArray(config.defaultSelectedSpots) ? config.defaultSelectedSpots : [];
@@ -26,16 +63,24 @@ const normalizeReusableCartonConfig = (config = {}) => {
  */
 export const getDelayedPaymentSpots = async () => {
   try {
-    const configRef = doc(db, CONFIG_DOC_PATH);
-    const configSnap = await getDoc(configRef);
-    
-    if (configSnap.exists()) {
-      return configSnap.data().delayedPaymentSpots || [];
-    }
-    return [];
+    const data = await readPaymentConfigDoc();
+    return data.delayedPaymentSpots || [];
   } catch (error) {
     console.error('Error fetching delayed payment spots:', error);
     return [];
+  }
+};
+
+/**
+ * Load delayed-payment spots merged with DB communities (new → delayed by default).
+ */
+export const getDelayedPaymentSpotsForAdmin = async (allCommunities = []) => {
+  try {
+    const data = await readPaymentConfigDoc();
+    return mergePaymentConfigWithCommunities(allCommunities, data);
+  } catch (error) {
+    console.error('Error fetching delayed payment spots for admin:', error);
+    return mergePaymentConfigWithCommunities(allCommunities, {});
   }
 };
 
@@ -46,9 +91,21 @@ export const getDelayedPaymentSpots = async () => {
  */
 export const isDelayedPaymentSpot = async (pickupSpot) => {
   if (!pickupSpot) return false;
-  
-  const delayedSpots = await getDelayedPaymentSpots();
-  return delayedSpots.includes(pickupSpot);
+
+  try {
+    const data = await readPaymentConfigDoc();
+    const delayedSpots = data.delayedPaymentSpots || [];
+    const knownCommunities = data.knownCommunities;
+
+    if (delayedSpots.includes(pickupSpot)) return true;
+    if (Array.isArray(knownCommunities)) {
+      return !knownCommunities.includes(pickupSpot);
+    }
+    return false;
+  } catch (error) {
+    console.error('Error checking delayed payment spot:', error);
+    return false;
+  }
 };
 
 /**
@@ -56,16 +113,64 @@ export const isDelayedPaymentSpot = async (pickupSpot) => {
  * @param {string[]} spots - Array of pickup spot names
  * @returns {Promise<boolean>} True if successful
  */
-export const setDelayedPaymentSpots = async (spots) => {
+export const setDelayedPaymentSpots = async (spots, knownCommunities = []) => {
   try {
     const configRef = doc(db, CONFIG_DOC_PATH);
     await setDoc(configRef, {
       delayedPaymentSpots: spots,
-      updatedAt: new Date().toISOString()
+      knownCommunities: knownCommunities.filter(Boolean),
+      updatedAt: new Date().toISOString(),
     }, { merge: true });
     return true;
   } catch (error) {
     console.error('Error setting delayed payment spots:', error);
+    return false;
+  }
+};
+
+export const addNewCommunityToPaymentConfig = async (communityName) => {
+  const name = String(communityName || '').trim();
+  if (!name) return false;
+
+  try {
+    const data = await readPaymentConfigDoc();
+    const delayed = new Set(data.delayedPaymentSpots || []);
+    const known = new Set(Array.isArray(data.knownCommunities) ? data.knownCommunities : []);
+    delayed.add(name);
+    known.add(name);
+
+    const configRef = doc(db, CONFIG_DOC_PATH);
+    await setDoc(configRef, {
+      delayedPaymentSpots: [...delayed],
+      knownCommunities: [...known],
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error adding community to payment config:', error);
+    return false;
+  }
+};
+
+export const removeCommunityFromPaymentConfig = async (communityName) => {
+  const name = String(communityName || '').trim();
+  if (!name) return false;
+
+  try {
+    const data = await readPaymentConfigDoc();
+    const configRef = doc(db, CONFIG_DOC_PATH);
+    await setDoc(configRef, {
+      delayedPaymentSpots: (data.delayedPaymentSpots || []).filter((spot) => spot !== name),
+      knownCommunities: (data.knownCommunities || []).filter((spot) => spot !== name),
+      reusableCartonConfig: normalizeReusableCartonConfig({
+        enabledSpots: (data.reusableCartonConfig?.enabledSpots || []).filter((spot) => spot !== name),
+        defaultSelectedSpots: (data.reusableCartonConfig?.defaultSelectedSpots || []).filter((spot) => spot !== name),
+      }),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error removing community from payment config:', error);
     return false;
   }
 };

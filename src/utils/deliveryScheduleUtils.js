@@ -294,3 +294,9 @@ export function getOrderCommunity(orderData = {}) {
     || 'לא צוין';
   return resolveCommunityName(raw) || raw;
 }
+
+/** True when the visible delivery dates are in a week after the current week. */
+export function isShowingNextDeliveryWeek(availableDates, now = new Date()) {
+  if (!availableDates?.length) return false;
+  return getWeekKey(availableDates[0]) !== getWeekKey(now);
+}
