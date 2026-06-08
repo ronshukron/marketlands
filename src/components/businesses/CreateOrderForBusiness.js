@@ -7,9 +7,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Swal from 'sweetalert2';
 import './CreateOrderForBusiness.css';
 import communityToRegion from '../../utils/communityToRegion';
-// Assuming you have a utility file with area definitions
-import areas from '../../utils/areas'; 
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
+import LoadingSpinner from '../LoadingSpinner';
 
 // Add this custom style to the component for better radio and checkbox appearance
 const customInputStyle = `
@@ -35,6 +34,7 @@ const CreateOrderForBusiness = () => {
   const { state } = useLocation();
   const { selectedProducts } = state || {};
   const { currentUser } = useAuth();
+  const { pickupSpots, loaded: pickupSpotsLoaded } = usePickupSpots();
   const [orderName, setOrderName] = useState('');
   const [loading, setLoading] = useState(false);
   const [orderMode, setOrderMode] = useState('classic');
@@ -699,45 +699,57 @@ const CreateOrderForBusiness = () => {
         <div className="mb-6">
           <label className="block text-gray-700 font-medium mb-2">נקודות איסוף</label>
           <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
-            <div className="flex justify-end gap-2 mb-3 pb-3 border-b border-gray-200">
-              <button
-                type="button"
-                onClick={() => setSelectedPickupSpots(pickupSpots.slice())}
-                className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-              >
-                בחר הכל
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedPickupSpots([])}
-                className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded-md shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
-              >
-                נקה הכל
-              </button>
-            </div>
-            
-            <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-              {pickupSpots.map((spot) => (
-                <div key={spot} className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id={`spot-${spot}`}
-                    checked={selectedPickupSpots.includes(spot)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedPickupSpots([...selectedPickupSpots, spot]);
-                      } else {
-                        setSelectedPickupSpots(selectedPickupSpots.filter(s => s !== spot));
-                      }
-                    }}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ml-3"
-                  />
-                  <label htmlFor={`spot-${spot}`} className="text-sm text-gray-800 select-none">
-                    {spot}
-                  </label>
+            {!pickupSpotsLoaded ? (
+              <div className="py-6">
+                <LoadingSpinner />
+              </div>
+            ) : pickupSpots.length === 0 ? (
+              <p className="text-sm text-gray-500 py-4 text-center">
+                לא נמצאו קהילות פעילות. פנו למנהל המערכת.
+              </p>
+            ) : (
+              <>
+                <div className="flex justify-end gap-2 mb-3 pb-3 border-b border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPickupSpots(pickupSpots.slice())}
+                    className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                  >
+                    בחר הכל
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPickupSpots([])}
+                    className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded-md shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
+                  >
+                    נקה הכל
+                  </button>
                 </div>
-              ))}
-            </div>
+
+                <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                  {pickupSpots.map((spot) => (
+                    <div key={spot} className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id={`spot-${spot}`}
+                        checked={selectedPickupSpots.includes(spot)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPickupSpots([...selectedPickupSpots, spot]);
+                          } else {
+                            setSelectedPickupSpots(selectedPickupSpots.filter((s) => s !== spot));
+                          }
+                        }}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ml-3"
+                      />
+                      <label htmlFor={`spot-${spot}`} className="text-sm text-gray-800 select-none">
+                        {spot}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
