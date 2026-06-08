@@ -36,6 +36,7 @@ const EditProduct = () => {
     averageWeightKg: '1' // For 'unit' items: estimated kg per unit
   });
   const [isIndependent, setIsIndependent] = useState(false);
+  const [isSample, setIsSample] = useState(false);
 
   // Predefined unit size options (in kg)
   const UNIT_SIZE_OPTIONS = [
@@ -75,6 +76,7 @@ const EditProduct = () => {
           setDescription(data.description);
           setOptions(data.options || []);
 
+          setIsSample(Boolean(data.isSample) || Number(data.price) === 0);
           setFormData({
             name: data.name || '',
             description: data.description || '',
@@ -259,7 +261,8 @@ const handleSubmit = async (e) => {
         : 1,
       ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
       ...(formData.category !== '' ? { category: formData.category } : {}),
-      ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {})
+      ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {}),
+      isSample: isSample || parseFloat(price) === 0,
     });
 
     Swal.fire({
@@ -322,6 +325,15 @@ const handleSubmit = async (e) => {
               placeholder="מחיר (₪)"
             />
           </div>
+
+          <label className="flex items-center gap-2 mb-4">
+            <input
+              type="checkbox"
+              checked={isSample}
+              onChange={(e) => setIsSample(e.target.checked)}
+            />
+            <span className="text-sm text-gray-700">דגימה בחינם</span>
+          </label>
           
           {/* After the price field */}
           <div className="mb-4">

@@ -3,7 +3,7 @@ import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
 import { useAuth } from '../../../contexts/authContext';
 import LoadingSpinner from '../../LoadingSpinner';
-import { pickupSpots } from '../../../data/pickupSpots';
+import { getCommunityColor, getPickupSpotsSync, subscribePickupSpots } from '../../../services/pickupSpotsService';
 import {
   addItemToDelayedOrderV7,
   fetchAvailableDeliveryWeeksV7,
@@ -194,7 +194,9 @@ const TR = {
     addItemOk: 'המוצר נוסף להזמנה',
     priceUpdatedOk: 'המחיר עודכן',
     deleteLine: 'מחק שורה',
-    deleteLineConfirm: (n) => `למחוק את "${n}" מההזמנה?`,
+    deleteLineConfirm: (n) => `למחוק לצמיתות את "${n}" מההזמנה? פעולה בלתי הפיכה.`,
+    advancedActions: 'פעולות מתקדמות',
+    confirmWait: (s) => `אישור (${s})`,
     offlineReady: 'עבודה מקומית פעילה',
     onlineReady: 'מחובר בזמן אמת',
     pendingSync: (n) => `ממתין לסנכרון: ${n}`,
@@ -312,7 +314,9 @@ const TR = {
     addItemOk: 'เพิ่มสินค้าแล้ว',
     priceUpdatedOk: 'อัปเดตราคาแล้ว',
     deleteLine: 'ลบบรรทัด',
-    deleteLineConfirm: (n) => `ลบ "${n}" ออกจากคำสั่งซื้อ?`,
+    deleteLineConfirm: (n) => `ลบ "${n}" ออกจากคำสั่งซื้อถาวร? ไม่สามารถย้อนกลับได้`,
+    advancedActions: 'การดำเนินการขั้นสูง',
+    confirmWait: (s) => `ยืนยัน (${s})`,
     offlineReady: 'ทำงานจากแคชในเครื่อง',
     onlineReady: 'เชื่อมต่อเรียลไทม์',
     pendingSync: (n) => `รอซิงก์: ${n}`,
@@ -343,9 +347,31 @@ const TR = {
   },
 };
 
-function BilingualDialog({ open, title, heText, thText, type, onConfirm, onCancel }) {
+function BilingualDialog({ open, title, heText, thText, type, confirmButtonDelay = 0, onConfirm, onCancel }) {
+  const [confirmCountdown, setConfirmCountdown] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!open || type !== 'confirm' || !confirmButtonDelay) {
+      setConfirmCountdown(0);
+      return undefined;
+    }
+    setConfirmCountdown(confirmButtonDelay);
+    const interval = setInterval(() => {
+      setConfirmCountdown((prev) => {
+        if (prev <= 1000) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [open, type, confirmButtonDelay]);
+
   if (!open) return null;
   const isConfirm = type === 'confirm';
+  const confirmDisabled = confirmCountdown > 0;
+  const confirmSeconds = Math.ceil(confirmCountdown / 1000);
 
   const palette = title === 'error'
     ? { grad: 'from-red-500 to-red-600', bg: 'bg-red-50', ring: 'ring-red-200', iconBg: 'bg-red-100', iconColor: 'text-red-600' }
@@ -403,9 +429,10 @@ function BilingualDialog({ open, title, heText, thText, type, onConfirm, onCance
                 <button
                   autoFocus
                   onClick={onConfirm}
-                  className={`flex-1 py-3 rounded-xl font-black text-white text-sm transition-all bg-gradient-to-r ${palette.grad} hover:shadow-lg active:scale-[0.98] focus:outline-none focus:ring-2 ${palette.ring}`}
+                  disabled={confirmDisabled}
+                  className={`flex-1 py-3 rounded-xl font-black text-white text-sm transition-all bg-gradient-to-r ${palette.grad} hover:shadow-lg active:scale-[0.98] focus:outline-none focus:ring-2 ${palette.ring} disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                  ✓&ensp;אישור / ตกลง
+                  {confirmDisabled ? `✓ אישור (${confirmSeconds}) / ตกลง (${confirmSeconds})` : '✓ אישור / ตกลง'}
                 </button>
                 <button
                   onClick={onCancel}
@@ -755,9 +782,13 @@ export default function DeliveryManagementV7() {
   const { currentUser, userRole } = useAuth();
 
   const [lang, setLang] = useState(() => localStorage.getItem(LANG_STORAGE_KEY) || 'he');
+  const [expandedAdvancedLineId, setExpandedAdvancedLineId] = useState(null);
+  const [pickupSpotsList, setPickupSpotsList] = useState(() => getPickupSpotsSync().pickupSpots);
   const t = TR[lang] || TR.he;
   const tRef = useRef(t);
   const isRTL = lang === 'he';
+  useEffect(() => subscribePickupSpots((snap) => setPickupSpotsList(snap.pickupSpots)), []);
+
   const toggleLang = () => {
     const next = lang === 'he' ? 'th' : 'he';
     setLang(next);
@@ -852,7 +883,9 @@ export default function DeliveryManagementV7() {
     dialogResolveRef.current = null;
     setDialog(null);
   }, []);
-  const biConfirm = useCallback(({ heText, thText, title = 'warning' }) => showDialog({ heText, thText, title, type: 'confirm' }), [showDialog]);
+  const biConfirm = useCallback(({ heText, thText, title = 'warning', confirmButtonDelay = 0 }) => (
+    showDialog({ heText, thText, title, type: 'confirm', confirmButtonDelay })
+  ), [showDialog]);
   const biAlert = useCallback(({ heText, thText, title = 'info' }) => showDialog({ heText, thText, title, type: 'alert' }), [showDialog]);
   const preloadImageUrl = useCallback((url) => {
     if (!url || typeof Image === 'undefined') return Promise.resolve(url || '');
@@ -1528,7 +1561,10 @@ export default function DeliveryManagementV7() {
   }, []);
 
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) || null, [orders, selectedOrderId]);
-  const effectiveDraftsByOrder = localDraftsByOrder || remoteDraftsByOrder || {};
+  const effectiveDraftsByOrder = useMemo(
+    () => localDraftsByOrder || remoteDraftsByOrder || {},
+    [localDraftsByOrder, remoteDraftsByOrder]
+  );
   const selectedOrderSaved = useMemo(() => (
     selectedWeek && selectedOrderId
       ? sanitizeDraftForItems(
@@ -1672,6 +1708,25 @@ export default function DeliveryManagementV7() {
     });
     return all;
   }, [orders, communityOrder]);
+
+  const orderCountByCommunity = useMemo(() => {
+    const counts = {};
+    orders.forEach((o) => {
+      const c = o?.customerDetails?.pickupSpot || o?.pickupSpot;
+      if (c) counts[c] = (counts[c] || 0) + 1;
+    });
+    return counts;
+  }, [orders]);
+
+  const orderStatusCounts = useMemo(() => {
+    let pending = 0;
+    let done = 0;
+    orders.forEach((o) => {
+      if (getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]) === 'completed') done += 1;
+      else pending += 1;
+    });
+    return { pending, done };
+  }, [orders, effectiveDraftsByOrder]);
 
   useEffect(() => {
     if (orderCommunities.length === 0) return;
@@ -2320,15 +2375,17 @@ export default function DeliveryManagementV7() {
   }, [selectedOrder, claimedByOther, addQuantities, session, showToast, t.addItemOk, biAlert, isOnline]);
 
   const deleteLine = useCallback(async (item) => {
-    if (!selectedOrder || claimedByOther) return;
+    if (!selectedOrder || claimedByOther || !isAdmin) return;
     if (!isOnline) {
       await biAlert({ heText: TR.he.offlineEditOnlineOnly, thText: TR.th.offlineEditOnlineOnly, title: 'warning' });
       return;
     }
+    const displayName = (lang === 'th' && item.thaiName) ? item.thaiName : item.productName;
     const ok = await biConfirm({
-      heText: TR.he.deleteLineConfirm(item.productName),
-      thText: TR.th.deleteLineConfirm(item.productName),
+      heText: TR.he.deleteLineConfirm(displayName),
+      thText: TR.th.deleteLineConfirm(displayName),
       title: 'warning',
+      confirmButtonDelay: 2000,
     });
     if (!ok) return;
     setSavingActionKey(`delete:${item.lineId}`);
@@ -2348,7 +2405,7 @@ export default function DeliveryManagementV7() {
     } finally {
       setSavingActionKey('');
     }
-  }, [selectedOrder, claimedByOther, session, biConfirm, biAlert, isOnline]);
+  }, [selectedOrder, claimedByOther, session, biConfirm, biAlert, isOnline, isAdmin, lang]);
 
   const completeOrder = async () => {
     if (!selectedOrder) return;
@@ -2491,7 +2548,7 @@ export default function DeliveryManagementV7() {
     });
   };
 
-  const selectAllCommunities = () => setTempSelectedCommunities(new Set(pickupSpots));
+  const selectAllCommunities = () => setTempSelectedCommunities(new Set(pickupSpotsList));
   const clearAllCommunities = () => setTempSelectedCommunities(new Set());
   const applyDeliveryFilters = ({ weekKey, communitiesSet, startDate, endDate }) => {
     const communities = Array.from(communitiesSet);
@@ -2759,7 +2816,7 @@ export default function DeliveryManagementV7() {
                       <button onClick={selectAllCommunities} className="text-xs px-2 py-1 bg-blue-500 text-white rounded">{t.selectAll}</button>
                       <button onClick={clearAllCommunities} className="text-xs px-2 py-1 bg-gray-300 text-gray-700 rounded">{t.clearSel}</button>
                     </div>
-                    {pickupSpots.map((spot) => (
+                    {pickupSpotsList.map((spot) => (
                       <label key={spot} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer text-sm">
                         <input
                           type="checkbox"
@@ -2859,8 +2916,7 @@ export default function DeliveryManagementV7() {
                 <span className="font-bold text-gray-900">{t.orders}</span>
                 <div className="flex items-center gap-2">
                   {(() => {
-                    const pendingCount = orders.filter((o) => getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]) !== 'completed').length;
-                    const doneCount = orders.filter((o) => getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]) === 'completed').length;
+                    const { pending: pendingCount, done: doneCount } = orderStatusCounts;
                     return (
                       <>
                         <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">{pendingCount}</span>
@@ -2894,7 +2950,7 @@ export default function DeliveryManagementV7() {
                       All ({orders.length})
                     </button>
                     {orderCommunities.map((c, ci) => {
-                      const count = orders.filter((o) => (o?.customerDetails?.pickupSpot || o?.pickupSpot) === c).length;
+                      const count = orderCountByCommunity[c] || 0;
                       const isFirst = ci === 0;
                       const isLast = ci === orderCommunities.length - 1;
                       return (
@@ -2909,10 +2965,12 @@ export default function DeliveryManagementV7() {
                           )}
                           <button
                             onClick={() => setCommunityFilter(c)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors border-r-4 ${
                               communityFilter === c ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                             }`}
+                            style={{ borderRightColor: getCommunityColor(c) }}
                           >
+                            <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCommunityColor(c) }} />
                             <span className="font-black mr-1 text-[10px] opacity-60">{ci + 1}.</span>{c} ({count})
                           </button>
                           {!isLast && (
@@ -2967,8 +3025,9 @@ export default function DeliveryManagementV7() {
                           <div className={`font-bold text-sm truncate ${isDone ? 'text-green-800 line-through' : isActive ? 'text-blue-900' : 'text-gray-900'}`}>
                             {o.customerDetails?.name || t.customer}
                           </div>
-                          <div className={`text-[11px] truncate ${isDone ? 'text-green-600' : isActive ? 'text-blue-700' : 'text-gray-500'}`}>
-                            {o.customerDetails?.pickupSpot || o.pickupSpot || ''} {o.customerDetails?.phone ? `• ${o.customerDetails.phone}` : ''}
+                          <div className={`text-[11px] truncate flex items-center gap-1 ${isDone ? 'text-green-600' : isActive ? 'text-blue-700' : 'text-gray-500'}`}>
+                            <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getCommunityColor(o.customerDetails?.pickupSpot || o.pickupSpot) }} />
+                            <span className="truncate">{o.customerDetails?.pickupSpot || o.pickupSpot || ''} {o.customerDetails?.phone ? `• ${o.customerDetails.phone}` : ''}</span>
                           </div>
                           {wantsReusableCartons && (
                             <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black text-white shadow">
@@ -3157,6 +3216,21 @@ export default function DeliveryManagementV7() {
                     </div>
                   )}
                 </div>
+
+                {items.length > 0 && (
+                  <div className="bg-white rounded-xl shadow-sm p-3 flex flex-wrap items-center gap-4 text-sm">
+                    <span className="font-bold text-gray-800">{items.length} {lang === 'th' ? 'รายการ' : 'פריטים'}</span>
+                    <span className="text-green-700 font-semibold">
+                      {items.filter((it) => weightsByLineId[it.lineId]?.value > 0).length} {lang === 'th' ? 'ชั่งแล้ว' : 'נשקלו'}
+                    </span>
+                    <span className="text-red-700 font-semibold">
+                      {items.filter((it) => getMissingLineDetails(it, weightsByLineId, removedLineIds)).length} {lang === 'th' ? 'ขาด' : 'חסרים'}
+                    </span>
+                    <span className="text-gray-600">
+                      {Object.keys(removedLineIds || {}).filter((id) => removedLineIds[id]).length} {lang === 'th' ? 'ลบแล้ว' : 'הוסרו'}
+                    </span>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-white rounded-xl shadow-sm p-3">
@@ -3585,13 +3659,25 @@ export default function DeliveryManagementV7() {
                                 >
                                   {t.remove}
                                 </button>
-                                <button
-                                  onClick={() => deleteLine(it)}
-                                  className="text-xs font-bold py-1.5 px-2 rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
-                                  style={compactActionStyle}
-                                >
-                                  {t.deleteLine}
-                                </button>
+                                {lang === 'he' && isAdmin && (
+                                  expandedAdvancedLineId === it.lineId ? (
+                                    <button
+                                      onClick={() => deleteLine(it)}
+                                      className="text-xs font-bold py-1.5 px-2 rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
+                                      style={compactActionStyle}
+                                    >
+                                      {t.deleteLine}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => setExpandedAdvancedLineId(it.lineId)}
+                                      className="text-xs font-bold py-1.5 px-2 rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                                      style={compactActionStyle}
+                                    >
+                                      {t.advancedActions}
+                                    </button>
+                                  )
+                                )}
                               </div>
                             </div>
                           )}
@@ -3612,7 +3698,10 @@ export default function DeliveryManagementV7() {
           <div className="absolute inset-0 bg-black bg-opacity-50" onClick={closeMissingOrderModal}></div>
           <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-11/12 max-w-3xl max-h-[90vh] flex flex-col">
             <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200">
-              <h3 className="text-xl font-bold text-gray-800">הזמנת חוסרים</h3>
+              <h3 className="text-xl font-bold text-gray-800">
+                {lang === 'th' ? 'สั่งซื้อสินค้าที่ขาด' : 'הזמנת חוסרים'}
+                <span className="block text-sm font-normal text-gray-500">สั่งซื้อสินค้าที่ขาด / Missing order</span>
+              </h3>
               <button type="button" onClick={closeMissingOrderModal} className="text-2xl text-gray-400 hover:text-gray-700 leading-none">✕</button>
             </div>
 
@@ -3653,6 +3742,7 @@ export default function DeliveryManagementV7() {
                         onChange={() => toggleMissingModalCommunity(community)}
                         className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                       />
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: getCommunityColor(community) }} />
                       {community}
                     </label>
                   ))}
@@ -3660,7 +3750,7 @@ export default function DeliveryManagementV7() {
               </div>
 
               <div className="flex gap-2">
-                <span className="text-sm text-gray-600 self-center ml-2">תצוגה:</span>
+                <span className="text-sm text-gray-600 self-center ml-2">{lang === 'th' ? 'มุมมอง:' : 'תצוגה:'}</span>
                 <button
                   type="button"
                   onClick={() => setMissingModalView('items')}
@@ -3901,6 +3991,7 @@ export default function DeliveryManagementV7() {
         heText={dialog?.heText}
         thText={dialog?.thText}
         type={dialog?.type}
+        confirmButtonDelay={dialog?.confirmButtonDelay || 0}
         onConfirm={() => closeDialog(true)}
         onCancel={() => closeDialog(dialog?.type === 'alert' ? undefined : false)}
       />

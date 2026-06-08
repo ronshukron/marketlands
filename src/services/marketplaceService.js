@@ -818,6 +818,7 @@ export const placeMarketplaceManualOrder = async ({
   lines = [],
   selectedDeliveryOption = '',
   paymentMethod = 'bit',
+  marketplaceTermsAcceptedAt = null,
 }) => {
   if (!promotion?.id || !promotion.businessId) {
     throw new Error('Missing promotion details');
@@ -871,6 +872,7 @@ export const placeMarketplaceManualOrder = async ({
     paymentStatus: 'manual_pending',
     handoffStatus: 'pending',
     fulfillmentStatus: 'new',
+    marketplaceTermsAcceptedAt: marketplaceTermsAcceptedAt || new Date().toISOString(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

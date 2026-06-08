@@ -7,7 +7,7 @@ import SearchBar from './SearchBar';
 import './CategoryStore.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Slider from 'react-slick';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled } from '../../utils/deliveryScheduleUtils';
 
@@ -47,6 +47,7 @@ const getAdjustedSlideIndex = (index) => {
 };
 
 const CategoryStore = () => {
+  const { pickupSpots } = usePickupSpots();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('הכל');
@@ -69,7 +70,7 @@ const CategoryStore = () => {
   const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
   const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
   const [, setTimeTick] = useState(0);
-  const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), []);
+  const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), [pickupSpots]);
   const filteredPickupSpots = useMemo(() => {
     const query = communityQuery.trim().toLowerCase();
     if (!query) return sortedPickupSpots;

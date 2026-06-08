@@ -3,7 +3,7 @@ import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEstimatedLineTotal } from '../../utils/pricing';
 import {
   generateAvailableDeliveryDates,
@@ -63,8 +63,48 @@ const getProductUnitCount = (product) => {
   return Math.round((Number(product.quantity) || 0) / (product.unitSize || 1));
 };
 
+const normalizePhone = (phone) => {
+  if (!phone) return '';
+  return String(phone).replace(/\D/g, '').replace(/^972/, '0').slice(-10);
+};
+
+const getDuplicateOrderKey = (order) => {
+  const phone = normalizePhone(order.customerDetails?.phone);
+  const email = String(order.customerDetails?.email || '').trim().toLowerCase();
+  const identity = phone || email || order.customerDetails?.name || order.id;
+  return `${identity}|${order.deliveryDateLabel}|${order.community}`;
+};
+
+const buildCustomerOrderMessage = (order) => {
+  const name = order.customerDetails?.name || 'לא צוין';
+  const phone = order.customerDetails?.phone || '';
+  const lines = [
+    `הזמנה - ${name}`,
+    phone ? `טלפון: ${phone}` : null,
+    `תאריך משלוח: ${order.deliveryDateLabel}`,
+    `קהילה: ${order.community}`,
+    `מספר הזמנה: ${order.id}`,
+    '',
+    'פריטים:',
+  ].filter(Boolean);
+
+  if (order.orderBreakdown) {
+    Object.values(order.orderBreakdown).forEach((businessOrder) => {
+      (businessOrder.items || []).forEach((item) => {
+        const opt = normalizeOption(item.selectedOption);
+        const optPart = opt ? ` (${opt})` : '';
+        lines.push(`* ${item.quantity} x ${item.productName || item.name}${optPart} - ${businessOrder.businessName}`);
+      });
+    });
+  }
+
+  lines.push('', `סה"כ: ₪${Number(order.grandTotal || 0).toFixed(2)}`);
+  return lines.join('\n');
+};
+
 const WeeklyDeliveryOrderSummaryWorkspace = () => {
   const { currentUser } = useAuth();
+  const { pickupSpots } = usePickupSpots();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [availableWeeks, setAvailableWeeks] = useState([]);
@@ -310,6 +350,40 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
       return acc;
     }, {});
   }, [orders]);
+
+  const duplicateOrderKeys = useMemo(() => {
+    const groups = orders.reduce((acc, order) => {
+      const key = getDuplicateOrderKey(order);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(order.id);
+      return acc;
+    }, {});
+    return new Set(
+      Object.entries(groups)
+        .filter(([, ids]) => ids.length > 1)
+        .flatMap(([, ids]) => ids)
+    );
+  }, [orders]);
+
+  const duplicateCustomerCount = useMemo(() => {
+    const groups = orders.reduce((acc, order) => {
+      const key = getDuplicateOrderKey(order);
+      if (!acc[key]) acc[key] = 0;
+      acc[key] += 1;
+      return acc;
+    }, {});
+    return Object.values(groups).filter((count) => count > 1).length;
+  }, [orders]);
+
+  const handleCopyCustomerOrder = async (order) => {
+    try {
+      await copyText(buildCustomerOrderMessage(order));
+      alert('ההזמנה הועתקה');
+    } catch (err) {
+      console.error('Failed to copy customer order:', err);
+      alert('שגיאה בהעתקת ההזמנה');
+    }
+  };
 
   const toggleCommunity = (community) => {
     setDraftSelectedCommunities((prev) => {
@@ -753,6 +827,11 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
           {activeView === 'customers' ? (
             <section className="space-y-6">
               <h2 className="text-2xl font-semibold">הזמנות לקוחות לפי קהילה</h2>
+              {duplicateCustomerCount > 0 && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-800 p-4 rounded-lg">
+                  נמצאו {duplicateCustomerCount} לקוחות עם יותר מהזמנה אחת באותו תאריך משלוח וקהילה. שורות מסומנות בכתום.
+                </div>
+              )}
               {Object.entries(ordersByCommunity).map(([community, communityOrders]) => (
                 <div key={community} className="bg-white p-5 rounded-lg shadow">
                   <h3 className="text-lg font-semibold mb-4">{community} ({communityOrders.length})</h3>
@@ -764,13 +843,20 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">תאריך משלוח</th>
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">פריטים</th>
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">סה"כ</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">פעולות</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {communityOrders.map((order) => (
-                          <tr key={order.id} className="hover:bg-gray-50 align-top">
+                          <tr
+                            key={order.id}
+                            className={`align-top ${duplicateOrderKeys.has(order.id) ? 'bg-amber-50 border-r-4 border-amber-400' : 'hover:bg-gray-50'}`}
+                          >
                             <td className="px-4 py-3">
                               <div className="font-medium text-gray-900">{order.customerDetails?.name || 'לא צוין'}</div>
+                              {duplicateOrderKeys.has(order.id) && (
+                                <span className="inline-block mt-1 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">הזמנה כפולה</span>
+                              )}
                               <div className="text-xs text-gray-500">{order.customerDetails?.phone || 'אין טלפון'}</div>
                               <div className="text-xs text-gray-500">{order.customerDetails?.email || ''}</div>
                               <div className="text-xs text-gray-400">{order.id}</div>
@@ -801,6 +887,15 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap font-semibold">
                               ₪{Number(order.grandTotal || 0).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyCustomerOrder(order)}
+                                className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                              >
+                                העתק הזמנה
+                              </button>
                             </td>
                           </tr>
                         ))}

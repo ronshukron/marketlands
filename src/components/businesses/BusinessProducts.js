@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import './BusinessProducts.css';
 import { fetchMeshekDahanItems, getPreviousSnapshot, saveSnapshot, diffItems } from '../../services/meshekDahanService';
+import { buildProductImagePrompt } from '../../utils/productImagePrompt';
 
 // Import Slider and CSS
 import Slider from "react-slick";
@@ -158,6 +159,108 @@ const BusinessProducts = () => {
     return `<p style="margin:6px 0 2px;font-weight:600;">${title}</p><ul style="margin:4px 0 8px; padding-right:16px;">${listItems}${moreText}</ul>`;
   };
 
+  const handleCopyImagePrompt = async () => {
+    const sortedProducts = [...filteredProducts].sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '', 'he')
+    );
+
+    if (sortedProducts.length === 0) {
+      Swal.fire({
+        icon: 'info',
+        title: 'אין מוצרים',
+        text: 'לא נמצאו מוצרים להעתקה. נסו לשנות את המסננים.',
+      });
+      return;
+    }
+
+    const defaultTo = Math.min(10, sortedProducts.length);
+    const filterNote = filteredProducts.length !== products.length
+      ? ` (${sortedProducts.length} לאחר סינון)`
+      : '';
+
+    const { value: range } = await Swal.fire({
+      title: 'העתק רשימה ליצירת תמונות AI',
+      html: `
+        <p style="text-align:right; direction:rtl; font-size:14px; margin:0 0 12px;">
+          בחרו טווח מוצרים מהרשימה${filterNote}. הטקסט יועתק בפורמט מוכן להדבקה במחולל תמונות.
+        </p>
+        <div style="display:flex; gap:12px; justify-content:center; direction:rtl;">
+          <label style="text-align:right;">
+            <span style="display:block; font-size:13px; margin-bottom:4px;">ממוצר מס'</span>
+            <input id="swal-range-from" type="number" min="1" max="${sortedProducts.length}" value="1" class="swal2-input" style="width:100px; margin:0;">
+          </label>
+          <label style="text-align:right;">
+            <span style="display:block; font-size:13px; margin-bottom:4px;">עד מוצר מס'</span>
+            <input id="swal-range-to" type="number" min="1" max="${sortedProducts.length}" value="${defaultTo}" class="swal2-input" style="width:100px; margin:0;">
+          </label>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px; text-align:right; direction:rtl; font-size:14px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input id="swal-include-description" type="checkbox" checked>
+            <span>כלול תיאור מוצר</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input id="swal-include-options" type="checkbox" checked>
+            <span>כלול אופציות</span>
+          </label>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'העתק ללוח',
+      cancelButtonText: 'ביטול',
+      focusConfirm: false,
+      preConfirm: () => {
+        const from = parseInt(document.getElementById('swal-range-from').value, 10);
+        const to = parseInt(document.getElementById('swal-range-to').value, 10);
+        if (!Number.isFinite(from) || !Number.isFinite(to)) {
+          Swal.showValidationMessage('אנא הזינו מספרים תקינים');
+          return false;
+        }
+        if (from < 1 || to < 1 || from > sortedProducts.length || to > sortedProducts.length) {
+          Swal.showValidationMessage(`הטווח חייב להיות בין 1 ל-${sortedProducts.length}`);
+          return false;
+        }
+        if (from > to) {
+          Swal.showValidationMessage('מספר התחלה חייב להיות קטן או שווה למספר הסיום');
+          return false;
+        }
+        return {
+          from,
+          to,
+          includeDescription: document.getElementById('swal-include-description').checked,
+          includeOptions: document.getElementById('swal-include-options').checked,
+        };
+      },
+    });
+
+    if (!range) return;
+
+    const selected = sortedProducts.slice(range.from - 1, range.to);
+    const prompt = buildProductImagePrompt(selected, {
+      includeDescription: range.includeDescription,
+      includeOptions: range.includeOptions,
+    });
+
+    try {
+      await navigator.clipboard.writeText(prompt);
+      Swal.fire({
+        icon: 'success',
+        title: 'הועתק ללוח',
+        text: `${selected.length} מוצרים הועתקו בפורמט ליצירת תמונות AI`,
+        timer: 2200,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      console.error('Clipboard copy failed:', error);
+      Swal.fire({
+        icon: 'info',
+        title: 'העתק ידנית',
+        html: `<textarea readonly style="width:100%; height:220px; direction:ltr; font-size:12px; font-family:monospace;">${prompt.replace(/</g, '&lt;')}</textarea>`,
+        width: 640,
+      });
+    }
+  };
+
   const handleCheckSupplierInventory = async () => {
     if (!currentUser || isIndependent) return;
     setCheckingSupplier(true);
@@ -267,7 +370,8 @@ const BusinessProducts = () => {
         const businessRef = doc(db, 'businesses', currentUser.uid);
         const snap = await getDoc(businessRef);
         if (snap.exists()) {
-          setIsIndependent(Boolean(snap.data().isIndependent));
+          const data = snap.data();
+          setIsIndependent(data.isIndependent === true || data.IsIndependent === true);
         }
       } catch (e) {
         console.error('Error fetching isIndependent:', e);
@@ -510,6 +614,17 @@ const BusinessProducts = () => {
             עריכה מרובה
           </button>
           <button
+            onClick={() => navigate('/bulk-replace-product-images')}
+            disabled={products.length === 0}
+            className={`w-44 px-3 py-1.5 rounded-lg font-medium transition-colors text-sm ${
+              products.length === 0
+                ? 'bg-indigo-100 text-indigo-400 cursor-not-allowed'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+            }`}
+          >
+            החלפת תמונות
+          </button>
+          <button
             onClick={handleSelectPreviousOrder}
             disabled={loadingPreviousOrder || products.length === 0}
             className={`w-48 px-3 py-1.5 rounded-lg font-medium transition-colors text-sm ${
@@ -521,17 +636,30 @@ const BusinessProducts = () => {
             {loadingPreviousOrder ? 'טוען הזמנה...' : 'בחר את הזמנת השבוע שעבר'}
           </button>
           {!isIndependent && (
-            <button
-              onClick={handleCheckSupplierInventory}
-              disabled={checkingSupplier}
-              className={`w-48 px-3 py-1.5 rounded-lg font-medium transition-colors text-sm ${
-                checkingSupplier
-                  ? 'bg-orange-100 text-orange-400 cursor-not-allowed'
-                  : 'bg-orange-500 hover:bg-orange-600 text-white shadow-sm'
-              }`}
-            >
-              {checkingSupplier ? 'בודק מלאי משק דהן...' : 'בדוק מלאי משק דהן'}
-            </button>
+            <>
+              <button
+                onClick={handleCopyImagePrompt}
+                disabled={products.length === 0}
+                className={`w-52 px-3 py-1.5 rounded-lg font-medium transition-colors text-sm ${
+                  products.length === 0
+                    ? 'bg-teal-100 text-teal-400 cursor-not-allowed'
+                    : 'bg-teal-600 hover:bg-teal-700 text-white shadow-sm'
+                }`}
+              >
+                העתק רשימה לתמונות AI
+              </button>
+              <button
+                onClick={handleCheckSupplierInventory}
+                disabled={checkingSupplier}
+                className={`w-48 px-3 py-1.5 rounded-lg font-medium transition-colors text-sm ${
+                  checkingSupplier
+                    ? 'bg-orange-100 text-orange-400 cursor-not-allowed'
+                    : 'bg-orange-500 hover:bg-orange-600 text-white shadow-sm'
+                }`}
+              >
+                {checkingSupplier ? 'בודק מלאי משק דהן...' : 'בדוק מלאי משק דהן'}
+              </button>
+            </>
           )}
         </div>
         {!isIndependent && (

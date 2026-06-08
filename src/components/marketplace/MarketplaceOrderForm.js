@@ -68,6 +68,7 @@ const MarketplaceOrderForm = () => {
   const [fulfillmentMethod, setFulfillmentMethod] = useState('');
   const [fulfillmentLabel, setFulfillmentLabel] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('bit');
+  const [agreeToMarketplaceTerms, setAgreeToMarketplaceTerms] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const profilePrefilledRef = useRef(false);
 
@@ -255,6 +256,15 @@ const MarketplaceOrderForm = () => {
       return;
     }
 
+    if (!agreeToMarketplaceTerms) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'תקנון השוק',
+        text: 'יש לאשר את תקנון שוק הקהילתי לפני שליחת ההזמנה.',
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
       let orderAccount;
@@ -289,6 +299,7 @@ const MarketplaceOrderForm = () => {
         lines: orderLines,
         selectedDeliveryOption: fulfillmentLabel,
         paymentMethod,
+        marketplaceTermsAcceptedAt: new Date().toISOString(),
       });
 
       const notifications = await notifyMarketplaceOrderForBusinessId({
@@ -628,9 +639,23 @@ const MarketplaceOrderForm = () => {
                   התשלום ישירות לדוכן לפי האמצעי שבחרתם. לאחר התשלום — הדוכן יעדכן כשההזמנה
                   מוכנה.
                 </p>
+                <label className="flex items-start gap-2 mt-4 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={agreeToMarketplaceTerms}
+                    onChange={(event) => setAgreeToMarketplaceTerms(event.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>
+                    קראתי ואני מסכים/ה ל
+                    <Link to="/community-marketplace/terms" target="_blank" className="text-green-700 underline mx-1">
+                      תקנון שוק הקהילתי
+                    </Link>
+                  </span>
+                </label>
                 <button
                   type="submit"
-                  disabled={submitDisabled}
+                  disabled={submitDisabled || !agreeToMarketplaceTerms}
                   className="mp-btn mp-btn-wood w-full mt-4"
                 >
                   {submitting ? 'שולח הזמנה...' : 'שליחת ההזמנה לשוק'}

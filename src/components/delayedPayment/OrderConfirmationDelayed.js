@@ -21,6 +21,32 @@ import {
     isDeliveryDateOrderable,
     isAlwaysOnGroceryOrder,
 } from '../../utils/deliveryScheduleUtils';
+import {
+  getReferralConfig,
+  getStoredReferralCode,
+  recordReferralUse,
+} from '../../services/referralService';
+
+async function processReferralReward({ orderId, buyerUid, orderTotal }) {
+  const refCode = getStoredReferralCode();
+  if (!refCode || !orderId) return;
+  try {
+    const config = await getReferralConfig();
+    if (config.mode !== 'personal') return;
+    const percent = Number(config.personalRewardPercent) || 0;
+    const fixed = Number(config.personalRewardFixed) || 0;
+    const reward = fixed > 0 ? fixed : (Number(orderTotal) * percent) / 100;
+    if (reward <= 0) return;
+    await recordReferralUse({
+      refCode,
+      orderId,
+      buyerUid: buyerUid || null,
+      rewardAmount: Math.round(reward * 100) / 100,
+    });
+  } catch (error) {
+    console.error('Referral reward failed:', error);
+  }
+}
 
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
@@ -1040,6 +1066,11 @@ const OrderConfirmationDelayed = () => {
             
             // Now call the function that's defined at component level
             await updateOrdersWithReference(orderIds, customerOrderRef.id);
+            await processReferralReward({
+              orderId: customerOrderRef.id,
+              buyerUid: currentUser?.uid,
+              orderTotal: effectiveTotalWithDelivery,
+            });
 
             // Also add the order to the user's document if user is logged in
             if (currentUser && currentUser.uid) {

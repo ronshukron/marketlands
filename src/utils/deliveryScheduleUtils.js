@@ -1,3 +1,5 @@
+import { resolveCommunityName } from '../services/pickupSpotsService';
+
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 const pad2 = (value) => String(value).padStart(2, '0');
@@ -40,6 +42,21 @@ export function getWeekKey(date) {
   sunday.setDate(parsed.getDate() - parsed.getDay());
   sunday.setHours(0, 0, 0, 0);
   return toLocalDateKey(sunday);
+}
+
+/** Recent Sunday week keys (newest first) without a Firestore scan — safer on mobile Safari. */
+export function getRecentWeekKeys(count = 24) {
+  const weeks = [];
+  const sunday = new Date();
+  sunday.setDate(sunday.getDate() - sunday.getDay());
+  sunday.setHours(0, 0, 0, 0);
+
+  for (let index = 0; index < count; index += 1) {
+    weeks.push(toLocalDateKey(sunday));
+    sunday.setDate(sunday.getDate() - 7);
+  }
+
+  return weeks;
 }
 
 export function getDateRangeFromWeekKey(weekKey, options = {}) {
@@ -108,8 +125,59 @@ export function getOrderCutoffOverrideAt(deliveryDate, orderData = {}, community
   return parseDateSafe(communityOverride?.cutoffAt || dateOverride?.cutoffAt || communityOverride || dateOverride);
 }
 
+const LEGACY_CUTOFF_TIME_REGEX = /^\d{1,2}:\d{2}$/;
+
+function readWeekdayCutoffValue(config = {}, communityName = '', weekday) {
+  const dayKey = String(weekday);
+  const byCommunity = config.cutoffByWeekdayByCommunity?.[communityName];
+  const communityValue = byCommunity?.[dayKey] ?? byCommunity?.[weekday];
+  if (communityValue !== undefined && communityValue !== null && communityValue !== '') return communityValue;
+  return config.weeklyCutoffByDay?.[dayKey] ?? config.weeklyCutoffByDay?.[weekday] ?? null;
+}
+
+function parseHoursBeforeDelivery(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (LEGACY_CUTOFF_TIME_REGEX.test(trimmed)) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return null;
+}
+
+/** Recurring cutoff for a delivery weekday — hours before end of delivery day, or legacy HH:mm same day. */
+export function getWeeklyCutoffAt(deliveryDate, orderData = {}, communityName = '') {
+  const dateKey = toLocalDateKey(deliveryDate);
+  const deliveryDay = parseDateSafe(dateKey);
+  if (!deliveryDay) return null;
+
+  const cutoffValue = readWeekdayCutoffValue(orderData.fulfillmentConfig || {}, communityName, deliveryDay.getDay());
+  if (cutoffValue === null || cutoffValue === undefined || cutoffValue === '') return null;
+
+  const hoursBeforeDelivery = parseHoursBeforeDelivery(cutoffValue);
+  if (hoursBeforeDelivery !== null) {
+    const deliveryDateEnd = parseDateSafe(dateKey);
+    if (!deliveryDateEnd) return null;
+    deliveryDateEnd.setHours(23, 59, 59, 999);
+    return new Date(deliveryDateEnd.getTime() - hoursBeforeDelivery * 60 * 60 * 1000);
+  }
+
+  if (typeof cutoffValue === 'string' && LEGACY_CUTOFF_TIME_REGEX.test(cutoffValue.trim())) {
+    const [hours, minutes] = cutoffValue.split(':').map((part) => Number.parseInt(part, 10));
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    const cutoff = new Date(deliveryDay);
+    cutoff.setHours(hours, minutes, 0, 0);
+    return cutoff;
+  }
+
+  return null;
+}
+
 export function getEffectiveOrderCutoffAt(deliveryDate, scheduleDoc = {}, orderData = {}, communityName = '') {
   return getOrderCutoffOverrideAt(deliveryDate, orderData, communityName)
+    || getWeeklyCutoffAt(deliveryDate, orderData, communityName)
     || getEffectiveCutoffAt(deliveryDate, scheduleDoc);
 }
 
@@ -167,11 +235,24 @@ export function generateAvailableDeliveryDates(scheduleDoc, options = {}) {
     ? scheduleDoc.weeklyDays.map(Number).filter((day) => day >= 0 && day <= 6)
     : [];
 
+  const fulfillmentConfig = options.orderData?.fulfillmentConfig || {};
+  const globalBusinessDays = fulfillmentConfig.weeklyDeliveryDays;
+  const perCommunityDays = options.communityName
+    ? fulfillmentConfig.weeklyDaysByCommunity?.[options.communityName]
+    : null;
+  const businessWeeklyDays = Array.isArray(globalBusinessDays) && globalBusinessDays.length > 0
+    ? globalBusinessDays
+    : perCommunityDays;
+  const allowedBusinessDays = Array.isArray(businessWeeklyDays) && businessWeeklyDays.length > 0
+    ? businessWeeklyDays.map(Number).filter((day) => day >= 0 && day <= 6)
+    : null;
+
   const dateKeys = new Set();
   for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
-    if (weeklyDays.includes(cursor.getDay())) {
-      dateKeys.add(toLocalDateKey(cursor));
-    }
+    const day = cursor.getDay();
+    if (!weeklyDays.includes(day)) continue;
+    if (allowedBusinessDays && !allowedBusinessDays.includes(day)) continue;
+    dateKeys.add(toLocalDateKey(cursor));
   }
 
   Object.entries(scheduleDoc.exceptions || {}).forEach(([dateKey, exception]) => {
@@ -207,8 +288,9 @@ export function isOrderDeliveryDateFallback(orderData = {}) {
 }
 
 export function getOrderCommunity(orderData = {}) {
-  return orderData.fulfillment?.community
+  const raw = orderData.fulfillment?.community
     || orderData.community
     || orderData.customerDetails?.pickupSpot
     || 'לא צוין';
+  return resolveCommunityName(raw) || raw;
 }

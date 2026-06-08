@@ -30,6 +30,7 @@ const AddProduct = () => {
   const [unitSize, setUnitSize] = useState('1'); // kg per cart click (only for measurementType === 'kg')
   const [averageWeightKg, setAverageWeightKg] = useState('1'); // For 'unit' items: estimated kg per unit
   const [isIndependent, setIsIndependent] = useState(false);
+  const [isSample, setIsSample] = useState(false);
 
   // Predefined unit size options (in kg)
   const UNIT_SIZE_OPTIONS = [
@@ -212,6 +213,7 @@ const AddProduct = () => {
         ...(thaiName !== '' ? { thaiName: thaiName } : {}),
         verified: false,
         rejected: false,
+        isSample: isSample || parseFloat(price) === 0,
       };
 
       await addDoc(collection(db, 'Products'), productData);
@@ -304,8 +306,17 @@ const AddProduct = () => {
                 min="0"
                 step="1"
               />
+              </div>
             </div>
-          </div>
+
+          <label className="flex items-center gap-2 mb-4">
+            <input
+              type="checkbox"
+              checked={isSample}
+              onChange={(e) => setIsSample(e.target.checked)}
+            />
+            <span className="text-sm text-gray-700">דגימה בחינם (מוצג כתגית באתר; מחיר 0 מאפשר הזמנה ללא תשלום)</span>
+          </label>
 
           {/* Merchant Price (optional) */}
           <div className="mb-4">

@@ -35,6 +35,7 @@ import BusinessProducts from './components/businesses/BusinessProducts';
 import AddProduct from './components/businesses/AddProduct';
 import EditProduct from './components/businesses/EditProduct';
 import BulkEditProducts from './components/businesses/BulkEditProducts';
+import BulkReplaceProductImages from './components/businesses/BulkReplaceProductImages';
 import CreateOrderForBusiness from './components/businesses/CreateOrderForBusiness';
 import AlwaysOnCutoffSettings from './components/businesses/AlwaysOnCutoffSettings';
 import OrderFormBusiness from './components/businesses/OrderFormBusiness';
@@ -109,6 +110,12 @@ import MarketplaceMyOrders from './components/marketplace/MarketplaceMyOrders';
 import MarketplaceBusinessOrders from './components/marketplace/MarketplaceBusinessOrders';
 import MarketplacePromotionOrders from './components/marketplace/MarketplacePromotionOrders';
 import MarketplaceSettingsAdmin from './components/admin/MarketplaceSettingsAdmin';
+import CommunityAdmin from './components/admin/CommunityAdmin';
+import ReferralConfigAdmin from './components/admin/ReferralConfigAdmin';
+import EditOrderProducts from './components/businesses/EditOrderProducts';
+import EditOrderCommunities from './components/businesses/EditOrderCommunities';
+import MarketplaceTermsOfService from './components/marketplace/MarketplaceTermsOfService';
+import AdminPwaInstall from './components/admin/AdminPwaInstall';
 
 const App = () => {
   return (
@@ -156,7 +163,10 @@ const App = () => {
                   <Route path="/add-product" element={<AddProduct />} />
                   <Route path="/edit-product/:productId" element={<EditProduct />} />
                   <Route path="/bulk-edit-products" element={<BulkEditProducts />} />
+                  <Route path="/bulk-replace-product-images" element={<BulkReplaceProductImages />} />
                   <Route path="/create-order-for-business" element={<CreateOrderForBusiness />} />
+                  <Route path="/edit-order/:orderId" element={<EditOrderProducts />} />
+                  <Route path="/edit-order/:orderId/communities" element={<EditOrderCommunities />} />
                   <Route path="/business/always-on-cutoffs" element={<AlwaysOnCutoffSettings />} />
                   <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
                   <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
@@ -209,10 +219,14 @@ const App = () => {
                   <Route path="/admin/marketplace-settings" element={<MarketplaceSettingsAdmin />} />
                   <Route path="/admin/community-discount" element={<CommunityDiscountConfig />} />
                   <Route path="/admin/community-hub" element={<CommunityHubAdmin />} />
+                  <Route path="/admin/communities" element={<CommunityAdmin />} />
+                  <Route path="/admin/referral-config" element={<ReferralConfigAdmin />} />
+                  <Route path="/admin/pwa-install" element={<AdminPwaInstall />} />
                   {/* Community Hub */}
                   <Route path="/community" element={<CommunityHub />} />
                   <Route path="/community/:communityId" element={<CommunityHub />} />
                   {/* Community Marketplace */}
+                  <Route path="/community-marketplace/terms" element={<MarketplaceTermsOfService />} />
                   <Route path="/community-marketplace" element={<MarketplaceHome />} />
                   <Route path="/community-marketplace/login" element={<MarketplaceLogin />} />
                   <Route path="/community-marketplace/register" element={<MarketplaceRegister />} />

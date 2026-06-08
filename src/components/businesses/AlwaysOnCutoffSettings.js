@@ -10,6 +10,16 @@ import {
 } from '../../utils/deliveryScheduleUtils';
 import LoadingSpinner from '../LoadingSpinner';
 
+const WEEK_DAYS = [
+  { value: 0, label: 'ראשון' },
+  { value: 1, label: 'שני' },
+  { value: 2, label: 'שלישי' },
+  { value: 3, label: 'רביעי' },
+  { value: 4, label: 'חמישי' },
+  { value: 5, label: 'שישי' },
+  { value: 6, label: 'שבת' },
+];
+
 const toDatetimeLocal = (value) => {
   if (!value) return '';
   const date = value?.toDate ? value.toDate() : new Date(value);
@@ -36,6 +46,7 @@ const AlwaysOnCutoffSettings = () => {
   const [bulkParticipates, setBulkParticipates] = useState(true);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [orderStatusSaving, setOrderStatusSaving] = useState(false);
+  const [businessWeeklyDays, setBusinessWeeklyDays] = useState([]);
 
   const selectedOrder = useMemo(
     () => orders.find((order) => order.id === selectedOrderId) || null,
@@ -167,6 +178,16 @@ const AlwaysOnCutoffSettings = () => {
         });
         setCutoffs(nextCutoffs);
         setDateAvailability(nextAvailability);
+
+        const adminDays = Array.isArray(scheduleData.weeklyDays)
+          ? scheduleData.weeklyDays.map(Number).filter((day) => day >= 0 && day <= 6)
+          : [];
+        const savedBusinessDays = selectedOrder.fulfillmentConfig?.weeklyDaysByCommunity?.[selectedCommunity];
+        setBusinessWeeklyDays(
+          Array.isArray(savedBusinessDays) && savedBusinessDays.length > 0
+            ? savedBusinessDays.map(Number)
+            : adminDays
+        );
       } catch (error) {
         console.error('Error loading delivery schedule:', error);
         Swal.fire('שגיאה', 'טעינת לוח המשלוחים נכשלה', 'error');
@@ -207,6 +228,10 @@ const AlwaysOnCutoffSettings = () => {
         deliveryDateAvailability: {
           ...existingAvailability,
           [selectedCommunity]: communityAvailability,
+        },
+        weeklyDaysByCommunity: {
+          ...(existingConfig.weeklyDaysByCommunity || {}),
+          [selectedCommunity]: [...businessWeeklyDays].sort((a, b) => a - b),
         },
       };
 
@@ -568,6 +593,29 @@ const AlwaysOnCutoffSettings = () => {
             </div>
           ) : (
             <div className="bg-white rounded-lg shadow p-5">
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <h3 className="font-semibold mb-2">ימי משלוח לעסק (בתוך לוח האדמין)</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  ימי משלוח מוגדרים באדמין: {(schedule.weeklyDays || []).map((d) => WEEK_DAYS.find((w) => w.value === Number(d))?.label).filter(Boolean).join(', ') || 'לא הוגדרו'}
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {WEEK_DAYS.filter((day) => (schedule.weeklyDays || []).map(Number).includes(day.value)).map((day) => (
+                    <label key={day.value} className="flex items-center gap-2 bg-white rounded-md p-2 border">
+                      <input
+                        type="checkbox"
+                        checked={businessWeeklyDays.includes(day.value)}
+                        onChange={() => setBusinessWeeklyDays((prev) => (
+                          prev.includes(day.value)
+                            ? prev.filter((v) => v !== day.value)
+                            : [...prev, day.value].sort((a, b) => a - b)
+                        ))}
+                      />
+                      <span>{day.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">תאריכי משלוח קרובים</h2>
                 <button

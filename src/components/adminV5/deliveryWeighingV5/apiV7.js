@@ -6,7 +6,9 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  query,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
 import { functionsEndpoint } from '../../../utils/functionsClient';
@@ -202,8 +204,12 @@ export function subscribeDelayedOrdersForWeekV7({
 }) {
   if (!weekKey && !startDate && !endDate) return () => {};
 
+  const collectionRef = weekKey
+    ? query(collection(db, 'customerOrdersDelayed'), where('deliveryWeekKey', '==', weekKey))
+    : collection(db, 'customerOrdersDelayed');
+
   const unsubscribe = onSnapshot(
-    collection(db, 'customerOrdersDelayed'),
+    collectionRef,
     (snapshot) => {
       const next = classifyDelayedOrders(snapshot, weekKey, communities, startDate, endDate);
       if (typeof onOrders === 'function') onOrders(next);

@@ -1,0 +1,32 @@
+// Paste into Firebase Console → Firestore → Rules
+// Required for /admin/delivery-schedules → "זמני חיתוך לעסקים שבועיים"
+// (archive businesses + save cutoff settings on their Orders)
+
+// 1) Replace the businesses block with:
+
+    match /businesses/{businessId} {
+      allow read: if true;
+      allow create, update: if isBusinessOwner(businessId) || isAdmin();
+      allow delete: if false;
+    }
+
+// 2) In match /Orders/{orderId}, add isAdmin() to allow update.
+//    Replace the existing allow update with:
+
+      allow update: if
+        isAdmin() ||
+        (isAuthenticated() && (
+          resource.data.businessId == request.auth.uid ||
+          resource.data.Coordinator_Email == request.auth.email
+        )) ||
+        isValidOrderUpdate(resource.data, request.resource.data);
+
+// 3) communities collection — admin CRUD at /admin/communities
+//    (if not already allowed). Replace communities block with:
+
+    match /communities/{communityId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+// Publish rules in Firebase Console after editing.

@@ -236,8 +236,11 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
 
         {/* Product Info - Desktop */}
         <div className="flex-1 p-3">
-          <h3 className="text-base font-bold text-gray-900 mb-1">
+          <h3 className="text-base font-bold text-gray-900 mb-1 flex items-center gap-2 flex-wrap">
             {product.name}
+            {(product.isSample || Number(product.price) === 0) && (
+              <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">דגימה בחינם</span>
+            )}
           </h3>
           <p className="text-lg font-semibold text-blue-600 mb-1">
             ₪{product.price}
@@ -367,8 +370,11 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
 
         {/* Product Info */}
         <div className="flex-1 p-2.5">
-          <h3 className="text-sm font-bold text-gray-900 mb-0.5">
+          <h3 className="text-sm font-bold text-gray-900 mb-0.5 flex items-center gap-1 flex-wrap">
             {product.name}
+            {(product.isSample || Number(product.price) === 0) && (
+              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">דגימה בחינם</span>
+            )}
           </h3>
           <p className="text-sm text-gray-500 mb-0.5">
             ₪{product.price}

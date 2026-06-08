@@ -187,10 +187,31 @@ const BusinessDashBoard = () => {
                   ) : (
                     <p className="text-sm text-gray-600">סיום הזמנה: לא ידוע</p>
                   )}
+                  {calculateOrderStatus(order) === 'פעילה' && (
+                    <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/edit-order/${order.id}`)}
+                        className="flex-1 py-1.5 text-xs font-medium bg-yellow-500 hover:bg-yellow-600 text-white rounded"
+                      >
+                        ערוך מוצרים
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/edit-order/${order.id}/communities`)}
+                        className="flex-1 py-1.5 text-xs font-medium bg-purple-600 hover:bg-purple-700 text-white rounded"
+                      >
+                        ערוך יישובים
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <button
                   className="absolute top-2 left-2 bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded-full flex items-center justify-center"
-                  onClick={() => handleArchiveOrder(order.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleArchiveOrder(order.id);
+                  }}
                 >
                   X
                 </button>

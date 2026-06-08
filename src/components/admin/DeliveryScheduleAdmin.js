@@ -3,12 +3,13 @@ import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import {
   generateAvailableDeliveryDates,
   getEffectiveCutoffAt,
 } from '../../utils/deliveryScheduleUtils';
 import LoadingSpinner from '../LoadingSpinner';
+import AdminBusinessWeeklyCutoffs from './AdminBusinessWeeklyCutoffs';
 
 const FIREBASE_PROJECT_ID = process.env.REACT_APP_FIREBASE_PROJECT_ID || '';
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -61,7 +62,8 @@ const toDatetimeLocal = (value) => {
 
 const DeliveryScheduleAdmin = () => {
   const { currentUser, userRole } = useAuth();
-  const [selectedCommunity, setSelectedCommunity] = useState(pickupSpots[0] || '');
+  const { pickupSpots } = usePickupSpots();
+  const [selectedCommunity, setSelectedCommunity] = useState('');
   const [form, setForm] = useState(defaultForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -76,6 +78,12 @@ const DeliveryScheduleAdmin = () => {
   const isAdmin = Boolean(
     currentUser && (userRole === 'admin' || ADMIN_UIDS.includes(currentUser.uid))
   );
+
+  useEffect(() => {
+    if (!selectedCommunity && pickupSpots.length > 0) {
+      setSelectedCommunity(pickupSpots[0]);
+    }
+  }, [pickupSpots, selectedCommunity]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -537,6 +545,8 @@ const DeliveryScheduleAdmin = () => {
           ))}
         </div>
       </div>
+
+      <AdminBusinessWeeklyCutoffs />
 
       <div className="bg-white rounded-lg shadow p-5 mb-6">
         <h2 className="text-xl font-semibold mb-3">תצוגה מקדימה של תאריכים זמינים</h2>

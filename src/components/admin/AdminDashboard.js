@@ -71,6 +71,18 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'ניהול יישובים',
+    description: 'הוספה ועריכת נקודות איסוף, צבעים ומיגרציית ניצנים',
+    to: '/admin/communities',
+    featured: true
+  },
+  {
+    title: 'הגדרות שיתוף ותגמול',
+    description: 'בחירה בין הנחה קהילתית להנחה אישית על שיתוף האתר',
+    to: '/admin/referral-config',
+    featured: true
+  },
+  {
     title: 'סיכום לפי שבוע משלוח',
     description: 'צפייה בהזמנות לפי תאריך/שבוע משלוח וקהילה, כולל נתוני עבר',
     to: '/admin/weekly-delivery-summary',
@@ -164,6 +176,12 @@ const initialCards = [
     title: 'ניהול מרכז קהילה',
     description: 'הפעלה/כיבוי רכיבים בעמוד הקהילה, שינוי סדר תצוגה',
     to: '/admin/community-hub',
+    featured: true
+  },
+  {
+    title: 'התקנת אפליקציית ניהול',
+    description: 'הוספת באסטה למסך הבית לגישה מהירה לניהול מהטלפון (מנהלים בלבד)',
+    to: '/admin/pwa-install',
     featured: true
   }
 ];

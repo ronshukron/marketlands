@@ -417,12 +417,20 @@ const Dashboard = () => {
                               העתק קישור
                             </button>
                             {isActive && (
-                              <button
-                                onClick={() => navigate(`/edit-order/${order.id}`)}
-                                className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
-                              >
-                                ערוך
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => navigate(`/edit-order/${order.id}`)}
+                                  className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+                                >
+                                  מוצרים
+                                </button>
+                                <button
+                                  onClick={() => navigate(`/edit-order/${order.id}/communities`)}
+                                  className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+                                >
+                                  יישובים
+                                </button>
+                              </>
                             )}
                           </div>
                         </td>
@@ -503,12 +511,20 @@ const Dashboard = () => {
                         העתק קישור
                       </button>
                       {isActive && (
-                        <button
-                          onClick={() => navigate(`/edit-order/${order.id}`)}
-                          className="bg-yellow-600 hover:bg-yellow-700 text-white flex-1 py-2 rounded-md text-sm font-medium transition-colors"
-                        >
-                          ערוך
-                        </button>
+                        <>
+                          <button
+                            onClick={() => navigate(`/edit-order/${order.id}`)}
+                            className="bg-yellow-600 hover:bg-yellow-700 text-white flex-1 py-2 rounded-md text-sm font-medium transition-colors"
+                          >
+                            מוצרים
+                          </button>
+                          <button
+                            onClick={() => navigate(`/edit-order/${order.id}/communities`)}
+                            className="bg-purple-600 hover:bg-purple-700 text-white flex-1 py-2 rounded-md text-sm font-medium transition-colors"
+                          >
+                            יישובים
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

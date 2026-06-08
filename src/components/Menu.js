@@ -6,7 +6,6 @@ import { useAuth } from '../contexts/authContext';
 import { doSignOut } from '../firebase/auth';
 import { useCart } from '../contexts/CartContext';
 import { useSaleMode } from '../contexts/SaleModeContext';
-import { isCommunityMarketplaceShopper } from '../utils/marketplaceAccount';
 import Cart from './Cart';
 import './Menu.css';
 import { doc, getDoc } from 'firebase/firestore';
@@ -132,11 +131,6 @@ const Menu = () => {
   const businessId = currentUser && (userRole === 'business' || userRole === 'localBusiness') && !isDriver
     ? currentUser.uid
     : null;
-  const isMarketplaceShopper = isCommunityMarketplaceShopper({
-    userLoggedIn,
-    userRole,
-    isDriver,
-  });
   const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר'];
 
   return (
@@ -202,23 +196,6 @@ const Menu = () => {
                   </Link>
                 </>
               )}
-              
-              {isMarketplaceShopper && (
-                <Link
-                  to="/community-marketplace"
-                  className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${
-                    location.pathname.startsWith('/community-marketplace')
-                      ? 'bg-green-50 text-green-700'
-                      : 'text-gray-700 hover:bg-gray-50 hover:text-green-700'
-                  }`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                  שוק הבסטות
-                </Link>
-              )}
-
               
               {userLoggedIn && (userRole === 'driver' || isDriver) && (
                 <Link to="/driver/delivery" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/driver/delivery') ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}>
@@ -500,20 +477,6 @@ const Menu = () => {
                   </Link>
                 </>
               )}
-              
-              {isMarketplaceShopper && (
-                <Link
-                  to="/community-marketplace"
-                  className={`block px-3 py-2 rounded-md text-base font-medium ${
-                    location.pathname.startsWith('/community-marketplace')
-                      ? 'bg-green-50 text-green-700'
-                      : 'text-gray-700 hover:bg-gray-50 hover:text-green-700'
-                  }`}
-                >
-                  שוק הבסטות
-                </Link>
-              )}
-
               
               {userLoggedIn && (userRole === 'driver' || isDriver) && (
                 <Link to="/driver/delivery" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/driver/delivery') ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}>

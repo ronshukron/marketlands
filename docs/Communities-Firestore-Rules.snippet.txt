@@ -1,0 +1,23 @@
+// Paste into Firebase Console → Firestore → Rules
+// Replace the existing match /communities/{communityId} block.
+//
+// Required for /admin/communities — admins must be able to delete communities.
+// Registration still creates/updates communities for authenticated users.
+
+    match /communities/{communityId} {
+      // Community picker, checkout, registration
+      allow read: if true;
+
+      // User registration may create communities and append userIds
+      allow create, update: if isAuthenticated();
+
+      // Community admin page — remove obsolete communities
+      allow delete: if isAdmin();
+    }
+
+// Ensure isAdmin() is defined, for example:
+//
+//   function isAdmin() {
+//     return isAuthenticated() &&
+//       request.auth.uid in ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
+//   }

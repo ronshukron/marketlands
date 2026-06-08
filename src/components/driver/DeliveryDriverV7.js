@@ -4,9 +4,8 @@ import { useAuth } from '../../contexts/authContext';
 import { db } from '../../firebase/firebase';
 import { pickupSpots } from '../../data/pickupSpots';
 import { isDeliveryDriverAccount } from '../../utils/accountRoles';
-import { toLocalDateKey } from '../../utils/deliveryScheduleUtils';
+import { getRecentWeekKeys, toLocalDateKey } from '../../utils/deliveryScheduleUtils';
 import {
-  fetchAvailableDeliveryWeeksV7,
   fetchProductDetailsV7,
   subscribeDelayedOrdersForWeekV7,
 } from '../adminV5/deliveryWeighingV5/apiV7';
@@ -269,25 +268,31 @@ function CollapsibleSection({
 }
 
 async function fetchCustomerNumbersReadOnly(orders = []) {
-  const customers = new Map();
+  const customerIds = [];
+  const seen = new Set();
   orders.forEach((order) => {
     const id = getCustomerId(order);
-    if (id && !customers.has(id)) {
-      customers.set(id, order?.customerDetails?.name || '');
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      customerIds.push(id);
     }
   });
 
   const mapping = {};
-  await Promise.all(Array.from(customers.entries()).map(async ([id]) => {
-    try {
-      const snap = await getDoc(doc(db, 'customerNumbers', id));
-      if (snap.exists() && snap.data()?.number != null) {
-        mapping[id] = snap.data().number;
+  const batchSize = 8;
+  for (let index = 0; index < customerIds.length; index += batchSize) {
+    const batch = customerIds.slice(index, index + batchSize);
+    await Promise.all(batch.map(async (id) => {
+      try {
+        const snap = await getDoc(doc(db, 'customerNumbers', id));
+        if (snap.exists() && snap.data()?.number != null) {
+          mapping[id] = snap.data().number;
+        }
+      } catch {
+        // Keep loading the manifest even if one customer number cannot be read.
       }
-    } catch {
-      // Keep loading the manifest even if one customer number cannot be read.
-    }
-  }));
+    }));
+  }
   return mapping;
 }
 
@@ -400,27 +405,10 @@ export default function DeliveryDriverV7() {
 
   useEffect(() => {
     if (!authState.authorized) return;
-    let active = true;
-    setLoadingWeeks(true);
-    setError('');
-
-    fetchAvailableDeliveryWeeksV7()
-      .then((weeks) => {
-        if (!active) return;
-        setAvailableWeeks(weeks);
-        setSelectedWeek((current) => (current && weeks.includes(current) ? current : (weeks[0] || '')));
-      })
-      .catch((weeksError) => {
-        console.error(weeksError);
-        if (active) setError('לא ניתן לטעון שבועות משלוח.');
-      })
-      .finally(() => {
-        if (active) setLoadingWeeks(false);
-      });
-
-    return () => {
-      active = false;
-    };
+    const weeks = getRecentWeekKeys(24);
+    setAvailableWeeks(weeks);
+    setSelectedWeek((current) => (current && weeks.includes(current) ? current : (weeks[0] || '')));
+    setLoadingWeeks(false);
   }, [authState.authorized]);
 
   useEffect(() => {
@@ -637,7 +625,7 @@ export default function DeliveryDriverV7() {
 
   if (authState.checking) {
     return (
-      <div className="min-h-screen bg-gray-50 pt-24 px-4" dir="rtl">
+      <div className="notranslate min-h-screen bg-gray-50 pt-24 px-4" dir="rtl" translate="no">
         <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow p-8 text-center text-gray-600">
           בודק הרשאות נהג...
         </div>
@@ -647,7 +635,7 @@ export default function DeliveryDriverV7() {
 
   if (!authState.authorized) {
     return (
-      <div className="min-h-screen bg-gray-50 pt-24 px-4" dir="rtl">
+      <div className="notranslate min-h-screen bg-gray-50 pt-24 px-4" dir="rtl" translate="no">
         <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow p-8 text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">מסך נהג</h1>
           <p className="text-red-600">{authState.message}</p>
@@ -657,7 +645,7 @@ export default function DeliveryDriverV7() {
   }
 
   return (
-    <div className="driver-delivery-page min-h-screen bg-gray-50 pt-24 pb-10 px-4" dir="rtl">
+    <div className="driver-delivery-page notranslate min-h-screen bg-gray-50 pt-24 pb-10 px-4" dir="rtl" translate="no">
       <div className="max-w-7xl mx-auto space-y-4">
         <header className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
