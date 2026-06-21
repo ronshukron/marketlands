@@ -1,3 +1,39 @@
+import {
+  getVisibleWeekDeliveryDateKeys,
+  parseDateSafe,
+} from './deliveryScheduleUtils';
+
+const HEBREW_WEEKDAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+function formatHebrewDayWithBet(dayIndex) {
+  const label = HEBREW_WEEKDAYS[dayIndex];
+  return label ? `ב${label}` : '';
+}
+
+function joinHebrewDayLabels(labels) {
+  if (!labels.length) return '';
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} ו${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')} ו${labels[labels.length - 1]}`;
+}
+
+export function buildAutoDeliveryNoteFromSchedule(scheduleDoc, now = new Date()) {
+  const dateKeys = getVisibleWeekDeliveryDateKeys(scheduleDoc, now);
+  if (!dateKeys.length) return '';
+
+  const dayLabels = [...new Set(
+    dateKeys
+      .map((dateKey) => parseDateSafe(dateKey)?.getDay())
+      .filter((day) => day !== undefined && day !== null)
+      .sort((a, b) => a - b)
+      .map(formatHebrewDayWithBet)
+      .filter(Boolean),
+  )];
+
+  if (!dayLabels.length) return '';
+  return `מגיעים ${joinHebrewDayLabels(dayLabels)}.`;
+}
+
 export const DEFAULT_BROADCAST_TEMPLATE = {
   intro: 'היי חברים שבוע טוב, האתר פתוח להזמנות 🚜',
   productsBody: `* ירוקים שדה דוד - תרד, חסה לאליק\\סלנובה 8₪, סלק עלים 4.5₪ ועוד.
@@ -34,6 +70,8 @@ export function buildCommunityBroadcastMessage({
   communityName,
   community = {},
   template = {},
+  deliverySchedule = null,
+  now = new Date(),
 }) {
   const mergedTemplate = { ...DEFAULT_BROADCAST_TEMPLATE, ...template };
   const intro = String(mergedTemplate.intro || '').trim();
@@ -43,8 +81,12 @@ export function buildCommunityBroadcastMessage({
     ...mergedTemplate,
     storeLink: community.storeLink,
   });
+  const autoDeliveryNote = buildAutoDeliveryNoteFromSchedule(deliverySchedule, now);
   const deliveryNote = String(
-    community.broadcastDeliveryNote || mergedTemplate.defaultDeliveryNote || ''
+    community.broadcastDeliveryNote
+    || autoDeliveryNote
+    || mergedTemplate.defaultDeliveryNote
+    || ''
   ).trim();
 
   const parts = [];

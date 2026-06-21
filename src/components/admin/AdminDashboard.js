@@ -53,6 +53,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'העברת שבוע משלוח',
+    description: 'העברת הזמנות חנות קבועה מתאריך משלוח אחד לאחר (למשל משבוע הבא לשבוע הנוכחי)',
+    to: '/admin/transfer-delivery-week',
+    featured: true
+  },
+  {
     title: 'סיכום הכנסות V4',
     description: 'סיכום כספי — סכומים ששולמו בפועל ומה שקיבלתי, כולל שקילה',
     to: '/admin/weekly-summary-v4',

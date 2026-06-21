@@ -16,6 +16,8 @@ import {
   toLocalDateKey,
 } from '../../utils/deliveryScheduleUtils';
 import LoadingSpinner from '../LoadingSpinner';
+import CustomerOrderDeliveryTransferControl from './CustomerOrderDeliveryTransferControl';
+import { buildWhatsappLink } from '../../constants/marketplaceStoreContent';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
@@ -383,6 +385,10 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
       console.error('Failed to copy customer order:', err);
       alert('שגיאה בהעתקת ההזמנה');
     }
+  };
+
+  const handleDeliveryTransferred = () => {
+    setLoadRequestId((current) => current + 1);
   };
 
   const toggleCommunity = (community) => {
@@ -847,7 +853,9 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {communityOrders.map((order) => (
+                        {communityOrders.map((order) => {
+                          const whatsappUrl = buildWhatsappLink(order.customerDetails?.phone);
+                          return (
                           <tr
                             key={order.id}
                             className={`align-top ${duplicateOrderKeys.has(order.id) ? 'bg-amber-50 border-r-4 border-amber-400' : 'hover:bg-gray-50'}`}
@@ -889,16 +897,41 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                               ₪{Number(order.grandTotal || 0).toFixed(2)}
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => handleCopyCustomerOrder(order)}
-                                className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                              >
-                                העתק הזמנה
-                              </button>
+                              <div className="flex flex-col gap-2 items-start">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyCustomerOrder(order)}
+                                  className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                                >
+                                  העתק הזמנה
+                                </button>
+                                {whatsappUrl && (
+                                  <a
+                                    href={whatsappUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                                  >
+                                    WhatsApp
+                                  </a>
+                                )}
+                                {!order.deliveryDateIsFallback && (
+                                  <CustomerOrderDeliveryTransferControl
+                                    orderId={order.id}
+                                    source={order.source}
+                                    orderData={order}
+                                    currentDeliveryDateKey={toLocalDateKey(order.deliveryDate)}
+                                    deliveryDateIsFallback={order.deliveryDateIsFallback}
+                                    availableDeliveryDates={availableDeliveryDates}
+                                    adminUid={currentUser?.uid || null}
+                                    onTransferred={handleDeliveryTransferred}
+                                  />
+                                )}
+                              </div>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

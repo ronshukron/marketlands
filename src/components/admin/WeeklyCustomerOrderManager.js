@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEstimatedLineTotal } from '../../utils/pricing';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -43,6 +43,18 @@ const sumItemsTotal = (orderBreakdown = {}) => {
   return Math.round(total * 100) / 100;
 };
 
+const buildUpdatedItemWithQuantity = (item, newQuantity) => {
+  const quantity = Number(newQuantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+
+  const nextItem = {
+    ...item,
+    quantity,
+  };
+  nextItem.estimatedLineTotal = getEstimatedLineTotal(nextItem);
+  return nextItem;
+};
+
 const getOrderStatusLabel = (order) => {
   if (order.source === 'customerOrdersDelayed') {
     if (CANCELLED_STATUSES.has((order.paymentStatus || '').toLowerCase())) return 'בוטלה';
@@ -67,6 +79,7 @@ const isOrderActive = (orderData, source) => {
 
 const WeeklyCustomerOrderManager = () => {
   const { currentUser } = useAuth();
+  const { pickupSpots } = usePickupSpots();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [availableWeeks, setAvailableWeeks] = useState([]);
@@ -236,6 +249,39 @@ const WeeklyCustomerOrderManager = () => {
     });
   };
 
+  const persistOrderBreakdown = async (order, nextBreakdown) => {
+    const hasItemsLeft = Object.values(nextBreakdown).some(
+      (businessOrder) => Array.isArray(businessOrder?.items) && businessOrder.items.length > 0
+    );
+    if (!hasItemsLeft) {
+      window.alert('לא נשארו פריטים בהזמנה. השתמש/י בכפתור ביטול הזמנה מלאה.');
+      return false;
+    }
+
+    const orderRef = doc(db, order.source, order.id);
+    const deliveryFee = Number(order.customerDetails?.deliveryDetails?.deliveryFee) || 0;
+    const nextGrandTotal = Math.round((sumItemsTotal(nextBreakdown) + deliveryFee) * 100) / 100;
+    const nextBusinessIds = Array.from(
+      new Set(Object.values(nextBreakdown).map((businessOrder) => businessOrder.businessId).filter(Boolean))
+    );
+
+    await updateDoc(orderRef, {
+      orderBreakdown: nextBreakdown,
+      businessIds: nextBusinessIds,
+      grandTotal: nextGrandTotal,
+      adminEditedAt: new Date().toISOString(),
+    });
+
+    updateOrderInState(order.customerDetails?.pickupSpot || 'לא צוין', order.id, {
+      ...order,
+      orderBreakdown: nextBreakdown,
+      businessIds: nextBusinessIds,
+      grandTotal: nextGrandTotal,
+    }, false);
+
+    return true;
+  };
+
   const cancelEntireOrder = async (order) => {
     const approved = window.confirm(`לבטל את הזמנה ${order.id} עבור ${order.customerDetails?.name || 'לקוח'}?`);
     if (!approved) return;
@@ -262,64 +308,68 @@ const WeeklyCustomerOrderManager = () => {
     }
   };
 
-  const removeItemFromOrder = async (order, businessOrderKey, itemIndex) => {
-    const approved = window.confirm('להסיר את הפריט מההזמנה?');
+  const changeItemQuantityInOrder = async (order, businessOrderKey, itemIndex, quantityDelta) => {
+    const targetBusiness = order.orderBreakdown?.[businessOrderKey];
+    const item = targetBusiness?.items?.[itemIndex];
+    if (!item) return;
+
+    const currentQty = Number(item.quantity) || 0;
+    const removeCount = Math.abs(Number(quantityDelta) || 0);
+    if (removeCount <= 0) return;
+
+    const isPartialRemoval = removeCount < currentQty;
+    const confirmMessage = isPartialRemoval
+      ? `להסיר ${removeCount} מתוך ${currentQty} מההזמנה?`
+      : 'להסיר את הפריט מההזמנה?';
+    const approved = window.confirm(confirmMessage);
     if (!approved) return;
 
-    const actionKey = `${order.id}-remove-${businessOrderKey}-${itemIndex}`;
+    const actionKey = `${order.id}-qty-${businessOrderKey}-${itemIndex}-${removeCount}`;
     setSavingActionKey(actionKey);
     try {
-      const orderRef = doc(db, order.source, order.id);
       const nextBreakdown = { ...(order.orderBreakdown || {}) };
-      const targetBusiness = nextBreakdown[businessOrderKey];
-      if (!targetBusiness || !Array.isArray(targetBusiness.items)) {
+      const businessOrder = nextBreakdown[businessOrderKey];
+      if (!businessOrder || !Array.isArray(businessOrder.items)) {
         throw new Error('Business order not found');
       }
 
-      const nextItems = targetBusiness.items.filter((_, idx) => idx !== itemIndex);
+      const newQty = currentQty - removeCount;
+      let nextItems;
+      if (newQty <= 0) {
+        nextItems = businessOrder.items.filter((_, idx) => idx !== itemIndex);
+      } else {
+        const updatedItem = buildUpdatedItemWithQuantity(item, newQty);
+        if (!updatedItem) {
+          nextItems = businessOrder.items.filter((_, idx) => idx !== itemIndex);
+        } else {
+          nextItems = [...businessOrder.items];
+          nextItems[itemIndex] = updatedItem;
+        }
+      }
+
       if (nextItems.length === 0) {
         delete nextBreakdown[businessOrderKey];
       } else {
         nextBreakdown[businessOrderKey] = {
-          ...targetBusiness,
-          items: nextItems
+          ...businessOrder,
+          items: nextItems,
         };
       }
 
-      const hasItemsLeft = Object.values(nextBreakdown).some(
-        (businessOrder) => Array.isArray(businessOrder?.items) && businessOrder.items.length > 0
-      );
-      if (!hasItemsLeft) {
-        window.alert('לא נשארו פריטים בהזמנה. השתמש/י בכפתור ביטול הזמנה מלאה.');
-        return;
-      }
-
-      const deliveryFee = Number(order.customerDetails?.deliveryDetails?.deliveryFee) || 0;
-      const nextGrandTotal = Math.round((sumItemsTotal(nextBreakdown) + deliveryFee) * 100) / 100;
-      const nextBusinessIds = Array.from(
-        new Set(Object.values(nextBreakdown).map((businessOrder) => businessOrder.businessId).filter(Boolean))
-      );
-
-      await updateDoc(orderRef, {
-        orderBreakdown: nextBreakdown,
-        businessIds: nextBusinessIds,
-        grandTotal: nextGrandTotal,
-        adminEditedAt: new Date().toISOString()
-      });
-
-      const updatedOrder = {
-        ...order,
-        orderBreakdown: nextBreakdown,
-        businessIds: nextBusinessIds,
-        grandTotal: nextGrandTotal
-      };
-      updateOrderInState(order.customerDetails?.pickupSpot || 'לא צוין', order.id, updatedOrder, false);
+      await persistOrderBreakdown(order, nextBreakdown);
     } catch (err) {
-      console.error('Error removing item from order:', err);
-      window.alert('שגיאה בהסרת הפריט מההזמנה');
+      console.error('Error updating item quantity:', err);
+      window.alert('שגיאה בעדכון כמות הפריט');
     } finally {
       setSavingActionKey('');
     }
+  };
+
+  const removeItemFromOrder = async (order, businessOrderKey, itemIndex) => {
+    const item = order.orderBreakdown?.[businessOrderKey]?.items?.[itemIndex];
+    if (!item) return;
+    const currentQty = Number(item.quantity) || 0;
+    await changeItemQuantityInOrder(order, businessOrderKey, itemIndex, currentQty);
   };
 
   const changeOrderCommunity = async (order) => {
@@ -534,21 +584,40 @@ const WeeklyCustomerOrderManager = () => {
                               {Object.entries(order.orderBreakdown || {}).map(([businessKey, businessOrder]) => (
                                 <li key={businessKey} className="border border-gray-100 rounded p-2">
                                   <div className="text-xs text-gray-500 mb-1">{businessOrder.businessName}</div>
-                                  {(businessOrder.items || []).map((item, itemIndex) => (
+                                  {(businessOrder.items || []).map((item, itemIndex) => {
+                                    const itemQty = Number(item.quantity) || 0;
+                                    const canRemovePartial = itemQty > 1;
+                                    const actionBaseKey = `${order.id}-qty-${businessKey}-${itemIndex}`;
+                                    const isSaving = savingActionKey.startsWith(actionBaseKey);
+                                    return (
                                     <div key={`${businessKey}-${itemIndex}`} className="flex justify-between items-start gap-2 mb-1">
                                       <span>
                                         {item.quantity} × {item.productName}
                                         {item.selectedOption && item.selectedOption !== 'None' && item.selectedOption !== 'ללא אופציות' ? ` (${item.selectedOption})` : ''}
                                       </span>
-                                      <button
-                                        onClick={() => removeItemFromOrder(order, businessKey, itemIndex)}
-                                        disabled={savingActionKey === `${order.id}-remove-${businessKey}-${itemIndex}`}
-                                        className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded hover:bg-red-200 disabled:opacity-50"
-                                      >
-                                        הסר
-                                      </button>
+                                      <div className="flex flex-wrap gap-1 shrink-0">
+                                        {canRemovePartial && (
+                                          <button
+                                            type="button"
+                                            onClick={() => changeItemQuantityInOrder(order, businessKey, itemIndex, 1)}
+                                            disabled={isSaving}
+                                            className="px-2 py-1 bg-amber-100 text-amber-800 text-xs rounded hover:bg-amber-200 disabled:opacity-50"
+                                          >
+                                            הסר 1
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => removeItemFromOrder(order, businessKey, itemIndex)}
+                                          disabled={isSaving}
+                                          className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded hover:bg-red-200 disabled:opacity-50"
+                                        >
+                                          {canRemovePartial ? 'הסר הכל' : 'הסר'}
+                                        </button>
+                                      </div>
                                     </div>
-                                  ))}
+                                    );
+                                  })}
                                 </li>
                               ))}
                             </ul>

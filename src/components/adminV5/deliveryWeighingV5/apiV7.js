@@ -12,7 +12,14 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
 import { functionsEndpoint } from '../../../utils/functionsClient';
-import { getOrderCommunity, getOrderDeliveryDate, getWeekKey } from '../../../utils/deliveryScheduleUtils';
+import {
+  getOrderCommunity,
+  getOrderDeliveryDate,
+  getWeekKey,
+  normalizeDateRange,
+  parseDateSafe,
+  toLocalDateKey,
+} from '../../../utils/deliveryScheduleUtils';
 import {
   ensureLineIdsInBreakdown,
   flattenOrderBreakdown,
@@ -33,26 +40,13 @@ async function getIdTokenIfAvailable() {
 }
 
 function weekWindowFromKey(weekKey) {
-  const sunday = new Date(weekKey);
-  if (Number.isNaN(sunday.getTime())) return null;
-  const start = new Date(sunday);
+  const start = parseDateSafe(weekKey);
+  if (!start) return null;
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setDate(start.getDate() + 7);
   end.setHours(23, 59, 59, 999);
   return { start, end };
-}
-
-function normalizeSpecificDateRange(startDate, endDate) {
-  if (!startDate && !endDate) return null;
-  const rawStart = startDate || endDate;
-  const rawEnd = endDate || startDate;
-  const start = new Date(rawStart);
-  const end = new Date(rawEnd);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
-  return start <= end ? { start, end } : { start: end, end: start };
 }
 
 function normalizeDelayedOrder(docSnap, weekKey) {
@@ -113,6 +107,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
       paymentStatus: data.paymentStatus || '',
       delayedOrderStatus: data.delayedOrderStatus || '',
     },
+    deliveryDateKey: toLocalDateKey(deliveryDate),
     deliveryDateIso: deliveryDate.toISOString(),
     createdAtIso: deliveryDate.toISOString(),
     status: 'pending',
@@ -126,7 +121,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
 }
 
 function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = '', endDate = '') {
-  const window = normalizeSpecificDateRange(startDate, endDate) || weekWindowFromKey(weekKey);
+  const window = normalizeDateRange(startDate, endDate) || weekWindowFromKey(weekKey);
   if (!window) return { pendingOrders: [], completedOrders: [], allOrders: [] };
 
   const allowedCommunities = Array.isArray(communities) ? communities.filter(Boolean) : [];

@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import Swal from 'sweetalert2';
+import { useCart } from '../../contexts/CartContext';
+import { searchProducts as searchProductsByTerm } from '../../utils/productSearchUtils';
 import { collection, query, getDocs, doc, getDoc, where } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
@@ -12,6 +15,7 @@ import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
+const PRODUCT_QUERY_CONCURRENCY = 6;
 const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'משתלה', 'אחר'];
 const hebrewPickupSpotCollator = new Intl.Collator('he');
 
@@ -30,6 +34,36 @@ const sortCategoryStoreProducts = (a, b) => {
   return (a.sortIndex ?? 0) - (b.sortIndex ?? 0);
 };
 
+const buildCandidateOrderQueries = (adjustedCurrentTime) => {
+  const ordersRef = collection(db, 'Orders');
+  return [
+    query(ordersRef, where('endingTime', '>', adjustedCurrentTime)),
+    query(ordersRef, where('Ending_Time', '>', adjustedCurrentTime)),
+    query(ordersRef, where('orderType', '==', 'recurring')),
+    query(ordersRef, where('orderType', '==', 'always_on_grocery')),
+    query(ordersRef, where('orderMode', '==', 'always_on_grocery')),
+    query(ordersRef, where('alwaysOn', '==', true)),
+    query(ordersRef, where('groceryStore', '==', true)),
+  ];
+};
+
+const fetchCandidateOrderDocs = async (adjustedCurrentTime) => {
+  try {
+    const snapshots = await Promise.all(
+      buildCandidateOrderQueries(adjustedCurrentTime).map((orderQuery) => getDocs(orderQuery))
+    );
+    const docsById = new Map();
+    snapshots.forEach((snapshot) => {
+      snapshot.docs.forEach((orderDoc) => docsById.set(orderDoc.id, orderDoc));
+    });
+    return Array.from(docsById.values());
+  } catch (error) {
+    console.warn('Optimized order queries failed; falling back to full Orders scan:', error);
+    const ordersSnapshot = await getDocs(query(collection(db, 'Orders')));
+    return ordersSnapshot.docs;
+  }
+};
+
 const calculateCategoryCounts = (products) => {
   const counts = {};
   products.forEach(product => {
@@ -46,13 +80,39 @@ const getAdjustedSlideIndex = (index) => {
   return index;
 };
 
+const buildCartItemFromProduct = (product) => {
+  const measurementType = product.measurementType || 'kg';
+  const isKgItem = measurementType === 'kg';
+  const unitSize = product.unitSize || 1;
+  const selectedOption = product.selectedOption || (product.options?.length > 0 ? product.options[0] : '');
+  return {
+    id: product.id,
+    name: product.name,
+    price: product.price,
+    selectedOption,
+    quantity: isKgItem ? unitSize : 1,
+    images: product.images || [],
+    businessId: product.businessId,
+    businessName: product.businessName,
+    stockAmount: product.stockAmount,
+    catalogNumber: product.catalogNumber,
+    vatType: product.vatType ?? 3,
+    measurementType,
+    unitSize,
+    averageWeightKg: product.averageWeightKg || 1,
+  };
+};
+
 const CategoryStore = () => {
+  const { addItem } = useCart();
   const { pickupSpots } = usePickupSpots();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('הכל');
   const [categoryCounts, setCategoryCounts] = useState({});
   const [searchResults, setSearchResults] = useState([]);
+  const [multiSearchSections, setMultiSearchSections] = useState(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [selectedCommunity, setSelectedCommunity] = useState(() => {
     const saved = localStorage.getItem('selectedPickupSpot');
@@ -77,10 +137,6 @@ const CategoryStore = () => {
     return sortedPickupSpots.filter(s => s.toLowerCase().includes(query));
   }, [communityQuery, sortedPickupSpots]);
   
-  useEffect(() => {
-    fetchCategorizedProducts();
-  }, []);
-
   // Sync selected category and community with URL query params (?category=, ?community=)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -215,12 +271,13 @@ const CategoryStore = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const fetchCategorizedProducts = async () => {
+  const fetchCategorizedProducts = useCallback(async () => {
     const requestId = fetchProductsRequestIdRef.current + 1;
     fetchProductsRequestIdRef.current = requestId;
     const isCurrentRequest = () => fetchProductsRequestIdRef.current === requestId;
 
     setLoading(true);
+    setLoadError('');
     setProducts([]);
     setCategoryCounts({});
 
@@ -228,15 +285,17 @@ const CategoryStore = () => {
       const currentTime = new Date();
       const adjustedCurrentTime = new Date(currentTime.getTime() + 60 * 60 * 1000); // Add 1 hour
 
-      // Fetch all orders
-      const ordersQuery = query(collection(db, 'Orders'));
-      const ordersSnapshot = await getDocs(ordersQuery);
+      const orderDocs = await fetchCandidateOrderDocs(adjustedCurrentTime);
 
       // Filter active orders first
       // For per-pickup-spot ending times, we keep orders that have at least one active pickup spot
       const activeOrders = [];
-      ordersSnapshot.docs.forEach(orderDoc => {
+      orderDocs.forEach(orderDoc => {
         const orderData = orderDoc.data();
+        if (orderData.archived === true) {
+          return;
+        }
+
         const endingTime = orderData.Ending_Time || orderData.endingTime;
         const endingTimeByPickupSpot = orderData.endingTimeByPickupSpot || {};
         const isAlwaysOnGrocery = isAlwaysOnGroceryOrder(orderData);
@@ -297,17 +356,17 @@ const CategoryStore = () => {
 
       // (UI list uses pickupSpots dataset; no need to collect communities here)
 
-      // Fetch all business docs in parallel
-      const businessPromises = activeOrders.map(order => 
-        getDoc(doc(db, 'businesses', order.data.businessId))
+      // Fetch each business doc once, even when a business has multiple active orders.
+      const businessIds = [...new Set(activeOrders.map((order) => order.data.businessId).filter(Boolean))];
+      const businessDocs = await Promise.all(
+        businessIds.map((businessId) => getDoc(doc(db, 'businesses', businessId)))
       );
-      const businessDocs = await Promise.all(businessPromises);
       
       // Create business map for quick lookup
       const businessMap = {};
       businessDocs.forEach((businessDoc, index) => {
         if (businessDoc.exists()) {
-          businessMap[activeOrders[index].data.businessId] = businessDoc.data();
+          businessMap[businessIds[index]] = businessDoc.data();
         }
       });
 
@@ -321,7 +380,9 @@ const CategoryStore = () => {
       activeOrders.forEach(order => {
         const businessData = businessMap[order.data.businessId];
         if (businessData) {
-          const selectedProductIds = order.data.selectedProducts || [];
+          const selectedProductIds = Array.isArray(order.data.selectedProducts)
+            ? [...new Set(order.data.selectedProducts.filter((id) => typeof id === 'string' && id.trim()))]
+            : [];
           if (selectedProductIds.length > 0) {
             for (let i = 0; i < selectedProductIds.length; i += PRODUCT_QUERY_CHUNK_SIZE) {
               const chunk = selectedProductIds.slice(i, i + PRODUCT_QUERY_CHUNK_SIZE);
@@ -363,84 +424,107 @@ const CategoryStore = () => {
         return a.sortIndex - b.sortIndex;
       });
 
-      for (const metadata of productJobs) {
-        const productsSnapshot = await getDocs(metadata.productsQuery);
-        if (!isCurrentRequest()) return;
-        
-        const batchProducts = [];
-        productsSnapshot.docs.forEach((productDoc, productIndex) => {
-          const productData = productDoc.data();
-          
-          if (productData.stockAmount > 0) {
-            batchProducts.push({
-              // Product fields
-              id: productDoc.id,
-              name: productData.name,
-              price: productData.price,
-              description: productData.description,
-              images: productData.images || [],
-              options: productData.options || [],
-              stockAmount: productData.stockAmount,
-              category: productData.category || 'אחר',
-              catalogNumber: productData.catalogNumber,
-              vatType: productData.vatType ?? 3,
-              // Measurement type and unit size for kg/unit items
-              measurementType: productData.measurementType || 'kg',
-              unitSize: productData.unitSize || 1,
-              averageWeightKg: productData.averageWeightKg || 1,
-              
-              // Order-related fields
-              orderId: metadata.orderId,
-              businessId: metadata.orderData.businessId,
-              businessName: metadata.businessData.businessName,
-              businessKind: metadata.businessData.businessKind || 'חקלאי',
-              Owner_ID: productData.Owner_ID,
-              isFarmerOrder: metadata.orderData.isFarmerOrder || false,
-              pickupSpots: metadata.pickupSpots,
-              
-              // Order timing fields
-              orderType: metadata.orderType,
-              orderMode: metadata.orderMode,
-              alwaysOn: metadata.alwaysOn,
-              groceryStore: metadata.groceryStore,
-              fulfillmentConfig: metadata.orderData.fulfillmentConfig || {},
-              orderData: metadata.orderData,
-              endingTime: metadata.endingTime,
-              endingTimeByPickupSpot: metadata.endingTimeByPickupSpot,
-              schedule: metadata.orderData.schedule,
-              
-              // For cart compatibility
-              selectedOption: productData.options && productData.options.length > 0 ? productData.options[0] : "",
-              quantity: 0,
-              uid: `${productDoc.id}_${metadata.orderId}`,
-              sortIndex: (metadata.sortIndex * PRODUCT_QUERY_CHUNK_SIZE) + productIndex
-            });
-          }
-        });
+      const publishProducts = () => {
+        const sortedProducts = [...allProducts].sort(sortCategoryStoreProducts);
+        setProducts(sortedProducts);
+        setCategoryCounts(calculateCategoryCounts(sortedProducts));
+      };
 
-        if (batchProducts.length > 0) {
-          allProducts.push(...batchProducts);
-          allProducts.sort(sortCategoryStoreProducts);
-          setProducts([...allProducts]);
-          setCategoryCounts(calculateCategoryCounts(allProducts));
+      let nextJobIndex = 0;
+      const runProductWorker = async () => {
+        while (nextJobIndex < productJobs.length) {
+          const metadata = productJobs[nextJobIndex];
+          nextJobIndex += 1;
+
+          // eslint-disable-next-line no-await-in-loop
+          const productsSnapshot = await getDocs(metadata.productsQuery);
+          if (!isCurrentRequest()) return;
+
+          const batchProducts = [];
+          productsSnapshot.docs.forEach((productDoc, productIndex) => {
+            const productData = productDoc.data();
+
+            if (productData.stockAmount > 0) {
+              batchProducts.push({
+                // Product fields
+                id: productDoc.id,
+                name: productData.name,
+                price: productData.price,
+                description: productData.description,
+                images: productData.images || [],
+                options: productData.options || [],
+                stockAmount: productData.stockAmount,
+                category: productData.category || 'אחר',
+                showInAllCategory: productData.showInAllCategory,
+                catalogNumber: productData.catalogNumber,
+                vatType: productData.vatType ?? 3,
+                // Measurement type and unit size for kg/unit items
+                measurementType: productData.measurementType || 'kg',
+                unitSize: productData.unitSize || 1,
+                averageWeightKg: productData.averageWeightKg || 1,
+
+                // Order-related fields
+                orderId: metadata.orderId,
+                businessId: metadata.orderData.businessId,
+                businessName: metadata.businessData.businessName,
+                businessKind: metadata.businessData.businessKind || 'חקלאי',
+                Owner_ID: productData.Owner_ID,
+                isFarmerOrder: metadata.orderData.isFarmerOrder || false,
+                pickupSpots: metadata.pickupSpots,
+
+                // Order timing fields
+                orderType: metadata.orderType,
+                orderMode: metadata.orderMode,
+                alwaysOn: metadata.alwaysOn,
+                groceryStore: metadata.groceryStore,
+                fulfillmentConfig: metadata.orderData.fulfillmentConfig || {},
+                orderData: metadata.orderData,
+                endingTime: metadata.endingTime,
+                endingTimeByPickupSpot: metadata.endingTimeByPickupSpot,
+                schedule: metadata.orderData.schedule,
+
+                // For cart compatibility
+                selectedOption: productData.options && productData.options.length > 0 ? productData.options[0] : "",
+                quantity: 0,
+                uid: `${productDoc.id}_${metadata.orderId}`,
+                sortIndex: (metadata.sortIndex * PRODUCT_QUERY_CHUNK_SIZE) + productIndex
+              });
+            }
+          });
+
+          if (batchProducts.length > 0) {
+            allProducts.push(...batchProducts);
+            publishProducts();
+          }
         }
-      }
+      };
+
+      const workerCount = Math.min(PRODUCT_QUERY_CONCURRENCY, productJobs.length);
+      await Promise.all(Array.from({ length: workerCount }, () => runProductWorker()));
 
       if (isCurrentRequest()) {
-        setProducts([...allProducts]);
-        setCategoryCounts(calculateCategoryCounts(allProducts));
+        publishProducts();
       }
       
     } catch (error) {
       if (isCurrentRequest()) {
         console.error('Error fetching categorized products:', error);
+        setLoadError(
+          error?.code === 'permission-denied'
+            ? 'אין הרשאה לטעון מוצרים. בדקו את חוקי Firestore עבור Orders / Products / businesses.'
+            : 'לא הצלחנו לטעון את המוצרים. נסו לרענן את העמוד בעוד רגע.'
+        );
       }
     } finally {
       if (isCurrentRequest()) {
         setLoading(false);
       }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchCategorizedProducts();
+  }, [fetchCategorizedProducts]);
 
   // Calculate time remaining for a product, optionally for a specific pickup spot
   // Shows time until the 1-hour buffer (when products stop showing), not the actual end time
@@ -524,8 +608,106 @@ const CategoryStore = () => {
     }
   };
 
+  const filterProductsForCommunity = useCallback((productList) => {
+    if (!selectedCommunity) return productList;
+    return productList.filter((p) => {
+      if (!Array.isArray(p.pickupSpots) || !p.pickupSpots.includes(selectedCommunity)) {
+        return false;
+      }
+
+      if (p.orderMode === 'always_on_grocery' || p.alwaysOn || p.groceryStore || p.orderType === 'always_on_grocery') {
+        if (!deliverySchedule || !selectedDeliveryDate) return true;
+        return generateAvailableDeliveryDates(deliverySchedule, {
+          orderData: p.orderData || p,
+          communityName: selectedCommunity,
+        }).includes(selectedDeliveryDate);
+      }
+
+      if (p.orderType === 'recurring' && p.schedule) {
+        return isOrderActiveNow(p.schedule);
+      }
+
+      const orderData = {
+        endingTime: p.endingTime,
+        endingTimeByPickupSpot: p.endingTimeByPickupSpot || {},
+        Ending_Time: p.endingTime,
+      };
+
+      const hasPerSpotTimes = p.endingTimeByPickupSpot && Object.keys(p.endingTimeByPickupSpot).length > 0;
+      const endingTime = getEndingTimeForSpot(orderData, selectedCommunity);
+
+      if (hasPerSpotTimes && !endingTime) {
+        return false;
+      }
+
+      if (endingTime) {
+        const now = new Date();
+        const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
+        return endingTime > bufferTime;
+      }
+
+      return p.orderType !== 'one_time';
+    });
+  }, [selectedCommunity, deliverySchedule, selectedDeliveryDate]);
+
+  const handleMultiSearch = useCallback((terms) => {
+    const pool = selectedCommunity
+      ? products.filter((p) => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity))
+      : products;
+    const sections = terms.map((term) => ({
+      term,
+      products: filterProductsForCommunity(searchProductsByTerm(pool, term)),
+    }));
+    setMultiSearchSections(sections);
+    setIsSearchActive(true);
+  }, [filterProductsForCommunity, products, selectedCommunity]);
+
+  const handleBulkAddToCart = useCallback((matches) => {
+    let added = 0;
+    const notFound = [];
+
+    matches.forEach(({ term, product }) => {
+      if (!product) {
+        notFound.push(term);
+        return;
+      }
+      const item = buildCartItemFromProduct(product);
+      addItem(item, product.orderId, product.businessId, 0);
+      added += 1;
+    });
+
+    const notFoundText = notFound.length > 0 ? `\nלא נמצאו: ${notFound.join(', ')}` : '';
+    Swal.fire({
+      title: 'הוספה לסל',
+      text: `נוספו ${added} פריטים${notFoundText}`,
+      icon: added > 0 ? 'success' : 'warning',
+      confirmButtonText: 'אישור',
+    });
+  }, [addItem]);
+
+  const handleClearMultiSearch = useCallback(() => {
+    setMultiSearchSections(null);
+  }, []);
+
+  const handleSearchResults = useCallback((results) => {
+    setSearchResults(results);
+    setMultiSearchSections(null);
+  }, []);
+
+  const isMultiSearchActive = Boolean(multiSearchSections && multiSearchSections.length > 0);
+
+  const filteredMultiSections = useMemo(() => {
+    if (!multiSearchSections) return null;
+    return multiSearchSections.map(({ term, products: sectionProducts }) => ({
+      term,
+      products: filterProductsForCommunity(sectionProducts),
+    }));
+  }, [multiSearchSections, filterProductsForCommunity]);
+
   // Determine which products to display with community filter
-  const baseProducts = isSearchActive
+  const baseProducts = isMultiSearchActive
+    ? []
+    : isSearchActive
     ? searchResults
     : selectedCategory === 'הכל'
       ? products.filter((product) => {
@@ -594,7 +776,7 @@ const CategoryStore = () => {
       })
     : baseProducts;
 
-  const searchProducts = useMemo(() => {
+  const searchableProducts = useMemo(() => {
     if (!selectedCommunity) return products;
     return products.filter(p => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity));
   }, [products, selectedCommunity]);
@@ -658,7 +840,12 @@ const CategoryStore = () => {
             </div>
             {isCommunityOpen && (
               <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2" dir="rtl">
-                {/** <div className="px-2 py-1.5 text-xs text-gray-600 cursor-pointer hover:bg-gray-50 rounded" onClick={() => { handleCommunityChange(''); setIsCommunityOpen(false); setCommunityQuery(''); }}>כל הקהילות</div> */}
+                <div
+                  className="px-2 py-1.5 text-xs text-gray-600 cursor-pointer hover:bg-gray-50 rounded"
+                  onClick={() => { handleCommunityChange(''); setIsCommunityOpen(false); setCommunityQuery(''); }}
+                >
+                  כל נקודות האיסוף
+                </div>
                 <input
                   type="text"
                   value={communityQuery}
@@ -728,9 +915,12 @@ const CategoryStore = () => {
 
         {/* Search Bar */}
         <SearchBar 
-          products={searchProducts}
-          onSearchResults={setSearchResults}
+          products={searchableProducts}
+          onSearchResults={handleSearchResults}
           setSearchActive={setIsSearchActive}
+          onMultiSearch={handleMultiSearch}
+          onBulkAddToCart={handleBulkAddToCart}
+          onClearMultiSearch={handleClearMultiSearch}
         />
 
         {/* Category Carousel - shown when not searching, only on mobile */}
@@ -788,7 +978,7 @@ const CategoryStore = () => {
         )}
 
         {/* Show search results header when searching */}
-        {isSearchActive && (
+        {isSearchActive && !isMultiSearchActive && (
           <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-blue-900">
@@ -800,13 +990,59 @@ const CategoryStore = () => {
             </div>
           </div>
         )}
-        
-        {(displayProducts.length > 0 || !loading) && (
-          <ProductGrid 
-            products={displayProducts} 
-            calculateTimeRemaining={calculateTimeRemaining}
-            selectedCommunity={selectedCommunity}
-          />
+
+        {isMultiSearchActive && filteredMultiSections && (
+          <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <h3 className="text-lg font-semibold text-blue-900">
+              רשימת קניות
+            </h3>
+          </div>
+        )}
+
+        {loadError && !loading && (
+          <div className="text-center py-10 px-4 bg-red-50 border border-red-200 rounded-xl">
+            <h3 className="text-lg font-semibold text-red-800 mb-2">טעינת המוצרים נכשלה</h3>
+            <p className="text-sm text-red-700 mb-4">{loadError}</p>
+            <button
+              type="button"
+              onClick={fetchCategorizedProducts}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              נסו שוב
+            </button>
+          </div>
+        )}
+
+        {!loadError && (
+          isMultiSearchActive && filteredMultiSections ? (
+            filteredMultiSections.map(({ term, products: sectionProducts }) => (
+              <section key={term} className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3 pr-1 border-r-4 border-green-500">
+                  {term}
+                  <span className="text-sm font-normal text-gray-500 mr-2">
+                    ({sectionProducts.length} מוצרים)
+                  </span>
+                </h3>
+                {sectionProducts.length > 0 ? (
+                  <ProductGrid
+                    products={sectionProducts}
+                    calculateTimeRemaining={calculateTimeRemaining}
+                    selectedCommunity={selectedCommunity}
+                  />
+                ) : (
+                  <p className="text-sm text-gray-500 pr-1">לא נמצאו מוצרים עבור &quot;{term}&quot;</p>
+                )}
+              </section>
+            ))
+          ) : (
+            (displayProducts.length > 0 || !loading) && (
+              <ProductGrid
+                products={displayProducts}
+                calculateTimeRemaining={calculateTimeRemaining}
+                selectedCommunity={selectedCommunity}
+              />
+            )
+          )
         )}
 
         {/* Keep loaded products visible while the remaining batches continue loading. */}

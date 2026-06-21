@@ -27,6 +27,7 @@ import PaymentSuccess from './components/PaymentSuccess';
 import TermsOfService from './components/TermsOfService';
 import MyOrders from './components/MyOrders';
 import CustomerOrderDetail from './components/CustomerOrderDetail';
+import SavedCarts from './components/SavedCarts';
 import './App.css';
 import OngoingOrders from './components/OngoingOrders';
 import BusinessRegister from './components/auth/BusinessRegister';
@@ -62,6 +63,7 @@ import WeeklyOrderSummaryV3 from './components/admin/WeeklyOrderSummaryV3';
 import WeeklyOrderSummaryV4 from './components/admin/WeeklyOrderSummaryV4';
 import WeeklyOrderFromSuppliersV1 from './components/admin/WeeklyOrderFromSuppliersV1';
 import WeeklyCustomerOrderManager from './components/admin/WeeklyCustomerOrderManager';
+import CustomerOrderDeliveryTransferAdmin from './components/admin/CustomerOrderDeliveryTransferAdmin';
 import DeliveryManagementV2 from './components/admin/DeliveryManagementV2';
 import DeliveryManagementV3 from './components/admin/DeliveryManagementV3';
 import DeliveryManagementV4 from './components/admin/DeliveryManagmentV4';
@@ -156,6 +158,7 @@ const App = () => {
                   <Route path="/terms-of-service" element={<TermsOfService />} />  
                   <Route path="/my-orders" element={<MyOrders />} />
                   <Route path="/my-orders/:orderId" element={<CustomerOrderDetail />} />
+                  <Route path="/saved-carts" element={<SavedCarts />} />
                   <Route path="/ongoing-orders" element={<OngoingOrders />} />
                   <Route path="/business-register" element={<BusinessRegister />} />
                   <Route path="/local-business-register" element={<LocalBusinessRegister />} />
@@ -189,6 +192,7 @@ const App = () => {
                   <Route path="/admin/weekly-summary-v4" element={<WeeklyOrderSummaryV4 />} />
                   <Route path="/admin/weekly-delivery-summary" element={<WeeklyDeliveryOrderSummary />} />
                   <Route path="/admin/weekly-customer-orders" element={<WeeklyCustomerOrderManager />} />
+                  <Route path="/admin/transfer-delivery-week" element={<CustomerOrderDeliveryTransferAdmin />} />
                   <Route path="/admin/order-from-suppliers" element={<WeeklyOrderFromSuppliersV1 />} />
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
                   <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />

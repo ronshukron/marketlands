@@ -300,3 +300,16 @@ export function isShowingNextDeliveryWeek(availableDates, now = new Date()) {
   if (!availableDates?.length) return false;
   return getWeekKey(availableDates[0]) !== getWeekKey(now);
 }
+
+/** Delivery date keys for the week shown to customers (current week if any remain, else next). */
+export function getVisibleWeekDeliveryDateKeys(scheduleDoc, now = new Date()) {
+  if (!scheduleDoc || scheduleDoc.active === false) return [];
+
+  const dates = generateAvailableDeliveryDates(scheduleDoc, { now });
+  if (!dates.length) return [];
+
+  const currentWeekKey = getWeekKey(now);
+  const currentWeekDates = dates.filter((dateKey) => getWeekKey(dateKey) === currentWeekKey);
+  const visibleWeekKey = currentWeekDates.length > 0 ? currentWeekKey : getWeekKey(dates[0]);
+  return dates.filter((dateKey) => getWeekKey(dateKey) === visibleWeekKey);
+}

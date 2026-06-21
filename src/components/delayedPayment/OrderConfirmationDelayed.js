@@ -9,11 +9,12 @@ import LoadingSpinnerPayment from '../LoadingSpinnerPayment';
 import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
 import { useCart } from '../../contexts/CartContext';
-import { pickupSpots, pickupSpotsData } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import { createDelayedPaymentCheckout, DELAYED_PAYMENT_GATEWAYS } from '../../services/delayedPaymentGatewayService';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
 import { getReusableCartonConfig, isDelayedPaymentSpot } from '../../services/paymentConfigService';
+import { resolveCommunityName } from '../../services/pickupSpotsService';
 import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../utils/pricing';
 import {
     generateAvailableDeliveryDates,
@@ -107,6 +108,7 @@ const OrderConfirmationDelayed = () => {
     const [useReusableFarmerCartons, setUseReusableFarmerCartons] = useState(false);
     const [showReusableCartonInfo, setShowReusableCartonInfo] = useState(false);
     const { userLoggedIn, currentUser } = useAuth();
+    const { pickupSpots, pickupSpotsData } = usePickupSpots();
 
     // Get pickup spots from the order
     const [availablePickupSpots, setAvailablePickupSpots] = useState([]);
@@ -118,10 +120,20 @@ const OrderConfirmationDelayed = () => {
     const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
     const [deliveryDateError, setDeliveryDateError] = useState('');
     const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some((orderData) => isAlwaysOnGroceryOrder(orderData));
-    const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), []);
+    const resolvedPickupSpot = useMemo(
+        () => resolveCommunityName(selectedPickupSpot),
+        [selectedPickupSpot]
+    );
+    const selectablePickupSpots = useMemo(() => {
+        if (availablePickupSpots.length === 0) return [];
+        const allowed = new Set(availablePickupSpots.map((spot) => resolveCommunityName(spot)));
+        return sortPickupSpotsByHebrewAlphabet(
+            pickupSpots.filter((spot) => allowed.has(resolveCommunityName(spot)))
+        );
+    }, [availablePickupSpots, pickupSpots]);
     
     // Get the selected pickup spot's data
-    const selectedSpotData = selectedPickupSpot ? pickupSpotsData[selectedPickupSpot] : null;
+    const selectedSpotData = resolvedPickupSpot ? pickupSpotsData[resolvedPickupSpot] : null;
     const reusableCartonAvailable = selectedPickupSpot && reusableCartonConfig.enabledSpots.includes(selectedPickupSpot);
 
     const [deliveryOption, setDeliveryOption] = useState(() => {
@@ -332,7 +344,7 @@ const OrderConfirmationDelayed = () => {
                         orderMeta[orderId] = orderData;
                         
                         if (orderData.pickupSpots && orderData.pickupSpots.length > 0) {
-                            orderData.pickupSpots.forEach(spot => orderSpots.add(spot));
+                            orderData.pickupSpots.forEach((spot) => orderSpots.add(resolveCommunityName(spot)));
                         }
                     }
                 } catch (error) {
@@ -346,7 +358,7 @@ const OrderConfirmationDelayed = () => {
             setAvailablePickupSpots(Array.from(orderSpots));
             
             // Auto-select: prefer the saved spot from localStorage, then fallback to single-spot auto-select
-            const savedSpot = localStorage.getItem('selectedPickupSpot');
+            const savedSpot = resolveCommunityName(localStorage.getItem('selectedPickupSpot'));
             if (savedSpot && orderSpots.has(savedSpot)) {
                 setSelectedPickupSpot(savedSpot);
             } else if (orderSpots.size === 1) {
@@ -383,8 +395,10 @@ const OrderConfirmationDelayed = () => {
                 return;
             }
 
+            const communityKey = resolveCommunityName(selectedPickupSpot);
+
             try {
-                const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', selectedPickupSpot));
+                const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', communityKey));
                 if (!scheduleSnap.exists()) {
                     setDeliverySchedule(null);
                     setAvailableDeliveryDates([]);
@@ -409,7 +423,7 @@ const OrderConfirmationDelayed = () => {
                 }
 
                 setSelectedDeliveryDate((current) => {
-                    const stored = localStorage.getItem(`selectedDeliveryDate:${selectedPickupSpot}`);
+                    const stored = localStorage.getItem(`selectedDeliveryDate:${communityKey}`);
                     if (dates.includes(current)) return current;
                     if (stored && dates.includes(stored)) return stored;
                     return dates[0];
@@ -1267,7 +1281,7 @@ const OrderConfirmationDelayed = () => {
                                         required
                                     >
                                         <option value="">בחר נקודת איסוף</option>
-                                        {sortedPickupSpots.map((spot) => (
+                                        {selectablePickupSpots.map((spot) => (
                                             <option key={spot} value={spot}>
                                                 {spot}
                                             </option>
@@ -1370,7 +1384,7 @@ const OrderConfirmationDelayed = () => {
                                 </div>
                             )}
                             
-                            {selectedSpotData && selectedSpotData.options.length >= 1 && selectedSpotData.options.includes('homeDelivery') && (
+                            {selectedSpotData && selectedSpotData.options?.includes('homeDelivery') && (
                                 <div className="form-group md:col-span-2 bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                                     <h3 className="text-lg font-medium text-gray-900 mb-4">
                                         אפשרויות איסוף

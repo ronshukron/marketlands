@@ -303,6 +303,58 @@ export const CartProvider = ({ children }) => {
     clearOrderItems(orderId);
   };
 
+  const generateCartItemUid = (orderId, itemId, selectedOption) =>
+    `${orderId}_${itemId}_${selectedOption || 'default'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  const getCartSnapshot = () => ({
+    cartItems: cartItems.map(({ uid, ...rest }) => ({ ...rest })),
+    orderInfoMap: { ...orderInfoMap },
+  });
+
+  const replaceCart = (snapshot) => {
+    if (!snapshot) return;
+    const items = (snapshot.cartItems || []).map((item) => ({
+      ...item,
+      uid: generateCartItemUid(item.orderId, item.id, item.selectedOption),
+    }));
+    setCartItems(items);
+    setOrderInfoMap(snapshot.orderInfoMap || {});
+  };
+
+  const mergeCart = (snapshot) => {
+    if (!snapshot || !Array.isArray(snapshot.cartItems)) return;
+
+    setCartItems((prevItems) => {
+      const merged = [...prevItems];
+      snapshot.cartItems.forEach((incoming) => {
+        const { uid, ...item } = incoming;
+        const optionKey = item.selectedOption || 'default';
+        const existingIndex = merged.findIndex(
+          (cartItem) =>
+            cartItem.id === item.id &&
+            cartItem.orderId === item.orderId &&
+            (cartItem.selectedOption || 'default') === optionKey
+        );
+        if (existingIndex >= 0) {
+          merged[existingIndex] = {
+            ...merged[existingIndex],
+            quantity: merged[existingIndex].quantity + item.quantity,
+          };
+        } else {
+          merged.push({
+            ...item,
+            uid: generateCartItemUid(item.orderId, item.id, item.selectedOption),
+          });
+        }
+      });
+      return merged;
+    });
+
+    if (snapshot.orderInfoMap) {
+      setOrderInfoMap((prev) => ({ ...prev, ...snapshot.orderInfoMap }));
+    }
+  };
+
   // Calculate the total monetary value of all items in the cart.
   // useMemo ensures this calculation is only re-run when cartItems changes.
   const cartTotal = useMemo(() => {
@@ -363,7 +415,10 @@ export const CartProvider = ({ children }) => {
     cartTotal,
     totalItems,
     itemsByOrder,
-    orderInfoMap // Expose the order info map directly as well
+    orderInfoMap,
+    getCartSnapshot,
+    replaceCart,
+    mergeCart,
   };
 
   // Render the CartContext.Provider, passing the 'value' object down

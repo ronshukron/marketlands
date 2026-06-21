@@ -65,7 +65,14 @@ import {
   readShowCommunityNumbering,
   saveShowCommunityNumbering,
 } from './v7/communityOrderNumbering';
-import { getWeekKey, toLocalDateKey } from '../../../utils/deliveryScheduleUtils';
+import {
+  getOrderDeliveryDate,
+  getWeekKey,
+  normalizeDateRange,
+  parseDateSafe,
+  toLocalDateKey,
+} from '../../../utils/deliveryScheduleUtils';
+import CustomerOrderDeliveryTransferControl from '../../admin/CustomerOrderDeliveryTransferControl';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 const WEIGHT_ON_THRESHOLD = 0.020;
@@ -186,6 +193,7 @@ const TR = {
     largeDiffWarn: (exp, act, pct) => `הכמות שהוזנה שונה ב-${pct}% מהכמות שהוזמנה.\nהוזמן: ${exp}\nהוזן: ${act}\nלהמשיך בכל זאת?`,
     claim: 'תפוס הזמנה',
     release: 'שחרר',
+    transferDelivery: 'העבר משלוח',
     claimedBy: 'מטופל ע"י',
     busyElsewhere: 'הזמנה זו פתוחה בתחנה אחרת',
     workersOnline: 'עובדים מחוברים',
@@ -306,6 +314,7 @@ const TR = {
     largeDiffWarn: (exp, act, pct) => `ค่าน้ำหนักต่างจากที่สั่ง ${pct}%\nสั่ง: ${exp}\nที่กรอก: ${act}\nยืนยันดำเนินการต่อหรือไม่?`,
     claim: 'จองออเดอร์',
     release: 'ปล่อย',
+    transferDelivery: 'ย้ายวันจัดส่ง',
     claimedBy: 'กำลังทำโดย',
     busyElsewhere: 'คำสั่งซื้อนี้เปิดอยู่ที่สถานีอื่น',
     workersOnline: 'พนักงานออนไลน์',
@@ -487,42 +496,11 @@ function formatOrderedExpectation(it, expectedQtyForCompare, t) {
 }
 
 function parseOrderDeliveryDate(order) {
-  const candidates = [
-    order?.deliveryDateIso,
-    order?.deliveryDate,
-    order?.rawData?.fulfillment?.deliveryDate,
-    order?.rawData?.deliveryDate,
-    order?.createdAtIso,
-    order?.createdAt,
-    order?.createdDate,
-  ];
-  for (const value of candidates) {
-    if (!value) continue;
-    const d = value instanceof Date ? value : new Date(value);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  return null;
-}
-
-function normalizeSpecificDateRange(startStr, endStr) {
-  const hasAny = Boolean(startStr || endStr);
-  if (!hasAny) return null;
-  const rawStart = startStr || endStr;
-  const rawEnd = endStr || startStr;
-  const start = new Date(rawStart);
-  const end = new Date(rawEnd);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
-  if (start <= end) return { start, end };
-  return { start: end, end: start };
+  return getOrderDeliveryDate(order?.rawData || order);
 }
 
 function parseLocalDateKey(dateKey) {
-  const [year, month, day] = String(dateKey || '').split('-').map(Number);
-  if (!year || !month || !day) return null;
-  const parsed = new Date(year, month - 1, day);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return parseDateSafe(dateKey);
 }
 
 function buildDeliveryDayOptions(weekKey, lang) {
@@ -546,7 +524,7 @@ function buildDeliveryDayOptions(weekKey, lang) {
 }
 
 function filterOrdersByDeliveryDates(orders = [], startStr, endStr) {
-  const range = normalizeSpecificDateRange(startStr, endStr);
+  const range = normalizeDateRange(startStr, endStr);
   if (!range) return orders;
   return (orders || []).filter((order) => {
     const deliveryDate = parseOrderDeliveryDate(order);
@@ -2645,6 +2623,17 @@ export default function DeliveryManagementV7() {
     setSelectedSpecificEndDate(endDate);
   };
 
+  const handleDeliveryTransferred = useCallback(({ newDeliveryDateKey }) => {
+    setSelectedOrderId(null);
+    if (!newDeliveryDateKey) return;
+    applyDeliveryFilters({
+      weekKey: getWeekKey(newDeliveryDateKey),
+      communitiesSet: selectedCommunities,
+      startDate: newDeliveryDateKey,
+      endDate: newDeliveryDateKey,
+    });
+  }, [selectedCommunities]);
+
   const handleLoad = () => {
     applyDeliveryFilters({
       weekKey: tempSelectedWeek,
@@ -3234,6 +3223,17 @@ export default function DeliveryManagementV7() {
                       >
                         {t.release}
                       </button>
+                      <CustomerOrderDeliveryTransferControl
+                        orderId={selectedOrder.id}
+                        source="customerOrdersDelayed"
+                        orderData={selectedOrder.rawData}
+                        currentDeliveryDateKey={toLocalDateKey(parseOrderDeliveryDate(selectedOrder))}
+                        adminUid={currentUser?.uid || null}
+                        onTransferred={handleDeliveryTransferred}
+                        buttonLabel={t.transferDelivery}
+                        disabled={claimedByOther}
+                        buttonClassName="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
+                      />
                       <button
                         onClick={useOrderedQuantities}
                         className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg text-sm border transition-colors"

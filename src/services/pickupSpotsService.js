@@ -83,7 +83,33 @@ function normalizeCommunityDoc(docSnap) {
     whatsappGroupLink: data.whatsappGroupLink || '',
     storeLink: data.storeLink || '',
     broadcastDeliveryNote: data.broadcastDeliveryNote || '',
+    updatedAt: data.updatedAt || '',
   };
+}
+
+function shouldPreferCommunityDoc(candidate, existing) {
+  const candidateIdMatch = candidate.id === candidate.name;
+  const existingIdMatch = existing.id === existing.name;
+  if (candidateIdMatch && !existingIdMatch) return true;
+  if (existingIdMatch && !candidateIdMatch) return false;
+
+  const candidateOptions = Array.isArray(candidate.options) ? candidate.options.length : 0;
+  const existingOptions = Array.isArray(existing.options) ? existing.options.length : 0;
+  if (candidateOptions !== existingOptions) return candidateOptions > existingOptions;
+
+  return String(candidate.updatedAt || '') > String(existing.updatedAt || '');
+}
+
+function dedupeCommunityDocs(docs) {
+  const byName = new Map();
+  docs.forEach((docSnap) => {
+    const community = normalizeCommunityDoc(docSnap);
+    const existing = byName.get(community.name);
+    if (!existing || shouldPreferCommunityDoc(community, existing)) {
+      byName.set(community.name, community);
+    }
+  });
+  return [...byName.values()];
 }
 
 function buildEmptyFirestoreCache() {
@@ -102,8 +128,7 @@ function buildEmptyFirestoreCache() {
 }
 
 function applyCommunities(docs) {
-  const communities = docs
-    .map(normalizeCommunityDoc)
+  const communities = dedupeCommunityDocs(docs)
     .filter((c) => c.active)
     .sort((a, b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name, 'he'));
 
@@ -270,6 +295,47 @@ export async function seedCommunitiesFromStatic() {
   await batch.commit();
 }
 
+async function deleteDuplicateCommunityDocs(name) {
+  const byNameSnap = await getDocs(query(
+    collection(db, 'communities'),
+    where('name', '==', name)
+  ));
+  const duplicates = byNameSnap.docs.filter((docSnap) => docSnap.id !== name);
+  if (duplicates.length === 0) return 0;
+
+  const batch = writeBatch(db);
+  duplicates.forEach((docSnap) => batch.delete(docSnap.ref));
+  await batch.commit();
+  return duplicates.length;
+}
+
+export async function cleanupDuplicateCommunities() {
+  const snap = await getDocs(collection(db, 'communities'));
+  if (snap.empty) return 0;
+
+  const canonicalByName = new Map();
+  snap.docs.forEach((docSnap) => {
+    const community = normalizeCommunityDoc(docSnap);
+    const existing = canonicalByName.get(community.name);
+    if (!existing || shouldPreferCommunityDoc(community, existing)) {
+      canonicalByName.set(community.name, community);
+    }
+  });
+
+  const batch = writeBatch(db);
+  let count = 0;
+  snap.docs.forEach((docSnap) => {
+    const community = normalizeCommunityDoc(docSnap);
+    const canonical = canonicalByName.get(community.name);
+    if (!canonical || canonical.id === docSnap.id) return;
+    batch.delete(docSnap.ref);
+    count += 1;
+  });
+
+  if (count > 0) await batch.commit();
+  return count;
+}
+
 export async function saveCommunity(community) {
   const name = String(community.name || '').trim();
   if (!name) throw new Error('שם יישוב חובה');
@@ -290,6 +356,7 @@ export async function saveCommunity(community) {
     broadcastDeliveryNote: String(community.broadcastDeliveryNote || '').trim(),
     updatedAt: new Date().toISOString(),
   }, { merge: true });
+  await deleteDuplicateCommunityDocs(name);
 
   const { addNewCommunityToPaymentConfig, readPaymentConfigSnapshot } = await import('./paymentConfigService');
   const paymentConfig = await readPaymentConfigSnapshot();

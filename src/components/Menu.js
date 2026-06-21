@@ -164,6 +164,22 @@ const Menu = () => {
                 </svg>
                 צור קשר
               </Link>
+              {userLoggedIn && (
+                <>
+                  <Link to="/my-orders" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/my-orders') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    ההזמנות שלי
+                  </Link>
+                  <Link to="/saved-carts" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/saved-carts') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                    </svg>
+                    סלים שמורים
+                  </Link>
+                </>
+              )}
               {/* <Link to="/business-register" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/business-register') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                     הירשמו כעסק
               </Link> */}
@@ -460,6 +476,16 @@ const Menu = () => {
               <Link to="/contact" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/contact') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                 צור קשר
               </Link>
+              {userLoggedIn && (
+                <>
+                  <Link to="/my-orders" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-orders') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                    ההזמנות שלי
+                  </Link>
+                  <Link to="/saved-carts" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/saved-carts') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                    סלים שמורים
+                  </Link>
+                </>
+              )}
               
               {userLoggedIn && userRole === 'coordinator' && (
                 <>

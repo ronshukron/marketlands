@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
 import Swal from 'sweetalert2';
+import { db } from '../../firebase/firebase';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import {
   loadCommunityBroadcastTemplate,
   saveCommunityBroadcastTemplate,
 } from '../../services/communityBroadcastService';
 import {
+  cleanupDuplicateCommunities,
   deleteCommunity,
   getDeterministicCommunityColor,
   migrateNitzanimNames,
@@ -13,6 +16,7 @@ import {
   seedCommunitiesFromStatic,
 } from '../../services/pickupSpotsService';
 import {
+  buildAutoDeliveryNoteFromSchedule,
   buildCommunityBroadcastMessage,
   buildCommunityStoreLink,
   buildWhatsAppShareUrl,
@@ -67,11 +71,32 @@ const CommunityAdmin = () => {
   const [editingName, setEditingName] = useState('');
   const [previewCommunity, setPreviewCommunity] = useState('');
   const [broadcastTemplate, setBroadcastTemplate] = useState(DEFAULT_BROADCAST_TEMPLATE);
+  const [deliverySchedules, setDeliverySchedules] = useState({});
   const [busy, setBusy] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
 
   useEffect(() => {
+    cleanupDuplicateCommunities().catch((error) => {
+      console.error('Failed to cleanup duplicate communities:', error);
+    });
+  }, []);
+
+  useEffect(() => {
     loadCommunityBroadcastTemplate().then(setBroadcastTemplate);
+  }, []);
+
+  useEffect(() => {
+    getDocs(collection(db, 'deliverySchedules'))
+      .then((snap) => {
+        const map = {};
+        snap.docs.forEach((docSnap) => {
+          map[docSnap.id] = docSnap.data();
+        });
+        setDeliverySchedules(map);
+      })
+      .catch((error) => {
+        console.error('Failed to load delivery schedules for broadcast:', error);
+      });
   }, []);
 
   useEffect(() => {
@@ -113,8 +138,14 @@ const CommunityAdmin = () => {
       communityName: previewName,
       community: previewCommunityData,
       template: broadcastTemplate,
+      deliverySchedule: deliverySchedules[previewName] || null,
     });
-  }, [previewName, previewCommunityData, broadcastTemplate]);
+  }, [previewName, previewCommunityData, broadcastTemplate, deliverySchedules]);
+
+  const previewAutoDeliveryNote = useMemo(() => {
+    if (!previewName) return '';
+    return buildAutoDeliveryNoteFromSchedule(deliverySchedules[previewName] || null);
+  }, [previewName, deliverySchedules]);
 
   const previewStoreLink = useMemo(() => {
     if (!previewName) return '';
@@ -128,6 +159,7 @@ const CommunityAdmin = () => {
     communityName: name,
     community: pickupSpotsData[name] || {},
     template: broadcastTemplate,
+    deliverySchedule: deliverySchedules[name] || null,
   });
 
   const handleSaveTemplate = async () => {
@@ -331,12 +363,14 @@ const CommunityAdmin = () => {
         </div>
 
         <label className="block">
-          <span className="text-sm text-gray-600">הערת משלוח ברירת מחדל (למשל: מגיעים ברביעי.)</span>
+          <span className="text-sm text-gray-600">הערת משלוח גיבוי (כשאין לוח משלוחים ליישוב)</span>
           <input
             value={broadcastTemplate.defaultDeliveryNote}
             onChange={(e) => setBroadcastTemplate((p) => ({ ...p, defaultDeliveryNote: e.target.value }))}
             className="w-full border rounded px-3 py-2 mt-1"
+            placeholder="מגיעים ברביעי."
           />
+          <p className="text-xs text-gray-500 mt-1">ברירת המחדל לכל קהילה נקבעת אוטומטית לפי יום המשלוח בשבוע הנוכחי/הקרוב מלוח המשלוחים.</p>
         </label>
       </div>
 
@@ -402,12 +436,12 @@ const CommunityAdmin = () => {
               />
             </label>
             <label className="block">
-              <span className="text-sm text-gray-600">הערת משלוח לקהילה (ריק = ברירת מחדל מהתבנית)</span>
+              <span className="text-sm text-gray-600">הערת משלוח לקהילה (ריק = אוטומטי לפי לוח משלוחים)</span>
               <input
                 value={form.broadcastDeliveryNote}
                 onChange={(e) => setForm((p) => ({ ...p, broadcastDeliveryNote: e.target.value }))}
                 className="w-full border rounded px-3 py-2 mt-1"
-                placeholder={broadcastTemplate.defaultDeliveryNote}
+                placeholder={previewAutoDeliveryNote || broadcastTemplate.defaultDeliveryNote}
               />
             </label>
           </div>

@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage'; 
 
 const firebaseConfig = {
@@ -12,9 +12,26 @@ const firebaseConfig = {
     appId: process.env.REACT_APP_FIREBASE_APP_ID
 }
 
+const getFirestoreSettings = () => {
+    if (typeof navigator === 'undefined') {
+        return { experimentalAutoDetectLongPolling: true };
+    }
+
+    const userAgent = navigator.userAgent || '';
+    const isIos = /iPad|iPhone|iPod/.test(userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isInAppBrowser = /WhatsApp|FBAN|FBAV|Instagram|Line|MicroMessenger/i.test(userAgent);
+
+    if (isIos || isInAppBrowser) {
+        return { experimentalForceLongPolling: true };
+    }
+
+    return { experimentalAutoDetectLongPolling: true };
+};
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app)
-const db = getFirestore(app)
+const db = initializeFirestore(app, getFirestoreSettings())
 const storage = getStorage(app); 
 export { app, auth, db, storage };
 

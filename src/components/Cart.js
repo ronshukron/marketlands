@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
+import { useAuth } from '../contexts/authContext';
 import { getCheckoutRoute } from '../services/paymentConfigService';
+import { saveCart } from '../services/savedCartService';
 import Swal from 'sweetalert2';
 import { getEstimatedChargeableQuantity } from '../utils/pricing';
 
 const Cart = ({ isOpen, onClose }) => {
-  const { cartItems, removeItem, updateQuantity, cartTotal } = useCart();
+  const { cartItems, removeItem, updateQuantity, cartTotal, totalItems, getCartSnapshot } = useCart();
+  const { userLoggedIn, currentUser } = useAuth();
   const navigate = useNavigate();
   const [checkingRoute, setCheckingRoute] = useState(false);
+  const [savingCart, setSavingCart] = useState(false);
 
   // Helper functions for formatting quantities
   // measurementType: 'kg' | 'unit' | 'package'
@@ -28,6 +32,59 @@ const Cart = ({ isOpen, onClose }) => {
     }
     // package
     return `${Math.round(qty)} מארז`;
+  };
+
+  const handleSaveCart = async () => {
+    if (!userLoggedIn || !currentUser?.uid) return;
+    if (cartItems.length === 0) {
+      Swal.fire('הסל ריק', 'אין מה לשמור.', 'warning');
+      return;
+    }
+
+    const { value: name } = await Swal.fire({
+      title: 'שמירת סל',
+      input: 'text',
+      inputLabel: 'שם לסל',
+      inputPlaceholder: 'למשל: קניות שבועיות',
+      showCancelButton: true,
+      confirmButtonText: 'שמור',
+      cancelButtonText: 'ביטול',
+      inputValidator: (value) => {
+        if (!value || !value.trim()) return 'יש להזין שם לסל';
+        return undefined;
+      },
+    });
+
+    if (!name) return;
+
+    setSavingCart(true);
+    try {
+      const snapshot = getCartSnapshot();
+      const pickupSpot = localStorage.getItem('selectedPickupSpot') || '';
+      await saveCart(currentUser.uid, {
+        name: name.trim(),
+        cartItems: snapshot.cartItems,
+        orderInfoMap: snapshot.orderInfoMap,
+        pickupSpot,
+        itemCount: totalItems,
+        estimatedTotal: cartTotal,
+      });
+      Swal.fire({
+        title: 'נשמר!',
+        text: `הסל "${name.trim()}" נשמר בהצלחה`,
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      if (error.message === 'LIMIT_REACHED') {
+        Swal.fire('מגבלה', 'ניתן לשמור עד 10 סלים. מחקו סל ישן כדי לשמור חדש.', 'warning');
+      } else {
+        Swal.fire('שגיאה', 'לא ניתן לשמור את הסל. נסו שוב מאוחר יותר.', 'error');
+      }
+    } finally {
+      setSavingCart(false);
+    }
   };
 
   const handleCheckout = async () => {
@@ -212,7 +269,17 @@ const Cart = ({ isOpen, onClose }) => {
               <span className="text-xs font-medium text-gray-800">סה"כ לתשלום:</span>
               <span className="text-xs font-semibold text-blue-600">₪{cartTotal.toFixed(2)}</span>
             </div>
-            <div className="mt-4 pb-16 md:pb-5">
+            <div className="mt-4 pb-16 md:pb-5 space-y-2">
+              {userLoggedIn && (
+                <button
+                  type="button"
+                  onClick={handleSaveCart}
+                  disabled={savingCart}
+                  className="w-full bg-white text-blue-700 border border-blue-300 py-2.5 px-3 rounded-lg text-sm font-medium hover:bg-blue-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                >
+                  {savingCart ? 'שומר...' : 'שמור סל'}
+                </button>
+              )}
               <button
                 onClick={handleCheckout}
                 disabled={checkingRoute}
