@@ -6,6 +6,7 @@ import { collection, query, getDocs, doc, getDoc, where } from 'firebase/firesto
 import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
 import ProductGrid from './ProductGrid';
+import IntroductionBasketCard from './IntroductionBasketCard';
 import SearchBar from './SearchBar';
 import './CategoryStore.css';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -13,6 +14,11 @@ import Slider from 'react-slick';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
+import { getEstimatedLineTotal } from '../../utils/pricing';
+import {
+  INTRODUCTION_BASKET_ADJUSTMENT_PREFIX,
+  listActiveIntroductionBasketsForCommunity,
+} from '../../services/introductionBasketService';
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
 const PRODUCT_QUERY_CONCURRENCY = 6;
@@ -129,6 +135,8 @@ const CategoryStore = () => {
   const [deliverySchedule, setDeliverySchedule] = useState(null);
   const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
   const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
+  const [introductionBaskets, setIntroductionBaskets] = useState([]);
+  const [basketsLoading, setBasketsLoading] = useState(false);
   const [, setTimeTick] = useState(0);
   const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), [pickupSpots]);
   const filteredPickupSpots = useMemo(() => {
@@ -265,6 +273,33 @@ const CategoryStore = () => {
       localStorage.setItem(`selectedDeliveryDate:${selectedCommunity}`, selectedDeliveryDate);
     }
   }, [selectedCommunity, selectedDeliveryDate]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadIntroductionBaskets = async () => {
+      if (!selectedCommunity) {
+        setIntroductionBaskets([]);
+        return;
+      }
+
+      setBasketsLoading(true);
+      try {
+        const baskets = await listActiveIntroductionBasketsForCommunity(selectedCommunity);
+        if (active) setIntroductionBaskets(baskets);
+      } catch (error) {
+        console.error('Error loading introduction baskets:', error);
+        if (active) setIntroductionBaskets([]);
+      } finally {
+        if (active) setBasketsLoading(false);
+      }
+    };
+
+    loadIntroductionBaskets();
+    return () => {
+      active = false;
+    };
+  }, [selectedCommunity]);
 
   useEffect(() => {
     const timer = setInterval(() => setTimeTick((tick) => tick + 1), 60 * 1000);
@@ -685,6 +720,88 @@ const CategoryStore = () => {
     });
   }, [addItem]);
 
+  const handleAddIntroductionBasket = useCallback((basket) => {
+    if (!selectedCommunity) {
+      Swal.fire('בחרו קהילה', 'יש לבחור נקודת איסוף לפני הוספת סל היכרות.', 'warning');
+      return;
+    }
+
+    const componentLines = Array.isArray(basket.componentLines) ? basket.componentLines : [];
+    if (componentLines.length === 0) {
+      Swal.fire('סל לא זמין', 'לא נמצאו פריטים בסל הזה.', 'warning');
+      return;
+    }
+
+    const basketInstanceId = `${basket.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const componentSubtotal = componentLines.reduce((sum, line) => sum + getEstimatedLineTotal(line), 0);
+    const displayPrice = Number(basket.displayPrice) || 0;
+
+    componentLines.forEach((line) => {
+      addItem({
+        id: line.productId,
+        name: line.productName,
+        price: Number(line.price ?? line.priceSnapshot) || 0,
+        selectedOption: line.selectedOption || '',
+        quantity: Number(line.quantity) || 1,
+        images: line.images || [],
+        businessId: line.businessId,
+        businessName: line.businessName,
+        stockAmount: line.stockAmount,
+        catalogNumber: line.catalogNumber,
+        vatType: line.vatType ?? 3,
+        measurementType: line.measurementType || 'kg',
+        unitSize: line.unitSize || 1,
+        averageWeightKg: line.averageWeightKg || 1,
+        basketId: basket.id,
+        basketInstanceId,
+        basketTitle: basket.title,
+        basketPrice: displayPrice,
+        basketComponentSubtotal: componentSubtotal,
+        basketCommunity: selectedCommunity,
+        isBasketComponent: true,
+      }, line.orderId, line.businessId, line.minimumOrderAmount || 0);
+    });
+
+    const adjustment = Math.round((displayPrice - componentSubtotal) * 100) / 100;
+    if (Math.abs(adjustment) >= 0.01) {
+      const anchor = componentLines[0];
+      addItem({
+        id: `${INTRODUCTION_BASKET_ADJUSTMENT_PREFIX}:${basket.id}:${basketInstanceId}`,
+        name: adjustment < 0
+          ? `הנחת סל היכרות - ${basket.title}`
+          : `התאמת מחיר סל היכרות - ${basket.title}`,
+        price: adjustment,
+        selectedOption: basket.title,
+        quantity: 1,
+        images: basket.image ? [basket.image] : [],
+        businessId: anchor.businessId,
+        businessName: anchor.businessName,
+        stockAmount: 999999,
+        catalogNumber: '',
+        vatType: 3,
+        measurementType: 'package',
+        unitSize: 1,
+        averageWeightKg: 1,
+        isShipping: true,
+        isBasketAdjustment: true,
+        basketId: basket.id,
+        basketInstanceId,
+        basketTitle: basket.title,
+        basketPrice: displayPrice,
+        basketComponentSubtotal: componentSubtotal,
+        basketCommunity: selectedCommunity,
+      }, anchor.orderId, anchor.businessId, 0);
+    }
+
+    Swal.fire({
+      title: 'סל היכרות נוסף!',
+      text: `${basket.title} נוסף לסל עם ${componentLines.length} פריטים`,
+      icon: 'success',
+      timer: 1800,
+      showConfirmButton: false,
+    });
+  }, [addItem, selectedCommunity]);
+
   const handleClearMultiSearch = useCallback(() => {
     setMultiSearchSections(null);
   }, []);
@@ -997,6 +1114,34 @@ const CategoryStore = () => {
               רשימת קניות
             </h3>
           </div>
+        )}
+
+        {!isSearchActive && selectedCommunity && (basketsLoading || introductionBaskets.length > 0) && (
+          <section className="mb-8">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-xl font-black text-emerald-900">סלי היכרות לקהילה</h3>
+                <p className="text-sm text-gray-600">
+                  סל אחד במחיר קבוע, עם פריטים מחקלאים שונים שמתווספים להזמנה הרגילה.
+                </p>
+              </div>
+            </div>
+            {basketsLoading ? (
+              <div className="rounded-xl bg-white border border-emerald-100 p-4 text-sm text-gray-500">
+                טוען סלי היכרות...
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {introductionBaskets.map((basket) => (
+                  <IntroductionBasketCard
+                    key={basket.id}
+                    basket={basket}
+                    onAdd={handleAddIntroductionBasket}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
         {loadError && !loading && (

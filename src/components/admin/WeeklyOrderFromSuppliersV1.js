@@ -207,6 +207,7 @@ const WeeklyOrderFromSuppliersV1 = () => {
             }
             
             businessOrder.items.forEach(item => {
+              if (item.isShipping === true || item.isBasketAdjustment === true) return;
               const productId = item.productId;
               const productName = item.productName;
               const quantity = item.quantity;

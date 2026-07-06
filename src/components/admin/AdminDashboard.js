@@ -83,6 +83,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'סלי היכרות לקהילות',
+    description: 'בניית סל קבוע ממוצרים של כמה חקלאים, מחיר אחד ותצוגה בחנות הקהילה',
+    to: '/admin/introduction-baskets',
+    featured: true
+  },
+  {
     title: 'הגדרות שיתוף ותגמול',
     description: 'בחירה בין הנחה קהילתית להנחה אישית על שיתוף האתר',
     to: '/admin/referral-config',

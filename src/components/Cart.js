@@ -8,7 +8,7 @@ import Swal from 'sweetalert2';
 import { getEstimatedChargeableQuantity } from '../utils/pricing';
 
 const Cart = ({ isOpen, onClose }) => {
-  const { cartItems, removeItem, updateQuantity, cartTotal, totalItems, getCartSnapshot } = useCart();
+  const { cartItems, removeItem, removeBasketInstance, updateQuantity, cartTotal, totalItems, getCartSnapshot } = useCart();
   const { userLoggedIn, currentUser } = useAuth();
   const navigate = useNavigate();
   const [checkingRoute, setCheckingRoute] = useState(false);
@@ -170,6 +170,8 @@ const Cart = ({ isOpen, onClose }) => {
                   const isKgItem = measurementType === 'kg';
                   const isUnitItem = measurementType === 'unit';
                   const isPackageItem = measurementType === 'package';
+                  const isBasketLine = Boolean(item.basketInstanceId);
+                  const isBasketAdjustment = item.isBasketAdjustment === true;
                   const unitSize = item.unitSize || 1;
                   const step = isKgItem ? unitSize : 1;
                   const estimatedChargeKg = isUnitItem ? getEstimatedChargeableQuantity(item) : 0;
@@ -194,18 +196,24 @@ const Cart = ({ isOpen, onClose }) => {
                     {/* Product details - More compact layout */}
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-medium text-gray-800 truncate leading-tight">{item.name}</h4>
+                      {isBasketLine && (
+                        <p className="text-[10px] text-emerald-700 font-semibold mt-0.5 truncate">
+                          חלק מ{item.basketTitle || 'סל היכרות'}
+                        </p>
+                      )}
                       {item.selectedOption && (
                         <p className="text-[11px] text-gray-500 mt-0.5 truncate">
                           {item.selectedOption}
                         </p>
                       )}
-                      <p className="text-[11px] font-medium text-blue-600 mt-0.5">
-                        ₪{item.price.toFixed(2)}
-                        {isKgItem && '/ק"ג'}
-                        {isUnitItem && '/ק"ג'}
-                        {isPackageItem && '/מארז'}
+                      <p className={`text-[11px] font-medium mt-0.5 ${isBasketAdjustment ? 'text-emerald-700' : 'text-blue-600'}`}>
+                        {isBasketAdjustment && Number(item.price) < 0 ? '-' : ''}
+                        ₪{Math.abs(Number(item.price) || 0).toFixed(2)}
+                        {!isBasketAdjustment && isKgItem && '/ק"ג'}
+                        {!isBasketAdjustment && isUnitItem && '/ק"ג'}
+                        {!isBasketAdjustment && isPackageItem && '/מארז'}
                       </p>
-                      {isUnitItem && (
+                      {isUnitItem && !isBasketAdjustment && (
                         <p className="text-[10px] text-gray-500 mt-0.5">
                           הערכת חיוב: ~{estimatedChargeKg.toFixed(2)} ק"ג
                         </p>
@@ -213,6 +221,13 @@ const Cart = ({ isOpen, onClose }) => {
                     </div>
                     
                     {/* Improved quantity controls with more visible icons */}
+                    {isBasketLine ? (
+                      <div className="mr-1 min-w-[72px] text-center">
+                        <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">
+                          {isBasketAdjustment ? 'התאמה' : formatQuantityWithUnit(item.quantity, measurementType)}
+                        </span>
+                      </div>
+                    ) : (
                     <div className="flex items-center space-x-1 space-x-reverse mr-1">
                       <button 
                         onClick={() => {
@@ -242,13 +257,20 @@ const Cart = ({ isOpen, onClose }) => {
                         </svg>
                       </button>
                     </div>
+                    )}
                     
                     {/* Improved delete button with more visible icon */}
                     <button
-                      onClick={() => removeItem(item.uid)}
+                      onClick={() => {
+                        if (item.basketInstanceId) {
+                          removeBasketInstance(item.basketInstanceId);
+                        } else {
+                          removeItem(item.uid);
+                        }
+                      }}
                       className="flex-shrink-0 w-10 h-9 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors ml-1 mr-3"
-                      title="הסר פריט"
-                      aria-label="הסר פריט"
+                      title={item.basketInstanceId ? 'הסר את סל ההיכרות' : 'הסר פריט'}
+                      aria-label={item.basketInstanceId ? 'הסר את סל ההיכרות' : 'הסר פריט'}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="5 0 10 20" fill="currentColor">
                         <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />

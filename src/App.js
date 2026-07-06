@@ -119,6 +119,7 @@ import EditOrderProducts from './components/businesses/EditOrderProducts';
 import EditOrderCommunities from './components/businesses/EditOrderCommunities';
 import MarketplaceTermsOfService from './components/marketplace/MarketplaceTermsOfService';
 import AdminPwaInstall from './components/admin/AdminPwaInstall';
+import IntroductionBasketAdmin from './components/admin/IntroductionBasketAdmin';
 
 const App = () => {
   return (
@@ -226,6 +227,7 @@ const App = () => {
                   <Route path="/admin/community-discount" element={<CommunityDiscountConfig />} />
                   <Route path="/admin/community-hub" element={<CommunityHubAdmin />} />
                   <Route path="/admin/communities" element={<CommunityAdmin />} />
+                  <Route path="/admin/introduction-baskets" element={<IntroductionBasketAdmin />} />
                   <Route path="/admin/referral-config" element={<ReferralConfigAdmin />} />
                   <Route path="/admin/pwa-install" element={<AdminPwaInstall />} />
                   {/* Community Hub */}

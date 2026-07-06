@@ -86,6 +86,13 @@ function normalizeDelayedOrder(docSnap, weekKey) {
         measurementType: item.measurementType || 'kg',
         unitSize: safeNumber(item.unitSize, 1),
         averageWeightKg: safeNumber(item.averageWeightKg, 1),
+        isBasketComponent: item.isBasketComponent === true,
+        basketId: item.basketId || '',
+        basketInstanceId: item.basketInstanceId || '',
+        basketTitle: item.basketTitle || '',
+        basketPrice: safeNumber(item.basketPrice, 0),
+        basketComponentSubtotal: safeNumber(item.basketComponentSubtotal, 0),
+        basketCommunity: item.basketCommunity || '',
       });
     });
 

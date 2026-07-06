@@ -156,6 +156,14 @@ export const CartProvider = ({ children }) => {
     }
   }, [orderInfoMap, hasLoadedFromStorage]);
 
+  const getCartLineKey = (item = {}) => [
+    item.orderId || '',
+    item.id || '',
+    item.selectedOption || 'default',
+    item.basketInstanceId || '',
+    item.isBasketAdjustment ? 'basket-adjustment' : 'item',
+  ].join('|');
+
   /**
    * Adds an item to the cart.
    * Ensures each added item instance is unique using a generated uid.
@@ -167,9 +175,10 @@ export const CartProvider = ({ children }) => {
    */
   const addItem = (item, orderId, businessId, minimumOrderAmount) => {
     setCartItems(prevItems => {
+      const incomingKey = getCartLineKey({ ...item, orderId });
       // Check if item already exists in cart
       const existingItemIndex = prevItems.findIndex(
-        cartItem => cartItem.id === item.id && cartItem.orderId === orderId
+        cartItem => getCartLineKey(cartItem) === incomingKey
       );
 
       if (existingItemIndex >= 0) {
@@ -303,6 +312,24 @@ export const CartProvider = ({ children }) => {
     clearOrderItems(orderId);
   };
 
+  const removeBasketInstance = (basketInstanceId) => {
+    if (!basketInstanceId) return;
+    setCartItems((prevItems) => {
+      const newItems = prevItems.filter((item) => item.basketInstanceId !== basketInstanceId);
+      const remainingOrderIds = new Set(newItems.map((item) => item.orderId));
+      setOrderInfoMap((prev) => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach((orderId) => {
+          if (!remainingOrderIds.has(orderId)) {
+            delete updated[orderId];
+          }
+        });
+        return updated;
+      });
+      return newItems;
+    });
+  };
+
   const generateCartItemUid = (orderId, itemId, selectedOption) =>
     `${orderId}_${itemId}_${selectedOption || 'default'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -328,12 +355,8 @@ export const CartProvider = ({ children }) => {
       const merged = [...prevItems];
       snapshot.cartItems.forEach((incoming) => {
         const { uid, ...item } = incoming;
-        const optionKey = item.selectedOption || 'default';
         const existingIndex = merged.findIndex(
-          (cartItem) =>
-            cartItem.id === item.id &&
-            cartItem.orderId === item.orderId &&
-            (cartItem.selectedOption || 'default') === optionKey
+          (cartItem) => getCartLineKey(cartItem) === getCartLineKey(item)
         );
         if (existingIndex >= 0) {
           merged[existingIndex] = {
@@ -366,7 +389,7 @@ export const CartProvider = ({ children }) => {
   // useMemo ensures this calculation is only re-run when cartItems changes.
   const totalItems = useMemo(() => {
     // Sum the quantity for each item.
-    return cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    return cartItems.reduce((sum, item) => sum + (item.isBasketAdjustment ? 0 : item.quantity), 0);
   }, [cartItems]); // Dependency array: recalculate only if cartItems changes
 
   // Group cart items by their orderId. Also calculates the total for each order.
@@ -412,6 +435,7 @@ export const CartProvider = ({ children }) => {
     clearCart,
     clearOrderItems,
     removeOrderFromCart, // Add this line
+    removeBasketInstance,
     cartTotal,
     totalItems,
     itemsByOrder,

@@ -28,6 +28,7 @@ import {
   getStoredReferralCode,
   recordReferralUse,
 } from '../../services/referralService';
+import { INTRODUCTION_BASKET_CATALOG_NUMBER } from '../../services/introductionBasketService';
 
 async function processReferralReward({ orderId, buyerUid, orderTotal }) {
   const refCode = getStoredReferralCode();
@@ -67,6 +68,80 @@ const hebrewPickupSpotCollator = new Intl.Collator('he');
 
 const sortPickupSpotsByHebrewAlphabet = (spots) =>
     [...spots].sort((a, b) => hebrewPickupSpotCollator.compare(a, b));
+
+const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+const buildOrderLineFromCartItem = (item) => ({
+    productId: item.id,
+    productName: item.name,
+    quantity: item.quantity,
+    estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
+    estimatedLineTotal: getEstimatedLineTotal(item),
+    price: item.price,
+    selectedOption: item.selectedOption || "None",
+    catalogNumber: item.catalogNumber || '',
+    vatType: item.vatType ?? 3,
+    isShipping: item.isShipping === true,
+    isBasketComponent: item.isBasketComponent === true,
+    isBasketAdjustment: item.isBasketAdjustment === true,
+    basketId: item.basketId || '',
+    basketInstanceId: item.basketInstanceId || '',
+    basketTitle: item.basketTitle || '',
+    basketPrice: Number(item.basketPrice) || 0,
+    basketComponentSubtotal: Number(item.basketComponentSubtotal) || 0,
+    basketCommunity: item.basketCommunity || '',
+    measurementType: item.measurementType || 'kg',
+    unitSize: item.unitSize || 1,
+    averageWeightKg: item.averageWeightKg || 1
+});
+
+const buildIntroductionBasketSummaries = (items = []) => {
+    const groups = {};
+
+    items.forEach((item) => {
+        if (!item.basketInstanceId) return;
+        if (!groups[item.basketInstanceId]) {
+            groups[item.basketInstanceId] = {
+                basketId: item.basketId || '',
+                basketInstanceId: item.basketInstanceId,
+                title: item.basketTitle || 'סל היכרות',
+                displayPrice: Number(item.basketPrice) || 0,
+                componentSubtotal: Number(item.basketComponentSubtotal) || 0,
+                community: item.basketCommunity || '',
+                componentLineRefs: [],
+                adjustmentTotal: 0,
+            };
+        }
+
+        if (item.isBasketAdjustment) {
+            groups[item.basketInstanceId].adjustmentTotal += getEstimatedLineTotal(item);
+            return;
+        }
+
+        if (item.isBasketComponent) {
+            groups[item.basketInstanceId].componentLineRefs.push({
+                orderId: item.orderId || '',
+                productId: item.id || '',
+                productName: item.name || '',
+                quantity: Number(item.quantity) || 0,
+                selectedOption: item.selectedOption || '',
+                estimatedLineTotal: getEstimatedLineTotal(item),
+                businessId: item.businessId || '',
+                businessName: item.businessName || '',
+            });
+        }
+    });
+
+    return Object.values(groups).map((basket) => ({
+        ...basket,
+        componentSubtotal: roundMoney(
+            basket.componentSubtotal
+            || basket.componentLineRefs.reduce((sum, line) => sum + (Number(line.estimatedLineTotal) || 0), 0)
+        ),
+        displayPrice: roundMoney(basket.displayPrice),
+        adjustmentTotal: roundMoney(basket.adjustmentTotal),
+    }));
+};
 
 /**
  * Delayed-payment variant of OrderConfirmation.
@@ -201,6 +276,13 @@ const OrderConfirmationDelayed = () => {
         });
         return next;
     }, [itemsByOrder, isOrderUnavailableForSelectedDate]);
+    const effectiveCartItems = useMemo(() => (
+        Object.values(effectiveItemsByOrder).flatMap((orderData) => orderData.items || [])
+    ), [effectiveItemsByOrder]);
+    const introductionBasketsForOrder = useMemo(
+        () => buildIntroductionBasketSummaries(effectiveCartItems),
+        [effectiveCartItems]
+    );
     const cutoffCartTotal = useMemo(
         () => cutoffCartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0),
         [cutoffCartItems]
@@ -673,23 +755,7 @@ const OrderConfirmationDelayed = () => {
             // Process each item in this order
             orderData.items.forEach(item => {
                 if (item.quantity > 0) {
-                    orderItems.push({
-                        productId: item.id,
-                        productName: item.name,
-                        quantity: item.quantity,
-                        estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
-                        estimatedLineTotal: getEstimatedLineTotal(item),
-                        price: item.price,
-                        selectedOption: item.selectedOption || "None",
-                        // Firestore does not allow undefined values anywhere in the document.
-                        catalogNumber: item.catalogNumber || '',
-                        vatType: item.vatType ?? 3,
-                        isShipping: item.isShipping === true,
-                        // Measurement type and unit size for weighing process
-                        measurementType: item.measurementType || 'kg',
-                        unitSize: item.unitSize || 1,
-                        averageWeightKg: item.averageWeightKg || 1
-                    });
+                    orderItems.push(buildOrderLineFromCartItem(item));
                 }
             });
             businessIds.push(orderData.businessId);
@@ -732,6 +798,7 @@ const OrderConfirmationDelayed = () => {
                 }
             },
             businessIds: businessIds,
+            ...(introductionBasketsForOrder.length > 0 ? { introductionBaskets: introductionBasketsForOrder } : {}),
             createdAt: new Date().toISOString(),
             ...(cartHasAlwaysOnGrocery ? {
                 fulfillment: {
@@ -805,9 +872,20 @@ const OrderConfirmationDelayed = () => {
             // Add product data for each item in the cart (invoice context)
             let productIndex = 0;
             let productLinesSum = 0;
+            introductionBasketsForOrder.forEach((basket) => {
+                const linePrice = Number(basket.displayPrice) || 0;
+                if (linePrice <= 0) return;
+                paymentData[`productData[${productIndex}][catalogNumber]`] = INTRODUCTION_BASKET_CATALOG_NUMBER;
+                paymentData[`productData[${productIndex}][quantity]`] = 1;
+                paymentData[`productData[${productIndex}][price]`] = linePrice;
+                paymentData[`productData[${productIndex}][itemDescription]`] = `סל היכרות - ${basket.title}`;
+                paymentData[`productData[${productIndex}][vatType]`] = 3;
+                productLinesSum += linePrice;
+                productIndex++;
+            });
             Object.entries(effectiveItemsByOrder).forEach(([orderId, orderData]) => {
                 orderData.items.forEach(item => {
-                    if (item.quantity > 0) {
+                    if (item.quantity > 0 && !item.isBasketComponent && !item.isBasketAdjustment) {
                         const linePrice = getEstimatedLineTotal(item);
                         paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
                         paymentData[`productData[${productIndex}][quantity]`] = item.quantity;
@@ -938,20 +1016,7 @@ const OrderConfirmationDelayed = () => {
                 // Process each item in this order
                 orderData.items.forEach(item => {
                     if (item.quantity > 0) {
-                        orderItems.push({
-                            productId: item.id,
-                            productName: item.name,
-                            quantity: item.quantity,
-                            estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
-                            estimatedLineTotal: getEstimatedLineTotal(item),
-                            price: item.price,
-                            selectedOption: item.selectedOption || "None",
-                            catalogNumber: item.catalogNumber || '',
-                            vatType: item.vatType ?? 3,
-                            measurementType: item.measurementType || 'kg',
-                            unitSize: item.unitSize || 1,
-                            averageWeightKg: item.averageWeightKg || 1
-                        });
+                        orderItems.push(buildOrderLineFromCartItem(item));
                     }
                 });
                 businessIds.push(orderData.businessId);  
@@ -994,6 +1059,7 @@ const OrderConfirmationDelayed = () => {
                     }
                 },
                 businessIds: businessIds,
+                ...(introductionBasketsForOrder.length > 0 ? { introductionBaskets: introductionBasketsForOrder } : {}),
                 createdAt: new Date().toISOString(),
                 ...(cartHasAlwaysOnGrocery ? {
                     fulfillment: {

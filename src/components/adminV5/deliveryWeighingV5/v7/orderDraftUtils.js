@@ -1,4 +1,6 @@
 export const BUFFER_LINE_CATALOG_NUMBER = process.env.REACT_APP_BUFFER_LINE_CATALOG_NUMBER || '999003';
+export const INTRODUCTION_BASKET_CATALOG_NUMBER =
+  process.env.REACT_APP_INTRODUCTION_BASKET_CATALOG_NUMBER || '999004';
 
 export function safeNumber(value, fallback = 0) {
   const num = Number(value);
@@ -209,9 +211,28 @@ export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }
   const weightsByLineId = draft?.weightsByLineId || {};
   const removedLineIds = draft?.removedLineIds || {};
 
-  const finalInvoiceLines = (items || [])
+  const basketGroups = {};
+  (items || []).forEach((item) => {
+    if (!item?.basketInstanceId || item?.isBasketComponent !== true) return;
+    if (removedLineIds?.[item?.lineId]) return;
+
+    if (!basketGroups[item.basketInstanceId]) {
+      basketGroups[item.basketInstanceId] = {
+        basketId: item.basketId || '',
+        basketInstanceId: item.basketInstanceId,
+        title: item.basketTitle || 'סל היכרות',
+        displayPrice: safeNumber(item.basketPrice, 0),
+        componentSubtotal: safeNumber(item.basketComponentSubtotal, 0),
+        componentLineIds: [],
+      };
+    }
+    basketGroups[item.basketInstanceId].componentLineIds.push(item.lineId);
+  });
+
+  const normalInvoiceLines = (items || [])
     .filter((item) => item?.catalogNumber !== BUFFER_LINE_CATALOG_NUMBER)
     .filter((item) => !removedLineIds?.[item?.lineId])
+    .filter((item) => !(item?.basketInstanceId && item?.isBasketComponent === true))
     .map((item) => {
       const actualQuantity = resolveActualQuantityForSettlement(item, weightsByLineId);
       const pricePerUnit = safeNumber(item?.pricePerUnit ?? item?.price, 0);
@@ -234,12 +255,33 @@ export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }
       };
     });
 
+  const basketInvoiceLines = Object.values(basketGroups).map((basket) => ({
+    lineId: `basket::${basket.basketInstanceId}`,
+    productId: basket.basketId || '',
+    productName: `סל היכרות - ${basket.title}`,
+    catalogNumber: INTRODUCTION_BASKET_CATALOG_NUMBER,
+    vatType: 3,
+    requestedQuantity: 1,
+    actualQuantity: 1,
+    pricePerUnit: safeNumber(basket.displayPrice, 0),
+    linePrice: roundTo(safeNumber(basket.displayPrice, 0), 2),
+    measurementType: 'package',
+    weighSource: 'basket_fixed_price',
+    isIntroductionBasket: true,
+    basketInstanceId: basket.basketInstanceId,
+    componentLineIds: basket.componentLineIds,
+    componentSubtotal: roundTo(basket.componentSubtotal, 2),
+  }));
+
+  const finalInvoiceLines = [...normalInvoiceLines, ...basketInvoiceLines];
   const finalSum = roundTo(finalInvoiceLines.reduce((sum, line) => sum + safeNumber(line?.linePrice), 0), 2);
   const productDataForGrow = {};
 
   finalInvoiceLines.forEach((line, index) => {
     let descriptionWithQty = line.productName;
-    if (line.measurementType === 'package') {
+    if (line.isIntroductionBasket) {
+      descriptionWithQty = line.productName;
+    } else if (line.measurementType === 'package') {
       descriptionWithQty = `${line.productName} ${safeNumber(line.actualQuantity)} pack`;
     } else if (line.weighSource !== 'ordered_default') {
       descriptionWithQty = `${line.productName} ${safeNumber(line.actualQuantity).toFixed(3)} kg`;
