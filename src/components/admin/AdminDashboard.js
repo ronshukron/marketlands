@@ -71,6 +71,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'ייבוא מחירון ספק',
+    description: 'פענוח PDF, השוואת עלויות, התאמת מוצרים ועדכון מחירים מבוקר',
+    to: '/admin/supplier-price-import',
+    featured: true
+  },
+  {
     title: 'לוחות משלוחים לקהילות',
     description: 'הגדרת ימי משלוח, תאריכים חריגים וזמני חיתוך לחנות הקבועה',
     to: '/admin/delivery-schedules',

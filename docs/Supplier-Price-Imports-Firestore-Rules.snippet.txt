@@ -1,0 +1,169 @@
+// Supplier price-list imports — Firestore rules
+//
+// Database verified during implementation:
+//   projects/auth-development-323c3/databases/(default), STANDARD / Native mode.
+//
+// Paste this block INSIDE:
+//   match /databases/{database}/documents { ... }
+// and before the final deny-all catch-all.
+//
+// This snippet requires the existing isAdmin() helper to derive authority from
+// trusted user/admin data or custom claims. It must never read an admin flag from
+// request.resource.data.
+//
+// Supplier costs intentionally stay in these admin-only collections. The deployed
+// Products rules allow public reads, so Products receives only the approved retail
+// `price` and must never receive supplier-cost fields.
+
+    match /supplierPriceImports/{importId} {
+      allow read: if isAdmin();
+
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          'reportDate',
+          'sourceFileName',
+          'sourceFileHash',
+          'sourceFileSize',
+          'status',
+          'rowCount',
+          'createdBy',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'reportDate',
+          'sourceFileName',
+          'sourceFileHash',
+          'sourceFileSize',
+          'previousImportId',
+          'isBaseline',
+          'status',
+          'rowCount',
+          'removedCount',
+          'createdBy',
+          'createdByEmail',
+          'createdAt'
+        ])
+        && request.resource.data.reportDate is string
+        && request.resource.data.reportDate.size() == 10
+        && request.resource.data.sourceFileName is string
+        && request.resource.data.sourceFileName.size() <= 200
+        && request.resource.data.sourceFileHash is string
+        && request.resource.data.sourceFileHash.size() <= 128
+        && request.resource.data.sourceFileSize is int
+        && request.resource.data.sourceFileSize > 0
+        && request.resource.data.sourceFileSize <= 20000000
+        && request.resource.data.status == 'processing'
+        && request.resource.data.rowCount is int
+        && request.resource.data.rowCount > 0
+        && request.resource.data.rowCount <= 2000
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'matchedCount',
+          'priceUpdateCount',
+          'completedAt',
+          'errorMessage',
+          'failedAt'
+        ])
+        && request.resource.data.status in ['completed', 'failed'];
+
+      allow delete: if false;
+
+      match /items/{itemId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin()
+          && request.resource.data.keys().hasOnly([
+            'supplierCode',
+            'name',
+            'unit',
+            'unitLabel',
+            'cost',
+            'notes',
+            'page',
+            'previousCost',
+            'costDelta',
+            'changePercent',
+            'changeType'
+          ])
+          && request.resource.data.supplierCode is string
+          && request.resource.data.supplierCode.size() <= 40
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 300
+          && request.resource.data.cost is number
+          && request.resource.data.cost >= 0
+          && request.resource.data.cost <= 100000;
+        allow update, delete: if false;
+      }
+
+      match /reviews/{reviewId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin()
+          && request.resource.data.keys().hasOnly([
+            'supplierCode',
+            'businessId',
+            'businessName',
+            'productId',
+            'productName',
+            'confidence',
+            'score',
+            'previousPrice',
+            'previousCost',
+            'newCost',
+            'suggestedPrice',
+            'appliedPrice',
+            'baselineOnly'
+          ])
+          && request.resource.data.businessId is string
+          && request.resource.data.productId is string
+          && request.resource.data.supplierCode is string;
+        allow update, delete: if false;
+      }
+    }
+
+    match /supplierPriceMappings/{mappingId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'supplierCode',
+          'supplierName',
+          'businessId',
+          'businessName',
+          'productId',
+          'productName',
+          'latestCost',
+          'lastImportId',
+          'updatedBy',
+          'updatedAt'
+        ])
+        && request.resource.data.supplierCode is string
+        && request.resource.data.supplierCode.size() <= 40
+        && request.resource.data.supplierName is string
+        && request.resource.data.supplierName.size() <= 300
+        && request.resource.data.businessId is string
+        && request.resource.data.businessId.size() <= 128
+        && request.resource.data.businessName is string
+        && request.resource.data.businessName.size() <= 300
+        && request.resource.data.productId is string
+        && request.resource.data.productId.size() <= 128
+        && request.resource.data.productName is string
+        && request.resource.data.productName.size() <= 300
+        && request.resource.data.latestCost is number
+        && request.resource.data.latestCost >= 0
+        && request.resource.data.latestCost <= 100000
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if false;
+    }
+
+    // This is an additional admin-only allow clause. Keep the existing Products
+    // rules in place for normal reads and owner operations.
+    match /Products/{productId} {
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['price'])
+        && request.resource.data.price is number
+        && request.resource.data.price > 0
+        && request.resource.data.price <= 100000;
+    }

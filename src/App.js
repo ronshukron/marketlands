@@ -121,6 +121,7 @@ import EditOrderCommunities from './components/businesses/EditOrderCommunities';
 import MarketplaceTermsOfService from './components/marketplace/MarketplaceTermsOfService';
 import AdminPwaInstall from './components/admin/AdminPwaInstall';
 import IntroductionBasketAdmin from './components/admin/IntroductionBasketAdmin';
+import SupplierPriceImportAdmin from './components/admin/SupplierPriceImportAdmin';
 
 const App = () => {
   return (
@@ -196,6 +197,7 @@ const App = () => {
                   <Route path="/admin/weekly-customer-orders" element={<WeeklyCustomerOrderManager />} />
                   <Route path="/admin/transfer-delivery-week" element={<CustomerOrderDeliveryTransferAdmin />} />
                   <Route path="/admin/order-from-suppliers" element={<WeeklyOrderFromSuppliersV1 />} />
+                  <Route path="/admin/supplier-price-import" element={<SupplierPriceImportAdmin />} />
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
                   <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />
                   <Route path="/admin/delivery-v4" element={<DeliveryManagementV4 />} />
