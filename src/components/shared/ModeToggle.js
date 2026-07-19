@@ -5,7 +5,7 @@ const ModeToggle = ({ className = '' }) => {
   const { saleMode, setSaleMode } = useSaleMode();
 
   const isWeekly = saleMode === 'weekly';
-  const isIndependent = saleMode === 'independent';
+  const isBusiness = saleMode === 'business';
 
   return (
     <div className={`w-full max-w-sm mx-auto px-0.5 ${className}`} dir="rtl">
@@ -40,10 +40,10 @@ const ModeToggle = ({ className = '' }) => {
         <button
           type="button"
           role="tab"
-          aria-selected={isIndependent}
-          onClick={() => setSaleMode('independent')}
+          aria-selected={isBusiness}
+          onClick={() => setSaleMode('business')}
           className={`basis-1/2 inline-flex items-center justify-center gap-1.5 px-2 sm:px-3 py-2 text-xs sm:text-sm rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
-            isIndependent
+            isBusiness
               ? 'bg-green-600 text-white shadow focus-visible:ring-green-600'
               : 'bg-white text-green-700 border border-green-600 hover:bg-green-50 focus-visible:ring-green-600'
           }`}
@@ -55,13 +55,13 @@ const ModeToggle = ({ className = '' }) => {
             viewBox="0 0 24 24"
             stroke="currentColor"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M3 12h18M3 17h18" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 21V10l8-6 8 6v11M9 21v-6h6v6" />
           </svg>
-          <span className="whitespace-nowrap">חקלאים עצמאיים</span>
+          <span className="whitespace-nowrap">עסקים מקומיים</span>
         </button>
       </div>
       <div className="mt-2 text-center text-[11px] sm:text-xs text-white/90">
-        {isWeekly ? 'מציג את המכירות השבועיות' : 'מציג מודעות של חקלאים עצמאיים'}
+        {isWeekly ? 'מציג את המכירות השבועיות' : 'מציג את שוק העסקים המקומיים'}
       </div>
     </div>
   );

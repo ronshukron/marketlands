@@ -15,7 +15,10 @@ export const SaleModeProvider = ({ children }) => {
     // Initialize from localStorage or default to 'weekly'
     try {
       const saved = localStorage.getItem('saleMode');
-      return saved === 'independent' ? 'independent' : 'weekly';
+      if (saved === 'business' || saved === 'independent') {
+        return saved;
+      }
+      return 'weekly';
     } catch {
       return 'weekly';
     }

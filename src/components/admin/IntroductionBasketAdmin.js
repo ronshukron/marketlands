@@ -12,7 +12,7 @@ import {
   saveIntroductionBasket,
 } from '../../services/introductionBasketService';
 
-const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
+const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
 const emptyForm = {
   title: '',
@@ -28,6 +28,29 @@ const emptyForm = {
 const formatMoney = (value) => `₪${Number(value || 0).toFixed(2)}`;
 
 const getLineKey = (line) => `${line.orderId}:${line.productId}:${line.selectedOption || ''}`;
+
+const SAVE_ERROR_MESSAGES = {
+  TITLE_REQUIRED: 'שם סל חובה',
+  TITLE_TOO_LONG: 'שם הסל ארוך מדי',
+  DESCRIPTION_TOO_LONG: 'התיאור ארוך מדי',
+  IMAGE_TOO_LONG: 'כתובת התמונה ארוכה מדי',
+  COMMUNITIES_REQUIRED: 'בחרו לפחות קהילה אחת',
+  TOO_MANY_COMMUNITIES: 'נבחרו יותר מדי קהילות',
+  DISPLAY_PRICE_INVALID: 'מחיר הסל חייב להיות מספר חיובי או אפס',
+  COMPONENTS_REQUIRED: 'בחרו לפחות מוצר אחד לסל',
+  TOO_MANY_COMPONENTS: 'נבחרו יותר מדי פריטים לסל',
+  COMPONENT_REFERENCE_INVALID: 'אחד הפריטים חסר שיוך למוצר, הזמנה או חקלאי',
+  COMPONENT_QUANTITY_INVALID: 'כמות לא תקינה באחד הפריטים',
+  COMPONENT_PRICE_INVALID: 'מחיר לא תקין באחד הפריטים',
+  COMPONENT_MEASUREMENT_INVALID: 'סוג מדידה לא תקין באחד הפריטים',
+};
+
+const mapSaveError = (err) => {
+  if (err?.code === 'permission-denied') {
+    return 'אין הרשאה לשמור סל היכרות. בדקו את כללי Firestore.';
+  }
+  return SAVE_ERROR_MESSAGES[err?.message] || err?.message || 'שמירת סל ההיכרות נכשלה';
+};
 
 const IntroductionBasketAdmin = () => {
   const { currentUser, userRole } = useAuth();
@@ -190,6 +213,29 @@ const IntroductionBasketAdmin = () => {
       return;
     }
 
+    const unavailableLines = form.componentLines
+      .map((line) => ({ line, warning: getLineCommunityWarning(line) }))
+      .filter((entry) => entry.warning);
+    if (unavailableLines.length > 0) {
+      const details = unavailableLines
+        .map(({ line, warning }) => `• ${line.productName} (${line.businessName}) — ${warning}`)
+        .join('<br/>');
+      const result = await Swal.fire({
+        title: 'פריטים לא זמינים בחלק מהקהילות',
+        html: `הפריטים הבאים אינם זמינים בכל הקהילות שנבחרו:<br/><br/>${details}<br/><br/>לא ניתן לשמור עד להסרתם או לשינוי הקהילות.`,
+        icon: 'error',
+        confirmButtonText: 'הבנתי',
+      });
+      void result;
+      return;
+    }
+
+    const invalidQuantityLine = form.componentLines.find((line) => !(Number(line.quantity) > 0));
+    if (invalidQuantityLine) {
+      Swal.fire('שגיאה', `כמות לא תקינה עבור "${invalidQuantityLine.productName}". כל פריט חייב כמות גדולה מאפס.`, 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       const basketId = await saveIntroductionBasket(editingId, {
@@ -206,7 +252,7 @@ const IntroductionBasketAdmin = () => {
       Swal.fire('נשמר', 'סל ההיכרות נשמר בהצלחה', 'success');
     } catch (err) {
       console.error('Failed to save introduction basket:', err);
-      Swal.fire('שגיאה', err?.message || 'שמירת סל ההיכרות נכשלה', 'error');
+      Swal.fire('שגיאה', mapSaveError(err), 'error');
     } finally {
       setSaving(false);
     }

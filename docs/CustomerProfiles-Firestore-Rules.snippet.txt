@@ -1,0 +1,29 @@
+// Paste into Firebase Console → Firestore → Rules
+// (before the final catch-all deny rule)
+//
+// Backs the per-customer VIP flag + bilingual (Hebrew/Thai) notes.
+// - Written from /admin/customers (CustomerInsights).
+// - Read in the V7 delivery view (DeliveryManagementV7), which is itself
+//   admin-gated, and in /admin/customers.
+//
+// Documents are keyed by the customer's (phone || email), matching how V7
+// identifies customers. Fields: isVip (bool), noteHebrew, noteThai, updatedAt.
+
+    match /customerProfiles/{customerKey} {
+      // Only admins view/manage VIP + notes.
+      allow read: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+// Ensure your project already defines isAdmin(), for example:
+//
+//   function isAdmin() {
+//     return isAuthenticated() && (
+//       request.auth.uid == 'rfHOLhNoJOW8ByNypCtm3hlSNKs2'
+//       || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+//     );
+//   }
+//
+// If non-admin delivery staff also need to see badges/notes in V7, relax the
+// read rule to:  allow read: if isAuthenticated();

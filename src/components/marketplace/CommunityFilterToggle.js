@@ -32,7 +32,7 @@ const CommunityFilterToggle = ({
       {isRail && (
         <div className="mp-community-rail-head">
           <CommunityPinIcon />
-          <span>באיזו שכונה אתם בשוק?</span>
+          <span>מאיזו קהילה אתם?</span>
         </div>
       )}
       <div className="mp-community-rail-row">

@@ -1507,21 +1507,21 @@ const OrderConfirmationDelayed = () => {
                             {reusableCartonAvailable && (
                                 <div className="form-group md:col-span-2">
                                     <div className="flex items-center justify-start">
-                                        <div className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-2">
+                                        <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-emerald-50 px-3 py-2">
                                             <input
                                                 id="useReusableFarmerCartons"
                                                 type="checkbox"
                                                 checked={useReusableFarmerCartons}
                                                 onChange={(e) => setUseReusableFarmerCartons(e.target.checked)}
-                                                className="h-4 w-4 text-emerald-700 focus:ring-emerald-500 border-emerald-300 rounded ml-2"
+                                                className="h-4 w-4 shrink-0 text-emerald-700 focus:ring-emerald-500 border-emerald-300 rounded ml-2"
                                             />
-                                            <label htmlFor="useReusableFarmerCartons" className="cursor-pointer whitespace-nowrap text-base font-bold text-emerald-900">
+                                            <label htmlFor="useReusableFarmerCartons" className="cursor-pointer text-sm sm:text-base font-bold text-emerald-900">
                                                 🌱 אני רוצה קרטון ממוחזר
                                             </label>
                                             <button
                                                 type="button"
                                                 onClick={() => setShowReusableCartonInfo(prev => !prev)}
-                                                className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-emerald-500 text-xs font-bold text-emerald-700 bg-white hover:bg-emerald-100"
+                                                className="mr-2 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500 text-xs font-bold text-emerald-700 bg-white hover:bg-emerald-100"
                                                 aria-expanded={showReusableCartonInfo}
                                                 aria-label="מידע נוסף על קרטונים בשימוש חוזר"
                                             >

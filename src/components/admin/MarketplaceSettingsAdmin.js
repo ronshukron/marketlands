@@ -21,6 +21,7 @@ const MarketplaceSettingsAdmin = () => {
           confirmationNextStepsText: settings.confirmationNextStepsText || '',
           highlightLimit: settings.highlightLimit ?? 8,
           enabled: settings.enabled !== false,
+          waitlistEnabled: settings.waitlistEnabled !== false,
         });
       } catch (error) {
         console.error('Failed to load marketplace settings', error);
@@ -84,6 +85,21 @@ const MarketplaceSettingsAdmin = () => {
             <span className="block text-sm text-gray-600 mt-1">
               כשמכובה — הלקוח רואה הסבר לתשלום ותיאום ישירות מול הבסטה, בלי כפתורי/פרטי
               תשלום שהבסטה הגדירה.
+            </span>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={form.waitlistEnabled}
+            onChange={(e) => setForm((c) => ({ ...c, waitlistEnabled: e.target.checked }))}
+          />
+          <span>
+            <strong>הצגת רשימת המתנה לפיילוט בעמוד השוק</strong>
+            <span className="block text-sm text-gray-600 mt-1">
+              כשמופעל — מוצג טופס הרשמה לפיילוט (3-5 עסקים) במקום הכפתור "פתחו בסטה בשוק".
             </span>
           </span>
         </label>

@@ -22,15 +22,29 @@ export const INTRODUCTION_BASKET_CATALOG_NUMBER =
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
 
+// Validation bounds. These are kept in sync with the Firestore security rules
+// in docs/IntroductionBaskets-Firestore-Rules.snippet.txt so a client-side save
+// never produces a document the rules would reject.
+export const VALID_BASKET_MEASUREMENT_TYPES = ['kg', 'unit', 'package'];
+export const MAX_BASKET_TITLE_LENGTH = 120;
+export const MAX_BASKET_DESCRIPTION_LENGTH = 2000;
+export const MAX_BASKET_IMAGE_LENGTH = 2000;
+export const MAX_BASKET_COMMUNITIES = 100;
+export const MAX_BASKET_COMPONENT_LINES = 50;
+
 const safeNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 const normalizeComponentLine = (line = {}) => {
-  const measurementType = line.measurementType || 'kg';
-  const quantity = safeNumber(line.quantity, measurementType === 'kg' ? safeNumber(line.unitSize, 1) : 1);
-  const price = safeNumber(line.price ?? line.priceSnapshot, 0);
+  const rawMeasurementType = line.measurementType || 'kg';
+  const measurementType = VALID_BASKET_MEASUREMENT_TYPES.includes(rawMeasurementType)
+    ? rawMeasurementType
+    : 'kg';
+  const rawQuantity = safeNumber(line.quantity, measurementType === 'kg' ? safeNumber(line.unitSize, 1) : 1);
+  const quantity = rawQuantity > 0 ? rawQuantity : 0;
+  const price = Math.max(0, safeNumber(line.price ?? line.priceSnapshot, 0));
 
   return {
     productId: line.productId || line.id || '',
@@ -110,6 +124,36 @@ const prepareBasketPayload = (payload = {}, updatedBy = '') => {
   };
 };
 
+// Throws a stable error code when a prepared payload violates the basket
+// contract. Mirrors the Firestore rules so invalid data fails fast on the client.
+export function validatePreparedBasket(prepared = {}) {
+  if (!prepared.title || prepared.title.length === 0) throw new Error('TITLE_REQUIRED');
+  if (prepared.title.length > MAX_BASKET_TITLE_LENGTH) throw new Error('TITLE_TOO_LONG');
+  if ((prepared.description || '').length > MAX_BASKET_DESCRIPTION_LENGTH) throw new Error('DESCRIPTION_TOO_LONG');
+  if ((prepared.image || '').length > MAX_BASKET_IMAGE_LENGTH) throw new Error('IMAGE_TOO_LONG');
+
+  if (!Array.isArray(prepared.communities) || prepared.communities.length === 0) {
+    throw new Error('COMMUNITIES_REQUIRED');
+  }
+  if (prepared.communities.length > MAX_BASKET_COMMUNITIES) throw new Error('TOO_MANY_COMMUNITIES');
+
+  if (!Number.isFinite(prepared.displayPrice) || prepared.displayPrice < 0) {
+    throw new Error('DISPLAY_PRICE_INVALID');
+  }
+
+  if (!Array.isArray(prepared.componentLines) || prepared.componentLines.length === 0) {
+    throw new Error('COMPONENTS_REQUIRED');
+  }
+  if (prepared.componentLines.length > MAX_BASKET_COMPONENT_LINES) throw new Error('TOO_MANY_COMPONENTS');
+
+  prepared.componentLines.forEach((line) => {
+    if (!line.productId || !line.orderId || !line.businessId) throw new Error('COMPONENT_REFERENCE_INVALID');
+    if (!(safeNumber(line.quantity, 0) > 0)) throw new Error('COMPONENT_QUANTITY_INVALID');
+    if (safeNumber(line.price, 0) < 0) throw new Error('COMPONENT_PRICE_INVALID');
+    if (!VALID_BASKET_MEASUREMENT_TYPES.includes(line.measurementType)) throw new Error('COMPONENT_MEASUREMENT_INVALID');
+  });
+}
+
 export async function listIntroductionBaskets() {
   const snap = await getDocs(collection(db, INTRODUCTION_BASKETS_COLLECTION));
   return snap.docs
@@ -135,9 +179,7 @@ export async function saveIntroductionBasket(basketId, payload, updatedBy = '') 
   const basketsRef = collection(db, INTRODUCTION_BASKETS_COLLECTION);
   const prepared = prepareBasketPayload(payload, updatedBy);
 
-  if (!prepared.title) throw new Error('TITLE_REQUIRED');
-  if (prepared.communities.length === 0) throw new Error('COMMUNITIES_REQUIRED');
-  if (prepared.componentLines.length === 0) throw new Error('COMPONENTS_REQUIRED');
+  validatePreparedBasket(prepared);
 
   if (basketId) {
     await setDoc(doc(db, INTRODUCTION_BASKETS_COLLECTION, basketId), prepared, { merge: true });

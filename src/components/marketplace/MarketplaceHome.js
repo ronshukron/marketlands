@@ -9,6 +9,7 @@ import {
 import BusinessCardGrid from './BusinessCardGrid';
 import CommunityFilterToggle from './CommunityFilterToggle';
 import PromotionHighlights from './PromotionHighlights';
+import MarketplaceWaitlistSection from './MarketplaceWaitlistSection';
 import './marketplace.css';
 
 const GateBasketIcon = () => (
@@ -47,7 +48,7 @@ const StallCtaIcon = () => (
   </svg>
 );
 
-const MarketplaceHome = () => {
+const MarketplaceHome = ({ hideMainStore = false }) => {
   const { selectedPickupSpot, updatePickupSpot, hasLoadedFromStorage } = usePickupSpot();
   const [communityName, setCommunityName] = useState('');
   const [communityMode, setCommunityMode] = useState('own');
@@ -111,13 +112,13 @@ const MarketplaceHome = () => {
         <div className="mp-gate-inner">
           <p className="mp-gate-eyebrow">
             <GateBasketIcon />
-            שוק הבסטות · מהשדה לשכונה
+            שוק הבסטות · מהשכונה לשכונה
           </p>
           <h1 id="mp-gate-title" className="mp-gate-title">
-            שוק שכונתי של אוכל מהשדה והמשק
+            מרקטפלייס לעסקים מקומיים
           </h1>
           <p className="mp-gate-subtitle">
-            בחרו את השכונה, גלו מהשבוע בשוק, והזמינו מבסטות מקומיות — תשלום בשוק (ביט, מזומן ועוד).
+בחרו קהילה, גלו את הבסטות השבועיות והזמינו 
           </p>
 
           <CommunityFilterToggle
@@ -130,7 +131,7 @@ const MarketplaceHome = () => {
 
           <div className="mp-gate-actions">
             <a href="#weekly-promotions" className="mp-btn mp-btn-primary">
-              מהשדה השבוע
+              הזמנות שבועיות
             </a>
             <a href="#stalls" className="mp-btn mp-btn-secondary">
               הבסטות
@@ -150,12 +151,14 @@ const MarketplaceHome = () => {
           <div className="mp-alert mp-alert-error">{error}</div>
         )}
 
+        {settings?.waitlistEnabled !== false && <MarketplaceWaitlistSection />}
+
         <section id="weekly-promotions" aria-labelledby="weekly-section-title">
           <div className="mp-section-head">
             <div>
               <p className="mp-section-kicker">{scopeLabel}</p>
               <h2 id="weekly-section-title" className="mp-section-title mp-section-title-chalk">
-                מהשדה השבוע
+                הזמנות שבועיות
               </h2>
               <p className="mp-section-note">
                 הזמנות מצטברות מבסטות בשכונה — גללו את לוח השוק
@@ -177,7 +180,7 @@ const MarketplaceHome = () => {
               </p>
             </div>
           </div>
-          <BusinessCardGrid stores={stores} loading={loading} />
+          <BusinessCardGrid stores={stores} loading={loading} hidePinned={hideMainStore} />
         </section>
 
         <aside className="mp-cta-stall" aria-labelledby="cta-stall-title">

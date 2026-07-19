@@ -245,7 +245,7 @@ const MarketplaceMenu = () => {
         <div className="mp-menu-inner">
           <Link to="/community-marketplace" className="mp-menu-brand">
             <span className="mp-menu-brand-title">שוק הבסטות</span>
-            <span className="mp-menu-brand-sub">מהשדה לשכונה</span>
+            <span className="mp-menu-brand-sub">מהשכונה לשכונה</span>
           </Link>
 
           {renderCommunityChip()}

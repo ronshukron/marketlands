@@ -4,6 +4,11 @@ import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import { format } from 'date-fns';
+import {
+  getCustomerKey,
+  getCustomerProfiles,
+  setCustomerProfile,
+} from '../../services/customerProfileService';
 
 const CustomerInsights = () => {
   const { currentUser } = useAuth();
@@ -13,6 +18,15 @@ const CustomerInsights = () => {
 
   const [targetOrderCount, setTargetOrderCount] = useState(2);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+
+  // VIP / bilingual-notes profiles, keyed by (phone || email) so they line up
+  // with how the V7 delivery view identifies customers.
+  const [profilesMap, setProfilesMap] = useState({});
+  const [editVip, setEditVip] = useState(false);
+  const [editNoteHe, setEditNoteHe] = useState('');
+  const [editNoteTh, setEditNoteTh] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
 
   const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
@@ -154,6 +168,60 @@ const CustomerInsights = () => {
       ? customersMap[selectedCustomerId]
       : null;
 
+  // Profile key for the selected customer (phone || email), matching V7.
+  const selectedProfileKey = selectedCustomer
+    ? getCustomerKey({ phone: selectedCustomer.phone, email: selectedCustomer.email })
+    : '';
+
+  // Load VIP / notes profiles for all listed customers (for the table marker).
+  useEffect(() => {
+    const keys = customersList
+      .map((c) => getCustomerKey({ phone: c.phone, email: c.email }))
+      .filter(Boolean);
+    if (keys.length === 0) {
+      setProfilesMap({});
+      return;
+    }
+    let active = true;
+    getCustomerProfiles(keys)
+      .then((map) => {
+        if (active) setProfilesMap(map);
+      })
+      .catch((e) => console.error('Failed to load customer profiles', e));
+    return () => {
+      active = false;
+    };
+  }, [customersList]);
+
+  // Populate the editor when the selected customer changes.
+  useEffect(() => {
+    setProfileSaved(false);
+    const profile = selectedProfileKey ? profilesMap[selectedProfileKey] : null;
+    setEditVip(profile?.isVip === true);
+    setEditNoteHe(profile?.noteHebrew || '');
+    setEditNoteTh(profile?.noteThai || '');
+  }, [selectedProfileKey, profilesMap]);
+
+  const handleSaveProfile = async () => {
+    if (!selectedProfileKey || savingProfile) return;
+    try {
+      setSavingProfile(true);
+      setProfileSaved(false);
+      const saved = await setCustomerProfile(selectedProfileKey, {
+        isVip: editVip,
+        noteHebrew: editNoteHe,
+        noteThai: editNoteTh,
+      });
+      setProfilesMap((prev) => ({ ...prev, [selectedProfileKey]: saved }));
+      setProfileSaved(true);
+    } catch (e) {
+      console.error('Failed to save customer profile', e);
+      setError('שגיאה בשמירת פרטי הלקוח');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   if (loading) return <LoadingSpinner />;
   if (error) return <div className="p-8 text-center text-red-600">{error}</div>;
 
@@ -212,7 +280,12 @@ const CustomerInsights = () => {
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => setSelectedCustomerId(c.id)}
                   >
-                    <td className="p-2 font-medium text-gray-900">{c.name}</td>
+                    <td className="p-2 font-medium text-gray-900">
+                      {profilesMap[getCustomerKey({ phone: c.phone, email: c.email })]?.isVip && (
+                        <span className="mr-1 text-amber-500" title="VIP">★</span>
+                      )}
+                      {c.name}
+                    </td>
                     <td className="p-2 text-gray-700">{c.email}</td>
                     <td className="p-2 text-gray-700">{c.phone}</td>
                     <td className="p-2 text-center">{c.completedCount}</td>
@@ -307,6 +380,9 @@ const CustomerInsights = () => {
                       {selectedCustomer.phone}
                     </p>
                   )}
+                  {editVip && (
+                    <p className="text-sm font-bold text-amber-600 mt-1">★ לקוח VIP</p>
+                  )}
                 </div>
 
                 <div className="bg-gray-50 rounded p-4">
@@ -353,6 +429,75 @@ const CustomerInsights = () => {
                       ? format(selectedCustomer.lastOrderDate, 'dd/MM/yy HH:mm')
                       : '-'}
                   </p>
+                </div>
+              </div>
+
+              {/* VIP + bilingual notes editor (shown in delivery view V7) */}
+              <div className="bg-amber-50 border border-amber-200 rounded p-4">
+                <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
+                  <h3 className="font-bold text-gray-800">VIP והערות ללקוח</h3>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={editVip}
+                      onChange={(e) => {
+                        setEditVip(e.target.checked);
+                        setProfileSaved(false);
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm font-bold text-amber-700">★ סמן כלקוח VIP</span>
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  הסימון וההערות יופיעו לצוות המשלוחים במסך V7. יש להזין הערה אחת
+                  בעברית ואחת בתאית.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      הערה (עברית)
+                    </label>
+                    <textarea
+                      value={editNoteHe}
+                      onChange={(e) => {
+                        setEditNoteHe(e.target.value);
+                        setProfileSaved(false);
+                      }}
+                      rows={3}
+                      dir="rtl"
+                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                      placeholder="הערה בעברית..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      הערה (תאית / ไทย)
+                    </label>
+                    <textarea
+                      value={editNoteTh}
+                      onChange={(e) => {
+                        setEditNoteTh(e.target.value);
+                        setProfileSaved(false);
+                      }}
+                      rows={3}
+                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                      placeholder="หมายเหตุภาษาไทย..."
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 mt-3">
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    disabled={savingProfile || !selectedProfileKey}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded text-sm disabled:opacity-50"
+                  >
+                    {savingProfile ? 'שומר...' : 'שמור'}
+                  </button>
+                  {profileSaved && (
+                    <span className="text-sm text-green-600 font-medium">נשמר בהצלחה</span>
+                  )}
                 </div>
               </div>
 

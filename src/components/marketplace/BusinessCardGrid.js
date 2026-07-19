@@ -10,8 +10,8 @@ const matchesPinnedStore = (store, pinned) => {
   return keys.some((key) => pinnedKeys.includes(key));
 };
 
-const BusinessCardGrid = ({ stores = [], loading = false }) => {
-  const pinnedStores = MARKETPLACE_FEATURED_STORES;
+const BusinessCardGrid = ({ stores = [], loading = false, hidePinned = false }) => {
+  const pinnedStores = hidePinned ? [] : MARKETPLACE_FEATURED_STORES;
 
   const communityStores = useMemo(() => {
     if (pinnedStores.length === 0) return stores;

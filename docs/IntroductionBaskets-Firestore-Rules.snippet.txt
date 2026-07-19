@@ -1,79 +1,15 @@
-// Prototype Firestore rules snippet for Introduction baskets.
-// Add under match /databases/{database}/documents.
+// Firestore rules snippet for Introduction baskets.
+// Add INSIDE `match /databases/{database}/documents { ... }`, just BEFORE the
+// final catch-all deny:  match /{document=**} { allow read, write: if false; }
+//
+// This project already defines isAdmin() (UID allowlist) at the top of the rules,
+// so this block just reuses it. Do NOT redefine isAdmin().
 //
 // Collection: introductionBaskets/{basketId}
-// Public storefront reads require active == true.
-// Admins can create, update, and delete baskets.
-
-function isAdmin() {
-  return request.auth != null
-    && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-}
-
-function isValidIntroductionBasketLine(line) {
-  return line.keys().hasAll([
-    'productId',
-    'productName',
-    'orderId',
-    'businessId',
-    'businessName',
-    'quantity',
-    'price',
-    'measurementType'
-  ])
-  && line.productId is string
-  && line.productName is string
-  && line.orderId is string
-  && line.businessId is string
-  && line.businessName is string
-  && line.quantity is number
-  && line.quantity > 0
-  && line.price is number
-  && line.measurementType in ['kg', 'unit', 'package'];
-}
-
-function isValidIntroductionBasket() {
-  return request.resource.data.keys().hasOnly([
-    'title',
-    'description',
-    'image',
-    'active',
-    'sortOrder',
-    'communities',
-    'displayPrice',
-    'componentLines',
-    'componentSubtotal',
-    'createdAt',
-    'updatedAt',
-    'updatedBy'
-  ])
-  && request.resource.data.keys().hasAll([
-    'title',
-    'active',
-    'communities',
-    'displayPrice',
-    'componentLines'
-  ])
-  && request.resource.data.title is string
-  && request.resource.data.title.size() > 0
-  && request.resource.data.title.size() <= 120
-  && (!('description' in request.resource.data) || request.resource.data.description is string)
-  && (!('image' in request.resource.data) || request.resource.data.image is string)
-  && request.resource.data.active is bool
-  && request.resource.data.communities is list
-  && request.resource.data.communities.size() > 0
-  && request.resource.data.communities.size() <= 100
-  && request.resource.data.displayPrice is number
-  && request.resource.data.displayPrice >= 0
-  && request.resource.data.componentLines is list
-  && request.resource.data.componentLines.size() > 0
-  && request.resource.data.componentLines.size() <= 50
-  && request.resource.data.componentLines.all(line, isValidIntroductionBasketLine(line));
-}
+// - Public storefront reads require active == true (customers are anonymous).
+// - Only admins can write.
 
 match /introductionBaskets/{basketId} {
-  allow get, list: if resource.data.active == true || isAdmin();
-  allow create, update: if isAdmin() && isValidIntroductionBasket();
-  allow delete: if isAdmin();
+  allow read: if resource.data.active == true || isAdmin();
+  allow write: if isAdmin();
 }

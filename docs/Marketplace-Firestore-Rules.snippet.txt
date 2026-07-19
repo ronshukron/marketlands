@@ -99,6 +99,13 @@
       allow write: if isAdmin();
     }
 
+    // Pilot waiting list — public signup (no auth), admin-only read
+    match /marketplaceWaitlist/{entryId} {
+      allow create: if true;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
     // Future volunteer pickup (placeholder collection)
     match /marketplacePromotionVolunteers/{volunteerId} {
       allow read: if false;

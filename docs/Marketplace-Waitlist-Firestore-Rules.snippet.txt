@@ -1,0 +1,20 @@
+// Marketplace pilot waiting list — Firestore rules
+//
+// Paste this block into Firebase Console → Firestore → Rules,
+// INSIDE the `match /databases/{database}/documents { ... }` block and
+// BEFORE the final catch-all:
+//   match /{document=**} { allow read, write: if false; }
+//
+// Requires the existing `isAdmin()` helper (already used by the other
+// marketplace rules in Marketplace-Firestore-Rules.snippet.txt).
+//
+// Collection: marketplaceWaitlist
+//   - create: public pilot signup, no auth (name, phone, email, businessKind, community)
+//   - read:   admins only (used by /admin/marketplace-waitlist)
+//   - update/delete: disabled
+
+    match /marketplaceWaitlist/{entryId} {
+      allow create: if true;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }

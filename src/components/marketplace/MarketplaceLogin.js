@@ -51,7 +51,7 @@ const MarketplaceLogin = () => {
         <aside className="mp-auth-visual" aria-hidden="true">
           <div className="mp-auth-visual-inner">
             <span className="mp-auth-visual-kicker">שדה ושכונה</span>
-            <h2 className="mp-auth-visual-title">מהשדה לשכונה</h2>
+            <h2 className="mp-auth-visual-title">מהשכונה לשכונה</h2>
             <p className="mp-auth-visual-text">
               שוק קהילתי — הזמנות מהדוכנים, תשלום בשוק, ומעקב במקום אחד.
             </p>

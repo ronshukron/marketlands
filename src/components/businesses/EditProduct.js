@@ -44,7 +44,10 @@ const EditProduct = () => {
     { value: '0.1', label: '100 גרם (0.1 ק"ג)' },
     { value: '0.25', label: '250 גרם (0.25 ק"ג)' },
     { value: '0.5', label: 'חצי קילו (0.5 ק"ג)' },
+    { value: '0.65', label: '0.65 ק"ג' },
+    { value: '0.75', label: '750 גרם (0.75 ק"ג)' },
     { value: '1', label: '1 ק"ג' },
+    { value: '1.2', label: '1.2 ק"ג' },
     { value: '1.5', label: '1.5 ק"ג' },
     { value: '2', label: '2 ק"ג' },
     { value: '2.5', label: '2.5 ק"ג' },
@@ -52,6 +55,9 @@ const EditProduct = () => {
     { value: '5', label: '5 ק"ג' },
     { value: '10', label: '10 ק"ג' },
   ];
+
+  // Whether the user is entering a custom (free-typed) kg value
+  const [isCustomUnitSize, setIsCustomUnitSize] = useState(false);
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -94,6 +100,10 @@ const EditProduct = () => {
             unitSize: data.unitSize != null ? String(data.unitSize) : '1', // default to 1 kg if not set
             averageWeightKg: data.averageWeightKg != null ? String(data.averageWeightKg) : '1'
           });
+
+          // If the saved unitSize isn't one of the presets, enable custom entry mode
+          const loadedUnitSize = data.unitSize != null ? String(data.unitSize) : '1';
+          setIsCustomUnitSize(!UNIT_SIZE_OPTIONS.some((opt) => opt.value === loadedUnitSize));
           
           // Set existing images if available
           if (data.images) {
@@ -413,15 +423,18 @@ const handleSubmit = async (e) => {
               name="measurementType"
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               value={formData.measurementType}
-              onChange={(e) => 
+              onChange={(e) => {
+                if (e.target.value !== 'kg') {
+                  setIsCustomUnitSize(false);
+                }
                 setFormData({
                   ...formData,
                   measurementType: e.target.value,
                   // Reset unitSize to 1 when switching away from kg
                   unitSize: e.target.value !== 'kg' ? '1' : formData.unitSize,
                   averageWeightKg: e.target.value !== 'unit' ? '1' : formData.averageWeightKg
-                })
-              }
+                });
+              }}
             >
               <option value="kg">ק"ג (משקל)</option>
               <option value="unit">יחידה (נשקל) - למשל אבטיח, מלון</option>
@@ -446,18 +459,40 @@ const handleSubmit = async (e) => {
                 id="unitSize"
                 name="unitSize"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={formData.unitSize}
-                onChange={(e) => 
-                  setFormData({
-                    ...formData,
-                    unitSize: e.target.value
-                  })
-                }
+                value={isCustomUnitSize ? 'custom' : formData.unitSize}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') {
+                    setIsCustomUnitSize(true);
+                  } else {
+                    setIsCustomUnitSize(false);
+                    setFormData({
+                      ...formData,
+                      unitSize: e.target.value
+                    });
+                  }
+                }}
               >
                 {UNIT_SIZE_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
+                <option value="custom">מותאם אישית (הזן ק"ג)</option>
               </select>
+              {isCustomUnitSize && (
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={formData.unitSize}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      unitSize: e.target.value
+                    })
+                  }
+                  placeholder='הזן כמות בק"ג, למשל 0.65'
+                  className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              )}
               <p className="mt-1 text-xs text-gray-500">
                 כמה ק"ג יתווספו לעגלה בכל לחיצה. לדוגמה: אם הלקוח לוחץ "+" והגדרת 0.5 ק"ג, יתווסף חצי קילו.
               </p>

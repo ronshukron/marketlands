@@ -89,6 +89,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'רשימת המתנה לשוק',
+    description: 'עסקים מקומיים שנרשמו לפיילוט השוק (שם, טלפון, אימייל, סוג עסק וקהילה)',
+    to: '/admin/marketplace-waitlist',
+    featured: true
+  },
+  {
     title: 'הגדרות שיתוף ותגמול',
     description: 'בחירה בין הנחה קהילתית להנחה אישית על שיתוף האתר',
     to: '/admin/referral-config',

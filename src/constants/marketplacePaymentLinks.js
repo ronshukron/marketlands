@@ -59,6 +59,7 @@ export const getActivePaymentLinksForStore = (store, selectedMethod) => {
 export const DEFAULT_MARKETPLACE_GLOBAL_SETTINGS = {
   enabled: true,
   highlightLimit: 8,
+  waitlistEnabled: true,
   paymentLinksOnConfirmationEnabled: true,
   confirmationIntroText: '',
   confirmationNextStepsText: '',
@@ -67,6 +68,7 @@ export const DEFAULT_MARKETPLACE_GLOBAL_SETTINGS = {
 export const normalizeMarketplaceGlobalSettings = (data = {}) => ({
   ...DEFAULT_MARKETPLACE_GLOBAL_SETTINGS,
   ...data,
+  waitlistEnabled: data.waitlistEnabled !== false,
   paymentLinksOnConfirmationEnabled: data.paymentLinksOnConfirmationEnabled !== false,
   confirmationIntroText: data.confirmationIntroText || '',
   confirmationNextStepsText: data.confirmationNextStepsText || '',

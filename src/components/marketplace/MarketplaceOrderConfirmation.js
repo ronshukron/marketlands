@@ -87,7 +87,7 @@ const MarketplaceOrderConfirmation = () => {
           <span className="mp-receipt-stamp" aria-hidden="true">
             ✓
           </span>
-          <p className="mp-receipt-kicker">קבלת שוק · מהשדה לשכונה</p>
+          <p className="mp-receipt-kicker">קבלת שוק · מהשכונה לשכונה</p>
           <h1 className="mp-section-title">ההזמנה ברשות השוק</h1>
           <p className="mp-section-note mt-2">
             {settings?.confirmationIntroText ||

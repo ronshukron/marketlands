@@ -6,9 +6,9 @@ import { useAuth } from '../contexts/authContext';
 import { usePickupSpot } from '../contexts/PickupSpotContext';
 import { pickupSpots } from '../data/pickupSpots';
 import './Home.css';
-import IndependentFarmers from './IndependentFarmers';
 import OngoingOrders from './OngoingOrders';
 import CategoryStore from './category-store/CategoryStore';
+import MarketplaceHome from './marketplace/MarketplaceHome';
 import ModeToggle from './shared/ModeToggle';
 import { useSaleMode } from '../contexts/SaleModeContext';
 
@@ -99,10 +99,10 @@ const Home = () => {
               בחרו מתוך מגוון דפי המכירה הפעילים כעת
             </p> */}
           </div>
-          {saleMode === 'weekly' ? (
-            <CategoryStore />
+          {saleMode === 'business' ? (
+            <MarketplaceHome hideMainStore />
           ) : (
-            <IndependentFarmers />
+            <CategoryStore />
           )}
         </div>
       </div>

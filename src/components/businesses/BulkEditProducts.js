@@ -11,7 +11,10 @@ const UNIT_SIZE_OPTIONS = [
   { value: '0.1', label: '0.1 ק"ג' },
   { value: '0.25', label: '0.25 ק"ג' },
   { value: '0.5', label: '0.5 ק"ג' },
+  { value: '0.65', label: '0.65 ק"ג' },
+  { value: '0.75', label: '0.75 ק"ג' },
   { value: '1', label: '1 ק"ג' },
+  { value: '1.2', label: '1.2 ק"ג' },
   { value: '1.5', label: '1.5 ק"ג' },
   { value: '2', label: '2 ק"ג' },
   { value: '2.5', label: '2.5 ק"ג' },
@@ -452,15 +455,42 @@ const BulkEditProducts = () => {
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         {edited.measurementType === 'kg' ? (
-                          <select
-                            value={edited.unitSize || '1'}
-                            onChange={(e) => handleFieldChange(product.id, 'unitSize', e.target.value)}
-                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                          >
-                            {UNIT_SIZE_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
+                          (() => {
+                            const currentUnitSize = edited.unitSize != null ? String(edited.unitSize) : '1';
+                            const isCustomUnitSize = !UNIT_SIZE_OPTIONS.some((opt) => opt.value === currentUnitSize);
+                            return (
+                              <div className="flex flex-col gap-1">
+                                <select
+                                  value={isCustomUnitSize ? 'custom' : currentUnitSize}
+                                  onChange={(e) => {
+                                    if (e.target.value === 'custom') {
+                                      handleFieldChange(product.id, 'unitSize', '');
+                                    } else {
+                                      handleFieldChange(product.id, 'unitSize', e.target.value);
+                                    }
+                                  }}
+                                  className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                >
+                                  {UNIT_SIZE_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                  <option value="custom">מותאם</option>
+                                </select>
+                                {isCustomUnitSize && (
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={edited.unitSize || ''}
+                                    onChange={(e) => handleFieldChange(product.id, 'unitSize', e.target.value)}
+                                    placeholder='ק"ג'
+                                    title='כמות מותאמת אישית בק״ג'
+                                    className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })()
                         ) : edited.measurementType === 'unit' ? (
                           <input
                             type="number"

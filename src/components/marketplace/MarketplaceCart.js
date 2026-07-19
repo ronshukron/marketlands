@@ -34,7 +34,7 @@ const MarketplaceCart = ({ isOpen, onClose }) => {
             <h2 id="mp-cart-dialog-title" className="mp-cart-title">
               סל השוק
             </h2>
-            <span className="mp-cart-title-sub">קבלה זמנית · מהשדה לשכונה</span>
+            <span className="mp-cart-title-sub">קבלה זמנית · מהשכונה לשכונה</span>
           </div>
           <button type="button" className="mp-cart-close" onClick={onClose} aria-label="סגירה">
             ×

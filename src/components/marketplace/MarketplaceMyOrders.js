@@ -110,7 +110,7 @@ const MarketplaceMyOrders = () => {
           <Link to="/community-marketplace" className="mp-link">
             ← חזרה לשוק הבסטות
           </Link>
-          <span className="mp-weekly-board-label mt-3">מהשדה לשכונה</span>
+          <span className="mp-weekly-board-label mt-3">מהשכונה לשכונה</span>
           <h1 className="mp-section-title mp-section-title-chalk mt-2">
             ההזמנות שלי בשוק
           </h1>

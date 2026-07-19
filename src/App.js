@@ -113,6 +113,7 @@ import MarketplaceMyOrders from './components/marketplace/MarketplaceMyOrders';
 import MarketplaceBusinessOrders from './components/marketplace/MarketplaceBusinessOrders';
 import MarketplacePromotionOrders from './components/marketplace/MarketplacePromotionOrders';
 import MarketplaceSettingsAdmin from './components/admin/MarketplaceSettingsAdmin';
+import MarketplaceWaitlistAdmin from './components/admin/MarketplaceWaitlistAdmin';
 import CommunityAdmin from './components/admin/CommunityAdmin';
 import ReferralConfigAdmin from './components/admin/ReferralConfigAdmin';
 import EditOrderProducts from './components/businesses/EditOrderProducts';
@@ -224,6 +225,7 @@ const App = () => {
                   <Route path="/admin/customers" element={<CustomerInsights />} />
                   <Route path="/admin/payment-config" element={<PaymentConfigAdmin />} />
                   <Route path="/admin/marketplace-settings" element={<MarketplaceSettingsAdmin />} />
+                  <Route path="/admin/marketplace-waitlist" element={<MarketplaceWaitlistAdmin />} />
                   <Route path="/admin/community-discount" element={<CommunityDiscountConfig />} />
                   <Route path="/admin/community-hub" element={<CommunityHubAdmin />} />
                   <Route path="/admin/communities" element={<CommunityAdmin />} />

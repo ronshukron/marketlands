@@ -39,7 +39,10 @@ const AddProduct = () => {
     { value: '0.1', label: '100 גרם (0.1 ק"ג)' },
     { value: '0.25', label: '250 גרם (0.25 ק"ג)' },
     { value: '0.5', label: 'חצי קילו (0.5 ק"ג)' },
+    { value: '0.65', label: '0.65 ק"ג' },
+    { value: '0.75', label: '750 גרם (0.75 ק"ג)' },
     { value: '1', label: '1 ק"ג' },
+    { value: '1.2', label: '1.2 ק"ג' },
     { value: '1.5', label: '1.5 ק"ג' },
     { value: '2', label: '2 ק"ג' },
     { value: '2.5', label: '2.5 ק"ג' },
@@ -47,6 +50,9 @@ const AddProduct = () => {
     { value: '5', label: '5 ק"ג' },
     { value: '10', label: '10 ק"ג' },
   ];
+
+  // Whether the user is entering a custom (free-typed) kg value
+  const [isCustomUnitSize, setIsCustomUnitSize] = useState(false);
 
   // Fetch isIndependent status
   useEffect(() => {
@@ -423,6 +429,7 @@ const AddProduct = () => {
                 // Reset unitSize to 1 when switching away from kg
                 if (e.target.value !== 'kg') {
                   setUnitSize('1');
+                  setIsCustomUnitSize(false);
                 }
                 // Reset average weight when switching away from unit
                 if (e.target.value !== 'unit') {
@@ -453,13 +460,32 @@ const AddProduct = () => {
                 id="unitSize"
                 name="unitSize"
                 className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                value={unitSize}
-                onChange={(e) => setUnitSize(e.target.value)}
+                value={isCustomUnitSize ? 'custom' : unitSize}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') {
+                    setIsCustomUnitSize(true);
+                  } else {
+                    setIsCustomUnitSize(false);
+                    setUnitSize(e.target.value);
+                  }
+                }}
               >
                 {UNIT_SIZE_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
+                <option value="custom">מותאם אישית (הזן ק"ג)</option>
               </select>
+              {isCustomUnitSize && (
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={unitSize}
+                  onChange={(e) => setUnitSize(e.target.value)}
+                  placeholder='הזן כמות בק"ג, למשל 0.65'
+                  className="mt-2 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+              )}
               <p className="mt-1 text-xs text-gray-500">
                 כמה ק"ג יתווספו לעגלה בכל לחיצה. לדוגמה: אם הלקוח לוחץ "+" והגדרת 0.5 ק"ג, יתווסף חצי קילו.
               </p>

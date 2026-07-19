@@ -73,6 +73,8 @@ import {
   toLocalDateKey,
 } from '../../../utils/deliveryScheduleUtils';
 import CustomerOrderDeliveryTransferControl from '../../admin/CustomerOrderDeliveryTransferControl';
+import { getCustomerKey, getCustomerProfiles } from '../../../services/customerProfileService';
+import { classifyCustomer, loadCustomerHistoryStats } from '../../../services/customerHistoryService';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 const WEIGHT_ON_THRESHOLD = 0.020;
@@ -189,6 +191,7 @@ const TR = {
     failWeeks: 'שגיאה בטעינת שבועות',
     failOrders: 'שגיאה בטעינת הזמנות',
     unitOrderedBadge: 'הוזמן ביחידות',
+    basketPartBadge: (title) => `חלק מסל היכרות: ${title || 'סל היכרות'}`,
     underOneKgBadge: 'פחות מקילו',
     largeDiffWarn: (exp, act, pct) => `הכמות שהוזנה שונה ב-${pct}% מהכמות שהוזמנה.\nהוזמן: ${exp}\nהוזן: ${act}\nלהמשיך בכל זאת?`,
     claim: 'תפוס הזמנה',
@@ -238,6 +241,10 @@ const TR = {
     reusableCartonBadge: 'קרטון חוזר',
     reusableCartonBannerTitle: 'הלקוח ביקש קרטוני חקלאים בשימוש חוזר',
     reusableCartonBannerBody: 'ארזו את ההזמנה בקרטוני חקלאים נקיים ובמצב טוב, אם קיימים בעמדת האריזה.',
+    vipBadge: 'VIP',
+    newCustomerBadge: 'לקוח חדש',
+    lapsedBadge: 'לקוח חוזר',
+    customerNoteLabel: 'הערה',
   },
   th: {
     title: 'จัดการจัดส่ง V7',
@@ -310,6 +317,7 @@ const TR = {
     failWeeks: 'โหลดสัปดาห์ล้มเหลว',
     failOrders: 'โหลดคำสั่งซื้อล้มเหลว',
     unitOrderedBadge: 'สั่งเป็นหน่วย',
+    basketPartBadge: (title) => `ส่วนหนึ่งของตะกร้าแนะนำ: ${title || 'ตะกร้าแนะนำ'}`,
     underOneKgBadge: 'น้อยกว่า 1 กก.',
     largeDiffWarn: (exp, act, pct) => `ค่าน้ำหนักต่างจากที่สั่ง ${pct}%\nสั่ง: ${exp}\nที่กรอก: ${act}\nยืนยันดำเนินการต่อหรือไม่?`,
     claim: 'จองออเดอร์',
@@ -359,6 +367,10 @@ const TR = {
     reusableCartonBadge: 'กล่องใช้ซ้ำ',
     reusableCartonBannerTitle: 'ลูกค้าขอกล่องเกษตรกรใช้ซ้ำ',
     reusableCartonBannerBody: 'แพ็กออเดอร์นี้ในกล่องเกษตรกรที่สะอาดและสภาพดี ถ้ามีพร้อมใช้งานที่จุดแพ็ก',
+    vipBadge: 'VIP',
+    newCustomerBadge: 'ลูกค้าใหม่',
+    lapsedBadge: 'ลูกค้าเก่ากลับมา',
+    customerNoteLabel: 'หมายเหตุ',
   },
 };
 
@@ -829,6 +841,11 @@ export default function DeliveryManagementV7() {
   const imageMemoryCacheRef = useRef({});
   const [permanentNumbersMap, setPermanentNumbersMap] = useState({});
   const permanentNumbersMapRef = useRef({});
+  // Additive display only: VIP/notes profiles and order-history stats, keyed by
+  // (phone || email). Isolated from the core V7 data flow.
+  const [customerProfilesMap, setCustomerProfilesMap] = useState({});
+  const [customerHistoryMap, setCustomerHistoryMap] = useState({});
+  const [customerHistoryLoaded, setCustomerHistoryLoaded] = useState(false);
   const currentScreenRef = useRef({ orders: [] });
   const [showScalePanel, setShowScalePanel] = useState(false);
   const { isElectron: isElectronEnv, isConnected: scaleConnected, weight: liveWeight, lastStableWeight } = useWeightScale();
@@ -1515,6 +1532,35 @@ export default function DeliveryManagementV7() {
       unsubDrafts();
     };
   }, [selectedWeek, isOnline]);
+
+  // Additive-only: load VIP/notes profiles + order-history stats for the
+  // customers currently displayed. Fully isolated from the core V7 flow — a
+  // failure here only means badges/notes don't render.
+  useEffect(() => {
+    if (!orders || orders.length === 0) {
+      setCustomerProfilesMap({});
+      setCustomerHistoryMap({});
+      setCustomerHistoryLoaded(false);
+      return () => {};
+    }
+    let active = true;
+    const keys = Array.from(new Set(
+      orders
+        .map((o) => getCustomerKey({ phone: o?.customerDetails?.phone, email: o?.customerDetails?.email }))
+        .filter(Boolean),
+    ));
+    getCustomerProfiles(keys)
+      .then((map) => { if (active) setCustomerProfilesMap(map); })
+      .catch((e) => console.error('V7 customer profiles load failed', e));
+    loadCustomerHistoryStats()
+      .then((stats) => {
+        if (!active) return;
+        setCustomerHistoryMap(stats || {});
+        setCustomerHistoryLoaded(true);
+      })
+      .catch((e) => console.error('V7 customer history load failed', e));
+    return () => { active = false; };
+  }, [orders]);
 
   useEffect(() => {
     if (!selectedWeek || !session.sessionId || !isOnline) return () => {};
@@ -3116,6 +3162,8 @@ export default function DeliveryManagementV7() {
                   const claim = claimsByOrder[o.id];
                   const takenByOther = claim && claim.sessionId !== session.sessionId && !isClaimStaleV7(claim);
                   const wantsReusableCartons = o?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true;
+                  const custProfile = cid ? customerProfilesMap[cid] : null;
+                  const custStats = classifyCustomer(cid ? customerHistoryMap[cid] : null);
                   return (
                     <button
                       key={o.id}
@@ -3154,6 +3202,31 @@ export default function DeliveryManagementV7() {
                             <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black text-white shadow">
                               <span>🌱</span>
                               <span>{t.reusableCartonBadge}</span>
+                            </div>
+                          )}
+                          {(custProfile?.isVip || (customerHistoryLoaded && (custStats.isNew || custStats.isLapsed))) && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              {custProfile?.isVip && (
+                                <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-black text-white shadow">
+                                  ★ {t.vipBadge}
+                                </span>
+                              )}
+                              {customerHistoryLoaded && custStats.isNew && (
+                                <span className="inline-flex items-center rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-black text-white shadow">
+                                  {t.newCustomerBadge}
+                                </span>
+                              )}
+                              {customerHistoryLoaded && custStats.isLapsed && (
+                                <span className="inline-flex items-center rounded-full bg-orange-600 px-2 py-0.5 text-[10px] font-black text-white shadow">
+                                  {t.lapsedBadge}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {(custProfile?.noteHebrew || custProfile?.noteThai) && (
+                            <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900">
+                              {custProfile?.noteHebrew && <div dir="rtl">📝 {custProfile.noteHebrew}</div>}
+                              {custProfile?.noteThai && <div>📝 {custProfile.noteThai}</div>}
                             </div>
                           )}
                           {claim && (
@@ -3200,6 +3273,46 @@ export default function DeliveryManagementV7() {
                           {t.community}: <span className="font-bold">{selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot}</span>
                           {selectedOrder.customerDetails?.phone && <> • {t.phone}: <span className="font-bold">{selectedOrder.customerDetails.phone}</span></>}
                         </div>
+                        {(() => {
+                          const selCid = selectedOrder?.customerDetails?.phone || selectedOrder?.customerDetails?.email || null;
+                          const selProfile = selCid ? customerProfilesMap[selCid] : null;
+                          const selStats = classifyCustomer(selCid ? customerHistoryMap[selCid] : null);
+                          const showBadges = selProfile?.isVip || (customerHistoryLoaded && (selStats.isNew || selStats.isLapsed));
+                          const hasNote = selProfile?.noteHebrew || selProfile?.noteThai;
+                          if (!showBadges && !hasNote) return null;
+                          return (
+                            <>
+                              {showBadges && (
+                                <div className="mt-1 flex flex-wrap items-center gap-1">
+                                  {selProfile?.isVip && (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-black text-white shadow">
+                                      ★ {t.vipBadge}
+                                    </span>
+                                  )}
+                                  {customerHistoryLoaded && selStats.isNew && (
+                                    <span className="inline-flex items-center rounded-full bg-sky-600 px-2.5 py-0.5 text-xs font-black text-white shadow">
+                                      {t.newCustomerBadge}
+                                    </span>
+                                  )}
+                                  {customerHistoryLoaded && selStats.isLapsed && (
+                                    <span className="inline-flex items-center rounded-full bg-orange-600 px-2.5 py-0.5 text-xs font-black text-white shadow">
+                                      {t.lapsedBadge}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {hasNote && (
+                                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-amber-600 mb-0.5">
+                                    {t.customerNoteLabel}
+                                  </div>
+                                  {selProfile?.noteHebrew && <div dir="rtl">{selProfile.noteHebrew}</div>}
+                                  {selProfile?.noteThai && <div>{selProfile.noteThai}</div>}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                         {selectedClaim && (
                           <div className={`text-xs mt-1 ${claimedByOther ? 'text-red-600' : 'text-violet-600'}`}>
                             {t.claimedBy}: {selectedClaim.userName || selectedClaim.stationId} ({selectedClaim.stationId})
@@ -3570,6 +3683,13 @@ export default function DeliveryManagementV7() {
                           {isUnit && !isRemoved && (
                             <div className="mt-1 inline-block bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                               {t.unitOrderedBadge}
+                            </div>
+                          )}
+                          {it.isBasketComponent && (
+                            <div className="mt-1">
+                              <span className="inline-block bg-emerald-100 text-emerald-900 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+                                {t.basketPartBadge(it.basketTitle)}
+                              </span>
                             </div>
                           )}
                         </div>
