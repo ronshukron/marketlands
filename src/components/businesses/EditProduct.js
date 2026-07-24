@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/authContext'; // Import useAuth to get c
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
 import './AddProduct.css';
+import { normalizeQuantityDiscount, validateQuantityDiscount } from '../../utils/pricing';
 
 const EditProduct = () => {
   const { productId } = useParams();
@@ -24,6 +25,8 @@ const EditProduct = () => {
     name: '',
     description: '',
     price: '',
+    quantityDiscountThreshold: '',
+    quantityDiscountPrice: '',
     category: '',
     showInAllCategory: false,
     options: [],
@@ -88,6 +91,12 @@ const EditProduct = () => {
             name: data.name || '',
             description: data.description || '',
             price: data.price ? data.price.toString() : '',
+            quantityDiscountThreshold: data.quantityDiscountThreshold != null
+              ? String(data.quantityDiscountThreshold)
+              : '',
+            quantityDiscountPrice: data.quantityDiscountPrice != null
+              ? String(data.quantityDiscountPrice)
+              : '',
             category: data.category || '',
             showInAllCategory: Boolean(data.showInAllCategory),
             options: data.options || [],
@@ -220,6 +229,21 @@ const handleSubmit = async (e) => {
     return;
   }
 
+  const quantityDiscountError = validateQuantityDiscount(
+    formData.quantityDiscountThreshold,
+    formData.quantityDiscountPrice,
+    price,
+  );
+  if (quantityDiscountError) {
+    setLoading(false);
+    Swal.fire({ icon: 'error', title: 'הנחת כמות לא תקינה', text: quantityDiscountError });
+    return;
+  }
+  const quantityDiscount = normalizeQuantityDiscount(
+    formData.quantityDiscountThreshold,
+    formData.quantityDiscountPrice,
+  );
+
   // if (images.length + selectedFiles.length < 2) {
   //   Swal.fire({
   //     icon: 'error',
@@ -276,6 +300,8 @@ const handleSubmit = async (e) => {
       showInAllCategory: formData.category === 'משתלה' ? Boolean(formData.showInAllCategory) : false,
       ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {}),
       isSample: isSample || parseFloat(price) === 0,
+      quantityDiscountThreshold: quantityDiscount?.quantityDiscountThreshold ?? null,
+      quantityDiscountPrice: quantityDiscount?.quantityDiscountPrice ?? null,
     });
 
     Swal.fire({
@@ -337,6 +363,42 @@ const handleSubmit = async (e) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="מחיר (₪)"
             />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <div>
+              <label htmlFor="quantityDiscountThreshold" className="block text-sm font-medium text-gray-700 mb-1">
+                סף כמות להנחה (אופציונלי)
+              </label>
+              <input
+                id="quantityDiscountThreshold"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={formData.quantityDiscountThreshold}
+                onChange={(e) => setFormData({ ...formData, quantityDiscountThreshold: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder="לדוגמה: 5"
+              />
+            </div>
+            <div>
+              <label htmlFor="quantityDiscountPrice" className="block text-sm font-medium text-gray-700 mb-1">
+                מחיר ליחידת מחיר מהסף (₪)
+              </label>
+              <input
+                id="quantityDiscountPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.quantityDiscountPrice}
+                onChange={(e) => setFormData({ ...formData, quantityDiscountPrice: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder="נמוך מהמחיר הרגיל"
+              />
+            </div>
+            <p className="md:col-span-2 text-xs text-emerald-800">
+              יש למלא את שני השדות. ניקוי שניהם מסיר את ההנחה.
+            </p>
           </div>
 
           <label className="flex items-center gap-2 mb-4">

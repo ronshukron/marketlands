@@ -4,6 +4,7 @@ import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext';
+import { getEffectiveUnitPrice, normalizeQuantityDiscount } from '../../utils/pricing';
 
 const CATEGORY_CARD_IMAGE_LIMIT = 1;
 
@@ -33,6 +34,10 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
   const isPackageItem = measurementType === 'package';
   const isSoldByWeight = isKgItem || isUnitItem;
   const pricePer100g = isSoldByWeight ? (product.price / 10).toFixed(2) : null;
+  const quantityDiscount = normalizeQuantityDiscount(
+    product.quantityDiscountThreshold,
+    product.quantityDiscountPrice,
+  );
 
   // For kg items, quantity is in kg (e.g., 0.5); for unit/package items it's count (e.g., 1)
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
@@ -40,6 +45,10 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     product.options && product.options.length > 0 ? product.options[0] : ""
   );
   const { addItem, cartItems } = useCart();
+  const selectedUnitPrice = getEffectiveUnitPrice(product, quantity);
+  const selectedDiscountApplied = Boolean(
+    quantityDiscount && quantity >= quantityDiscount.quantityDiscountThreshold,
+  );
 
   const quantityInCart = useMemo(() => {
     return cartItems
@@ -135,6 +144,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       id: product.id,
       name: product.name,
       price: product.price, // Price per kg for kg/unit items, price per package for package items
+      basePrice: product.price,
+      quantityDiscountThreshold: product.quantityDiscountThreshold ?? null,
+      quantityDiscountPrice: product.quantityDiscountPrice ?? null,
       selectedOption: selectedOption,
       quantity: quantity, // In kg for kg items, count for unit/package items
       images: product.images || [],
@@ -241,6 +253,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
             {product.category === 'משתלה' && (
               <span className="text-xs font-bold bg-lime-100 text-lime-800 px-2 py-0.5 rounded-full">🪴 משתלה</span>
             )}
+            {product.hasFarmerBadge && (
+              <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">🌾 חקלאי</span>
+            )}
             {(product.isSample || Number(product.price) === 0) && (
               <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">דגימה בחינם</span>
             )}
@@ -259,6 +274,12 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <span className="text-xs text-gray-500 mr-1">(נשקל - יחידה)</span>
             )}
           </p>
+          {quantityDiscount && (
+            <p className="text-xs font-semibold text-emerald-700 mb-1">
+              {quantityDiscount.quantityDiscountThreshold}+ ב-₪{quantityDiscount.quantityDiscountPrice.toFixed(2)} ליחידת מחיר
+              {selectedDiscountApplied && ` · המחיר הנבחר: ₪${selectedUnitPrice.toFixed(2)}`}
+            </p>
+          )}
           {isSoldByWeight && (
             <p className="text-xs text-gray-400 mb-1">₪{pricePer100g} ל-100 גרם</p>
           )}
@@ -378,6 +399,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
             {product.category === 'משתלה' && (
               <span className="text-[10px] font-bold bg-lime-100 text-lime-800 px-1.5 py-0.5 rounded-full">🪴 משתלה</span>
             )}
+            {product.hasFarmerBadge && (
+              <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">🌾 חקלאי</span>
+            )}
             {(product.isSample || Number(product.price) === 0) && (
               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">דגימה בחינם</span>
             )}
@@ -396,6 +420,12 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <span className="text-xs text-gray-400 mr-1">(נשקל ~{averageWeightKg} ק"ג ליח')</span>
             )}
           </p>
+          {quantityDiscount && (
+            <p className="text-[11px] font-semibold text-emerald-700 mb-0.5">
+              {quantityDiscount.quantityDiscountThreshold}+ ב-₪{quantityDiscount.quantityDiscountPrice.toFixed(2)}
+              {selectedDiscountApplied && ' · ההנחה הופעלה'}
+            </p>
+          )}
           {isSoldByWeight && (
             <p className="text-[11px] text-gray-400 mb-0.5">₪{pricePer100g} ל-100 גרם</p>
           )}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
-import { doc, updateDoc, getDoc, setDoc, collection, addDoc, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, collection, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
 import { db } from '../firebase/firebase';
 import './OrderConfirmation.css';
 import LoadingSpinner from './LoadingSpinner';
@@ -12,7 +12,12 @@ import { useCart } from '../contexts/CartContext';
 import { pickupSpots, pickupSpotsData } from '../data/pickupSpots';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
 import { isDelayedPaymentSpot } from '../services/paymentConfigService';
-import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../utils/pricing';
+import {
+    buildPricingSnapshot,
+    getEstimatedChargeableQuantity,
+    getEstimatedLineTotal,
+} from '../utils/pricing';
+import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
 const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
@@ -430,6 +435,7 @@ const OrderConfirmation = () => {
                         estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
                         estimatedLineTotal: getEstimatedLineTotal(item),
                         price: item.price,
+                        ...buildPricingSnapshot(item),
                         selectedOption: item.selectedOption || "None",
                         catalogNumber: item.catalogNumber || '',
                         vatType: item.vatType ?? 3,
@@ -460,8 +466,9 @@ const OrderConfirmation = () => {
         // const customerOrderRef = doc(collection(db, 'customerOrders'));
         // generatedCustomerOrderId = customerOrderRef.id;
 
+        const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
         await setDoc(customerOrderIdOrderRef, {
-            orderBreakdown,
+            orderBreakdown: persistedOrderBreakdown,
             customerDetails: {
                 name: userName,
                 phone: userPhone,
@@ -639,7 +646,8 @@ const OrderConfirmation = () => {
             
             // Continue with order processing...
             const orderIds = Object.keys(itemsByOrder);
-            const customerOrderId = `temp_${new Date().getTime()}`;
+            const customerOrderRef = doc(collection(db, "customerOrders"));
+            const customerOrderId = customerOrderRef.id;
             
             const orderBreakdown = {};
             const businessIds = [];
@@ -657,6 +665,7 @@ const OrderConfirmation = () => {
                             estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
                             estimatedLineTotal: getEstimatedLineTotal(item),
                             price: item.price,
+                            ...buildPricingSnapshot(item),
                             selectedOption: item.selectedOption || "None",
                             catalogNumber: item.catalogNumber || '',
                             vatType: item.vatType ?? 3,
@@ -681,8 +690,9 @@ const OrderConfirmation = () => {
             });
 
             // Create the pending order document
+            const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
             const customerOrderData = {
-                orderBreakdown,
+                orderBreakdown: persistedOrderBreakdown,
                 customerDetails: {
                     name: userName,
                     phone: userPhone,
@@ -707,7 +717,7 @@ const OrderConfirmation = () => {
             };
             
             // Create a customer order document
-            const customerOrderRef = await addDoc(collection(db, "customerOrders"), customerOrderData);
+            await setDoc(customerOrderRef, customerOrderData);
             console.log('customerOrderRef', customerOrderRef);
             
             // Now call the function that's defined at component level

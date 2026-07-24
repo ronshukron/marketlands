@@ -3,18 +3,34 @@ import { useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
-
-/** Same exclusion rules as WeeklyDeliveryOrderSummary for delayed checkouts */
-const DELAYED_EXCLUDED_STATUSES = new Set(['abandoned', 'cancelled', 'cancelled_by_admin']);
+import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import {
+  filterCustomerActiveLines,
+  isSuccessfulDelayedCustomerOrder,
+  isSuccessfulRegularCustomerOrder,
+} from '../../utils/customerOrderUtils';
+import { getEffectiveUnitPrice, getEstimatedLineTotal } from '../../utils/pricing';
 
 async function fetchCustomerOrderById(customerOrderId) {
   const standardSnap = await getDoc(doc(db, 'customerOrders', customerOrderId));
   if (standardSnap.exists()) {
-    return { id: customerOrderId, customerOrderSource: 'customerOrders', ...standardSnap.data() };
+    const data = standardSnap.data();
+    return {
+      id: customerOrderId,
+      customerOrderSource: 'customerOrders',
+      ...data,
+      orderBreakdown: ensureLineIdsInBreakdown(customerOrderId, data.orderBreakdown || {}).breakdown,
+    };
   }
   const delayedSnap = await getDoc(doc(db, 'customerOrdersDelayed', customerOrderId));
   if (delayedSnap.exists()) {
-    return { id: customerOrderId, customerOrderSource: 'customerOrdersDelayed', ...delayedSnap.data() };
+    const data = delayedSnap.data();
+    return {
+      id: customerOrderId,
+      customerOrderSource: 'customerOrdersDelayed',
+      ...data,
+      orderBreakdown: ensureLineIdsInBreakdown(customerOrderId, data.orderBreakdown || {}).breakdown,
+    };
   }
   return null;
 }
@@ -22,14 +38,9 @@ async function fetchCustomerOrderById(customerOrderId) {
 function shouldIncludeCustomerOrder(order) {
   if (!order) return false;
   const isDelayed = order.customerOrderSource === 'customerOrdersDelayed';
-  if (!isDelayed) {
-    return String(order.paymentStatus || '').toLowerCase() === 'completed';
-  }
-  const delayedStatus = String(order.delayedOrderStatus || '').toLowerCase();
-  const paymentStatus = String(order.paymentStatus || '').toLowerCase();
-  if (DELAYED_EXCLUDED_STATUSES.has(delayedStatus)) return false;
-  if (paymentStatus === 'abandoned' || paymentStatus === 'cancelled') return false;
-  return true;
+  return isDelayed
+    ? isSuccessfulDelayedCustomerOrder(order)
+    : isSuccessfulRegularCustomerOrder(order);
 }
 
 const BusinessOrderSummary = () => {
@@ -92,8 +103,9 @@ const BusinessOrderSummary = () => {
         
         // Process items in this order breakdown
         if (Array.isArray(thisOrderBreakdown.items)) {
-          thisOrderBreakdown.items.forEach(item => {
-            const itemKey = `${item.productId}_${item.selectedOption || 'default'}`;
+          filterCustomerActiveLines(order, thisOrderBreakdown.items).forEach(item => {
+            const effectivePrice = getEffectiveUnitPrice(item);
+            const itemKey = `${item.productId}_${item.selectedOption || 'default'}_${effectivePrice}`;
             
             if (!summary[pickupSpot][itemKey]) {
               summary[pickupSpot][itemKey] = {
@@ -101,11 +113,13 @@ const BusinessOrderSummary = () => {
                 name: item.productName || 'מוצר לא ידוע',
                 option: item.selectedOption || 'ללא אופציות',
                 quantity: 0,
-                price: item.price,
+                price: effectivePrice,
+                totalRevenue: 0,
               };
             }
             
             summary[pickupSpot][itemKey].quantity += item.quantity;
+            summary[pickupSpot][itemKey].totalRevenue += getEstimatedLineTotal(item);
           });
         }
       }
@@ -117,7 +131,11 @@ const BusinessOrderSummary = () => {
   // Get the specific order breakdown for this order form
   const getBusinessSpecificOrder = (customerOrder) => {
     if (customerOrder.orderBreakdown && customerOrder.orderBreakdown[orderId]) {
-      return customerOrder.orderBreakdown[orderId];
+      const businessOrder = customerOrder.orderBreakdown[orderId];
+      return {
+        ...businessOrder,
+        items: filterCustomerActiveLines(customerOrder, businessOrder.items),
+      };
     }
     return null;
   };
@@ -127,7 +145,7 @@ const BusinessOrderSummary = () => {
     if (!businessOrderDetails || !businessOrderDetails.items) return 0;
     
     return businessOrderDetails.items.reduce((total, item) => {
-      return total + (item.quantity * item.price);
+      return total + getEstimatedLineTotal(item);
     }, 0);
   };
 
@@ -271,7 +289,7 @@ const BusinessOrderSummary = () => {
                           <td className="py-3 px-4 text-sm text-gray-600">{item.option}</td>
                           <td className="py-3 px-4 text-sm">₪{item.price.toFixed(2)}</td>
                           <td className="py-3 px-4 text-sm font-medium text-center">{item.quantity}</td>
-                          <td className="py-3 px-4 text-sm font-bold text-right">₪{(item.price * item.quantity).toFixed(2)}</td>
+                          <td className="py-3 px-4 text-sm font-bold text-right">₪{item.totalRevenue.toFixed(2)}</td>
                         </tr>
                       ))}
                       
@@ -279,7 +297,7 @@ const BusinessOrderSummary = () => {
                       <tr className="bg-blue-50">
                         <td colSpan="4" className="py-3 px-4 text-sm font-bold text-blue-800 text-left">סה"כ לנקודת איסוף זו:</td>
                         <td className="py-3 px-4 text-sm font-bold text-blue-800 text-right">
-                          ₪{Object.values(items).reduce((total, item) => total + (item.price * item.quantity), 0).toFixed(2)}
+                          ₪{Object.values(items).reduce((total, item) => total + item.totalRevenue, 0).toFixed(2)}
                         </td>
                       </tr>
                     </tbody>
@@ -427,7 +445,7 @@ const BusinessOrderSummary = () => {
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-gray-500 text-xs">₪{item.price?.toFixed(2)} × {item.quantity}</span>
-                          <span className="font-medium">₪{(item.quantity * item.price).toFixed(2)}</span>
+                          <span className="font-medium">₪{getEstimatedLineTotal(item).toFixed(2)}</span>
                         </div>
                     </li>
                   ))}

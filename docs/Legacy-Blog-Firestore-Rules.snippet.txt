@@ -1,0 +1,103 @@
+// Legacy public blog — prototype Firestore rules
+//
+// Paste this block into Firebase Console → Firestore → Rules,
+// INSIDE `match /databases/{database}/documents { ... }` and before the
+// final catch-all deny rule.
+//
+// Requires an existing trusted isAdmin() helper. Do not derive admin access
+// from fields the requesting user can write. The app currently recognizes the
+// admin role in users/{uid}; that collection's role field must be protected
+// against self-assignment.
+//
+// Data model: blogPosts/{slug}
+// Required strings:
+//   title (1..160), slug (1..120), body (1..20000), status (draft|published)
+// Optional-content strings (stored as empty strings when omitted):
+//   excerpt (0..400), imageUrl (0..2000)
+// Audit UID strings (0..128): createdBy, updatedBy, publishedBy.
+// No email/PII is stored because published documents are public.
+// Timestamps:
+//   createdAt, updatedAt; publishedAt is timestamp or null
+//
+// Public clients must query with: where("status", "==", "published").
+// A collection query without that filter is rejected by these rules.
+
+    function isValidBlogPost(data, slug) {
+      return data.keys().hasOnly([
+          'title', 'slug', 'excerpt', 'imageUrl', 'body', 'status',
+          'createdAt', 'updatedAt', 'publishedAt',
+          'createdBy', 'updatedBy', 'publishedBy'
+        ])
+        && data.keys().hasAll([
+          'title', 'slug', 'excerpt', 'imageUrl', 'body', 'status',
+          'createdAt', 'updatedAt', 'publishedAt',
+          'createdBy', 'updatedBy', 'publishedBy'
+        ])
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 160
+        && data.slug is string
+        && data.slug == slug
+        && data.slug.size() >= 1
+        && data.slug.size() <= 120
+        && data.slug.matches('^[^/]+$')
+        && data.excerpt is string
+        && data.excerpt.size() <= 400
+        && data.imageUrl is string
+        && data.imageUrl.size() <= 2000
+        && (data.imageUrl == ''
+          || data.imageUrl.matches('^https?://.+$'))
+        && data.body is string
+        && data.body.size() >= 1
+        && data.body.size() <= 20000
+        && data.status in ['draft', 'published']
+        && data.createdAt is timestamp
+        && data.createdAt <= request.time
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time
+        && (data.publishedAt == null || data.publishedAt is timestamp)
+        && (data.status != 'published' || data.publishedAt is timestamp)
+        && data.createdBy is string
+        && data.createdBy.size() <= 128
+        && data.updatedBy is string
+        && data.updatedBy.size() <= 128
+        && data.publishedBy is string
+        && data.publishedBy.size() <= 128;
+    }
+
+    match /blogPosts/{slug} {
+      // Public access is limited to documents whose stored status is published.
+      allow read: if resource.data.status == 'published' || isAdmin();
+
+      // The slug is the document ID, so two posts cannot claim the same slug.
+      allow create: if isAdmin()
+        && isValidBlogPost(request.resource.data, slug)
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if isAdmin()
+        && isValidBlogPost(request.resource.data, slug)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedBy == request.auth.uid;
+
+      allow delete: if isAdmin();
+    }
+
+// Example trusted helper compatible with this app (only add once):
+//
+// function isAdmin() {
+//   return request.auth != null
+//     && (
+//       request.auth.uid == 'rfHOLhNoJOW8ByNypCtm3hlSNKs2'
+//       || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+//     );
+// }
+//
+// Security review notes:
+// - Unauthenticated draft reads and every unauthenticated write are denied.
+// - Both create and update use the same strict schema/type/length validator.
+// - createdAt/creator fields are immutable on update; updatedAt must be server time.
+// - Admin authority is external to blogPosts and must itself be protected.
+// - Slugs are immutable because the slug is the document ID. The admin UI/service
+//   require creating a new post when a different URL is needed.

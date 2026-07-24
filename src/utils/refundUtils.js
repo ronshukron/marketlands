@@ -1,10 +1,15 @@
 import { ensureLineIdsInBreakdown, safeNumber, roundTo } from '../components/adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 import { flattenCustomerOrderLines } from '../services/customerOrderService';
+import { filterCustomerActiveLines } from './customerOrderUtils';
+import { getEffectiveUnitPrice } from './pricing';
 
 export function getRefundableLinesFromOrder(order = {}) {
   if (!order?.orderBreakdown) return [];
   const { breakdown } = ensureLineIdsInBreakdown(order.id, order.orderBreakdown);
-  return flattenCustomerOrderLines({ ...order, orderBreakdown: breakdown });
+  return filterCustomerActiveLines(
+    order,
+    flattenCustomerOrderLines({ ...order, orderBreakdown: breakdown }),
+  );
 }
 
 export function computeRefundItemAmount(lineTotal, refundPercent) {
@@ -15,7 +20,10 @@ export function computeRefundItemAmount(lineTotal, refundPercent) {
 export function buildRefundItems(selectedLines, percentByLineId) {
   return selectedLines.map((line) => {
     const refundPercent = safeNumber(percentByLineId[line.lineId], 100);
-    const lineTotal = safeNumber(line.lineTotal, safeNumber(line.quantity) * safeNumber(line.price));
+    const lineTotal = safeNumber(
+      line.lineTotal,
+      safeNumber(line.quantity) * getEffectiveUnitPrice(line),
+    );
     return {
       lineId: line.lineId,
       productId: line.productId || '',

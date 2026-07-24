@@ -4,17 +4,25 @@ import { format } from 'date-fns';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import usePickupSpots from '../../hooks/usePickupSpots';
-import { getEstimatedLineTotal } from '../../utils/pricing';
 import {
   generateAvailableDeliveryDates,
   getDateRangeFromWeekKey,
   getOrderCommunity,
   getOrderDeliveryDate,
+  getRecentWeekKeys,
   getWeekKey,
   isOrderDeliveryDateFallback,
   normalizeDateRange,
   toLocalDateKey,
 } from '../../utils/deliveryScheduleUtils';
+import {
+  aggregateDeliveryBusinessSummary,
+  getDuplicateOrderKey,
+  shouldIncludeOrderInDeliverySummary,
+} from '../../utils/weeklyDeliveryOrderSummaryUtils';
+import { filterCustomerActiveLines } from '../../utils/customerOrderUtils';
+import { computeCustomerOrderGrandTotal } from '../../services/customerOrderService';
+import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 import LoadingSpinner from '../LoadingSpinner';
 import CustomerOrderDeliveryTransferControl from './CustomerOrderDeliveryTransferControl';
 import { buildWhatsappLink } from '../../constants/marketplaceStoreContent';
@@ -65,18 +73,6 @@ const getProductUnitCount = (product) => {
   return Math.round((Number(product.quantity) || 0) / (product.unitSize || 1));
 };
 
-const normalizePhone = (phone) => {
-  if (!phone) return '';
-  return String(phone).replace(/\D/g, '').replace(/^972/, '0').slice(-10);
-};
-
-const getDuplicateOrderKey = (order) => {
-  const phone = normalizePhone(order.customerDetails?.phone);
-  const email = String(order.customerDetails?.email || '').trim().toLowerCase();
-  const identity = phone || email || order.customerDetails?.name || order.id;
-  return `${identity}|${order.deliveryDateLabel}|${order.community}`;
-};
-
 const buildCustomerOrderMessage = (order) => {
   const name = order.customerDetails?.name || 'לא צוין';
   const phone = order.customerDetails?.phone || '';
@@ -92,7 +88,7 @@ const buildCustomerOrderMessage = (order) => {
 
   if (order.orderBreakdown) {
     Object.values(order.orderBreakdown).forEach((businessOrder) => {
-      (businessOrder.items || []).forEach((item) => {
+      filterCustomerActiveLines(order, businessOrder.items).forEach((item) => {
         const opt = normalizeOption(item.selectedOption);
         const optPart = opt ? ` (${opt})` : '';
         lines.push(`* ${item.quantity} x ${item.productName || item.name}${optPart} - ${businessOrder.businessName}`);
@@ -100,7 +96,7 @@ const buildCustomerOrderMessage = (order) => {
     });
   }
 
-  lines.push('', `סה"כ: ₪${Number(order.grandTotal || 0).toFixed(2)}`);
+  lines.push('', `סה"כ: ₪${computeCustomerOrderGrandTotal(order).toFixed(2)}`);
   return lines.join('\n');
 };
 
@@ -117,13 +113,10 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
   const [endDate, setEndDate] = useState('');
   const [selectedCommunities, setSelectedCommunities] = useState(new Set());
   const [draftSelectedWeek, setDraftSelectedWeek] = useState('');
-  const [draftSelectedDeliveryDate, setDraftSelectedDeliveryDate] = useState('');
   const [draftStartDate, setDraftStartDate] = useState('');
   const [draftEndDate, setDraftEndDate] = useState('');
-  const [draftSelectedCommunities, setDraftSelectedCommunities] = useState(new Set());
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
   const [orders, setOrders] = useState([]);
-  const [businessSummary, setBusinessSummary] = useState({});
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [hasLoadedOrders, setHasLoadedOrders] = useState(false);
   const [loadRequestId, setLoadRequestId] = useState(0);
@@ -170,42 +163,28 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
     setLoading(true);
     setError('');
     try {
-      const [ordersSnapshot, delayedSnapshot, schedulesSnapshot] = await Promise.all([
-        getDocs(collection(db, 'customerOrders')),
-        getDocs(collection(db, 'customerOrdersDelayed')),
-        getDocs(collection(db, 'deliverySchedules')),
-      ]);
-
-      const weeks = new Set();
+      const schedulesSnapshot = await getDocs(collection(db, 'deliverySchedules'));
       const deliveryDates = new Set();
-      [...ordersSnapshot.docs, ...delayedSnapshot.docs].forEach((docSnap) => {
-        const deliveryDate = getOrderDeliveryDate(docSnap.data());
-        const weekKey = getWeekKey(deliveryDate);
-        const dateKey = toLocalDateKey(deliveryDate);
-        if (weekKey) weeks.add(weekKey);
-        if (dateKey) deliveryDates.add(dateKey);
-      });
 
       schedulesSnapshot.docs.forEach((scheduleSnap) => {
         generateAvailableDeliveryDates(scheduleSnap.data(), { includePastCutoff: true })
           .forEach((dateKey) => deliveryDates.add(dateKey));
       });
 
-      const sortedWeeks = Array.from(weeks).sort((a, b) => new Date(b) - new Date(a));
+      const sortedWeeks = getRecentWeekKeys(16);
       const sortedDeliveryDates = Array.from(deliveryDates).sort();
-      const todayKey = toLocalDateKey(new Date());
-      const defaultDeliveryDate = sortedDeliveryDates.find((dateKey) => dateKey >= todayKey)
-        || sortedDeliveryDates[sortedDeliveryDates.length - 1]
-        || '';
 
       setAvailableWeeks(sortedWeeks);
       setAvailableDeliveryDates(sortedDeliveryDates);
-      if (defaultDeliveryDate) {
-        setDraftSelectedDeliveryDate(defaultDeliveryDate);
-        setOrderMessageDate(defaultDeliveryDate);
-      } else if (sortedWeeks.length > 0) {
+      if (sortedWeeks.length > 0) {
         setDraftSelectedWeek(sortedWeeks[0]);
       }
+      const todayKey = toLocalDateKey(new Date());
+      setOrderMessageDate(
+        sortedDeliveryDates.find((dateKey) => dateKey >= todayKey)
+          || sortedDeliveryDates[sortedDeliveryDates.length - 1]
+          || ''
+      );
     } catch (err) {
       console.error('Error fetching delivery filters:', err);
       setError('Failed to load delivery dates');
@@ -215,18 +194,14 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
   };
 
   const buildSelectedWindow = () => {
-    if (selectedDeliveryDate) {
-      return normalizeDateRange(selectedDeliveryDate, selectedDeliveryDate);
-    }
     return normalizeDateRange(startDate, endDate) || getDateRangeFromWeekKey(selectedWeek);
   };
 
   const handleApplyFilters = () => {
-    setSelectedDeliveryDate(draftSelectedDeliveryDate);
-    setSelectedWeek(draftSelectedDeliveryDate ? '' : draftSelectedWeek);
-    setStartDate(draftSelectedDeliveryDate ? '' : draftStartDate);
-    setEndDate(draftSelectedDeliveryDate ? '' : draftEndDate);
-    setSelectedCommunities(new Set(draftSelectedCommunities));
+    setSelectedWeek(draftSelectedWeek);
+    setStartDate(draftStartDate);
+    setEndDate(draftEndDate);
+    setSelectedDeliveryDate('');
     setLoadRequestId((current) => current + 1);
   };
 
@@ -237,7 +212,6 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
       const window = buildSelectedWindow();
       if (!window) {
         setOrders([]);
-        setBusinessSummary({});
         setHasLoadedOrders(true);
         return;
       }
@@ -246,11 +220,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
         start: format(window.start, 'dd/MM/yyyy'),
         end: format(window.end, 'dd/MM/yyyy'),
       });
-      if (selectedDeliveryDate) {
-        setOrderMessageDate(selectedDeliveryDate);
-      } else {
-        setOrderMessageDate(toLocalDateKey(window.end));
-      }
+      setOrderMessageDate(toLocalDateKey(window.end));
 
       const [ordersSnapshot, delayedSnapshot] = await Promise.all([
         getDocs(collection(db, 'customerOrders')),
@@ -258,7 +228,6 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
       ]);
 
       const nextOrders = [];
-      const nextBusinessSummary = {};
       const allDocs = [
         ...ordersSnapshot.docs.map((docSnap) => ({ docSnap, source: 'customerOrders' })),
         ...delayedSnapshot.docs.map((docSnap) => ({ docSnap, source: 'customerOrdersDelayed' })),
@@ -266,21 +235,16 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
 
       allDocs.forEach(({ docSnap, source }) => {
         const orderData = docSnap.data() || {};
-        const isDelayed = source === 'customerOrdersDelayed';
-
-        if (!isDelayed && orderData.paymentStatus !== 'completed') return;
-        if (isDelayed) {
-          const delayedStatus = String(orderData.delayedOrderStatus || '').toLowerCase();
-          const paymentStatus = String(orderData.paymentStatus || '').toLowerCase();
-          if (['abandoned', 'cancelled', 'cancelled_by_admin'].includes(delayedStatus)) return;
-          if (['abandoned', 'cancelled'].includes(paymentStatus)) return;
-        }
+        if (!shouldIncludeOrderInDeliverySummary(orderData, source)) return;
 
         const deliveryDate = getOrderDeliveryDate(orderData);
         if (!deliveryDate || deliveryDate < window.start || deliveryDate > window.end) return;
 
         const community = getOrderCommunity(orderData);
-        if (selectedCommunities.size > 0 && !selectedCommunities.has(community)) return;
+        const orderBreakdown = ensureLineIdsInBreakdown(
+          docSnap.id,
+          orderData.orderBreakdown || {},
+        ).breakdown;
 
         const orderWithMeta = {
           id: docSnap.id,
@@ -291,51 +255,13 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
           deliveryWeekKey: getWeekKey(deliveryDate),
           deliveryDateIsFallback: isOrderDeliveryDateFallback(orderData),
           community,
+          orderBreakdown,
         };
         nextOrders.push(orderWithMeta);
-
-        if (!orderData.orderBreakdown) return;
-        Object.values(orderData.orderBreakdown).forEach((businessOrder) => {
-          const businessId = businessOrder.businessId || businessOrder.businessName || 'unknown';
-          const businessName = businessOrder.businessName || 'עסק לא ידוע';
-          if (!nextBusinessSummary[businessId]) {
-            nextBusinessSummary[businessId] = {
-              businessName,
-              products: {},
-              totalRevenue: 0,
-            };
-          }
-
-          (businessOrder.items || []).forEach((item) => {
-            if (item.isShipping === true) return;
-            const productId = item.productId || item.id || item.productName || 'unknown';
-            const selectedOption = item.selectedOption || '';
-            const productKey = `${productId}_${selectedOption}`;
-            if (!nextBusinessSummary[businessId].products[productKey]) {
-              nextBusinessSummary[businessId].products[productKey] = {
-                productName: item.productName || item.name || 'פריט',
-                selectedOption,
-                quantity: 0,
-                totalRevenue: 0,
-                unitSize: item.unitSize || 1,
-                measurementType: item.measurementType || 'kg',
-              };
-            }
-
-            const quantity = Number(item.quantity) || 0;
-            const totalPrice = item.estimatedLineTotal != null
-              ? Number(item.estimatedLineTotal)
-              : getEstimatedLineTotal(item);
-            nextBusinessSummary[businessId].products[productKey].quantity += quantity;
-            nextBusinessSummary[businessId].products[productKey].totalRevenue += totalPrice;
-            nextBusinessSummary[businessId].totalRevenue += totalPrice;
-          });
-        });
       });
 
       nextOrders.sort((a, b) => b.deliveryDate - a.deliveryDate);
       setOrders(nextOrders);
-      setBusinessSummary(nextBusinessSummary);
       setHasLoadedOrders(true);
     } catch (err) {
       console.error('Error fetching delivery orders:', err);
@@ -345,16 +271,38 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
     }
   };
 
+  const visibleOrders = useMemo(() => orders.filter((order) => {
+    if (selectedDeliveryDate && toLocalDateKey(order.deliveryDate) !== selectedDeliveryDate) return false;
+    return selectedCommunities.size === 0 || selectedCommunities.has(order.community);
+  }), [orders, selectedDeliveryDate, selectedCommunities]);
+
+  const businessSummary = useMemo(
+    () => aggregateDeliveryBusinessSummary(visibleOrders),
+    [visibleOrders]
+  );
+
+  const displayDeliveryDates = useMemo(() => {
+    const window = normalizeDateRange(startDate, endDate) || getDateRangeFromWeekKey(selectedWeek);
+    const dates = new Set(orders.map((order) => toLocalDateKey(order.deliveryDate)).filter(Boolean));
+    if (window) {
+      availableDeliveryDates.forEach((dateKey) => {
+        const date = parseLocalDate(dateKey);
+        if (date && date >= window.start && date <= window.end) dates.add(dateKey);
+      });
+    }
+    return Array.from(dates).sort();
+  }, [availableDeliveryDates, endDate, orders, selectedWeek, startDate]);
+
   const ordersByCommunity = useMemo(() => {
-    return orders.reduce((acc, order) => {
+    return visibleOrders.reduce((acc, order) => {
       if (!acc[order.community]) acc[order.community] = [];
       acc[order.community].push(order);
       return acc;
     }, {});
-  }, [orders]);
+  }, [visibleOrders]);
 
   const duplicateOrderKeys = useMemo(() => {
-    const groups = orders.reduce((acc, order) => {
+    const groups = visibleOrders.reduce((acc, order) => {
       const key = getDuplicateOrderKey(order);
       if (!acc[key]) acc[key] = [];
       acc[key].push(order.id);
@@ -365,17 +313,17 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
         .filter(([, ids]) => ids.length > 1)
         .flatMap(([, ids]) => ids)
     );
-  }, [orders]);
+  }, [visibleOrders]);
 
   const duplicateCustomerCount = useMemo(() => {
-    const groups = orders.reduce((acc, order) => {
+    const groups = visibleOrders.reduce((acc, order) => {
       const key = getDuplicateOrderKey(order);
       if (!acc[key]) acc[key] = 0;
       acc[key] += 1;
       return acc;
     }, {});
     return Object.values(groups).filter((count) => count > 1).length;
-  }, [orders]);
+  }, [visibleOrders]);
 
   const handleCopyCustomerOrder = async (order) => {
     try {
@@ -392,7 +340,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
   };
 
   const toggleCommunity = (community) => {
-    setDraftSelectedCommunities((prev) => {
+    setSelectedCommunities((prev) => {
       const next = new Set(prev);
       if (next.has(community)) next.delete(community);
       else next.add(community);
@@ -629,7 +577,10 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
     }
   };
 
-  const orderTotal = orders.reduce((sum, order) => sum + (Number(order.grandTotal) || 0), 0);
+  const orderTotal = visibleOrders.reduce(
+    (sum, order) => sum + computeCustomerOrderGrandTotal(order),
+    0,
+  );
 
   if (loading) {
     return (
@@ -652,21 +603,18 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
 
       <div className="bg-white rounded-lg shadow p-5 mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
         <label>
-          <span className="block text-sm font-medium text-gray-700 mb-1">יום משלוח זמין</span>
+          <span className="block text-sm font-medium text-gray-700 mb-1">יום להצגה</span>
           <select
-            value={draftSelectedDeliveryDate}
+            value={selectedDeliveryDate}
             onChange={(event) => {
-              setDraftSelectedDeliveryDate(event.target.value);
-              if (event.target.value) {
-                setDraftSelectedWeek('');
-                setDraftStartDate('');
-                setDraftEndDate('');
-              }
+              setSelectedDeliveryDate(event.target.value);
+              if (event.target.value) setOrderMessageDate(event.target.value);
             }}
             className="w-full border border-gray-300 rounded-md px-3 py-2"
+            disabled={!hasLoadedOrders}
           >
-            <option value="">לפי שבוע / טווח</option>
-            {availableDeliveryDates.map((dateKey) => (
+            <option value="">כל הימים שנטענו</option>
+            {displayDeliveryDates.map((dateKey) => (
               <option key={dateKey} value={dateKey}>
                 {parseLocalDate(dateKey)?.toLocaleDateString('he-IL', {
                   weekday: 'long',
@@ -685,7 +633,6 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
             value={draftSelectedWeek}
             onChange={(event) => {
               setDraftSelectedWeek(event.target.value);
-              setDraftSelectedDeliveryDate('');
               setDraftStartDate('');
               setDraftEndDate('');
             }}
@@ -712,7 +659,6 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
             value={draftStartDate}
             onChange={(event) => {
               setDraftStartDate(event.target.value);
-              setDraftSelectedDeliveryDate('');
               setDraftSelectedWeek('');
             }}
             className="w-full border border-gray-300 rounded-md px-3 py-2"
@@ -726,7 +672,6 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
             value={draftEndDate}
             onChange={(event) => {
               setDraftEndDate(event.target.value);
-              setDraftSelectedDeliveryDate('');
               setDraftSelectedWeek('');
             }}
             className="w-full border border-gray-300 rounded-md px-3 py-2"
@@ -740,21 +685,21 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
             onClick={() => setShowCommunityDropdown((prev) => !prev)}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-right"
           >
-            {draftSelectedCommunities.size === 0 ? 'כל הקהילות' : `${draftSelectedCommunities.size} נבחרו`}
+            {selectedCommunities.size === 0 ? 'כל הקהילות' : `${selectedCommunities.size} נבחרו`}
           </button>
           {showCommunityDropdown && (
             <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-80 overflow-auto p-2">
               <div className="flex gap-2 mb-2 pb-2 border-b">
                 <button
                   type="button"
-                  onClick={() => setDraftSelectedCommunities(new Set(pickupSpots))}
+                  onClick={() => setSelectedCommunities(new Set(pickupSpots))}
                   className="text-xs px-2 py-1 bg-blue-600 text-white rounded"
                 >
                   בחר הכל
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDraftSelectedCommunities(new Set())}
+                  onClick={() => setSelectedCommunities(new Set())}
                   className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded"
                 >
                   נקה הכל
@@ -764,7 +709,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                 <label key={spot} className="flex items-center gap-2 px-2 py-1 text-sm hover:bg-gray-50 rounded">
                   <input
                     type="checkbox"
-                    checked={draftSelectedCommunities.has(spot)}
+                    checked={selectedCommunities.has(spot)}
                     onChange={() => toggleCommunity(spot)}
                   />
                   <span>{spot}</span>
@@ -777,7 +722,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <p className="text-gray-600">
-          מציג הזמנות לפי תאריך משלוח {dateRange.start} - {dateRange.end}. הזמנות ללא תאריך משלוח מסומנות כנתוני עבר ומשתמשות ב-`createdAt`.
+          טווח טעון: {dateRange.start} - {dateRange.end}. סינון יום וקהילות מתעדכן מיד ללא טעינה מחדש.
         </p>
         <button
           type="button"
@@ -792,7 +737,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
         <div className="bg-blue-50 border border-blue-200 text-blue-700 p-4 rounded text-center">
           בחרו פרמטרים ולחצו על "טען נתונים" כדי להציג הזמנות.
         </div>
-      ) : orders.length === 0 ? (
+      ) : visibleOrders.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 p-4 rounded text-center">
           לא נמצאו הזמנות עבור התאריך והקהילות שנבחרו
         </div>
@@ -801,7 +746,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="bg-white p-4 rounded shadow">
               <p className="text-gray-500 text-sm">מספר הזמנות</p>
-              <p className="text-2xl font-bold">{orders.length}</p>
+              <p className="text-2xl font-bold">{visibleOrders.length}</p>
             </div>
             <div className="bg-white p-4 rounded shadow">
               <p className="text-gray-500 text-sm">סה"כ הכנסות</p>

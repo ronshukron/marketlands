@@ -14,6 +14,7 @@ import Slider from 'react-slick';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
+import { enrichProductsWithFarmerBadge } from '../../utils/farmerBadgeUtils';
 import { getEstimatedLineTotal } from '../../utils/pricing';
 import {
   INTRODUCTION_BASKET_ADJUSTMENT_PREFIX,
@@ -95,6 +96,9 @@ const buildCartItemFromProduct = (product) => {
     id: product.id,
     name: product.name,
     price: product.price,
+    basePrice: product.price,
+    quantityDiscountThreshold: product.quantityDiscountThreshold ?? null,
+    quantityDiscountPrice: product.quantityDiscountPrice ?? null,
     selectedOption,
     quantity: isKgItem ? unitSize : 1,
     images: product.images || [],
@@ -138,6 +142,15 @@ const CategoryStore = () => {
   const [introductionBaskets, setIntroductionBaskets] = useState([]);
   const [basketsLoading, setBasketsLoading] = useState(false);
   const [, setTimeTick] = useState(0);
+  const farmerBadgeBusinessIds = deliverySchedule?.farmerBadgeBusinessIds;
+  const productsWithFarmerBadges = useMemo(
+    () => enrichProductsWithFarmerBadge(products, farmerBadgeBusinessIds),
+    [farmerBadgeBusinessIds, products]
+  );
+  const searchResultsWithFarmerBadges = useMemo(
+    () => enrichProductsWithFarmerBadge(searchResults, farmerBadgeBusinessIds),
+    [farmerBadgeBusinessIds, searchResults]
+  );
   const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), [pickupSpots]);
   const filteredPickupSpots = useMemo(() => {
     const query = communityQuery.trim().toLowerCase();
@@ -236,13 +249,20 @@ const CategoryStore = () => {
   }, [selectedCommunity]);
 
   useEffect(() => {
+    let active = true;
+
     const loadDeliverySchedule = async () => {
       if (!selectedCommunity) {
         setDeliverySchedule(null);
+        setAvailableDeliveryDates([]);
+        setSelectedDeliveryDate('');
         return;
       }
+      setDeliverySchedule(null);
+      setAvailableDeliveryDates([]);
       try {
         const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', selectedCommunity));
+        if (!active) return;
         const scheduleData = scheduleSnap.exists() ? scheduleSnap.data() : null;
         setDeliverySchedule(scheduleData);
         const dates = scheduleData ? generateAvailableDeliveryDates(scheduleData) : [];
@@ -258,6 +278,7 @@ const CategoryStore = () => {
           return visibleDates[0] || '';
         });
       } catch (error) {
+        if (!active) return;
         console.error('Error loading delivery schedule for category store:', error);
         setDeliverySchedule(null);
         setAvailableDeliveryDates([]);
@@ -266,6 +287,9 @@ const CategoryStore = () => {
     };
 
     loadDeliverySchedule();
+    return () => {
+      active = false;
+    };
   }, [selectedCommunity]);
 
   useEffect(() => {
@@ -485,6 +509,8 @@ const CategoryStore = () => {
                 id: productDoc.id,
                 name: productData.name,
                 price: productData.price,
+                quantityDiscountThreshold: productData.quantityDiscountThreshold ?? null,
+                quantityDiscountPrice: productData.quantityDiscountPrice ?? null,
                 description: productData.description,
                 images: productData.images || [],
                 options: productData.options || [],
@@ -687,15 +713,15 @@ const CategoryStore = () => {
 
   const handleMultiSearch = useCallback((terms) => {
     const pool = selectedCommunity
-      ? products.filter((p) => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity))
-      : products;
+      ? productsWithFarmerBadges.filter((p) => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity))
+      : productsWithFarmerBadges;
     const sections = terms.map((term) => ({
       term,
       products: filterProductsForCommunity(searchProductsByTerm(pool, term)),
     }));
     setMultiSearchSections(sections);
     setIsSearchActive(true);
-  }, [filterProductsForCommunity, products, selectedCommunity]);
+  }, [filterProductsForCommunity, productsWithFarmerBadges, selectedCommunity]);
 
   const handleBulkAddToCart = useCallback((matches) => {
     let added = 0;
@@ -817,24 +843,26 @@ const CategoryStore = () => {
     if (!multiSearchSections) return null;
     return multiSearchSections.map(({ term, products: sectionProducts }) => ({
       term,
-      products: filterProductsForCommunity(sectionProducts),
+      products: filterProductsForCommunity(
+        enrichProductsWithFarmerBadge(sectionProducts, farmerBadgeBusinessIds)
+      ),
     }));
-  }, [multiSearchSections, filterProductsForCommunity]);
+  }, [farmerBadgeBusinessIds, multiSearchSections, filterProductsForCommunity]);
 
   // Determine which products to display with community filter
   const baseProducts = isMultiSearchActive
     ? []
     : isSearchActive
-    ? searchResults
+    ? searchResultsWithFarmerBadges
     : selectedCategory === 'הכל'
-      ? products.filter((product) => {
+      ? productsWithFarmerBadges.filter((product) => {
           const productCategory = product.category || 'אחר';
           if (productCategory === 'משתלה') {
             return Boolean(product.showInAllCategory);
           }
           return true;
         })
-      : products.filter(product => {
+      : productsWithFarmerBadges.filter(product => {
           const productCategory = product.category || 'אחר';
           // Special handling for "ירוקים ופטריות" - match both "ירוקים" and "ירוקים ופטריות"
           if (selectedCategory === 'ירוקים ופטריות') {
@@ -894,9 +922,11 @@ const CategoryStore = () => {
     : baseProducts;
 
   const searchableProducts = useMemo(() => {
-    if (!selectedCommunity) return products;
-    return products.filter(p => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity));
-  }, [products, selectedCommunity]);
+    if (!selectedCommunity) return productsWithFarmerBadges;
+    return productsWithFarmerBadges.filter(
+      (product) => Array.isArray(product.pickupSpots) && product.pickupSpots.includes(selectedCommunity)
+    );
+  }, [productsWithFarmerBadges, selectedCommunity]);
 
   // Do not early-return on loading; show search/carousel immediately and spinner below
 
@@ -1116,7 +1146,7 @@ const CategoryStore = () => {
           </div>
         )}
 
-        {!isSearchActive && selectedCommunity && (basketsLoading || introductionBaskets.length > 0) && (
+        {!isSearchActive && selectedCommunity && !basketsLoading && introductionBaskets.length > 0 && (
           <section className="mb-8">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
@@ -1126,21 +1156,15 @@ const CategoryStore = () => {
                 </p>
               </div>
             </div>
-            {basketsLoading ? (
-              <div className="rounded-xl bg-white border border-emerald-100 p-4 text-sm text-gray-500">
-                טוען סלי היכרות...
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {introductionBaskets.map((basket) => (
-                  <IntroductionBasketCard
-                    key={basket.id}
-                    basket={basket}
-                    onAdd={handleAddIntroductionBasket}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {introductionBaskets.map((basket) => (
+                <IntroductionBasketCard
+                  key={basket.id}
+                  basket={basket}
+                  onAdd={handleAddIntroductionBasket}
+                />
+              ))}
+            </div>
           </section>
         )}
 

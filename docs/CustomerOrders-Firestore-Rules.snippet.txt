@@ -1,0 +1,134 @@
+// PROTOTYPE / REVIEW REQUIRED — merge into the existing Firestore rules; do not
+// deploy this file directly. The project uses Firestore Native, Standard edition.
+//
+// Assumed customerOrders and customerOrdersDelayed fields relevant here:
+// - userId: string, immutable owner UID
+// - customerExcludedLineIds: map<string, bool>, optional
+// - customerEditedAt: short ISO-8601 string, optional
+// - customerEditedBy: string, optional and always the owner UID
+//
+// The /my-orders list query MUST include:
+//   where("userId", "==", request.auth.uid)
+// Firestore rules are not filters, so an unscoped collection query is denied.
+// Legacy documents without userId are fetched individually by IDs stored in
+// users/{uid}.orders. Backfill userId and remove this fallback after migration.
+
+function isSignedIn() {
+  return request.auth != null;
+}
+
+function hasLegacyCustomerOrderMembership(customerOrderId) {
+  let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+  return isSignedIn()
+    && exists(userPath)
+    && get(userPath).data.get('orders', []) is list
+    && customerOrderId in get(userPath).data.get('orders', []);
+}
+
+function hasLegacyCustomerIdentityMatch(data) {
+  let details = data.get('customerDetails', {});
+  return details is map
+    && (
+      (
+        request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', '') != ''
+        && details.get('email', '') == request.auth.token.get('email', '')
+      )
+      || (
+        request.auth.token.get('phone_number', '') != ''
+        && details.get('phone', '') == request.auth.token.get('phone_number', '')
+      )
+    );
+}
+
+function isCustomerOrderOwner(data, customerOrderId) {
+  let ownerUid = data.get('userId', null);
+  return isSignedIn()
+    && (
+      (ownerUid is string && ownerUid == request.auth.uid)
+      || (
+        ownerUid == null
+        && hasLegacyCustomerOrderMembership(customerOrderId)
+        && hasLegacyCustomerIdentityMatch(data)
+      )
+    );
+}
+
+function isTerminalCustomerOrderStatus(data) {
+  return data.get('paymentStatus', '') in [
+      'completed', 'paid', 'charged', 'settled',
+      'abandoned', 'cancelled', 'cancelled_by_admin',
+      'failed', 'declined', 'expired'
+    ]
+    || data.get('delayedOrderStatus', '') in [
+      'completed', 'charged', 'settled',
+      'abandoned', 'cancelled', 'cancelled_by_admin',
+      'failed', 'declined', 'expired'
+    ];
+}
+
+function isEditableCustomerOrderStatus(data) {
+  let isDelayed = data.get('isDelayedOrder', false) == true
+    || data.get('delayedOrder', false) == true
+    || data.get('delayedOrderStatus', '') != '';
+  return !isTerminalCustomerOrderStatus(data)
+    && (
+      (
+        isDelayed
+        && data.get('paymentStatus', '') == 'held'
+        && data.get('delayedOrderStatus', '') == 'pending_weighing'
+      )
+      || (
+        !isDelayed
+        && data.get('paymentStatus', '') in ['completed', 'paid']
+      )
+    );
+}
+
+function isValidCustomerOrderEdit(customerOrderId) {
+  return request.resource.data.get('userId', null) == resource.data.get('userId', null)
+    && isEditableCustomerOrderStatus(resource.data)
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      'customerExcludedLineIds',
+      'customerEditedAt',
+      'customerEditedBy'
+    ])
+    && request.resource.data.customerExcludedLineIds is map
+    && request.resource.data.customerExcludedLineIds.size() <= 500
+    && request.resource.data.customerExcludedLineIds.values().hasOnly([true])
+    && request.resource.data.customerEditedAt is string
+    && request.resource.data.customerEditedAt.size() <= 40
+    && request.resource.data.customerEditedBy == request.auth.uid;
+}
+
+// Place these matches inside match /databases/{database}/documents.
+// Keep the existing create policy separately; this snippet only hardens reads
+// and the remove/restore update used by legacy /my-orders.
+match /customerOrders/{customerOrderId} {
+  allow get, list: if isCustomerOrderOwner(resource.data, customerOrderId);
+  allow update: if isCustomerOrderOwner(resource.data, customerOrderId)
+    && isValidCustomerOrderEdit(customerOrderId);
+}
+
+match /customerOrdersDelayed/{customerOrderId} {
+  allow get, list: if isCustomerOrderOwner(resource.data, customerOrderId);
+  allow update: if isCustomerOrderOwner(resource.data, customerOrderId)
+    && isValidCustomerOrderEdit(customerOrderId);
+}
+
+// Security review / attack notes:
+// - Anonymous and wrong-owner get/list/update: denied.
+// - userId ownership takeover: denied because userId is immutable.
+// - Arbitrary order/status/price/total mutation: denied by affectedKeys().
+// - Paid/settled/cancelled/failed orders cannot be edited.
+// - Exclusion maps are bounded and may contain only true boolean values.
+// - Legacy membership never overrides a non-null userId owner and also requires
+//   an immutable verified Auth email/phone match, so a writable users.orders
+//   array alone cannot grant access to another legacy order.
+// - Oversized exclusion maps/audit strings: bounded.
+// - Cutoff enforcement is intentionally not claimed here. A rules-only check
+//   cannot reliably identify the changed line's dynamic Orders/{businessKey}
+//   document from a map diff. The client transaction re-reads the customer
+//   order, business order, and delivery schedule before writing, but a callable
+//   backend/Admin SDK mutation is required if cutoff must be a hostile-client
+//   security boundary.

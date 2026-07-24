@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/authContext';
 import LoadingSpinner from './LoadingSpinner';
 import {
   computeCustomerOrderGrandTotal,
-  fetchCustomerOrderById,
+  fetchOwnedCustomerOrderById,
   flattenCustomerOrderLines,
   getOrderDeliveryDateFromCustomerOrder,
   getOrderPickupSpot,
@@ -67,13 +67,9 @@ const CustomerOrderDetail = () => {
       }
       try {
         setLoading(true);
-        const fetched = await fetchCustomerOrderById(orderId);
+        const fetched = await fetchOwnedCustomerOrderById(orderId, currentUser.uid);
         if (!fetched) {
-          setError('ההזמנה לא נמצאה');
-          return;
-        }
-        if (fetched.userId && fetched.userId !== currentUser.uid) {
-          setError('אין לך הרשאה לצפות בהזמנה זו');
+          setError('ההזמנה לא נמצאה או שאין לך הרשאה לצפות בה');
           return;
         }
 
@@ -109,7 +105,7 @@ const CustomerOrderDetail = () => {
     load();
   }, [orderId, currentUser]);
 
-  const excludedLineIds = order?.customerExcludedLineIds || {};
+  const excludedLineIds = useMemo(() => order?.customerExcludedLineIds || {}, [order]);
   const lines = useMemo(() => (order ? flattenCustomerOrderLines(order) : []), [order]);
   const activeLines = useMemo(() => lines.filter((line) => !excludedLineIds[line.lineId]), [lines, excludedLineIds]);
   const removedLines = useMemo(() => lines.filter((line) => excludedLineIds[line.lineId]), [lines, excludedLineIds]);
@@ -155,6 +151,7 @@ const CustomerOrderDetail = () => {
       deliverySchedule,
       businessOrderData: businessOrdersByKey[line.businessOrderKey] || null,
       pickupSpot,
+      customerOrder: order,
     });
   };
 

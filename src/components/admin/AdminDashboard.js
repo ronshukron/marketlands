@@ -65,6 +65,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'סיכום הכנסות V5',
+    description: 'התאמת חיובים מדויקת לפי שורות החשבונית הסופית, כולל שקילה וחסרים',
+    to: '/admin/weekly-summary-v5',
+    featured: true
+  },
+  {
     title: 'הזמנות מספקים',
     description: 'סיכום הזמנות לפי ספקים — העתקה, התאמה וחישוב עלויות',
     to: '/admin/order-from-suppliers',
@@ -206,6 +212,12 @@ const initialCards = [
     title: 'התקנת אפליקציית ניהול',
     description: 'הוספת באסטה למסך הבית לגישה מהירה לניהול מהטלפון (מנהלים בלבד)',
     to: '/admin/pwa-install',
+    featured: true
+  },
+  {
+    title: 'ניהול התובנות של רון',
+    description: 'יצירה, עריכה ופרסום פוסטים בבלוג של האתר הוותיק',
+    to: '/admin/blog',
     featured: true
   }
 ];

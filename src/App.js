@@ -61,6 +61,7 @@ import DeliveryManagement80 from './components/admin/DeliveryManagement80';
 import WeeklyOrderSummaryV2 from './components/admin/WeeklyOrderSummaryV2';
 import WeeklyOrderSummaryV3 from './components/admin/WeeklyOrderSummaryV3';
 import WeeklyOrderSummaryV4 from './components/admin/WeeklyOrderSummaryV4';
+import WeeklyOrderSummaryV5 from './components/admin/WeeklyOrderSummaryV5';
 import WeeklyOrderFromSuppliersV1 from './components/admin/WeeklyOrderFromSuppliersV1';
 import WeeklyCustomerOrderManager from './components/admin/WeeklyCustomerOrderManager';
 import CustomerOrderDeliveryTransferAdmin from './components/admin/CustomerOrderDeliveryTransferAdmin';
@@ -122,6 +123,9 @@ import MarketplaceTermsOfService from './components/marketplace/MarketplaceTerms
 import AdminPwaInstall from './components/admin/AdminPwaInstall';
 import IntroductionBasketAdmin from './components/admin/IntroductionBasketAdmin';
 import SupplierPriceImportAdmin from './components/admin/SupplierPriceImportAdmin';
+import BlogIndex from './components/blog/BlogIndex';
+import BlogPost from './components/blog/BlogPost';
+import BlogAdmin from './components/admin/BlogAdmin';
 
 const App = () => {
   return (
@@ -159,6 +163,8 @@ const App = () => {
                   <Route path="/payment-success" element={<PaymentSuccess />} />
                   <Route path="/payment-success/*" element={<PaymentSuccess />} />    
                   <Route path="/terms-of-service" element={<TermsOfService />} />  
+                  <Route path="/blog" element={<BlogIndex />} />
+                  <Route path="/blog/:slug" element={<BlogPost />} />
                   <Route path="/my-orders" element={<MyOrders />} />
                   <Route path="/my-orders/:orderId" element={<CustomerOrderDetail />} />
                   <Route path="/saved-carts" element={<SavedCarts />} />
@@ -193,6 +199,7 @@ const App = () => {
                   <Route path="/admin/weekly-summary-v2" element={<WeeklyOrderSummaryV2 />} />
                   <Route path="/admin/weekly-summary-v3" element={<WeeklyOrderSummaryV3 />} />
                   <Route path="/admin/weekly-summary-v4" element={<WeeklyOrderSummaryV4 />} />
+                  <Route path="/admin/weekly-summary-v5" element={<WeeklyOrderSummaryV5 />} />
                   <Route path="/admin/weekly-delivery-summary" element={<WeeklyDeliveryOrderSummary />} />
                   <Route path="/admin/weekly-customer-orders" element={<WeeklyCustomerOrderManager />} />
                   <Route path="/admin/transfer-delivery-week" element={<CustomerOrderDeliveryTransferAdmin />} />
@@ -218,6 +225,7 @@ const App = () => {
                   <Route path="/independent-orders/:id" element={<IndependentOrderDetail />} />
                   {/* Admin */}
                   <Route path="/admin" element={<AdminDashboard />} />
+                  <Route path="/admin/blog" element={<BlogAdmin />} />
                   <Route path="/admin/products" element={<ProductApprovals />} />
                   <Route path="/admin/independent-orders" element={<IndependentOrdersAdmin />} />
                   <Route path="/admin/independent-order/:id" element={<IndependentOrderDetail />} />

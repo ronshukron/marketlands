@@ -5,6 +5,7 @@ import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
+import { normalizeQuantityDiscount, validateQuantityDiscount } from '../../utils/pricing';
 
 // Predefined unit size options (in kg)
 const UNIT_SIZE_OPTIONS = [
@@ -60,6 +61,8 @@ const BulkEditProducts = () => {
         fetchedProducts.forEach(product => {
           initialEdits[product.id] = {
             price: product.price || '',
+            quantityDiscountThreshold: product.quantityDiscountThreshold ?? '',
+            quantityDiscountPrice: product.quantityDiscountPrice ?? '',
             stockAmount: product.stockAmount || 0,
             merchantPrice: product.merchantPrice || '',
             category: product.category || '',
@@ -102,6 +105,8 @@ const BulkEditProducts = () => {
       
       return (
         Number(edited.price) !== Number(product.price || 0) ||
+        Number(edited.quantityDiscountThreshold || 0) !== Number(product.quantityDiscountThreshold || 0) ||
+        Number(edited.quantityDiscountPrice || 0) !== Number(product.quantityDiscountPrice || 0) ||
         Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
         (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
         edited.category !== (product.category || '') ||
@@ -119,6 +124,28 @@ const BulkEditProducts = () => {
         icon: 'info',
         title: 'אין שינויים',
         text: 'לא בוצעו שינויים למוצרים'
+      });
+      return;
+    }
+
+    const invalidProduct = products.find((product) => {
+      const edited = editedProducts[product.id];
+      return edited && validateQuantityDiscount(
+        edited.quantityDiscountThreshold,
+        edited.quantityDiscountPrice,
+        edited.price,
+      );
+    });
+    if (invalidProduct) {
+      const edited = editedProducts[invalidProduct.id];
+      Swal.fire({
+        icon: 'error',
+        title: 'הנחת כמות לא תקינה',
+        text: `${invalidProduct.name}: ${validateQuantityDiscount(
+          edited.quantityDiscountThreshold,
+          edited.quantityDiscountPrice,
+          edited.price,
+        )}`,
       });
       return;
     }
@@ -146,6 +173,8 @@ const BulkEditProducts = () => {
 
         const hasProductChanges = (
           Number(edited.price) !== Number(product.price || 0) ||
+          Number(edited.quantityDiscountThreshold || 0) !== Number(product.quantityDiscountThreshold || 0) ||
+          Number(edited.quantityDiscountPrice || 0) !== Number(product.quantityDiscountPrice || 0) ||
           Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
           (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
           edited.category !== (product.category || '') ||
@@ -170,6 +199,12 @@ const BulkEditProducts = () => {
                 })()
               : 1
           };
+          const quantityDiscount = normalizeQuantityDiscount(
+            edited.quantityDiscountThreshold,
+            edited.quantityDiscountPrice,
+          );
+          updates.quantityDiscountThreshold = quantityDiscount?.quantityDiscountThreshold ?? null;
+          updates.quantityDiscountPrice = quantityDiscount?.quantityDiscountPrice ?? null;
           
           if (edited.merchantPrice !== '') {
             updates.merchantPrice = Number(edited.merchantPrice);
@@ -234,6 +269,8 @@ const BulkEditProducts = () => {
     products.forEach(product => {
       initialEdits[product.id] = {
         price: product.price || '',
+        quantityDiscountThreshold: product.quantityDiscountThreshold ?? '',
+        quantityDiscountPrice: product.quantityDiscountPrice ?? '',
         stockAmount: product.stockAmount || 0,
         merchantPrice: product.merchantPrice || '',
         category: product.category || '',
@@ -326,6 +363,9 @@ const BulkEditProducts = () => {
                     מחיר (₪)
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    הנחת כמות
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     מחיר סוחר (₪)
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -358,6 +398,8 @@ const BulkEditProducts = () => {
                   const edited = editedProducts[product.id] || {};
                   const hasProductChanges = (
                     Number(edited.price) !== Number(product.price || 0) ||
+                    Number(edited.quantityDiscountThreshold || 0) !== Number(product.quantityDiscountThreshold || 0) ||
+                    Number(edited.quantityDiscountPrice || 0) !== Number(product.quantityDiscountPrice || 0) ||
                     Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
                     (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
                     edited.category !== (product.category || '') ||
@@ -399,6 +441,30 @@ const BulkEditProducts = () => {
                           onChange={(e) => handleFieldChange(product.id, 'price', e.target.value)}
                           className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         />
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={edited.quantityDiscountThreshold}
+                            onChange={(e) => handleFieldChange(product.id, 'quantityDiscountThreshold', e.target.value)}
+                            placeholder="סף"
+                            title="סף כמות"
+                            className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={edited.quantityDiscountPrice}
+                            onChange={(e) => handleFieldChange(product.id, 'quantityDiscountPrice', e.target.value)}
+                            placeholder="מחיר"
+                            title="מחיר מוזל"
+                            className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
+                          />
+                        </div>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         <input

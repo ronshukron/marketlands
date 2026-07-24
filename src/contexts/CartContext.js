@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useMemo, useEffect } from '
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
-import { getEstimatedLineTotal } from '../utils/pricing';
+import { applyQuantityPricing, getEstimatedLineTotal } from '../utils/pricing';
 import { isAlwaysOnGroceryOrder } from '../utils/deliveryScheduleUtils';
 
 // Create a new React Context for managing cart state.
@@ -36,7 +36,7 @@ export const CartProvider = ({ children }) => {
       
       if (savedCartItems) {
         const parsedCartItems = JSON.parse(savedCartItems);
-        setCartItems(parsedCartItems);
+        setCartItems(parsedCartItems.map((item) => applyQuantityPricing(item, item.quantity)));
       }
       
       if (savedOrderInfoMap) {
@@ -185,15 +185,17 @@ export const CartProvider = ({ children }) => {
         // If item exists, update its quantity
         const updatedItems = [...prevItems];
         updatedItems[existingItemIndex] = {
-          ...updatedItems[existingItemIndex],
-          quantity: updatedItems[existingItemIndex].quantity + item.quantity
+          ...applyQuantityPricing(
+            updatedItems[existingItemIndex],
+            Number(updatedItems[existingItemIndex].quantity) + Number(item.quantity),
+          ),
         };
         return updatedItems;
       }
 
       // If item doesn't exist, add it to cart
       const newItemWithDetails = {
-        ...item, // Spread existing item properties
+        ...applyQuantityPricing(item, item.quantity),
         orderId, // Associate with the specific order
         businessId, // Associate with the specific business
         // Generate a unique identifier (uid) for this specific cart item instance.
@@ -264,7 +266,9 @@ export const CartProvider = ({ children }) => {
     setCartItems((prevItems) =>
       // Map over the items: update the target item's quantity (ensuring it's not negative).
       prevItems.map((item) =>
-        item.uid === uid ? { ...item, quantity: Math.max(0, quantity) } : item
+        item.uid === uid
+          ? applyQuantityPricing(item, Math.max(0, quantity))
+          : item
       )
       // Filter out any items whose quantity was set to 0 or less.
       .filter(item => item.quantity > 0)
@@ -341,7 +345,7 @@ export const CartProvider = ({ children }) => {
   const replaceCart = (snapshot) => {
     if (!snapshot) return;
     const items = (snapshot.cartItems || []).map((item) => ({
-      ...item,
+      ...applyQuantityPricing(item, item.quantity),
       uid: generateCartItemUid(item.orderId, item.id, item.selectedOption),
     }));
     setCartItems(items);
@@ -360,12 +364,14 @@ export const CartProvider = ({ children }) => {
         );
         if (existingIndex >= 0) {
           merged[existingIndex] = {
-            ...merged[existingIndex],
-            quantity: merged[existingIndex].quantity + item.quantity,
+            ...applyQuantityPricing(
+              merged[existingIndex],
+              Number(merged[existingIndex].quantity) + Number(item.quantity),
+            ),
           };
         } else {
           merged.push({
-            ...item,
+            ...applyQuantityPricing(item, item.quantity),
             uid: generateCartItemUid(item.orderId, item.id, item.selectedOption),
           });
         }

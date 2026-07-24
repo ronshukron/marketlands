@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import { pickupSpots } from '../../data/pickupSpots';
+import { loadLegacyRetentionOrders } from '../../services/productRetentionAnalyticsService';
 
 // Analytics Components
 import RevenueChart from './analytics/RevenueChart';
@@ -14,15 +15,15 @@ import CustomerJourney from './analytics/CustomerJourney';
 import TopBusinesses from './analytics/TopBusinesses';
 import TopProducts from './analytics/TopProducts';
 import PriceElasticity from './analytics/PriceElasticity';
+import ProductRetentionCard from './analytics/ProductRetentionCard';
+
+const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
 const AnalyticsDashboard = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState([]);
   const [refunds, setRefunds] = useState([]);
-  
-  // Admin Authorization
-  const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
   useEffect(() => {
     if (currentUser && ADMIN_UIDS.includes(currentUser.uid)) {
@@ -33,31 +34,13 @@ const AnalyticsDashboard = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const ordersRef = collection(db, 'customerOrders');
-      const delayedOrdersRef = collection(db, 'customerOrdersDelayed');
       const refundsRef = collection(db, 'refunds');
 
-      const [ordersSnap, delayedSnap, refundSnap] = await Promise.all([
-        getDocs(query(ordersRef, orderBy('createdAt', 'desc'))),
-        getDocs(delayedOrdersRef),
+      const [allOrders, refundSnap] = await Promise.all([
+        loadLegacyRetentionOrders(),
         getDocs(refundsRef)
       ]);
 
-      const parseOrder = (doc, source) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          _source: source,
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
-          grandTotal: Number(data.grandTotal || 0)
-        };
-      };
-
-      const regularOrders = ordersSnap.docs.map(doc => parseOrder(doc, 'customerOrders'));
-      const delayedOrders = delayedSnap.docs.map(doc => parseOrder(doc, 'customerOrdersDelayed'));
-
-      const allOrders = [...regularOrders, ...delayedOrders];
       setOrders(allOrders);
 
       const fetchedRefunds = refundSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -114,6 +97,10 @@ const AnalyticsDashboard = () => {
 
         <div className="mb-8">
             <PriceElasticity orders={orders} />
+        </div>
+
+        <div className="mb-8">
+          <ProductRetentionCard orders={orders} communities={pickupSpots} />
         </div>
       </div>
     </div>

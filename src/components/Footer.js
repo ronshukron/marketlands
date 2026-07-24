@@ -9,12 +9,12 @@ const Footer = () => {
                 <div className="footer-section about">
                     <h2>בסטה בסקט</h2>
                     <p>חיבור בין קהילות לחקלאים מקומיים</p>
-                    <p>אימייל: community.cart.kehila@gmail.com</p>
                 </div>
                 <div className="footer-section links">
                     <h2>קישורים מהירים</h2>
                     <ul>
                         <li><Link to="/">בית</Link></li>
+                        <li><Link to="/blog">התובנות של רון</Link></li>
                         <li><Link to="/contact">צור קשר</Link></li>
                         <li><Link to="/terms-of-service">תקנון</Link></li>
                         {/* <li><Link to="/privacy-policy">מדיניות פרטיות</Link></li> */}

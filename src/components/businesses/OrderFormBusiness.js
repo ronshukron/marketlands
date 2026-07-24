@@ -9,6 +9,7 @@ import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext'; // Import useCart
+import { getEffectiveUnitPrice, normalizeQuantityDiscount } from '../../utils/pricing';
 
 const OrderFormBusiness = () => {
   const { orderId } = useParams();
@@ -156,6 +157,9 @@ const OrderFormBusiness = () => {
       id: product.id,
       name: product.name,
       price: product.price,
+      basePrice: product.price,
+      quantityDiscountThreshold: product.quantityDiscountThreshold ?? null,
+      quantityDiscountPrice: product.quantityDiscountPrice ?? null,
       selectedOption: product.selectedOption,
       quantity: product.quantity,
       images: product.images || [],
@@ -353,7 +357,17 @@ const OrderFormBusiness = () => {
                     <h3 className="text-base font-bold text-gray-900 mb-1">
                       {product.name}
                     </h3>
-                    <p className="text-sm text-gray-500 mb-1">₪{product.price}</p>
+                    <p className="text-sm text-gray-500 mb-1">
+                      ₪{getEffectiveUnitPrice(product, product.quantity)}
+                    </p>
+                    {normalizeQuantityDiscount(
+                      product.quantityDiscountThreshold,
+                      product.quantityDiscountPrice,
+                    ) && (
+                      <p className="text-xs font-semibold text-emerald-700 mb-1">
+                        {product.quantityDiscountThreshold}+ ב-₪{Number(product.quantityDiscountPrice).toFixed(2)}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
                     
                     {/* Display stock amount */}

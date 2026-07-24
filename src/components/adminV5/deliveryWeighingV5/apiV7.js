@@ -26,8 +26,8 @@ import {
   recomputeBreakdownTotals,
   roundTo,
   safeNumber,
-  sumItemsTotal,
 } from './v7/orderDraftUtils';
+import { filterCustomerActiveLines } from '../../../utils/customerOrderUtils';
 
 async function getIdTokenIfAvailable() {
   try {
@@ -66,7 +66,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     updateDoc(orderRef, { orderBreakdown: breakdownToSave }).catch(() => {});
   }
 
-  const rawItems = flattenOrderBreakdown(canonicalBreakdown);
+  const rawItems = filterCustomerActiveLines(data, flattenOrderBreakdown(canonicalBreakdown));
   const items = (rawItems || [])
     .filter((item) => item && (item.quantity || item.quantity === 0))
     .filter((item) => !item.isShipping && item.productId !== 'Mdean61FIezxRcMUZjVn')
@@ -122,7 +122,11 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     orderBreakdown: canonicalBreakdown,
     items,
     businessIds: Array.isArray(data.businessIds) ? data.businessIds : [],
-    grandTotal: safeNumber(data.grandTotal, 0),
+    grandTotal: roundTo(
+      rawItems.reduce((sum, item) => sum + (safeNumber(item.quantity) * safeNumber(item.price)), 0)
+        + safeNumber(data.customerDetails?.deliveryDetails?.deliveryFee, 0),
+      2,
+    ),
     rawData: data,
   };
 }
@@ -366,8 +370,13 @@ async function mutateDelayedOrderFallback({
   orderBreakdown = recomputeBreakdownTotals(orderBreakdown);
 
   const items = flattenOrderBreakdown(orderBreakdown);
+  const activeItems = filterCustomerActiveLines(currentData, items);
   const deliveryFee = safeNumber(currentData.customerDetails?.deliveryDetails?.deliveryFee, 0);
-  const grandTotal = roundTo(sumItemsTotal(orderBreakdown) + deliveryFee, 2);
+  const grandTotal = roundTo(
+    activeItems.reduce((sum, item) => sum + (safeNumber(item.quantity) * safeNumber(item.price)), 0)
+      + deliveryFee,
+    2,
+  );
   const businessIds = Array.from(new Set(
     Object.values(orderBreakdown)
       .map((businessOrder) => businessOrder?.businessId)
@@ -385,7 +394,7 @@ async function mutateDelayedOrderFallback({
   return {
     ok: true,
     orderId,
-    items,
+    items: activeItems,
     grandTotal,
   };
 }

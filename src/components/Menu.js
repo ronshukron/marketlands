@@ -164,6 +164,12 @@ const Menu = () => {
                 </svg>
                 צור קשר
               </Link>
+              <Link to="/blog" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${location.pathname.startsWith('/blog') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.25a5.25 5.25 0 00-8.25-1.5v13.5A5.25 5.25 0 0112 19.75m0-13.5a5.25 5.25 0 018.25-1.5v13.5A5.25 5.25 0 0012 19.75m0-13.5v13.5" />
+                </svg>
+                התובנות של רון
+              </Link>
               {userLoggedIn && (
                 <>
                   <Link to="/my-orders" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/my-orders') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
@@ -475,6 +481,9 @@ const Menu = () => {
               </Link> */}
               <Link to="/contact" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/contact') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                 צור קשר
+              </Link>
+              <Link to="/blog" className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname.startsWith('/blog') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                התובנות של רון
               </Link>
               {userLoggedIn && (
                 <>

@@ -5,12 +5,19 @@ import { useAuth } from '../contexts/authContext';
 import LoadingSpinner from './LoadingSpinner';
 import { Link } from 'react-router-dom';
 import {
+    computeCustomerOrderGrandTotal,
     fetchCustomerOrderById,
+    getLegacyCustomerOrderIds,
     shouldIncludeCustomerOrderInList,
     getOrderDeliveryDateFromCustomerOrder,
     getOrderPickupSpot,
 } from '../services/customerOrderService';
 import RefundRequestForm from './RefundRequestForm';
+import {
+    filterCustomerActiveLines,
+    isCustomerOrderOwner,
+} from '../utils/customerOrderUtils';
+import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 
 const MyOrders = () => {
     const { currentUser } = useAuth();
@@ -38,29 +45,10 @@ const MyOrders = () => {
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (userDocSnap.exists()) {
-                    const userData = userDocSnap.data();
-                    const ordersField = userData.orders; // Can be array (weekly) or object (independent mapping)
-
-                    let weeklyOrderIds = [];
-                    let independentOrderIds = [];
-
-                    if (Array.isArray(ordersField)) {
-                        // Weekly: simple array of customerOrders IDs
-                        weeklyOrderIds = ordersField.filter(Boolean);
-                    } else if (ordersField && typeof ordersField === 'object') {
-                        // Independent: object map -> arrays of { orderId }
-                        independentOrderIds = Object.values(ordersField)
-                            .flat()
-                            .map((entry) => (typeof entry === 'string' ? entry : entry?.orderId))
-                            .filter(Boolean);
-                    } else {
-                        weeklyOrderIds = [];
-                        independentOrderIds = [];
-                    }
-
-                    // Fallback: if we don't have IDs, query by userId
+                    const legacyOrderIds = getLegacyCustomerOrderIds(userDocSnap.data());
+                    const legacyOrderIdSet = new Set(legacyOrderIds);
+                    // Owner-scoped queries are required by the Firestore rules.
                     const fetchWeeklyByUserPromise = (async () => {
-                        if (weeklyOrderIds.length > 0) return [];
                         try {
                             const [standardSnap, delayedSnap] = await Promise.all([
                                 getDocs(query(collection(db, 'customerOrders'), where('userId', '==', currentUser.uid))),
@@ -86,7 +74,6 @@ const MyOrders = () => {
                     })();
 
                     const fetchIndependentByUserPromise = (async () => {
-                        if (independentOrderIds.length > 0) return [];
                         try {
                             const qInd = query(collection(db, 'IndepentCustomerOrders'), where('userId', '==', currentUser.uid));
                             const snap = await getDocs(qInd);
@@ -97,39 +84,22 @@ const MyOrders = () => {
                         }
                     })();
 
+                    const fetchLegacyWeeklyPromise = Promise.all(
+                        legacyOrderIds.map(async (orderId) => {
+                            try {
+                                const order = await fetchCustomerOrderById(orderId);
+                                if (!order || (order.userId && order.userId !== currentUser.uid)) return null;
+                                return { ...order, isIndependent: false };
+                            } catch (legacyError) {
+                                console.error(`Failed legacy order lookup ${orderId}`, legacyError);
+                                return null;
+                            }
+                        })
+                    );
+
                     const [fetchedWeekly, fetchedIndependent, weeklyByUser, independentByUser] = await Promise.all([
-                        Promise.all(
-                            weeklyOrderIds.map(async (orderId) => {
-                                try {
-                                    const order = await fetchCustomerOrderById(orderId);
-                                    if (order) {
-                                        return { ...order, isIndependent: false };
-                                    }
-                                    console.warn(`Order with ID ${orderId} not found.`);
-                                    return null;
-                                } catch (orderError) {
-                                    console.error(`Error fetching order ${orderId}:`, orderError);
-                                    return null;
-                                }
-                            })
-                        ),
-                        Promise.all(
-                            independentOrderIds.map(async (orderId) => {
-                                try {
-                                    const orderDocRef = doc(db, 'IndepentCustomerOrders', orderId);
-                                    const orderDocSnap = await getDoc(orderDocRef);
-                                    if (orderDocSnap.exists()) {
-                                        return { id: orderId, ...orderDocSnap.data(), isIndependent: true };
-                                    } else {
-                                        console.warn(`Independent order with ID ${orderId} not found.`);
-                                        return null;
-                                    }
-                                } catch (orderError) {
-                                    console.error(`Error fetching independent order ${orderId}:`, orderError);
-                                    return null;
-                                }
-                            })
-                        ),
+                        fetchLegacyWeeklyPromise,
+                        Promise.resolve([]),
                         fetchWeeklyByUserPromise,
                         fetchIndependentByUserPromise
                     ]);
@@ -143,11 +113,23 @@ const MyOrders = () => {
                         return Array.from(map.values());
                     };
 
-                    const weeklyCombined = mergeUnique([...(fetchedWeekly || []).filter(Boolean), ...(weeklyByUser || [])]);
-                    const independentCombined = mergeUnique([...(fetchedIndependent || []).filter(Boolean), ...(independentByUser || [])]);
+                    const weeklyCombined = mergeUnique([...(fetchedWeekly || []).filter(Boolean), ...(weeklyByUser || [])])
+                        .filter((order) => (
+                            isCustomerOrderOwner(order, currentUser.uid)
+                            || (!order.userId && legacyOrderIdSet.has(order.id))
+                        ));
+                    const independentCombined = mergeUnique([...(fetchedIndependent || []).filter(Boolean), ...(independentByUser || [])])
+                        .filter((order) => isCustomerOrderOwner(order, currentUser.uid));
 
                     const validWeekly = (weeklyCombined || [])
-                        .filter((order) => order !== null && shouldIncludeCustomerOrderInList(order));
+                        .filter((order) => order !== null && shouldIncludeCustomerOrderInList(order))
+                        .map((order) => {
+                            if (!order.orderBreakdown) return order;
+                            return {
+                                ...order,
+                                orderBreakdown: ensureLineIdsInBreakdown(order.id, order.orderBreakdown).breakdown,
+                            };
+                        });
 
                     // Independent: include all so we can show status (held/pending/etc.)
                     const validIndependent = (independentCombined || []).filter((order) => order !== null);
@@ -307,7 +289,9 @@ const MyOrders = () => {
                 refundData = {
                     ...refundData,
                     orderId: formData.orderId,
-                    orderAmount: orderToRefund?.totalAmount || orderToRefund?.grandTotal || formData.orderAmount || 0,
+                    orderAmount: orderToRefund?.orderBreakdown
+                        ? computeCustomerOrderGrandTotal(orderToRefund)
+                        : (orderToRefund?.totalAmount || orderToRefund?.grandTotal || formData.orderAmount || 0),
                     orderDate: orderToRefund?.createdAt || serverTimestamp(),
                     businessId: orderToRefund?.businessId || '',
                     businessName: orderToRefund?.businessName || 'Unknown Business',
@@ -414,8 +398,8 @@ const MyOrders = () => {
                                             <div key={businessOrderId} className="mb-3 pl-4 border-r-2 border-blue-200">
                                                 <p className="text-sm font-medium text-gray-800">{businessOrder.businessName || 'עסק לא ידוע'}</p>
                                                 <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
-                                                    {businessOrder.items?.map((item, index) => (
-                                                        <li key={index}>
+                                                    {filterCustomerActiveLines(order, businessOrder.items).map((item, index) => (
+                                                        <li key={item.lineId || index}>
                                                             {item.productName} (x{item.quantity})
                                                             {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
                                                             {typeof item.price === 'number' && (
@@ -430,8 +414,8 @@ const MyOrders = () => {
                                     {/* Unified fallback for independent or legacy structures */}
                                     {(!order.orderBreakdown || !Object.values(order.orderBreakdown).some((v) => Array.isArray(v?.items))) && (
                                         <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
-                                            {(order.items || order.orderItems || []).map((item, index) => (
-                                                <li key={index}>
+                                            {filterCustomerActiveLines(order, order.items || order.orderItems || []).map((item, index) => (
+                                                <li key={item.lineId || index}>
                                                     {item.productName} (x{item.quantity})
                                                     {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
                                                     {typeof item.price === 'number' && (
@@ -446,7 +430,9 @@ const MyOrders = () => {
                                 <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
                                     <span className="text-md font-semibold text-gray-800">סה"כ לתשלום:</span>
                                     <span className="text-lg font-bold text-blue-600">
-                                        ₪{order.grandTotal?.toFixed(2) || order.totalAmount?.toFixed(2) || '0.00'}
+                                        ₪{(order.orderBreakdown
+                                            ? computeCustomerOrderGrandTotal(order)
+                                            : (order.grandTotal || order.totalAmount || 0)).toFixed(2)}
                                     </span>
                                 </div>
                                 {getOrderPickupSpot(order) && (

@@ -3,6 +3,8 @@ import { getAuth } from 'firebase/auth';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
 import { getOrderCommunity, getOrderDeliveryDate } from '../../../utils/deliveryScheduleUtils';
+import { filterCustomerActiveLines } from '../../../utils/customerOrderUtils';
+import { ensureLineIdsInBreakdown, flattenOrderBreakdown } from './v7/orderDraftUtils';
 
 async function getIdTokenIfAvailable() {
   try {
@@ -38,18 +40,6 @@ function normalizeSpecificDateRange(startDate, endDate) {
   return start <= end ? { start, end } : { start: end, end: start };
 }
 
-function flattenOrderBreakdown(orderBreakdown) {
-  const out = [];
-  if (!orderBreakdown || typeof orderBreakdown !== 'object') return out;
-  Object.values(orderBreakdown).forEach((biz) => {
-    const businessName = biz?.businessName || '';
-    (biz?.items || []).forEach((it) => {
-      out.push({ ...it, businessName });
-    });
-  });
-  return out;
-}
-
 export async function fetchDelayedOrdersFromCustomerOrders({
   weekKey,
   communities = [],
@@ -82,7 +72,8 @@ export async function fetchDelayedOrdersFromCustomerOrders({
     const pickupSpot = getOrderCommunity(d);
     if (hasCommunityFilter && !allowedCommunities.includes(pickupSpot)) return;
 
-    const rawItems = d.items && Array.isArray(d.items) ? d.items : flattenOrderBreakdown(d.orderBreakdown);
+    const canonicalBreakdown = ensureLineIdsInBreakdown(docSnap.id, d.orderBreakdown || {}).breakdown;
+    const rawItems = filterCustomerActiveLines(d, flattenOrderBreakdown(canonicalBreakdown));
     const items = (rawItems || [])
       .filter((it) => it && (it.quantity || it.quantity === 0))
       .filter((it) => !it.isShipping && it.productId !== 'Mdean61FIezxRcMUZjVn')
@@ -177,7 +168,8 @@ export async function fetchCompletedOrdersForWeek({
     const pickupSpot = getOrderCommunity(d);
     if (hasCommunityFilter && !allowedCommunities.includes(pickupSpot)) return;
 
-    const rawItems = d.items && Array.isArray(d.items) ? d.items : flattenOrderBreakdown(d.orderBreakdown);
+    const canonicalBreakdown = ensureLineIdsInBreakdown(docSnap.id, d.orderBreakdown || {}).breakdown;
+    const rawItems = filterCustomerActiveLines(d, flattenOrderBreakdown(canonicalBreakdown));
     const items = (rawItems || [])
       .filter((it) => it && (it.quantity || it.quantity === 0))
       .filter((it) => !it.isShipping && it.productId !== 'Mdean61FIezxRcMUZjVn')

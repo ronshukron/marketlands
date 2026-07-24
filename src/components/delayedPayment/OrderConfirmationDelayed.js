@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
-import { doc, updateDoc, getDoc, setDoc, collection, addDoc, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, collection, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
 import { db } from '../../firebase/firebase';
 import '../OrderConfirmation.css';
 import LoadingSpinner from '../LoadingSpinner';
@@ -15,7 +15,11 @@ import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
 import { getReusableCartonConfig, isDelayedPaymentSpot } from '../../services/paymentConfigService';
 import { resolveCommunityName } from '../../services/pickupSpotsService';
-import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../utils/pricing';
+import {
+    buildPricingSnapshot,
+    getEstimatedChargeableQuantity,
+    getEstimatedLineTotal,
+} from '../../utils/pricing';
 import {
     generateAvailableDeliveryDates,
     getWeekKey,
@@ -29,6 +33,7 @@ import {
   recordReferralUse,
 } from '../../services/referralService';
 import { INTRODUCTION_BASKET_CATALOG_NUMBER } from '../../services/introductionBasketService';
+import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 
 async function processReferralReward({ orderId, buyerUid, orderTotal }) {
   const refCode = getStoredReferralCode();
@@ -78,6 +83,7 @@ const buildOrderLineFromCartItem = (item) => ({
     estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
     estimatedLineTotal: getEstimatedLineTotal(item),
     price: item.price,
+    ...buildPricingSnapshot(item),
     selectedOption: item.selectedOption || "None",
     catalogNumber: item.catalogNumber || '',
     vatType: item.vatType ?? 3,
@@ -776,8 +782,9 @@ const OrderConfirmationDelayed = () => {
             };
         });
 
+        const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
         await setDoc(customerOrderIdOrderRef, {
-            orderBreakdown,
+            orderBreakdown: persistedOrderBreakdown,
             customerDetails: {
                 name: userName,
                 phone: userPhone,
@@ -1005,7 +1012,8 @@ const OrderConfirmationDelayed = () => {
             
             // Continue with order processing...
             const orderIds = Object.keys(effectiveItemsByOrder);
-            const customerOrderId = `temp_${new Date().getTime()}`;
+            const customerOrderRef = doc(collection(db, "customerOrdersDelayed"));
+            const customerOrderId = customerOrderRef.id;
             
             const orderBreakdown = {};
             const businessIds = [];
@@ -1038,8 +1046,9 @@ const OrderConfirmationDelayed = () => {
             });
 
             // Create the pending order document
+            const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
             const customerOrderData = {
-                orderBreakdown,
+                orderBreakdown: persistedOrderBreakdown,
                 customerDetails: {
                     name: userName,
                     phone: userPhone,
@@ -1081,7 +1090,7 @@ const OrderConfirmationDelayed = () => {
             };
             
             // Create a customer order document
-            const customerOrderRef = await addDoc(collection(db, "customerOrdersDelayed"), customerOrderData);
+            await setDoc(customerOrderRef, customerOrderData);
             
             // Now call the function that's defined at component level
             await updateOrdersWithReference(orderIds, customerOrderRef.id);

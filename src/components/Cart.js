@@ -213,6 +213,16 @@ const Cart = ({ isOpen, onClose }) => {
                         {!isBasketAdjustment && isUnitItem && '/ק"ג'}
                         {!isBasketAdjustment && isPackageItem && '/מארז'}
                       </p>
+                      {item.quantityDiscountApplied && (
+                        <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
+                          הנחת כמות הופעלה
+                          {Number(item.basePrice) > Number(item.effectivePrice) && (
+                            <span className="text-gray-400 font-normal mr-1 line-through">
+                              ₪{Number(item.basePrice).toFixed(2)}
+                            </span>
+                          )}
+                        </p>
+                      )}
                       {isUnitItem && !isBasketAdjustment && (
                         <p className="text-[10px] text-gray-500 mt-0.5">
                           הערכת חיוב: ~{estimatedChargeKg.toFixed(2)} ק"ג
