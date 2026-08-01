@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   getActivePaymentLinksForStore,
+  getSafeSingleOrderPaymentRedirect,
   PAYMENT_LINK_LABELS,
 } from '../../constants/marketplacePaymentLinks';
 import { PAYMENT_METHOD_LABELS, getMarketplaceSettings, getMarketplaceStore } from '../../services/marketplaceService';
@@ -21,13 +22,14 @@ const MarketplaceOrderConfirmation = () => {
   const [settings, setSettings] = useState(null);
   const [storesByBusiness, setStoresByBusiness] = useState({});
   const [loading, setLoading] = useState(true);
+  const [redirectingToPayment, setRedirectingToPayment] = useState(false);
 
   const session = useMemo(
     () => location.state || loadOrderConfirmationSession(),
     [location.state]
   );
 
-  const orders = session?.orders || [];
+  const orders = useMemo(() => session?.orders || [], [session]);
   const paymentMethod = session?.paymentMethod || '';
   const customer = session?.customer || {};
   const emailSummary = session?.emailSummary;
@@ -68,6 +70,32 @@ const MarketplaceOrderConfirmation = () => {
     0
   );
 
+  useEffect(() => {
+    if (loading || !showPaymentLinks) return undefined;
+    const redirectUrl = getSafeSingleOrderPaymentRedirect({
+      orders,
+      storesByBusiness,
+      selectedMethod: paymentMethod,
+    });
+    if (!redirectUrl) return undefined;
+
+    const orderId = orders[0]?.id;
+    const marker = `mp-payment-redirect:${orderId}:${paymentMethod}`;
+    if (sessionStorage.getItem(marker)) return undefined;
+    sessionStorage.setItem(marker, '1');
+    setRedirectingToPayment(true);
+
+    const timer = window.setTimeout(() => {
+      try {
+        window.location.assign(redirectUrl);
+      } catch (error) {
+        console.error('Failed to redirect to payment link', error);
+        setRedirectingToPayment(false);
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [loading, orders, paymentMethod, showPaymentLinks, storesByBusiness]);
+
   if (!session?.orders?.length) {
     return null;
   }
@@ -102,6 +130,12 @@ const MarketplaceOrderConfirmation = () => {
                 </span>
                 {PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod}
               </span>
+            </p>
+          )}
+          {redirectingToPayment && (
+            <p className="mp-alert mp-alert-warn text-sm mt-3" role="status">
+              ההזמנה נוצרה. מעבירים אתכם כעת לקישור התשלום המאובטח של הדוכן…
+              אם המעבר לא יושלם, קישור התשלום נשאר בקבלה למטה.
             </p>
           )}
         </header>

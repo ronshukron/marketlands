@@ -15,6 +15,7 @@ import {
   toggleCustomerLineExclusion,
 } from '../services/customerOrderService';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import ProductFeedbackSection from './ProductFeedbackSection';
 
 const formatDate = (timestamp) => {
   if (!timestamp) return 'לא זמין';
@@ -271,6 +272,12 @@ const CustomerOrderDetail = () => {
             </section>
           )}
         </div>
+
+        <ProductFeedbackSection
+          order={order}
+          lines={activeLines}
+          userId={currentUser?.uid}
+        />
 
         <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
           <span className="text-lg font-semibold text-gray-800">סה״כ לתשלום</span>

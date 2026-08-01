@@ -1,19 +1,27 @@
 import React from 'react';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import {
+  communityNamesMatch,
   formatDeliveryPrice,
   PICKUP_SCOPE_ALL,
   PICKUP_SCOPE_INHERIT,
   PICKUP_SCOPE_SELECTED,
 } from '../../constants/marketplaceFulfillment';
 
-const CommunityChecklist = ({ label, hint, selected, onChange, disabled = false }) => (
+const CommunityChecklist = ({
+  communities,
+  label,
+  hint,
+  selected,
+  onChange,
+  disabled = false,
+}) => (
   <div className="mp-fulfillment-communities">
     <p className="mp-form-label">{label}</p>
     {hint && <p className="mp-section-note text-sm mb-2">{hint}</p>}
     <div className="mp-fulfillment-community-grid">
-      {pickupSpots.map((spot) => {
-        const checked = selected.includes(spot);
+      {communities.map((spot) => {
+        const checked = selected.some((community) => communityNamesMatch(community, spot));
         return (
           <label
             key={spot}
@@ -26,7 +34,9 @@ const CommunityChecklist = ({ label, hint, selected, onChange, disabled = false 
               onChange={() => {
                 if (disabled) return;
                 onChange(
-                  checked ? selected.filter((c) => c !== spot) : [...selected, spot]
+                  checked
+                    ? selected.filter((community) => !communityNamesMatch(community, spot))
+                    : [...selected, spot]
                 );
               }}
             />
@@ -45,6 +55,7 @@ const CommunityChecklist = ({ label, hint, selected, onChange, disabled = false 
  * @param {object} [storeFulfillment] for promotion inherit preview
  */
 const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, storeFulfillment }) => {
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const patch = (updates) => onChange({ ...value, ...updates });
 
   const isStore = mode === 'store';
@@ -86,6 +97,7 @@ const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, st
           </label>
           {pickupScope === PICKUP_SCOPE_SELECTED && (
             <CommunityChecklist
+              communities={pickupSpots}
               label="קהילות לאיסוף עצמי"
               selected={pickupCommunities}
               onChange={(list) => patch({ pickupCommunities: list })}
@@ -105,7 +117,7 @@ const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, st
       ) : (
         <section className="mp-fulfillment-block">
           <h4 className="mp-fulfillment-subtitle">חלון הזמנה מצטברת</h4>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <label className="mp-form-label">
               פתיחת הזמנות
               <input
@@ -116,12 +128,23 @@ const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, st
               />
             </label>
             <label className="mp-form-label">
-              סגירת הזמנות
+              תאריך סגירה
               <input
                 type="date"
                 className="mp-input"
                 value={value.endsAt || ''}
                 onChange={(e) => patch({ endsAt: e.target.value })}
+                required
+              />
+            </label>
+            <label className="mp-form-label">
+              שעת סגירה מדויקת
+              <input
+                type="time"
+                className="mp-input"
+                value={value.endsAtTime || ''}
+                onChange={(e) => patch({ endsAtTime: e.target.value })}
+                required
               />
             </label>
             <label className="mp-form-label">
@@ -141,8 +164,22 @@ const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, st
               checked={value.allowSelfPickup !== false}
               onChange={(e) => patch({ allowSelfPickup: e.target.checked })}
             />
-            אפשרו גם איסוף עצמי במהלך השבוע
+            אפשרו גם איסוף עצמי מהבסטה במהלך השבוע
           </label>
+
+          <label className="inline-flex items-center gap-2 text-sm mt-2">
+            <input
+              type="checkbox"
+              checked={value.allowVolunteerPickup === true}
+              onChange={(e) => patch({ allowVolunteerPickup: e.target.checked })}
+            />
+            אפשרו למתנדבים לפתוח נקודת איסוף לקהילה שלהם
+          </label>
+          {value.allowVolunteerPickup === true && (
+            <p className="mp-section-note text-sm mt-1">
+              לקוחות יוכלו לבחור &quot;איסוף מנקודת מתנדב&quot; רק בקהילות שבהן מתנדב פעיל פתח נקודה.
+            </p>
+          )}
 
           {value.allowSelfPickup !== false && (
             <>
@@ -182,6 +219,7 @@ const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, st
               </label>
               {pickupScope === PICKUP_SCOPE_SELECTED && (
                 <CommunityChecklist
+                  communities={pickupSpots}
                   label="קהילות לאיסוף בהזמנה זו"
                   selected={pickupCommunities}
                   onChange={(list) => patch({ pickupCommunities: list })}
@@ -235,6 +273,7 @@ const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, st
             {((isStore && value.deliveryEnabled) ||
               (!isStore && value.deliveryEnabled && value.deliveryInheritFromStore === false)) && (
               <CommunityChecklist
+                communities={pickupSpots}
                 label="קהילות למשלוח"
                 hint="רק לקהילות אלו יוצג אפשרות משלוח ללקוחות"
                 selected={deliveryCommunities}
@@ -323,6 +362,9 @@ const MarketplaceFulfillmentEditor = ({ mode = 'store', value = {}, onChange, st
           </>
         )}
       </section>
+      {!communitiesLoaded && (
+        <p className="mp-section-note text-sm" role="status">טוען קהילות זמינות...</p>
+      )}
     </div>
   );
 };

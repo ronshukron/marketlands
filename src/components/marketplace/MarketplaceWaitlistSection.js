@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import { submitMarketplaceWaitlistEntry } from '../../services/marketplaceWaitlistService';
 import './marketplace.css';
 
@@ -12,6 +12,7 @@ const INITIAL_FORM = {
 };
 
 const MarketplaceWaitlistSection = () => {
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const [form, setForm] = useState(INITIAL_FORM);
   const [status, setStatus] = useState('idle'); // idle | submitting | success | error
   const [error, setError] = useState('');
@@ -140,7 +141,9 @@ const MarketplaceWaitlistSection = () => {
                 value={form.community}
                 onChange={handleChange('community')}
               >
-                <option value="">בחרו קהילה</option>
+                <option value="">
+                  {communitiesLoaded ? 'בחרו קהילה' : 'טוען קהילות...'}
+                </option>
                 {pickupSpots.map((spot) => (
                   <option key={spot} value={spot}>
                     {spot}

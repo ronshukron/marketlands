@@ -21,20 +21,20 @@
     font-size: 16px;
 }
 
-.form-group {
+.contact-form-container .form-group {
     margin-bottom: 15px;
     text-align: right;
 }
 
-.form-group label {
+.contact-form-container .form-group label {
     display: block;
     margin-bottom: 5px;
     font-weight: bold;
     color: #333;
 }
 
-.form-group input,
-.form-group textarea {
+.contact-form-container .form-group input,
+.contact-form-container .form-group textarea {
     width: 100%;
     padding: 10px;
     border: 1px solid #ccc;
@@ -44,12 +44,12 @@
     color: #333;
 }
 
-.form-group textarea {
+.contact-form-container .form-group textarea {
     resize: vertical;
     min-height: 100px;
 }
 
-button {
+.contact-form-container button {
     display: block;
     width: 100%;
     padding: 12px;
@@ -62,7 +62,7 @@ button {
     transition: background-color 0.3s ease;
 }
 
-button:hover {
+.contact-form-container button:hover {
     background-color: #0056b3;
 }
 

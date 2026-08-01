@@ -17,6 +17,16 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+export function buildStationAuditV7(session = {}, updatedAtIso = nowIso()) {
+  return {
+    stationId: session?.stationId || '',
+    sessionId: session?.sessionId || '',
+    userId: session?.userId || null,
+    userName: session?.userName || '',
+    updatedAtIso,
+  };
+}
+
 function parseIso(value) {
   const parsed = new Date(value || 0);
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
@@ -261,12 +271,23 @@ export async function bulkSetDraftWeightsV7({
   await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(ref);
     const existing = snap.exists() ? (snap.data() || {}) : {};
-    const merged = { ...(existing.weightsByLineId || {}), ...(incoming || {}) };
+    const timestamp = nowIso();
+    const lineAudit = buildStationAuditV7(session, timestamp);
+    const attributedIncoming = Object.fromEntries(
+      Object.entries(incoming || {}).map(([lineId, value]) => [
+        lineId,
+        {
+          ...(value || {}),
+          audit: lineAudit,
+        },
+      ]),
+    );
+    const merged = { ...(existing.weightsByLineId || {}), ...attributedIncoming };
     const next = {
       ...existing,
       orderId,
       weightsByLineId: merged,
-      updatedAtIso: nowIso(),
+      updatedAtIso: timestamp,
       updatedAt: serverTimestamp(),
       updatedBySessionId: session?.sessionId || '',
       updatedByName: session?.userName || '',
@@ -288,10 +309,17 @@ export async function setDraftLineWeightV7({
 }) {
   if (!weekKey || !orderId || !lineId) return;
   const ref = draftRef(weekKey, orderId);
+  const timestamp = nowIso();
   const data = {
     orderId,
-    weightsByLineId: { [lineId]: { actualQuantity, source } },
-    updatedAtIso: nowIso(),
+    weightsByLineId: {
+      [lineId]: {
+        actualQuantity,
+        source,
+        audit: buildStationAuditV7(session, timestamp),
+      },
+    },
+    updatedAtIso: timestamp,
     updatedAt: serverTimestamp(),
     updatedBySessionId: session?.sessionId || '',
     updatedByName: session?.userName || '',
@@ -310,10 +338,17 @@ export async function clearDraftLineWeightV7({
 }) {
   if (!weekKey || !orderId || !lineId) return;
   const ref = draftRef(weekKey, orderId);
+  const timestamp = nowIso();
   const data = {
     orderId,
-    weightsByLineId: { [lineId]: { actualQuantity: null, source: 'manual' } },
-    updatedAtIso: nowIso(),
+    weightsByLineId: {
+      [lineId]: {
+        actualQuantity: null,
+        source: 'manual',
+        audit: buildStationAuditV7(session, timestamp),
+      },
+    },
+    updatedAtIso: timestamp,
     updatedAt: serverTimestamp(),
     updatedBySessionId: session?.sessionId || '',
     updatedByName: session?.userName || '',

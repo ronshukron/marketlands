@@ -8,7 +8,12 @@ import './AddProduct.css';
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
 import axios from 'axios'; // Add this import at the top
-import { normalizeQuantityDiscount, validateQuantityDiscount } from '../../utils/pricing';
+import {
+  buildDefaultQuantityDiscountLabel,
+  normalizeQuantityDiscount,
+  normalizeQuantityDiscountLabel,
+  validateQuantityDiscount,
+} from '../../utils/pricing';
 
 
 const AddProduct = () => {
@@ -17,6 +22,7 @@ const AddProduct = () => {
   const [price, setPrice] = useState('');
   const [quantityDiscountThreshold, setQuantityDiscountThreshold] = useState('');
   const [quantityDiscountPrice, setQuantityDiscountPrice] = useState('');
+  const [quantityDiscountLabel, setQuantityDiscountLabel] = useState('');
   const [description, setDescription] = useState('');
   const [options, setOptions] = useState([]);
   const [currentOption, setCurrentOption] = useState('');
@@ -36,6 +42,8 @@ const AddProduct = () => {
   const [isSample, setIsSample] = useState(false);
   const [category, setCategory] = useState('');
   const [showInAllCategory, setShowInAllCategory] = useState(false);
+  const [isOrganic, setIsOrganic] = useState(false);
+  const [isRecommended, setIsRecommended] = useState(false);
 
   // Predefined unit size options (in kg)
   const UNIT_SIZE_OPTIONS = [
@@ -238,12 +246,18 @@ const AddProduct = () => {
         verified: false,
         rejected: false,
         isSample: isSample || parseFloat(price) === 0,
+        isOrganic,
+        isRecommended,
       };
       const quantityDiscount = normalizeQuantityDiscount(
         quantityDiscountThreshold,
         quantityDiscountPrice,
       );
-      if (quantityDiscount) Object.assign(productData, quantityDiscount);
+      if (quantityDiscount) {
+        Object.assign(productData, quantityDiscount);
+        const customLabel = normalizeQuantityDiscountLabel(quantityDiscountLabel);
+        if (customLabel) productData.quantityDiscountLabel = customLabel;
+      }
 
       await addDoc(collection(db, 'Products'), productData);
       
@@ -369,6 +383,30 @@ const AddProduct = () => {
                 placeholder="נמוך מהמחיר הרגיל"
               />
             </div>
+            <div className="md:col-span-2">
+              <label htmlFor="quantityDiscountLabel" className="block text-sm font-medium text-gray-700 mb-1">
+                טקסט תג ההנחה (אופציונלי)
+              </label>
+              <input
+                id="quantityDiscountLabel"
+                type="text"
+                value={quantityDiscountLabel}
+                onChange={(e) => setQuantityDiscountLabel(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder={
+                  buildDefaultQuantityDiscountLabel(quantityDiscountThreshold, quantityDiscountPrice)
+                  || 'לדוגמה: במבצע 2 ב-14 ₪'
+                }
+              />
+              <p className="mt-1 text-xs text-emerald-800">
+                {quantityDiscountLabel.trim()
+                  ? 'הטקסט שכתבתם יוצג על כרטיס המוצר.'
+                  : `אם השדה ריק, יוצג אוטומטית: ${
+                    buildDefaultQuantityDiscountLabel(quantityDiscountThreshold, quantityDiscountPrice)
+                    || '4+ ב-₪4.90 ליחידת מחיר'
+                  }`}
+              </p>
+            </div>
             <p className="md:col-span-2 text-xs text-emerald-800">
               יש למלא את שני השדות. המחיר המוזל יחול על כל הכמות כאשר הסף מושג.
             </p>
@@ -382,6 +420,30 @@ const AddProduct = () => {
             />
             <span className="text-sm text-gray-700">דגימה בחינם (מוצג כתגית באתר; מחיר 0 מאפשר הזמנה ללא תשלום)</span>
           </label>
+
+          <fieldset className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <legend className="px-1 text-sm font-semibold text-gray-800">תגיות מוצר בחנות הרגילה</legend>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={isOrganic}
+                  onChange={(e) => setIsOrganic(e.target.checked)}
+                  className="h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                />
+                <span className="text-sm text-gray-700">אורגני</span>
+              </label>
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={isRecommended}
+                  onChange={(e) => setIsRecommended(e.target.checked)}
+                  className="h-5 w-5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                />
+                <span className="text-sm text-gray-700">מומלץ</span>
+              </label>
+            </div>
+          </fieldset>
 
           {/* Category */}
           <div className="mb-4">

@@ -540,12 +540,21 @@ export async function handleSuspendedPaymentV7({
   finalInvoiceLines = [],
   finalSum = 0,
   productDataForGrow = {},
+  weighingAudit = null,
 }) {
   const token = await getIdTokenIfAvailable();
   const url = functionsEndpoint('handleSuspendedPayment');
   const { data } = await axios.post(
     url,
-    { orderId, weightsByLineId, removedLineIds, finalInvoiceLines, finalSum, productDataForGrow },
+    {
+      orderId,
+      weightsByLineId,
+      removedLineIds,
+      finalInvoiceLines,
+      finalSum,
+      productDataForGrow,
+      ...(weighingAudit ? { weighingAudit } : {}),
+    },
     {
       headers: getMutationHeaders(token),
       timeout: 30000,

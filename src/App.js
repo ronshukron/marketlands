@@ -101,6 +101,7 @@ import MarketplaceHome from './components/marketplace/MarketplaceHome';
 import MarketplaceLogin from './components/marketplace/MarketplaceLogin';
 import MarketplaceRegister from './components/marketplace/MarketplaceRegister';
 import MarketplaceOrderForm from './components/marketplace/MarketplaceOrderForm';
+import MarketplaceVolunteerPickup from './components/marketplace/MarketplaceVolunteerPickup';
 import SellerMarketplaceDashboard from './components/marketplace/SellerMarketplaceDashboard';
 import MarketplaceProductsList from './components/marketplace/products/MarketplaceProductsList';
 import MarketplaceAddProduct from './components/marketplace/products/MarketplaceAddProduct';
@@ -123,6 +124,8 @@ import MarketplaceTermsOfService from './components/marketplace/MarketplaceTerms
 import AdminPwaInstall from './components/admin/AdminPwaInstall';
 import IntroductionBasketAdmin from './components/admin/IntroductionBasketAdmin';
 import SupplierPriceImportAdmin from './components/admin/SupplierPriceImportAdmin';
+import ProductFeedbackAdmin from './components/admin/ProductFeedbackAdmin';
+import CopyProductsAdmin from './components/admin/CopyProductsAdmin';
 import BlogIndex from './components/blog/BlogIndex';
 import BlogPost from './components/blog/BlogPost';
 import BlogAdmin from './components/admin/BlogAdmin';
@@ -205,6 +208,8 @@ const App = () => {
                   <Route path="/admin/transfer-delivery-week" element={<CustomerOrderDeliveryTransferAdmin />} />
                   <Route path="/admin/order-from-suppliers" element={<WeeklyOrderFromSuppliersV1 />} />
                   <Route path="/admin/supplier-price-import" element={<SupplierPriceImportAdmin />} />
+                  <Route path="/admin/product-feedback" element={<ProductFeedbackAdmin />} />
+                  <Route path="/admin/copy-products" element={<CopyProductsAdmin />} />
                   <Route path="/admin/delivery-v2" element={<DeliveryManagementV2 />} />
                   <Route path="/admin/delivery-v3" element={<DeliveryManagementV3 />} />
                   <Route path="/admin/delivery-v4" element={<DeliveryManagementV4 />} />
@@ -262,6 +267,10 @@ const App = () => {
                   />
                   <Route path="/community-marketplace/my-orders" element={<MarketplaceMyOrders />} />
                   <Route path="/community-marketplace/order/:promotionId" element={<MarketplaceOrderForm />} />
+                  <Route
+                    path="/community-marketplace/volunteer/:promotionId"
+                    element={<MarketplaceVolunteerPickup />}
+                  />
                   <Route path="/marketplace/my-store" element={<MarketplaceMyStore />} />
                   <Route path="/marketplace/orders" element={<MarketplaceBusinessOrders />} />
                   <Route path="/marketplace/dashboard" element={<SellerMarketplaceDashboard />} />

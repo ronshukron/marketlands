@@ -1,5 +1,6 @@
-import React from 'react';
-import { pickupSpots } from '../../data/pickupSpots';
+import React, { useEffect } from 'react';
+import usePickupSpots from '../../hooks/usePickupSpots';
+import { resolveMarketplaceCommunityName } from '../../utils/marketplaceCommunityIdentity';
 import './marketplace.css';
 
 const CommunityPinIcon = () => (
@@ -26,6 +27,17 @@ const CommunityFilterToggle = ({
   variant = 'panel',
 }) => {
   const isRail = variant === 'rail';
+  const { pickupSpots, loaded } = usePickupSpots();
+
+  useEffect(() => {
+    if (!loaded || !communityName) return;
+    const canonical = resolveMarketplaceCommunityName(communityName);
+    if (!pickupSpots.includes(canonical)) {
+      onCommunityChange('');
+    } else if (canonical !== communityName) {
+      onCommunityChange(canonical);
+    }
+  }, [communityName, loaded, onCommunityChange, pickupSpots]);
 
   const content = (
     <>
@@ -46,7 +58,7 @@ const CommunityFilterToggle = ({
             onChange={(event) => onCommunityChange(event.target.value)}
             className="mp-select"
           >
-            <option value="">בחרו קהילה</option>
+            <option value="">{loaded ? 'בחרו קהילה' : 'טוען קהילות...'}</option>
             {pickupSpots.map((spot) => (
               <option key={spot} value={spot}>
                 {spot}

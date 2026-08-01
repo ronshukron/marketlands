@@ -207,9 +207,23 @@ export function getNextUnweighedIndex(items = [], weightsByLineId = {}, removedL
   return -1;
 }
 
-export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }) {
+export function buildSettlementPayload({
+  selectedOrder,
+  items = [],
+  draft = {},
+  weighingAudit = null,
+}) {
   const weightsByLineId = draft?.weightsByLineId || {};
   const removedLineIds = draft?.removedLineIds || {};
+  const hasWeighingAudit = weighingAudit && typeof weighingAudit === 'object';
+  const finalizedWeightsByLineId = Object.fromEntries(
+    Object.entries(weightsByLineId).map(([lineId, value]) => [
+      lineId,
+      hasWeighingAudit && value?.actualQuantity != null
+        ? { ...(value || {}), audit: value?.audit || weighingAudit }
+        : value,
+    ]),
+  );
 
   const basketGroups = {};
   (items || []).forEach((item) => {
@@ -239,6 +253,7 @@ export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }
       const linePrice = roundTo(safeNumber(actualQuantity) * pricePerUnit, 2);
       const measurementType = item?.measurementType || 'kg';
       const weighSource = weightsByLineId?.[item?.lineId]?.source || (measurementType === 'package' ? 'package' : 'manual');
+      const lineAudit = weightsByLineId?.[item?.lineId]?.audit || weighingAudit;
 
       return {
         lineId: item?.lineId,
@@ -252,6 +267,7 @@ export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }
         linePrice,
         measurementType,
         weighSource,
+        ...(lineAudit && typeof lineAudit === 'object' ? { audit: lineAudit } : {}),
       };
     });
 
@@ -271,6 +287,7 @@ export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }
     basketInstanceId: basket.basketInstanceId,
     componentLineIds: basket.componentLineIds,
     componentSubtotal: roundTo(basket.componentSubtotal, 2),
+    ...(hasWeighingAudit ? { audit: weighingAudit } : {}),
   }));
 
   const finalInvoiceLines = [...normalInvoiceLines, ...basketInvoiceLines];
@@ -296,11 +313,12 @@ export function buildSettlementPayload({ selectedOrder, items = [], draft = {} }
 
   return {
     orderId: selectedOrder?.id,
-    weightsByLineId,
+    weightsByLineId: finalizedWeightsByLineId,
     removedLineIds,
     finalInvoiceLines,
     finalSum,
     productDataForGrow,
+    ...(hasWeighingAudit ? { weighingAudit } : {}),
   };
 }
 

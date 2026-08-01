@@ -18,6 +18,12 @@ import {
     getEstimatedLineTotal,
 } from '../utils/pricing';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import CheckoutAccountModal from './CheckoutAccountModal';
+import {
+    buildOrderAccountPayload,
+    CHECKOUT_ACCOUNT_ACTIONS,
+    resolveCheckoutAccountAction,
+} from '../utils/checkoutAccountUtils';
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
 const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
@@ -43,6 +49,9 @@ const OrderConfirmation = () => {
     const [formIsValid, setFormIsValid] = useState(false);
     const [showPopup, setShowPopup] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
+    const [createAccount, setCreateAccount] = useState(true);
+    const [showAccountInfo, setShowAccountInfo] = useState(false);
+    const [showAccountModal, setShowAccountModal] = useState(false);
     const [userAddress, setUserAddress] = useState(''); 
     const [requestAddress, setRequestAddress] = useState(false); 
     const [userDirections, setUserDirections] = useState('');
@@ -358,7 +367,7 @@ const OrderConfirmation = () => {
 
 
 
-    const handleSubmitOrder = async () => {
+    const handleSubmitOrder = async (checkoutUid = null) => {
         if (!formIsValid) {
             setShowPopup(true);
             return;
@@ -487,20 +496,19 @@ const OrderConfirmation = () => {
                 createdAt: new Date().toISOString(),
             paymentStatus: 'pending_payment',
             grandTotal: totalWithDelivery,
-            // If user is logged in, store their ID
-            userId: currentUser?.uid || null
+            ...buildOrderAccountPayload(checkoutUid)
         });
 
         // Update the original orders with the actual document ID
         await updateOrdersWithReference(Object.keys(itemsByOrder), customerOrderId);
 
         // Add the order to the user's document
-        if (currentUser && currentUser.uid) {
+        if (checkoutUid) {
             try {
-                const userDocRef = doc(db, "users", currentUser.uid);
-                await updateDoc(userDocRef, {
+                const userDocRef = doc(db, "users", checkoutUid);
+                await setDoc(userDocRef, {
                     orders: arrayUnion(customerOrderId)
-                });
+                }, { merge: true });
             } catch (error) {
                 console.error("Error updating user document:", error);
             }
@@ -610,7 +618,7 @@ const OrderConfirmation = () => {
     );
 
     // Add this function to handle free orders
-    const handleFreeOrder = async () => {
+    const handleFreeOrder = async (checkoutUid = null) => {
         try {
             setLoading(true);
             
@@ -712,8 +720,7 @@ const OrderConfirmation = () => {
                 paymentStatus: 'completed',
                 paymentMethod: 'free',
                 grandTotal: totalWithDelivery,
-                // If user is logged in, store their ID
-                userId: currentUser?.uid || null
+                ...buildOrderAccountPayload(checkoutUid)
             };
             
             // Create a customer order document
@@ -724,18 +731,18 @@ const OrderConfirmation = () => {
             await updateOrdersWithReference(orderIds, customerOrderRef.id);
 
             // Also add the order to the user's document if user is logged in
-            if (currentUser && currentUser.uid) {
+            if (checkoutUid) {
                 try {
                     // Get a reference to the user document
-                    const userDocRef = doc(db, "users", currentUser.uid);
+                    const userDocRef = doc(db, "users", checkoutUid);
                     
                     // Update the user document
-                    await updateDoc(userDocRef, {
+                    await setDoc(userDocRef, {
                         // Add the order ID to the orders array field
                         orders: arrayUnion(customerOrderRef.id)
-                    });
+                    }, { merge: true });
                     
-                    console.log(`Added order ${customerOrderRef.id} to user ${currentUser.uid}'s orders list`);
+                    console.log(`Added order ${customerOrderRef.id} to user ${checkoutUid}'s orders list`);
                 } catch (error) {
                     console.error("Error updating user document with order reference:", error);
                 }
@@ -777,7 +784,7 @@ const OrderConfirmation = () => {
     };
 
     // Update the proceedToCheckout function to check for terms and pickup spot
-    const proceedToCheckout = async () => {
+    const proceedToCheckout = async (resolvedUid) => {
         // First check agreement to terms
         if (!agreeToTerms) {
             Swal.fire({
@@ -805,6 +812,16 @@ const OrderConfirmation = () => {
             // Show general form validation popup
             setShowPopup(true);
             return;
+        }
+
+        let checkoutUid = resolvedUid;
+        if (resolvedUid === undefined) {
+            const accountResolution = resolveCheckoutAccountAction({ currentUser, createAccount });
+            if (accountResolution.action === CHECKOUT_ACCOUNT_ACTIONS.REQUEST_AUTH) {
+                setShowAccountModal(true);
+                return;
+            }
+            checkoutUid = accountResolution.uid;
         }
         
         try {
@@ -842,12 +859,12 @@ const OrderConfirmation = () => {
             
             // Check if the entire payable amount is 0 (considering shipping as well)
             if (totalWithDelivery === 0) {
-                handleFreeOrder();
+                handleFreeOrder(checkoutUid);
                 return;
             }
 
             // Continue with payment processing
-            handleSubmitOrder();
+            handleSubmitOrder(checkoutUid);
         } catch (error) {
             console.error("Error proceeding to checkout:", error);
             Swal.fire({
@@ -898,6 +915,20 @@ const OrderConfirmation = () => {
 
     return (
         <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
+            <CheckoutAccountModal
+                open={showAccountModal}
+                prefill={{ email: userEmail, name: userName, phone: userPhone, community: selectedPickupSpot }}
+                onAuthenticated={(uid) => {
+                    setShowAccountModal(false);
+                    proceedToCheckout(uid);
+                }}
+                onContinueAsGuest={() => {
+                    setCreateAccount(false);
+                    setShowAccountModal(false);
+                    proceedToCheckout(null);
+                }}
+                onCancel={() => setShowAccountModal(false)}
+            />
             <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="bg-blue-600 text-white px-6 py-4">
                     <h1 className="text-2xl font-bold">השלמת הזמנה</h1>
@@ -959,6 +990,40 @@ const OrderConfirmation = () => {
                                     </p>
                                 )}
                     </div>
+
+                            {!userLoggedIn && (
+                                <div className="md:col-span-2 w-full">
+                                    <div className="flex w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                                        <input
+                                            id="createCheckoutAccount"
+                                            type="checkbox"
+                                            checked={createAccount}
+                                            onChange={(e) => setCreateAccount(e.target.checked)}
+                                            className="!m-0 !h-4 !w-4 !min-w-4 !max-w-4 !shrink-0 !p-0 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <label
+                                            htmlFor="createCheckoutAccount"
+                                            className="!m-0 !block min-w-0 flex-1 cursor-pointer text-sm font-semibold leading-5 text-blue-900"
+                                        >
+                                            תיצור לי משתמש למעקב אחרי הזמנות ועוד
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAccountInfo((open) => !open)}
+                                            className="!m-0 !inline-flex !h-8 !w-8 !min-w-8 !max-w-8 !shrink-0 !p-0 items-center justify-center rounded-full border border-blue-500 bg-white text-xs font-bold text-blue-700 hover:bg-blue-100"
+                                            aria-expanded={showAccountInfo}
+                                            aria-label="מידע נוסף על יצירת חשבון"
+                                        >
+                                            i
+                                        </button>
+                                    </div>
+                                    {showAccountInfo && (
+                                        <p className="mt-1 text-xs leading-5 text-blue-900">
+                                            לפני התשלום תוכלו לבחור סיסמה או להתחבר עם Google. עם משתמש אפשר לעקוב אחרי הזמנות, לבקש החזר ולהסיר פריטים מההזמנה. אפשר להסיר את הסימון ולהמשיך כאורחים.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Pickup Spot Selection */}
                             {availablePickupSpots.length > 0 && (
@@ -1140,7 +1205,7 @@ const OrderConfirmation = () => {
                         </div>
 
                         <button
-                            onClick={proceedToCheckout}
+                            onClick={() => proceedToCheckout()}
                             disabled={!agreeToTerms || !formIsValid}
                             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-3 sm:py-4 px-4 sm:px-6 rounded-lg text-base sm:text-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg"
                         >

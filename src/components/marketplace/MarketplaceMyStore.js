@@ -4,7 +4,7 @@ import Swal from 'sweetalert2';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import { MARKETPLACE_STORES_STORAGE_PREFIX } from '../../constants/marketplaceStores';
 import { DEFAULT_MARKETPLACE_STORE_CONTENT, normalizeStoreContent } from '../../constants/marketplaceStoreContent';
 import { DEFAULT_STORE_FULFILLMENT, storeFulfillmentToForm } from '../../constants/marketplaceFulfillment';
@@ -23,6 +23,7 @@ import {
   getMarketplaceStore,
   saveMarketplaceStore,
 } from '../../services/marketplaceService';
+import { resolveMarketplaceCommunityName } from '../../utils/marketplaceCommunityIdentity';
 import LoadingSpinner from '../LoadingSpinner';
 import defaultBackground from '../../images/Field.jpg';
 import './marketplace.css';
@@ -65,6 +66,7 @@ const uploadStoreImage = async (uid, file, kind) =>
 
 const MarketplaceMyStore = () => {
   const { currentUser, userRole } = useAuth();
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const [form, setForm] = useState(emptyForm);
   const [business, setBusiness] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -116,6 +118,15 @@ const MarketplaceMyStore = () => {
 
     load();
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!communitiesLoaded || !form.homeCommunity) return;
+    const canonical = resolveMarketplaceCommunityName(form.homeCommunity);
+    const nextCommunity = pickupSpots.includes(canonical) ? canonical : '';
+    if (nextCommunity !== form.homeCommunity) {
+      setForm((current) => ({ ...current, homeCommunity: nextCommunity }));
+    }
+  }, [communitiesLoaded, form.homeCommunity, pickupSpots]);
 
   const togglePaymentMethod = (method) => {
     setForm((current) => {

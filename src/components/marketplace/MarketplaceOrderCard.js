@@ -411,6 +411,31 @@ const MarketplaceOrderCard = ({
                   <strong>קהילה:</strong> {order.customerCommunity}
                 </p>
               )}
+              {(order.fulfillmentLabel || order.selectedDeliveryOption || order.fulfillmentMethod) && (
+                <p>
+                  <strong>אופן אספקה:</strong>{' '}
+                  {order.fulfillmentLabel ||
+                    order.selectedDeliveryOption ||
+                    (order.fulfillmentMethod === 'volunteer_pickup'
+                      ? 'איסוף מנקודת מתנדב'
+                      : order.fulfillmentMethod === 'pickup'
+                        ? 'איסוף עצמי מהבסטה'
+                        : order.fulfillmentMethod === 'delivery'
+                          ? 'משלוח לקהילה'
+                          : order.fulfillmentMethod)}
+                  {order.fulfillmentSubtype === 'volunteer' ||
+                  order.fulfillmentMethod === 'volunteer_pickup'
+                    ? ' (מתנדב)'
+                    : order.fulfillmentSubtype === 'business' || order.fulfillmentMethod === 'pickup'
+                      ? ' (מהבסטה)'
+                      : ''}
+                </p>
+              )}
+              {order.volunteerId && (
+                <p className="mp-section-note text-sm">
+                  מזהה נקודת מתנדב: {order.volunteerId}
+                </p>
+              )}
             </div>
           )}
 

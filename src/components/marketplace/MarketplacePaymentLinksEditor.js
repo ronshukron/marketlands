@@ -2,10 +2,12 @@ import React from 'react';
 import {
   PAYMENT_LINK_LABELS,
   PAYMENT_LINK_METHODS,
+  validateStorePaymentLinks,
 } from '../../constants/marketplacePaymentLinks';
 
 const MarketplacePaymentLinksEditor = ({ paymentLinks, onChange, disabled = false, disabledNote }) => {
   const links = paymentLinks || {};
+  const validation = validateStorePaymentLinks({ paymentLinks: links });
 
   const patchSlot = (method, patch) => {
     onChange({
@@ -19,7 +21,7 @@ const MarketplacePaymentLinksEditor = ({ paymentLinks, onChange, disabled = fals
       <div>
         <h3 className="mp-section-title text-base">קישורי תשלום ללקוחות</h3>
         <p className="mp-section-note text-sm mt-1">
-          לאחר הזמנה, הלקוח יראה בעמוד האישור קישור לתשלום (Bit, PayBox וכו׳) — אם המנהל הפעיל את התכונה.
+          לאחר יצירת הזמנה, הלקוח יועבר אוטומטית לקישור התשלום שבחר (Bit, PayBox וכו׳). אם אין קישור תקין — יוצג עמוד האישור עם פרטי התשלום.
         </p>
         {disabled && disabledNote && (
           <p className="mp-alert mp-alert-warn text-sm mt-2">{disabledNote}</p>
@@ -28,6 +30,7 @@ const MarketplacePaymentLinksEditor = ({ paymentLinks, onChange, disabled = fals
 
       {PAYMENT_LINK_METHODS.map((method) => {
         const slot = links[method] || { enabled: false, url: '', instructions: '' };
+        const error = validation.errors[method];
         return (
           <div
             key={method}
@@ -55,7 +58,10 @@ const MarketplacePaymentLinksEditor = ({ paymentLinks, onChange, disabled = fals
                       value={slot.url}
                       onChange={(e) => patchSlot(method, { url: e.target.value })}
                       placeholder="https://..."
+                      required
+                      aria-invalid={Boolean(error)}
                     />
+                    {error && <span className="mp-form-error" role="alert">{error}</span>}
                   </label>
                 ) : (
                   <label className="mp-form-label">
@@ -67,7 +73,10 @@ const MarketplacePaymentLinksEditor = ({ paymentLinks, onChange, disabled = fals
                       value={slot.instructions}
                       onChange={(e) => patchSlot(method, { instructions: e.target.value })}
                       placeholder="בנק, סניף, חשבון, שם מוטב..."
+                      required
+                      aria-invalid={Boolean(error)}
                     />
+                    {error && <span className="mp-form-error" role="alert">{error}</span>}
                   </label>
                 )}
                 {method !== 'bank_transfer' && (

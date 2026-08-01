@@ -8,6 +8,7 @@ import {
   MARKETPLACE_CUSTOMER_ROLE,
   MARKETPLACE_USERS_COLLECTION,
 } from '../constants/marketplaceUsers';
+import { resolveMarketplaceCommunityName } from '../utils/marketplaceCommunityIdentity';
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
@@ -25,7 +26,7 @@ export const buildMarketplaceUserProfile = ({
     email: normalizeEmail(email),
     name: String(name || '').trim(),
     phone: String(phone || '').trim(),
-    community: String(community || '').trim(),
+    community: resolveMarketplaceCommunityName(community),
     role: MARKETPLACE_CUSTOMER_ROLE,
     source,
     updatedAt: serverTimestamp(),

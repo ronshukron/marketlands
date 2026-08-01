@@ -34,6 +34,12 @@ import {
 } from '../../services/referralService';
 import { INTRODUCTION_BASKET_CATALOG_NUMBER } from '../../services/introductionBasketService';
 import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import CheckoutAccountModal from '../CheckoutAccountModal';
+import {
+    buildOrderAccountPayload,
+    CHECKOUT_ACCOUNT_ACTIONS,
+    resolveCheckoutAccountAction,
+} from '../../utils/checkoutAccountUtils';
 
 async function processReferralReward({ orderId, buyerUid, orderTotal }) {
   const refCode = getStoredReferralCode();
@@ -176,6 +182,9 @@ const OrderConfirmationDelayed = () => {
     const [formIsValid, setFormIsValid] = useState(false);
     const [showPopup, setShowPopup] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
+    const [createAccount, setCreateAccount] = useState(true);
+    const [showAccountInfo, setShowAccountInfo] = useState(false);
+    const [showAccountModal, setShowAccountModal] = useState(false);
     const [userAddress, setUserAddress] = useState(''); 
     const [requestAddress, setRequestAddress] = useState(false); 
     const [userDirections, setUserDirections] = useState('');
@@ -687,7 +696,7 @@ const OrderConfirmationDelayed = () => {
         checkExpiredOrders();
     }, [itemsByOrder, navigate, removeOrderFromCart]);
 
-    const handleSubmitOrder = async () => {
+    const handleSubmitOrder = async (checkoutUid = null) => {
         if (!formIsValid) {
             setShowPopup(true);
             return;
@@ -832,20 +841,19 @@ const OrderConfirmationDelayed = () => {
                 holdBufferPercent: HOLD_BUFFER_PERCENT,
                 holdSum: Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100
             },
-            // If user is logged in, store their ID
-            userId: currentUser?.uid || null
+            ...buildOrderAccountPayload(checkoutUid)
         }, { merge: true });
 
         // Update the original orders with the actual document ID
         await updateOrdersWithReference(Object.keys(effectiveItemsByOrder), customerOrderId);
 
         // Add the order to the user's document
-        if (currentUser && currentUser.uid) {
+        if (checkoutUid) {
             try {
-                const userDocRef = doc(db, "users", currentUser.uid);
-                await updateDoc(userDocRef, {
+                const userDocRef = doc(db, "users", checkoutUid);
+                await setDoc(userDocRef, {
                     orders: arrayUnion(customerOrderId)
-                });
+                }, { merge: true });
             } catch (error) {
                 console.error("Error updating user document:", error);
             }
@@ -976,7 +984,7 @@ const OrderConfirmationDelayed = () => {
     }
 
     // Add this function to handle free orders (unchanged)
-    const handleFreeOrder = async () => {
+    const handleFreeOrder = async (checkoutUid = null) => {
         try {
             setLoading(true);
             
@@ -1085,8 +1093,7 @@ const OrderConfirmationDelayed = () => {
                 paymentStatus: 'completed',
                 paymentMethod: 'free',
                 grandTotal: effectiveTotalWithDelivery,
-                // If user is logged in, store their ID
-                userId: currentUser?.uid || null
+                ...buildOrderAccountPayload(checkoutUid)
             };
             
             // Create a customer order document
@@ -1096,21 +1103,21 @@ const OrderConfirmationDelayed = () => {
             await updateOrdersWithReference(orderIds, customerOrderRef.id);
             await processReferralReward({
               orderId: customerOrderRef.id,
-              buyerUid: currentUser?.uid,
+              buyerUid: checkoutUid,
               orderTotal: effectiveTotalWithDelivery,
             });
 
             // Also add the order to the user's document if user is logged in
-            if (currentUser && currentUser.uid) {
+            if (checkoutUid) {
                 try {
                     // Get a reference to the user document
-                    const userDocRef = doc(db, "users", currentUser.uid);
+                    const userDocRef = doc(db, "users", checkoutUid);
                     
                     // Update the user document
-                    await updateDoc(userDocRef, {
+                    await setDoc(userDocRef, {
                         // Add the order ID to the orders array field
                         orders: arrayUnion(customerOrderRef.id)
-                    });
+                    }, { merge: true });
                 } catch (error) {
                     console.error("Error updating user document with order reference:", error);
                 }
@@ -1152,7 +1159,7 @@ const OrderConfirmationDelayed = () => {
     };
 
     // Update the proceedToCheckout function to check for terms and pickup spot
-    const proceedToCheckout = async () => {
+    const proceedToCheckout = async (resolvedUid) => {
         // First check agreement to terms
         if (!agreeToTerms) {
             Swal.fire({
@@ -1184,6 +1191,16 @@ const OrderConfirmationDelayed = () => {
         
         if (!validateDeliveryDateSelection()) {
             return;
+        }
+
+        let checkoutUid = resolvedUid;
+        if (resolvedUid === undefined) {
+            const accountResolution = resolveCheckoutAccountAction({ currentUser, createAccount });
+            if (accountResolution.action === CHECKOUT_ACCOUNT_ACTIONS.REQUEST_AUTH) {
+                setShowAccountModal(true);
+                return;
+            }
+            checkoutUid = accountResolution.uid;
         }
 
         try {
@@ -1221,12 +1238,12 @@ const OrderConfirmationDelayed = () => {
             
             // Check if the entire payable amount is 0 (considering shipping as well)
             if (effectiveTotalWithDelivery === 0) {
-                handleFreeOrder();
+                handleFreeOrder(checkoutUid);
                 return;
             }
 
             // Continue with payment processing
-            handleSubmitOrder();
+            handleSubmitOrder(checkoutUid);
         } catch (error) {
             console.error("Error proceeding to checkout:", error);
             Swal.fire({
@@ -1280,6 +1297,20 @@ const OrderConfirmationDelayed = () => {
 
     return (
         <div className="bg-gray-50 min-h-screen py-8 px-4" dir="rtl">
+            <CheckoutAccountModal
+                open={showAccountModal}
+                prefill={{ email: userEmail, name: userName, phone: userPhone, community: selectedPickupSpot }}
+                onAuthenticated={(uid) => {
+                    setShowAccountModal(false);
+                    proceedToCheckout(uid);
+                }}
+                onContinueAsGuest={() => {
+                    setCreateAccount(false);
+                    setShowAccountModal(false);
+                    proceedToCheckout(null);
+                }}
+                onCancel={() => setShowAccountModal(false)}
+            />
             <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="bg-purple-700 text-white px-6 py-4">
                     <h1 className="text-2xl font-bold">השלמת הזמנה </h1>
@@ -1513,34 +1544,72 @@ const OrderConfirmationDelayed = () => {
                                 </div>
                             )}
 
-                            {reusableCartonAvailable && (
-                                <div className="form-group md:col-span-2">
-                                    <div className="flex items-center justify-start">
-                                        <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-emerald-50 px-3 py-2">
-                                            <input
-                                                id="useReusableFarmerCartons"
-                                                type="checkbox"
-                                                checked={useReusableFarmerCartons}
-                                                onChange={(e) => setUseReusableFarmerCartons(e.target.checked)}
-                                                className="h-4 w-4 shrink-0 text-emerald-700 focus:ring-emerald-500 border-emerald-300 rounded ml-2"
-                                            />
-                                            <label htmlFor="useReusableFarmerCartons" className="cursor-pointer text-sm sm:text-base font-bold text-emerald-900">
-                                                🌱 אני רוצה קרטון ממוחזר
-                                            </label>
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowReusableCartonInfo(prev => !prev)}
-                                                className="mr-2 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500 text-xs font-bold text-emerald-700 bg-white hover:bg-emerald-100"
-                                                aria-expanded={showReusableCartonInfo}
-                                                aria-label="מידע נוסף על קרטונים בשימוש חוזר"
-                                            >
-                                                i
-                                            </button>
+                            {(reusableCartonAvailable || !userLoggedIn) && (
+                                <div className="md:col-span-2 w-full space-y-2">
+                                    {reusableCartonAvailable && (
+                                        <div className="w-full">
+                                            <div className="flex w-full items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                                                <input
+                                                    id="useReusableFarmerCartons"
+                                                    type="checkbox"
+                                                    checked={useReusableFarmerCartons}
+                                                    onChange={(e) => setUseReusableFarmerCartons(e.target.checked)}
+                                                    className="!m-0 !h-4 !w-4 !min-w-4 !max-w-4 !shrink-0 !p-0 rounded border-emerald-300 text-emerald-700 focus:ring-emerald-500"
+                                                />
+                                                <label
+                                                    htmlFor="useReusableFarmerCartons"
+                                                    className="!m-0 !block min-w-0 flex-1 cursor-pointer text-sm font-semibold leading-5 text-emerald-900"
+                                                >
+                                                    🌱 אני רוצה קרטון ממוחזר
+                                                </label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowReusableCartonInfo((prev) => !prev)}
+                                                    className="!m-0 !inline-flex !h-8 !w-8 !min-w-8 !max-w-8 !shrink-0 !p-0 items-center justify-center rounded-full border border-emerald-500 bg-white text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                                                    aria-expanded={showReusableCartonInfo}
+                                                    aria-label="מידע נוסף על קרטונים בשימוש חוזר"
+                                                >
+                                                    i
+                                                </button>
+                                            </div>
+                                            {showReusableCartonInfo && (
+                                                <p className="mt-1 text-xs leading-5 text-emerald-900">
+                                                    נשתמש בקרטונים חקלאים שהתוצרת הגיעה איתם מהחקלאים, במידה ויש כדי לחסוך קרטון חדש.
+                                                </p>
+                                            )}
                                         </div>
-                                    </div>
-                                    {showReusableCartonInfo && (
-                                        <div className="mx-auto mt-2 max-w-md rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-center text-xs sm:text-sm text-emerald-900">
-                                            נשתמש בקרטונים חקלאים שהתוצרת הגיעה איתם מהחקלאים, במידה ויש כדי לחסוך קרטון חדש.
+                                    )}
+                                    {!userLoggedIn && (
+                                        <div className="w-full">
+                                            <div className="flex w-full items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2">
+                                                <input
+                                                    id="createDelayedCheckoutAccount"
+                                                    type="checkbox"
+                                                    checked={createAccount}
+                                                    onChange={(e) => setCreateAccount(e.target.checked)}
+                                                    className="!m-0 !h-4 !w-4 !min-w-4 !max-w-4 !shrink-0 !p-0 rounded border-purple-300 text-purple-700 focus:ring-purple-500"
+                                                />
+                                                <label
+                                                    htmlFor="createDelayedCheckoutAccount"
+                                                    className="!m-0 !block min-w-0 flex-1 cursor-pointer text-sm font-semibold leading-5 text-purple-900"
+                                                >
+                                                    תיצור לי משתמש למעקב אחרי הזמנות ועוד
+                                                </label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAccountInfo((open) => !open)}
+                                                    className="!m-0 !inline-flex !h-8 !w-8 !min-w-8 !max-w-8 !shrink-0 !p-0 items-center justify-center rounded-full border border-purple-500 bg-white text-xs font-bold text-purple-700 hover:bg-purple-100"
+                                                    aria-expanded={showAccountInfo}
+                                                    aria-label="מידע נוסף על יצירת חשבון"
+                                                >
+                                                    i
+                                                </button>
+                                            </div>
+                                            {showAccountInfo && (
+                                                <p className="mt-1 text-xs leading-5 text-purple-900">
+                                                    לפני התשלום תוכלו לבחור סיסמה או להתחבר עם Google. עם משתמש אפשר לעקוב אחרי הזמנות, לבקש החזר ולהסיר פריטים מההזמנה. אפשר להסיר את הסימון ולהמשיך כאורחים.
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -1598,18 +1667,22 @@ const OrderConfirmationDelayed = () => {
                         </div>
                     </div>
 
-                    {/* Order Total - SECOND */}
+                    {/* Order Total - credit hold emphasized; estimate shown via buffer subtitle */}
                     <div className="mb-6 bg-gradient-to-r from-purple-50 to-purple-100 p-4 sm:p-6 rounded-lg border-2 border-purple-200">
                         <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-lg sm:text-2xl font-bold text-gray-900">סה"כ הזמנה:</span>
-                            <span className="text-xl sm:text-3xl font-bold text-purple-700 whitespace-nowrap">{effectiveTotalWithDelivery.toFixed(2)}₪</span>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-3 mt-2">
-                            <span className="text-sm sm:text-base text-gray-700">מסגרת אשראי (כולל {HOLD_BUFFER_PERCENT}% מרווח):</span>
-                            <span className="text-base sm:text-lg font-semibold text-gray-700 whitespace-nowrap">{(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100)).toFixed(2)}₪</span>
+                            <span className="min-w-0">
+                                <span className="block text-lg sm:text-2xl font-bold text-gray-900">סה"כ הזמנה משוער:</span>
+                                <span className="block text-xs sm:text-sm font-normal text-gray-600 mt-0.5">
+                                    כולל {HOLD_BUFFER_PERCENT}% מרווח (מסגרת אשראי)
+                                </span>
+                            </span>
+                            <span className="text-xl sm:text-3xl font-bold text-purple-700 whitespace-nowrap">
+                                {(Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100).toFixed(2)}₪
+                            </span>
                         </div>
                         <p className="text-xs sm:text-sm text-gray-600 mt-2">
-                            נחזיק מסגרת גבוהה יותר למקרה שהמשקל הסופי יעלה על ההערכה. החיוב בפועל יהיה לפי השקילה ביום המשלוח.
+                            נחזיק מסגרת גבוהה יותר למקרה שהמשקל הסופי יעלה על ההערכה.{' '}
+                            <span className="font-bold text-gray-800">החיוב בפועל יהיה לפי השקילה ביום המשלוח.</span>
                         </p>
                     </div>
 
@@ -1629,7 +1702,7 @@ const OrderConfirmationDelayed = () => {
                         </div>
 
                         <button
-                            onClick={proceedToCheckout}
+                            onClick={() => proceedToCheckout()}
                             disabled={!agreeToTerms || !formIsValid}
                             className="w-full bg-purple-700 hover:bg-purple-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-3 sm:py-4 px-4 sm:px-6 rounded-lg text-base sm:text-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-purple-300 shadow-lg"
                         >

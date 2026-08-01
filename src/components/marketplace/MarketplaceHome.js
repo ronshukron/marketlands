@@ -10,6 +10,10 @@ import BusinessCardGrid from './BusinessCardGrid';
 import CommunityFilterToggle from './CommunityFilterToggle';
 import PromotionHighlights from './PromotionHighlights';
 import MarketplaceWaitlistSection from './MarketplaceWaitlistSection';
+import {
+  MARKETPLACE_VISIT_EVENT,
+  recordMarketplaceVisit,
+} from '../../utils/marketplaceVisitUtils';
 import './marketplace.css';
 
 const GateBasketIcon = () => (
@@ -57,6 +61,11 @@ const MarketplaceHome = ({ hideMainStore = false }) => {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    recordMarketplaceVisit(window.localStorage);
+    window.dispatchEvent(new Event(MARKETPLACE_VISIT_EVENT));
+  }, []);
 
   useEffect(() => {
     if (hasLoadedFromStorage) {

@@ -22,6 +22,29 @@ export const normalizeQuantityDiscount = (threshold, discountedPrice) => {
   };
 };
 
+export const buildDefaultQuantityDiscountLabel = (threshold, discountedPrice) => {
+  const discount = normalizeQuantityDiscount(threshold, discountedPrice);
+  if (!discount) return '';
+
+  return `${discount.quantityDiscountThreshold}+ ב-₪${discount.quantityDiscountPrice.toFixed(2)} ליחידת מחיר`;
+};
+
+export const getQuantityDiscountLabel = ({
+  quantityDiscountLabel,
+  quantityDiscountThreshold,
+  quantityDiscountPrice,
+} = {}) => {
+  const customLabel = String(quantityDiscountLabel || '').trim();
+  if (customLabel) return customLabel;
+
+  return buildDefaultQuantityDiscountLabel(quantityDiscountThreshold, quantityDiscountPrice);
+};
+
+export const normalizeQuantityDiscountLabel = (label) => {
+  const trimmed = String(label || '').trim();
+  return trimmed || null;
+};
+
 export const validateQuantityDiscount = (threshold, discountedPrice, basePrice) => {
   const thresholdProvided = hasValue(threshold);
   const priceProvided = hasValue(discountedPrice);

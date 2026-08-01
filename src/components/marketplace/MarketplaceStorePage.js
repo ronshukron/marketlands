@@ -4,25 +4,19 @@ import { useAuth } from '../../contexts/authContext';
 import {
   PAYMENT_METHOD_LABELS,
   getPublicMarketplaceStorePage,
-  toDate,
 } from '../../services/marketplaceService';
 import { cleanShortDescription } from '../../constants/marketplaceStoreContent';
 import { getPromotionDeadlineChip } from '../../utils/marketplacePromotionDeadline';
+import { formatPromotionClosingDateTime } from '../../utils/marketplacePromotionSchedule';
 import { PAYMENT_CHIP_ICONS } from '../../utils/marketplacePaymentChips';
 import LoadingSpinner from '../LoadingSpinner';
 import defaultBackground from '../../images/Field.jpg';
 import StoreContentDisplay, { hasStorePageEditorContent } from './StoreContentDisplay';
 import MarketplaceFulfillmentSummary from './MarketplaceFulfillmentSummary';
-import MarketplacePaymentLinksDisplay from './MarketplacePaymentLinksDisplay';
 import MarketplaceStoreProductTile from './MarketplaceStoreProductTile';
 import './marketplace.css';
 
 const FEATURED_PRODUCT_COUNT = 4;
-
-const formatDate = (value) => {
-  const date = toDate(value);
-  return date ? date.toLocaleDateString('he-IL') : '';
-};
 
 const MarketplaceStorePage = () => {
   const { businessId } = useParams();
@@ -270,6 +264,7 @@ const MarketplaceStorePage = () => {
             <div className="mp-stall-weekly-inline">
               {promotions.map((promotion) => {
                 const deadline = getPromotionDeadlineChip(promotion.endsAt);
+                const closingLabel = formatPromotionClosingDateTime(promotion.endsAt);
                 return (
                   <Link
                     key={promotion.id}
@@ -289,8 +284,8 @@ const MarketplaceStorePage = () => {
                     <h3 className="mp-weekly-board-title">
                       {promotion.title || 'הזמנה שבועית'}
                     </h3>
-                    {formatDate(promotion.endsAt) && !deadline?.soon && (
-                      <p className="mp-weekly-board-business">עד {formatDate(promotion.endsAt)}</p>
+                    {closingLabel && (
+                      <p className="mp-weekly-board-business">נסגרת: {closingLabel}</p>
                     )}
                     <div className="mp-weekly-board-cta">להזמין ←</div>
                   </Link>
@@ -350,9 +345,6 @@ const MarketplaceStorePage = () => {
             </div>
           </section>
         )}
-
-        {/* קישורי תשלום */}
-        <MarketplacePaymentLinksDisplay store={store} />
 
         {shopEnabled === false && promotions.length === 0 && (
           <div className="mp-panel">

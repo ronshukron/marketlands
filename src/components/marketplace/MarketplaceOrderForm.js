@@ -9,6 +9,7 @@ import {
 } from '../../services/marketplaceUserService';
 import MarketplaceCheckoutAccount from './MarketplaceCheckoutAccount';
 import {
+  FULFILLMENT_METHOD_VOLUNTEER_PICKUP,
   getDeliveryFeeForMethod,
   resolvePromotionFulfillment,
   validateFulfillmentChoice,
@@ -20,20 +21,25 @@ import {
   getMarketplacePromotionWithProducts,
   placeMarketplaceManualOrder,
 } from '../../services/marketplaceService';
+import {
+  findActiveMarketplaceVolunteerForCommunity,
+  listActiveMarketplaceVolunteersForPromotion,
+} from '../../services/marketplaceVolunteerService';
 import { notifyMarketplaceOrderForBusinessId } from '../../services/marketplaceOrderNotifications';
 import { summarizeEmailNotifications } from '../../utils/marketplaceEmailSummary';
 import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceSubmittingOverlay from './MarketplaceSubmittingOverlay';
 import MarketplaceFulfillmentPicker from './MarketplaceFulfillmentPicker';
+import MarketplaceVolunteerPickupPanel from './MarketplaceVolunteerPickupPanel';
 import { saveOrderConfirmationSession } from '../../utils/marketplaceOrderConfirmation';
 import { getPromotionDeadlineChip } from '../../utils/marketplacePromotionDeadline';
+import { formatPromotionClosingDateTime } from '../../utils/marketplacePromotionSchedule';
 import { PAYMENT_CHIP_ICONS } from '../../utils/marketplacePaymentChips';
 import {
   clampCartQuantityToStock,
   getProductStockLimit,
   isMarketplaceProductInStock,
 } from '../../utils/marketplaceProductStock';
-import VolunteerPickupPlaceholder from './VolunteerPickupPlaceholder';
 import './marketplace.css';
 
 const formatCurrency = (value) =>
@@ -67,6 +73,10 @@ const MarketplaceOrderForm = () => {
   });
   const [fulfillmentMethod, setFulfillmentMethod] = useState('');
   const [fulfillmentLabel, setFulfillmentLabel] = useState('');
+  const [selectedVolunteerId, setSelectedVolunteerId] = useState(null);
+  const [communityVolunteer, setCommunityVolunteer] = useState(null);
+  const [volunteerCommunities, setVolunteerCommunities] = useState([]);
+  const [volunteersLoading, setVolunteersLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('bit');
   const [agreeToMarketplaceTerms, setAgreeToMarketplaceTerms] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -157,6 +167,7 @@ const MarketplaceOrderForm = () => {
     prevCommunityRef.current = customer.community;
     setFulfillmentMethod('');
     setFulfillmentLabel('');
+    setSelectedVolunteerId(null);
   }, [customer.community]);
 
   const fulfillment = useMemo(
@@ -164,10 +175,57 @@ const MarketplaceOrderForm = () => {
     [promotion, store]
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadVolunteers = async () => {
+      if (!promotion?.id || promotion.allowVolunteerPickup !== true) {
+        setVolunteerCommunities([]);
+        setCommunityVolunteer(null);
+        return;
+      }
+      setVolunteersLoading(true);
+      try {
+        const active = await listActiveMarketplaceVolunteersForPromotion(promotion.id);
+        if (cancelled) return;
+        setVolunteerCommunities(
+          active.map((entry) => entry.community).filter(Boolean)
+        );
+        if (customer.community) {
+          const match = await findActiveMarketplaceVolunteerForCommunity({
+            promotionId: promotion.id,
+            community: customer.community,
+          });
+          if (!cancelled) setCommunityVolunteer(match);
+        } else if (!cancelled) {
+          setCommunityVolunteer(null);
+        }
+      } catch (error) {
+        console.warn('Failed to load marketplace volunteers', error);
+        if (!cancelled) {
+          setVolunteerCommunities([]);
+          setCommunityVolunteer(null);
+        }
+      } finally {
+        if (!cancelled) setVolunteersLoading(false);
+      }
+    };
+    loadVolunteers();
+    return () => {
+      cancelled = true;
+    };
+  }, [promotion?.id, promotion?.allowVolunteerPickup, customer.community]);
+
   const products = useMemo(() => promotion?.products || [], [promotion]);
   const paymentMethods = promotion?.manualPaymentMethods?.length
     ? promotion.manualPaymentMethods
     : DEFAULT_MANUAL_PAYMENT_METHODS;
+
+  useEffect(() => {
+    if (!paymentMethods.length) return;
+    if (!paymentMethods.includes(paymentMethod)) {
+      setPaymentMethod(paymentMethods[0]);
+    }
+  }, [paymentMethods, paymentMethod]);
 
   const orderLines = useMemo(() => {
     return products
@@ -195,10 +253,15 @@ const MarketplaceOrderForm = () => {
     setQuantities((current) => ({ ...current, [productId]: quantity }));
   };
 
-  const handleFulfillmentChange = useCallback((method, label) => {
+  const handleFulfillmentChange = useCallback((method, label, option = null) => {
     setFulfillmentMethod(method);
     setFulfillmentLabel(label);
-  }, []);
+    setSelectedVolunteerId(
+      method === FULFILLMENT_METHOD_VOLUNTEER_PICKUP
+        ? option?.volunteerId || communityVolunteer?.id || null
+        : null
+    );
+  }, [communityVolunteer?.id]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -213,13 +276,27 @@ const MarketplaceOrderForm = () => {
       return;
     }
 
+    const volunteerAvailable = Boolean(communityVolunteer);
     const fulfillmentError = validateFulfillmentChoice(
       fulfillment,
       customer.community,
-      fulfillmentMethod
+      fulfillmentMethod,
+      { volunteerAvailable }
     );
     if (fulfillmentError) {
       Swal.fire({ icon: 'warning', title: 'אופן אספקה', text: fulfillmentError });
+      return;
+    }
+    if (
+      fulfillmentMethod === FULFILLMENT_METHOD_VOLUNTEER_PICKUP &&
+      !selectedVolunteerId &&
+      !communityVolunteer?.id
+    ) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'נקודת מתנדב',
+        text: 'בחרו קהילה עם נקודת מתנדב פעילה, או פתחו נקודה חדשה.',
+      });
       return;
     }
 
@@ -286,6 +363,10 @@ const MarketplaceOrderForm = () => {
         return;
       }
 
+      const volunteerIdForOrder =
+        fulfillmentMethod === FULFILLMENT_METHOD_VOLUNTEER_PICKUP
+          ? selectedVolunteerId || communityVolunteer?.id || null
+          : null;
       const order = await placeMarketplaceManualOrder({
         promotion,
         customer: {
@@ -295,11 +376,13 @@ const MarketplaceOrderForm = () => {
           fulfillmentMethod,
           fulfillmentLabel,
           deliveryFee,
+          volunteerId: volunteerIdForOrder,
         },
         lines: orderLines,
         selectedDeliveryOption: fulfillmentLabel,
         paymentMethod,
         marketplaceTermsAcceptedAt: new Date().toISOString(),
+        volunteerId: volunteerIdForOrder,
       });
 
       const notifications = await notifyMarketplaceOrderForBusinessId({
@@ -327,6 +410,7 @@ const MarketplaceOrderForm = () => {
             subtotal: order.subtotal,
             deliveryFee: order.deliveryFee,
             total: order.total,
+            paymentMethod: order.paymentMethod || paymentMethod,
             fulfillmentLabel: fulfillmentLabel || order.selectedDeliveryOption,
             notifications,
           },
@@ -402,8 +486,10 @@ const MarketplaceOrderForm = () => {
                 {formatDate(promotion.startsAt) && (
                   <span className="mp-tag">נפתח {formatDate(promotion.startsAt)}</span>
                 )}
-                {formatDate(promotion.endsAt) && (
-                  <span className="mp-tag">סגירה {formatDate(promotion.endsAt)}</span>
+                {formatPromotionClosingDateTime(promotion.endsAt) && (
+                  <span className="mp-tag">
+                    סגירה {formatPromotionClosingDateTime(promotion.endsAt)}
+                  </span>
                 )}
                 {promotion.deliveryDate && (
                   <span className="mp-badge mp-crate-badge">
@@ -564,8 +650,17 @@ const MarketplaceOrderForm = () => {
                     setCustomer((current) => ({ ...current, community }))
                   }
                   radioGroupName={`fulfillment-order-${promotionId}`}
+                  volunteerAvailable={Boolean(communityVolunteer)}
+                  volunteer={communityVolunteer}
+                  volunteerCommunities={volunteerCommunities}
                 />
-                <VolunteerPickupPlaceholder />
+                <MarketplaceVolunteerPickupPanel
+                  promotionId={promotionId}
+                  allowVolunteerPickup={promotion?.allowVolunteerPickup === true}
+                  community={customer.community}
+                  volunteer={communityVolunteer}
+                  loading={volunteersLoading}
+                />
               </section>
 
               <section

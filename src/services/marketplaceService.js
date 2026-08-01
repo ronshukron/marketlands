@@ -27,11 +27,17 @@ import {
   normalizeStoreFulfillment,
   preparePromotionFulfillmentForSave,
   promotionToCustomerFulfillment,
+  resolvePromotionFulfillment,
 } from '../constants/marketplaceFulfillment';
 import {
   normalizeMarketplaceGlobalSettings,
-  normalizeStorePaymentLinks,
+  validateStorePaymentLinks,
 } from '../constants/marketplacePaymentLinks';
+import {
+  combinePromotionClosingDateTime,
+  validatePromotionClosingSchedule,
+} from '../utils/marketplacePromotionSchedule';
+import { resolveMarketplaceCommunityName } from '../utils/marketplaceCommunityIdentity';
 import {
   getApprovedMarketplaceProductsForBusiness,
   getMarketplaceProductsByIds,
@@ -165,7 +171,10 @@ export const matchesCommunityScope = (item, communityName, mode = 'own') => {
 
 export const matchesPromotionCommunityScope = (promotion, communityName, mode = 'own') => {
   if (!communityName || mode === 'all') return true;
-  return isCommunityServed(promotionToCustomerFulfillment(promotion), communityName);
+  return isCommunityServed(
+    promotion.customerFulfillment || promotionToCustomerFulfillment(promotion),
+    communityName
+  );
 };
 
 export const getBusinessProfile = async (businessId) => {
@@ -222,9 +231,23 @@ export const getMarketplacePromotions = async ({
   const snap = await getDocs(promotionsQuery);
   const now = new Date();
 
-  return snap.docs
+  const promotions = snap.docs
     .map(mapDoc)
-    .filter((promotion) => includeInactive || isActiveInDateWindow(promotion, now))
+    .filter((promotion) => includeInactive || isActiveInDateWindow(promotion, now));
+  const businessIds = [...new Set(promotions.map((promotion) => promotion.businessId).filter(Boolean))];
+  const storeEntries = await Promise.all(
+    businessIds.map(async (businessId) => [businessId, await getMarketplaceStore(businessId)])
+  );
+  const stores = Object.fromEntries(storeEntries);
+
+  return promotions
+    .map((promotion) => ({
+      ...promotion,
+      customerFulfillment: resolvePromotionFulfillment(
+        promotion,
+        stores[promotion.businessId]
+      ),
+    }))
     .filter((promotion) => matchesPromotionCommunityScope(promotion, communityName, communityMode))
     .sort((a, b) => (a.sortRank ?? 0) - (b.sortRank ?? 0));
 };
@@ -258,6 +281,10 @@ export const saveMarketplaceStore = async ({ businessId, businessData = {}, stor
   const storeRef = doc(db, MARKETPLACE_COLLECTIONS.stores, businessId);
   const existing = await getDoc(storeRef);
   const fulfillment = normalizeStoreFulfillment(storeData);
+  const paymentLinksValidation = validateStorePaymentLinks(storeData);
+  if (!paymentLinksValidation.valid) {
+    throw new Error(Object.values(paymentLinksValidation.errors)[0]);
+  }
   const payload = cleanObject({
     businessId,
     businessName: businessData.businessName || storeData.businessName || '',
@@ -269,7 +296,9 @@ export const saveMarketplaceStore = async ({ businessId, businessData = {}, stor
     profileImageUrl: storeData.profileImageUrl || businessData.profileImageUrl || '',
     phone: storeData.phone || businessData.phone || '',
     tags: normalizeList(storeData.tags),
-    homeCommunity: storeData.homeCommunity || businessData.communityName || '',
+    homeCommunity: resolveMarketplaceCommunityName(
+      storeData.homeCommunity || businessData.communityName || ''
+    ),
     ...fulfillment,
     targetCommunities:
       fulfillment.pickupScope === 'selected' ? fulfillment.pickupCommunities : [],
@@ -279,7 +308,7 @@ export const saveMarketplaceStore = async ({ businessId, businessData = {}, stor
       : DEFAULT_MANUAL_PAYMENT_METHODS,
     ...extractStoreContentFields(storeData, { clean: true }),
     whatsappContacts: normalizeWhatsappContacts(storeData.whatsappContacts),
-    paymentLinks: normalizeStorePaymentLinks(storeData),
+    paymentLinks: paymentLinksValidation.links,
     visible: storeData.visible !== false,
     storeCartEnabled: storeData.storeCartEnabled !== false,
     status: storeData.status || 'active',
@@ -306,6 +335,17 @@ export const saveMarketplacePromotion = async ({ businessId, businessData = {}, 
 
   const storeSnap = await getMarketplaceStore(businessId);
   const promoFulfillment = preparePromotionFulfillmentForSave(promotionData, storeSnap);
+  const closingValidation = validatePromotionClosingSchedule({
+    ...promotionData,
+    // Existing promotions may already be past cutoff when edited for other fields.
+    requireFuture: !promotionData.id,
+  });
+  if (!closingValidation.valid) {
+    throw new Error(closingValidation.message);
+  }
+  const closingDate =
+    closingValidation.closing ||
+    combinePromotionClosingDateTime(promotionData.endsAt, promotionData.endsAtTime);
   const deliveryMode = promoFulfillment.deliveryEnabled
     ? promoFulfillment.allowSelfPickup
       ? 'both'
@@ -320,7 +360,7 @@ export const saveMarketplacePromotion = async ({ businessId, businessData = {}, 
     productIds,
     status: promotionData.status || 'active',
     startsAt: toTimestamp(promotionData.startsAt),
-    endsAt: toTimestamp(promotionData.endsAt),
+    endsAt: toTimestamp(closingDate),
     ...promoFulfillment,
     targetCommunities:
       promoFulfillment.pickupScope === 'selected' ? promoFulfillment.pickupCommunities : [],
@@ -334,7 +374,7 @@ export const saveMarketplacePromotion = async ({ businessId, businessData = {}, 
     manualPaymentMethods: normalizeList(promotionData.manualPaymentMethods).length > 0
       ? normalizeList(promotionData.manualPaymentMethods)
       : DEFAULT_MANUAL_PAYMENT_METHODS,
-    allowVolunteerPickup: false,
+    allowVolunteerPickup: promotionData.allowVolunteerPickup === true,
     sortRank: Number(promotionData.sortRank || 0),
     updatedAt: serverTimestamp(),
   });
@@ -726,6 +766,13 @@ export const placeMarketplaceStoreCartOrder = async ({
   if (store?.storeCartEnabled === false) {
     throw new Error('החנות הקבועה של הבסטה אינה פעילה כרגע');
   }
+  const allowedPaymentMethods = normalizeList(store?.manualPaymentMethods);
+  const effectivePaymentMethods = allowedPaymentMethods.length > 0
+    ? allowedPaymentMethods
+    : DEFAULT_MANUAL_PAYMENT_METHODS;
+  if (!effectivePaymentMethods.includes(paymentMethod)) {
+    throw new Error('אמצעי התשלום שנבחר אינו זמין בבסטה זו');
+  }
 
   const catalogProducts = (await getStoreCatalogProductsForBusiness(businessId)).filter(
     isMarketplaceProductInStock
@@ -765,7 +812,7 @@ export const placeMarketplaceStoreCartOrder = async ({
     customerPhone: customer.phone || '',
     customerEmail: resolveOrderCustomerEmail(customer),
     customerUserId: customer.userId || auth.currentUser?.uid || '',
-    customerCommunity: customer.community || '',
+    customerCommunity: resolveMarketplaceCommunityName(customer.community),
     customerNotes: customerNotes || customer.notes || '',
     selectedDeliveryOption: customer.deliveryOption || customer.fulfillmentLabel || '',
     fulfillmentMethod: customer.fulfillmentMethod || '',
@@ -819,9 +866,17 @@ export const placeMarketplaceManualOrder = async ({
   selectedDeliveryOption = '',
   paymentMethod = 'bit',
   marketplaceTermsAcceptedAt = null,
+  volunteerId = null,
 }) => {
   if (!promotion?.id || !promotion.businessId) {
     throw new Error('Missing promotion details');
+  }
+  const allowedPaymentMethods = normalizeList(promotion.manualPaymentMethods);
+  const effectivePaymentMethods = allowedPaymentMethods.length > 0
+    ? allowedPaymentMethods
+    : DEFAULT_MANUAL_PAYMENT_METHODS;
+  if (!effectivePaymentMethods.includes(paymentMethod)) {
+    throw new Error('אמצעי התשלום שנבחר אינו זמין בהזמנה זו');
   }
 
   const promotionProducts = await getProductsByIds(promotion.productIds || []);
@@ -857,13 +912,21 @@ export const placeMarketplaceManualOrder = async ({
     customerPhone: customer.phone || '',
     customerEmail: resolveOrderCustomerEmail(customer),
     customerUserId: customer.userId || auth.currentUser?.uid || '',
-    customerCommunity: customer.community || '',
+    customerCommunity: resolveMarketplaceCommunityName(customer.community),
     customerNotes: customer.notes || '',
     selectedDeliveryOption: selectedDeliveryOption || customer.fulfillmentLabel || '',
     fulfillmentMethod: customer.fulfillmentMethod || '',
     fulfillmentLabel: customer.fulfillmentLabel || selectedDeliveryOption || '',
     batchDeliveryDate: promotion.deliveryDate || '',
-    volunteerId: null,
+    volunteerId: volunteerId || customer.volunteerId || null,
+    fulfillmentSubtype:
+      customer.fulfillmentMethod === 'volunteer_pickup'
+        ? 'volunteer'
+        : customer.fulfillmentMethod === 'pickup'
+          ? 'business'
+          : customer.fulfillmentMethod === 'delivery'
+            ? 'delivery'
+            : '',
     lines: orderLines,
     subtotal,
     deliveryFee,
@@ -901,6 +964,10 @@ export const getPublicMarketplaceStorePage = async (businessId) => {
   const promotions = promotionsSnap.docs
     .map(mapDoc)
     .filter((promotion) => isActiveInDateWindow(promotion, now))
+    .map((promotion) => ({
+      ...promotion,
+      customerFulfillment: resolvePromotionFulfillment(promotion, store),
+    }))
     .sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
 
   if (!business && !store) return null;

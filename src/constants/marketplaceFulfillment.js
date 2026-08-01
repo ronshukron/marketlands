@@ -1,7 +1,17 @@
-import { pickupSpotsData } from '../data/pickupSpots';
+import {
+  marketplaceCommunityNamesMatch,
+  normalizeCommunityLabel,
+  resolveMarketplaceCommunityName,
+} from '../utils/marketplaceCommunityIdentity';
+import {
+  FULFILLMENT_LABEL_BUSINESS_PICKUP,
+  FULFILLMENT_LABEL_VOLUNTEER_PICKUP,
+  FULFILLMENT_METHOD_VOLUNTEER_PICKUP,
+  summarizeVolunteerPickupPoint,
+} from '../utils/marketplaceVolunteerUtils';
 
 /** @typedef {'all' | 'selected'} PickupScope */
-/** @typedef {'pickup' | 'delivery'} FulfillmentMethod */
+/** @typedef {'pickup' | 'delivery' | 'volunteer_pickup'} FulfillmentMethod */
 /** @typedef {'accumulation'} PromotionType */
 
 export const PROMOTION_TYPE_ACCUMULATION = 'accumulation';
@@ -12,6 +22,7 @@ export const PICKUP_SCOPE_INHERIT = 'inherit';
 
 export const FULFILLMENT_METHOD_PICKUP = 'pickup';
 export const FULFILLMENT_METHOD_DELIVERY = 'delivery';
+export { FULFILLMENT_METHOD_VOLUNTEER_PICKUP };
 
 export const parseDeliveryPrice = (value) => {
   const amount = Number(value);
@@ -42,6 +53,7 @@ export const DEFAULT_STORE_FULFILLMENT = {
 export const DEFAULT_PROMOTION_FULFILLMENT = {
   promotionType: PROMOTION_TYPE_ACCUMULATION,
   allowSelfPickup: true,
+  allowVolunteerPickup: false,
   pickupScope: PICKUP_SCOPE_INHERIT,
   pickupCommunities: [],
   deliveryEnabled: true,
@@ -54,10 +66,7 @@ export const DEFAULT_PROMOTION_FULFILLMENT = {
 const INVALID_COMMUNITY_STRINGS = new Set(['[object Object]', 'undefined', 'null']);
 
 export const normalizeCommunityName = (name) =>
-  String(name || '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  normalizeCommunityLabel(name);
 
 const toCommunityString = (item) => {
   if (item == null) return '';
@@ -73,7 +82,12 @@ const toCommunityString = (item) => {
 };
 
 const uniqueStrings = (values = []) =>
-  [...new Set(values.map(toCommunityString).filter(Boolean))];
+  [...new Set(
+    values
+      .map(toCommunityString)
+      .filter(Boolean)
+      .map(resolveMarketplaceCommunityName)
+  )];
 
 const listFromUnknown = (value) => {
   if (Array.isArray(value)) return uniqueStrings(value);
@@ -86,34 +100,13 @@ const listFromUnknown = (value) => {
   return [];
 };
 
-let communityAliasToCanonical = null;
-
-const buildCommunityAliasMap = () => {
-  const map = new Map();
-  Object.entries(pickupSpotsData || {}).forEach(([key, data]) => {
-    const canonical = normalizeCommunityName(key);
-    if (!canonical) return;
-    map.set(canonical, canonical);
-    const displayName = normalizeCommunityName(data?.name);
-    if (displayName) map.set(displayName, canonical);
-  });
-  return map;
-};
-
-/** Map any known community label to the canonical pickupSpots key. */
+/** Map any current Firestore alias to its canonical community name. */
 export const getCanonicalCommunityName = (name) => {
-  const normalized = normalizeCommunityName(name);
-  if (!normalized) return '';
-  if (!communityAliasToCanonical) {
-    communityAliasToCanonical = buildCommunityAliasMap();
-  }
-  return communityAliasToCanonical.get(normalized) || normalized;
+  return resolveMarketplaceCommunityName(name);
 };
 
 export const communityNamesMatch = (configuredName, selectedName) => {
-  const a = getCanonicalCommunityName(configuredName);
-  const b = getCanonicalCommunityName(selectedName);
-  return Boolean(a && b && a === b);
+  return marketplaceCommunityNamesMatch(configuredName, selectedName);
 };
 
 export const communityListIncludes = (list, communityName) => {
@@ -168,6 +161,7 @@ export const normalizePromotionFulfillment = (source) => {
 
   let promotionType = data.promotionType || PROMOTION_TYPE_ACCUMULATION;
   let allowSelfPickup = data.allowSelfPickup !== false;
+  const allowVolunteerPickup = data.allowVolunteerPickup === true;
   let pickupScope = data.pickupScope || PICKUP_SCOPE_INHERIT;
   let pickupCommunities = listFromUnknown(data.pickupCommunities);
   let deliveryEnabled = data.deliveryEnabled;
@@ -195,6 +189,7 @@ export const normalizePromotionFulfillment = (source) => {
   return {
     promotionType,
     allowSelfPickup,
+    allowVolunteerPickup,
     pickupScope,
     pickupCommunities,
     deliveryEnabled: Boolean(deliveryEnabled),
@@ -243,6 +238,7 @@ export const resolvePromotionFulfillment = (promotion, store) => {
   return {
     promotionType: promoF.promotionType,
     pickupEnabled: promoF.allowSelfPickup && storeF.pickupEnabled !== false,
+    allowVolunteerPickup: promoF.allowVolunteerPickup === true,
     pickupScope,
     pickupCommunities,
     deliveryEnabled:
@@ -295,18 +291,78 @@ export const getConfiguredCommunityLabels = (fulfillment) => {
   return [...labels];
 };
 
-export const isCommunityServed = (fulfillment, communityName) => {
-  if (!communityName) return true;
-  return communityCanPickup(fulfillment, communityName) || communityCanDelivery(fulfillment, communityName);
+export const communityCanVolunteerPickup = (
+  fulfillment,
+  communityName,
+  volunteerAvailable = false
+) => {
+  if (!fulfillment?.allowVolunteerPickup || !volunteerAvailable) return false;
+  if (!communityName) return false;
+  // Volunteer can open a pickup point for any community the promotion already serves,
+  // or for any community when self-pickup is open to all.
+  if (communityCanPickup(fulfillment, communityName) || communityCanDelivery(fulfillment, communityName)) {
+    return true;
+  }
+  return fulfillment.pickupEnabled && fulfillment.pickupScope === PICKUP_SCOPE_ALL;
 };
 
-export const getCustomerFulfillmentOptions = (fulfillment, communityName) => {
+export const isCommunityServed = (
+  fulfillment,
+  communityName,
+  { volunteerCommunities = [] } = {}
+) => {
+  if (!communityName) return true;
+  if (communityCanPickup(fulfillment, communityName) || communityCanDelivery(fulfillment, communityName)) {
+    return true;
+  }
+  if (!fulfillment?.allowVolunteerPickup) return false;
+  return volunteerCommunities.some((entry) => communityNamesMatch(entry, communityName));
+};
+
+export const getServiceableCommunityNames = (
+  fulfillment,
+  availableCommunities = [],
+  { volunteerCommunities = [] } = {}
+) =>
+  availableCommunities
+    .map(getCanonicalCommunityName)
+    .filter((name, index, list) => name && list.indexOf(name) === index)
+    .filter((name) => isCommunityServed(fulfillment, name, { volunteerCommunities }));
+
+export const getCommonServiceableCommunityNames = (
+  fulfillments = [],
+  availableCommunities = []
+) => {
+  if (fulfillments.length === 0) return [];
+  return availableCommunities
+    .map(getCanonicalCommunityName)
+    .filter((name, index, list) => name && list.indexOf(name) === index)
+    .filter((name) => fulfillments.every((fulfillment) => isCommunityServed(fulfillment, name)));
+};
+
+export const getCustomerFulfillmentOptions = (
+  fulfillment,
+  communityName,
+  { volunteerAvailable = false, volunteer = null } = {}
+) => {
   const options = [];
   if (communityCanPickup(fulfillment, communityName)) {
     options.push({
       id: FULFILLMENT_METHOD_PICKUP,
-      label: 'איסוף עצמי',
-      description: fulfillment.pickupInstructions || 'איסוף לפי הוראות הבסטה',
+      label: FULFILLMENT_LABEL_BUSINESS_PICKUP,
+      description: fulfillment.pickupInstructions || 'איסוף ישירות מהבסטה לפי הוראות העסק',
+      subtype: 'business',
+    });
+  }
+  if (communityCanVolunteerPickup(fulfillment, communityName, volunteerAvailable)) {
+    options.push({
+      id: FULFILLMENT_METHOD_VOLUNTEER_PICKUP,
+      label: FULFILLMENT_LABEL_VOLUNTEER_PICKUP,
+      description:
+        summarizeVolunteerPickupPoint(volunteer) ||
+        'איסוף מנקודה שפתח מתנדב בקהילה שלכם',
+      subtype: 'volunteer',
+      volunteerId: volunteer?.id || null,
     });
   }
   if (communityCanDelivery(fulfillment, communityName)) {
@@ -320,15 +376,27 @@ export const getCustomerFulfillmentOptions = (fulfillment, communityName) => {
       label: `משלוח לקהילה${priceNote}${dateNote}`,
       description: fulfillment.deliveryInstructions || 'משלוח לפי תיאום עם הבסטה',
       deliveryPrice,
+      subtype: 'delivery',
     });
   }
   return options;
 };
 
-export const validateFulfillmentChoice = (fulfillment, communityName, method) => {
+export const validateFulfillmentChoice = (
+  fulfillment,
+  communityName,
+  method,
+  { volunteerAvailable = false } = {}
+) => {
   if (!method) return 'בחרו אופן אספקה';
   if (method === FULFILLMENT_METHOD_PICKUP && !communityCanPickup(fulfillment, communityName)) {
-    return 'איסוף עצמי אינו זמין לקהילה שבחרתם';
+    return 'איסוף עצמי מהבסטה אינו זמין לקהילה שבחרתם';
+  }
+  if (
+    method === FULFILLMENT_METHOD_VOLUNTEER_PICKUP &&
+    !communityCanVolunteerPickup(fulfillment, communityName, volunteerAvailable)
+  ) {
+    return 'איסוף מנקודת מתנדב אינו זמין לקהילה שבחרתם כרגע';
   }
   if (method === FULFILLMENT_METHOD_DELIVERY && !communityCanDelivery(fulfillment, communityName)) {
     return 'משלוח אינו זמין לקהילה שבחרתם';
@@ -361,6 +429,7 @@ export const preparePromotionFulfillmentForSave = (promotionData = {}, store) =>
   return {
     promotionType: promoF.promotionType,
     allowSelfPickup: promoF.allowSelfPickup,
+    allowVolunteerPickup: promoF.allowVolunteerPickup === true,
     pickupScope,
     pickupCommunities,
     deliveryEnabled: promoF.deliveryEnabled,
@@ -372,15 +441,33 @@ export const preparePromotionFulfillmentForSave = (promotionData = {}, store) =>
   };
 };
 
-export const promotionToCustomerFulfillment = (promotion) => {
+export const promotionToCustomerFulfillment = (promotion, store) => {
+  if (store) {
+    const resolved = resolvePromotionFulfillment(promotion, store);
+    return {
+      promotionType: resolved.promotionType,
+      pickupEnabled: resolved.pickupEnabled,
+      allowVolunteerPickup: resolved.allowVolunteerPickup === true,
+      pickupScope: resolved.pickupScope,
+      pickupCommunities: resolved.pickupCommunities,
+      deliveryEnabled: resolved.deliveryEnabled,
+      deliveryCommunities: resolved.deliveryCommunities,
+      deliveryPrice: parseDeliveryPrice(resolved.deliveryPrice),
+    };
+  }
+
   const normalized = normalizePromotionFulfillment(promotion);
+  // Without a store, never treat "inherit" as open-to-all — that caused
+  // false "served" matches in listing vs order pages.
+  const pickupScope =
+    normalized.pickupScope === PICKUP_SCOPE_INHERIT
+      ? PICKUP_SCOPE_SELECTED
+      : normalized.pickupScope;
   return {
     promotionType: normalized.promotionType,
     pickupEnabled: normalized.allowSelfPickup,
-    pickupScope:
-      normalized.pickupScope === PICKUP_SCOPE_INHERIT
-        ? PICKUP_SCOPE_ALL
-        : normalized.pickupScope,
+    allowVolunteerPickup: normalized.allowVolunteerPickup === true,
+    pickupScope,
     pickupCommunities: mergeCommunityLists(
       normalized.pickupCommunities,
       promotion?.targetCommunities
@@ -396,7 +483,7 @@ export const promotionToCustomerFulfillment = (promotion) => {
 
 export const formatPromotionCardLines = (promotion) =>
   formatFulfillmentSummaryLines({
-    ...promotionToCustomerFulfillment(promotion),
+    ...(promotion?.customerFulfillment || promotionToCustomerFulfillment(promotion)),
     promotionType: promotion?.promotionType || PROMOTION_TYPE_ACCUMULATION,
     batchDeliveryDate: promotion?.deliveryDate || '',
   });

@@ -7,7 +7,12 @@ import { useAuth } from '../../contexts/authContext'; // Import useAuth to get c
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
 import './AddProduct.css';
-import { normalizeQuantityDiscount, validateQuantityDiscount } from '../../utils/pricing';
+import {
+  buildDefaultQuantityDiscountLabel,
+  normalizeQuantityDiscount,
+  normalizeQuantityDiscountLabel,
+  validateQuantityDiscount,
+} from '../../utils/pricing';
 
 const EditProduct = () => {
   const { productId } = useParams();
@@ -27,8 +32,11 @@ const EditProduct = () => {
     price: '',
     quantityDiscountThreshold: '',
     quantityDiscountPrice: '',
+    quantityDiscountLabel: '',
     category: '',
     showInAllCategory: false,
+    isOrganic: false,
+    isRecommended: false,
     options: [],
     tags: [],
     stockAmount: 0,
@@ -97,8 +105,11 @@ const EditProduct = () => {
             quantityDiscountPrice: data.quantityDiscountPrice != null
               ? String(data.quantityDiscountPrice)
               : '',
+            quantityDiscountLabel: data.quantityDiscountLabel || '',
             category: data.category || '',
             showInAllCategory: Boolean(data.showInAllCategory),
+            isOrganic: Boolean(data.isOrganic),
+            isRecommended: Boolean(data.isRecommended),
             options: data.options || [],
             tags: data.tags || [],
             stockAmount: data.stockAmount || 0,
@@ -300,8 +311,13 @@ const handleSubmit = async (e) => {
       showInAllCategory: formData.category === 'משתלה' ? Boolean(formData.showInAllCategory) : false,
       ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {}),
       isSample: isSample || parseFloat(price) === 0,
+      isOrganic: Boolean(formData.isOrganic),
+      isRecommended: Boolean(formData.isRecommended),
       quantityDiscountThreshold: quantityDiscount?.quantityDiscountThreshold ?? null,
       quantityDiscountPrice: quantityDiscount?.quantityDiscountPrice ?? null,
+      quantityDiscountLabel: quantityDiscount
+        ? normalizeQuantityDiscountLabel(formData.quantityDiscountLabel)
+        : null,
     });
 
     Swal.fire({
@@ -396,6 +412,34 @@ const handleSubmit = async (e) => {
                 placeholder="נמוך מהמחיר הרגיל"
               />
             </div>
+            <div className="md:col-span-2">
+              <label htmlFor="quantityDiscountLabel" className="block text-sm font-medium text-gray-700 mb-1">
+                טקסט תג ההנחה (אופציונלי)
+              </label>
+              <input
+                id="quantityDiscountLabel"
+                type="text"
+                value={formData.quantityDiscountLabel}
+                onChange={(e) => setFormData({ ...formData, quantityDiscountLabel: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder={
+                  buildDefaultQuantityDiscountLabel(
+                    formData.quantityDiscountThreshold,
+                    formData.quantityDiscountPrice,
+                  ) || 'לדוגמה: במבצע 2 ב-14 ₪'
+                }
+              />
+              <p className="mt-1 text-xs text-emerald-800">
+                {formData.quantityDiscountLabel.trim()
+                  ? 'הטקסט שכתבתם יוצג על כרטיס המוצר.'
+                  : `אם השדה ריק, יוצג אוטומטית: ${
+                    buildDefaultQuantityDiscountLabel(
+                      formData.quantityDiscountThreshold,
+                      formData.quantityDiscountPrice,
+                    ) || '4+ ב-₪4.90 ליחידת מחיר'
+                  }`}
+              </p>
+            </div>
             <p className="md:col-span-2 text-xs text-emerald-800">
               יש למלא את שני השדות. ניקוי שניהם מסיר את ההנחה.
             </p>
@@ -409,6 +453,30 @@ const handleSubmit = async (e) => {
             />
             <span className="text-sm text-gray-700">דגימה בחינם</span>
           </label>
+
+          <fieldset className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <legend className="px-1 text-sm font-semibold text-gray-800">תגיות מוצר בחנות הרגילה</legend>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={formData.isOrganic}
+                  onChange={(e) => setFormData({ ...formData, isOrganic: e.target.checked })}
+                  className="h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                />
+                <span className="text-sm text-gray-700">אורגני</span>
+              </label>
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={formData.isRecommended}
+                  onChange={(e) => setFormData({ ...formData, isRecommended: e.target.checked })}
+                  className="h-5 w-5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                />
+                <span className="text-sm text-gray-700">מומלץ</span>
+              </label>
+            </div>
+          </fieldset>
           
           {/* After the price field */}
           <div className="mb-4">

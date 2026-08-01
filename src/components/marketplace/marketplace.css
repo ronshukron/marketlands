@@ -3462,6 +3462,22 @@
   background: #eef5eb;
 }
 
+.mp-fulfillment-option-card.is-volunteer {
+  border-color: #c4a35a;
+}
+
+.mp-fulfillment-option-card.is-volunteer.is-selected {
+  border-color: #8b6914;
+  background: #faf4e4;
+}
+
+.mp-volunteer-panel {
+  padding: 0.75rem 0.85rem;
+  border: 1px dashed #c4a35a;
+  border-radius: 0.5rem;
+  background: #fffaf0;
+}
+
 .mp-fulfillment-option-radio {
   flex-shrink: 0;
   width: 1.1rem;
@@ -5182,6 +5198,25 @@
   font-weight: 600;
   color: var(--mp-error);
   margin: 0;
+}
+
+.mp-waitlist-status {
+  width: fit-content;
+}
+
+.mp-waitlist-status.is-new {
+  background: var(--mp-linen-300);
+  color: var(--mp-soil-700);
+}
+
+.mp-waitlist-status.is-approved {
+  background: rgba(47, 125, 78, 0.14);
+  color: var(--mp-leaf-700);
+}
+
+.mp-waitlist-status.is-rejected {
+  background: rgba(163, 61, 47, 0.14);
+  color: var(--mp-error);
 }
 
 .mp-stack-form {

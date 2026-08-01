@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { formatPromotionCardLines } from '../../constants/marketplaceFulfillment';
 import { getPromotionDeadlineChip } from '../../utils/marketplacePromotionDeadline';
+import { formatPromotionClosingDateTime } from '../../utils/marketplacePromotionSchedule';
 import './marketplace.css';
 
 const PromotionHighlights = ({ promotions = [], loading = false }) => {
@@ -33,6 +34,7 @@ const PromotionHighlights = ({ promotions = [], loading = false }) => {
       <div className="mp-weekly-board" role="list">
         {promotions.map((promotion) => {
           const deadline = getPromotionDeadlineChip(promotion.endsAt);
+          const closingLabel = formatPromotionClosingDateTime(promotion.endsAt);
 
           return (
             <Link
@@ -63,6 +65,7 @@ const PromotionHighlights = ({ promotions = [], loading = false }) => {
                 </p>
               )}
               <ul className="mp-weekly-board-lines">
+                {closingLabel && <li>נסגרת: {closingLabel}</li>}
                 {formatPromotionCardLines(promotion).slice(0, 3).map((line) => (
                   <li key={line}>{line}</li>
                 ))}

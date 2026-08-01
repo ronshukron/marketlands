@@ -15,6 +15,7 @@ import {
   updateDelayedOrderLineV7,
 } from './apiV7';
 import {
+  buildStationAuditV7,
   buildSessionIdV7,
   bulkSetDraftWeightsV7,
   claimOrderV7,
@@ -245,6 +246,9 @@ const TR = {
     newCustomerBadge: 'לקוח חדש',
     lapsedBadge: 'לקוח חוזר',
     customerNoteLabel: 'הערה',
+    auditStation: 'תחנת שקילה',
+    auditUser: 'עובד',
+    auditCompletedAt: 'הושלם',
   },
   th: {
     title: 'จัดการจัดส่ง V7',
@@ -371,6 +375,9 @@ const TR = {
     newCustomerBadge: 'ลูกค้าใหม่',
     lapsedBadge: 'ลูกค้าเก่ากลับมา',
     customerNoteLabel: 'หมายเหตุ',
+    auditStation: 'สถานีชั่ง',
+    auditUser: 'ผู้ปฏิบัติงาน',
+    auditCompletedAt: 'เสร็จเมื่อ',
   },
 };
 
@@ -748,9 +755,11 @@ function getPersistedCompletedDraft(order) {
 
   finalInvoiceLines.forEach((line) => {
     if (!line?.lineId || line.actualQuantity == null) return;
+    const existingWeight = weightsByLineId[line.lineId] || {};
     weightsByLineId[line.lineId] = {
       actualQuantity: Number(line.actualQuantity),
       source: line.weighSource || line.source || 'completed',
+      ...((line.audit || existingWeight.audit) ? { audit: line.audit || existingWeight.audit } : {}),
     };
   });
 
@@ -761,6 +770,7 @@ function getPersistedCompletedDraft(order) {
     removedLineIds,
     finalSum: weighing.finalSum ?? raw.finalSum,
     finalInvoiceLines,
+    weighingAudit: weighing.weighingAudit || raw.weighingAudit || null,
   };
 }
 
@@ -1633,6 +1643,11 @@ export default function DeliveryManagementV7() {
   ), [effectiveDraftsByOrder, selectedOrder?.items, selectedWeek, selectedOrderId]);
   const weightsByLineId = selectedOrderSaved.weightsByLineId || {};
   const removedLineIds = selectedOrderSaved.removedLineIds || {};
+  const finalizedLineAuditById = useMemo(() => Object.fromEntries(
+    (selectedOrderSaved.finalInvoiceLines || [])
+      .filter((line) => line?.lineId && line?.audit)
+      .map((line) => [line.lineId, line.audit]),
+  ), [selectedOrderSaved.finalInvoiceLines]);
   const selectedClaim = selectedOrderId ? claimsByOrder[selectedOrderId] : null;
   const claimedByOther = isOnline && !!(selectedClaim && selectedClaim.sessionId !== session.sessionId && !isClaimStaleV7(selectedClaim));
 
@@ -2554,10 +2569,17 @@ export default function DeliveryManagementV7() {
       };
       setRemoteDraftsByOrder((prev) => ({ ...prev, [selectedOrder.id]: settlingDraft }));
       setLocalDraftsByOrder((prev) => ({ ...prev, [selectedOrder.id]: settlingDraft }));
+      const completedAtIso = nowIso();
+      const weighingAudit = {
+        ...buildStationAuditV7(session, completedAtIso),
+        finalizedAtIso: completedAtIso,
+        source: 'delivery-v7',
+      };
       const payload = buildSettlementPayload({
         selectedOrder,
         items,
         draft: settlingDraft,
+        weighingAudit,
       });
       await handleSuspendedPaymentV7(payload);
       const completedWeighing = {
@@ -2565,7 +2587,8 @@ export default function DeliveryManagementV7() {
         removedLineIds: payload.removedLineIds || {},
         finalInvoiceLines: payload.finalInvoiceLines || [],
         finalSum: payload.finalSum,
-        completedAtIso: nowIso(),
+        completedAtIso,
+        weighingAudit,
       };
       setOrders((prev) => prev.map((order) => (
         order.id === selectedOrder.id
@@ -3318,6 +3341,28 @@ export default function DeliveryManagementV7() {
                             {t.claimedBy}: {selectedClaim.userName || selectedClaim.stationId} ({selectedClaim.stationId})
                           </div>
                         )}
+                        {selectedOrderCompleted && selectedOrderSaved.weighingAudit?.stationId && (
+                          <div
+                            className="mt-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900"
+                            dir={isRTL ? 'rtl' : 'ltr'}
+                          >
+                            <span className="font-black">
+                              {t.auditStation}: {selectedOrderSaved.weighingAudit.stationId}
+                            </span>
+                            {selectedOrderSaved.weighingAudit.userName && (
+                              <span> • {t.auditUser}: {selectedOrderSaved.weighingAudit.userName}</span>
+                            )}
+                            {(selectedOrderSaved.weighingAudit.finalizedAtIso || selectedOrderSaved.weighingAudit.updatedAtIso) && (
+                              <span>
+                                {' '}• {t.auditCompletedAt}:{' '}
+                                {new Date(
+                                  selectedOrderSaved.weighingAudit.finalizedAtIso
+                                  || selectedOrderSaved.weighingAudit.updatedAtIso,
+                                ).toLocaleString(isRTL ? 'he-IL' : 'th-TH')}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="ml-2">{statusBadge(selectedOrderStatus)}</div>
                     </div>
@@ -3561,6 +3606,7 @@ export default function DeliveryManagementV7() {
                   {items.map((it, idx) => {
                     const weighed = weightsByLineId?.[it.lineId];
                     const weighedQty = weighed?.actualQuantity;
+                    const lineAudit = weighed?.audit || finalizedLineAuditById[it.lineId];
                     const isRemoved = !!removedLineIds[it.lineId];
                     const isNext = nextIdx === idx;
                     const isActive = activeItemIndex === idx;
@@ -3736,6 +3782,16 @@ export default function DeliveryManagementV7() {
                                     {weighed?.source && (
                                       <div>
                                         <span className="inline rounded px-1.5 py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 shadow-sm">{sourceLabel(weighed.source, t)}</span>
+                                      </div>
+                                    )}
+                                    {lineAudit?.stationId && (
+                                      <div
+                                        className="text-[10px] font-semibold text-violet-800"
+                                        dir={isRTL ? 'rtl' : 'ltr'}
+                                        title={lineAudit.sessionId || ''}
+                                      >
+                                        {t.auditStation}: {lineAudit.stationId}
+                                        {lineAudit.userName ? ` • ${t.auditUser}: ${lineAudit.userName}` : ''}
                                       </div>
                                     )}
                                   </div>

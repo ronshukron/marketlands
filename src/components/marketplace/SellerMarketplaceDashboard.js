@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import {
   DEFAULT_MANUAL_PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
@@ -17,7 +17,6 @@ import { DEFAULT_MARKETPLACE_STORE_CONTENT, normalizeStoreContent } from '../../
 import {
   DEFAULT_PROMOTION_FULFILLMENT,
   DEFAULT_STORE_FULFILLMENT,
-  normalizePromotionFulfillment,
   storeFulfillmentToForm,
 } from '../../constants/marketplaceFulfillment';
 import StoreContentEditor from './StoreContentEditor';
@@ -29,6 +28,11 @@ import {
   DEFAULT_STORE_PAYMENT_LINKS,
   normalizeStorePaymentLinks,
 } from '../../constants/marketplacePaymentLinks';
+import {
+  formatPromotionClosingDateTime,
+  validatePromotionClosingSchedule,
+} from '../../utils/marketplacePromotionSchedule';
+import { resolveMarketplaceCommunityName } from '../../utils/marketplaceCommunityIdentity';
 import './marketplace.css';
 
 const emptyStoreForm = {
@@ -58,16 +62,12 @@ const emptyPromotionForm = {
   status: 'active',
   startsAt: new Date().toISOString().slice(0, 10),
   endsAt: getDefaultEndDate(),
+  endsAtTime: '20:00',
   deliveryDate: '',
   pickupInstructions: '',
   manualPaymentMethods: DEFAULT_MANUAL_PAYMENT_METHODS,
   sortRank: 0,
   ...DEFAULT_PROMOTION_FULFILLMENT,
-};
-
-const formatDate = (value) => {
-  const date = toDate(value);
-  return date ? date.toLocaleDateString('he-IL') : 'ללא תאריך';
 };
 
 const formatCurrency = (value) =>
@@ -87,6 +87,7 @@ const BenchTab = ({ active, children, onClick }) => (
 
 const SellerMarketplaceDashboard = () => {
   const { currentUser, userRole } = useAuth();
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -175,6 +176,15 @@ const SellerMarketplaceDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!communitiesLoaded || !storeForm.homeCommunity) return;
+    const canonical = resolveMarketplaceCommunityName(storeForm.homeCommunity);
+    const nextCommunity = pickupSpots.includes(canonical) ? canonical : '';
+    if (nextCommunity !== storeForm.homeCommunity) {
+      setStoreForm((current) => ({ ...current, homeCommunity: nextCommunity }));
+    }
+  }, [communitiesLoaded, pickupSpots, storeForm.homeCommunity]);
+
   const handleSectionChange = (section) => {
     setActiveSection(section);
     if (section === 'store') navigate('/marketplace/store');
@@ -235,6 +245,11 @@ const SellerMarketplaceDashboard = () => {
 
     if (promotionForm.productIds.length === 0) {
       Swal.fire({ icon: 'warning', title: 'בחרו לפחות מוצר מאושר אחד' });
+      return;
+    }
+    const closingValidation = validatePromotionClosingSchedule(promotionForm);
+    if (!closingValidation.valid) {
+      Swal.fire({ icon: 'warning', title: 'מועד סגירה', text: closingValidation.message });
       return;
     }
 
@@ -415,7 +430,9 @@ const SellerMarketplaceDashboard = () => {
                     <li key={promotion.id} className="mp-bench-list-item">
                       <div className="mp-bench-list-item-main">
                         <h3 className="mp-bench-list-item-title">{promotion.title}</h3>
-                        <p className="mp-bench-list-item-meta">עד {formatDate(promotion.endsAt)}</p>
+                        <p className="mp-bench-list-item-meta">
+                          עד {formatPromotionClosingDateTime(promotion.endsAt)}
+                        </p>
                       </div>
                       <Link
                         to={`/marketplace/promotions/${promotion.id}/orders`}

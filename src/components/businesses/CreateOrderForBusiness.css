@@ -166,7 +166,7 @@
   margin-left: 5px;
 }
 
-.form-group input[type="checkbox"] {
+.create-order-for-business-container .form-group input[type="checkbox"] {
   margin-left: 10px;
   transform: scale(1.2);
 }

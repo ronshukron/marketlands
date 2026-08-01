@@ -7,7 +7,8 @@ import {
   MARKETPLACE_LOGIN_PATH,
   resolveMarketplaceAuthRedirect,
 } from '../../utils/marketplaceRoutes';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
+import { resolveMarketplaceCommunityName } from '../../utils/marketplaceCommunityIdentity';
 import './marketplace.css';
 
 const MarketplaceRegister = () => {
@@ -15,6 +16,7 @@ const MarketplaceRegister = () => {
   const location = useLocation();
   const { userLoggedIn } = useAuth();
   const { selectedPickupSpot } = usePickupSpot();
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const redirectTo = resolveMarketplaceAuthRedirect(
     location.state?.from,
     '/community-marketplace/my-orders'
@@ -33,6 +35,16 @@ const MarketplaceRegister = () => {
       navigate(redirectTo, { replace: true });
     }
   }, [userLoggedIn, navigate, redirectTo]);
+
+  useEffect(() => {
+    if (!communitiesLoaded || !community) return;
+    const canonical = resolveMarketplaceCommunityName(community);
+    if (!pickupSpots.includes(canonical)) {
+      setCommunity('');
+    } else if (canonical !== community) {
+      setCommunity(canonical);
+    }
+  }, [communitiesLoaded, community, pickupSpots]);
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -127,7 +139,9 @@ const MarketplaceRegister = () => {
                   value={community}
                   onChange={(e) => setCommunity(e.target.value)}
                 >
-                  <option value="">בחרו קהילה</option>
+                  <option value="">
+                    {communitiesLoaded ? 'בחרו קהילה' : 'טוען קהילות...'}
+                  </option>
                   {pickupSpots.map((spot) => (
                     <option key={spot} value={spot}>
                       {spot}

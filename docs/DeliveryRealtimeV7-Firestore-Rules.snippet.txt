@@ -1,0 +1,39 @@
+// PROTOTYPE / DOCUMENTATION ONLY — NOT A DEPLOYMENT INSTRUCTION
+// Paste into Firebase Console → Firestore → Rules only after reviewing
+// against the deployed ruleset and authenticated admin claims.
+//
+// Assumes production already defines a robust isAdmin() function.
+// Paths and claim semantics must stay identical to V7:
+//   deliveryRealtimeV7/{weekKey}
+//   deliveryRealtimeV7/{weekKey}/presence/{sessionId}
+//   deliveryRealtimeV7/{weekKey}/claims/{orderId}
+//   deliveryRealtimeV7/{weekKey}/drafts/{orderId}
+//
+// See also: docs/DeliveryManagementV7-Contracts.md
+
+    // --- Delivery Management V7 realtime room (prototype) ---
+
+    match /deliveryRealtimeV7/{weekKey} {
+      allow read, write: if isAdmin();
+
+      match /presence/{sessionId} {
+        allow read, write: if isAdmin();
+      }
+
+      match /claims/{orderId} {
+        allow read, write: if isAdmin();
+      }
+
+      match /drafts/{orderId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+// Ensure your project already defines isAdmin(), for example:
+//
+//   function isAdmin() {
+//     return isAuthenticated() && (
+//       request.auth.uid == 'YOUR_ADMIN_UID'
+//       || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+//     );
+//   }

@@ -99,15 +99,116 @@
       allow write: if isAdmin();
     }
 
-    // Pilot waiting list — public signup (no auth), admin-only read
-    match /marketplaceWaitlist/{entryId} {
-      allow create: if true;
-      allow read: if isAdmin();
-      allow update, delete: if false;
+    // Pilot waiting list — validated public signup, strictly scoped admin review
+    function isShortMarketplaceWaitlistString(value) {
+      return value is string && value.size() <= 200;
     }
 
-    // Future volunteer pickup (placeholder collection)
+    function isValidMarketplaceWaitlistCreate(data) {
+      return data.keys().hasOnly([
+               'name', 'phone', 'email', 'businessKind', 'community',
+               'status', 'createdAt'
+             ])
+        && data.keys().hasAll([
+             'name', 'phone', 'email', 'businessKind', 'community',
+             'status', 'createdAt'
+           ])
+        && isShortMarketplaceWaitlistString(data.name) && data.name.size() > 0
+        && isShortMarketplaceWaitlistString(data.phone) && data.phone.size() > 0
+        && isShortMarketplaceWaitlistString(data.email)
+        && isShortMarketplaceWaitlistString(data.businessKind)
+        && isShortMarketplaceWaitlistString(data.community)
+        && data.status == 'new'
+        && data.createdAt == request.time;
+    }
+
+    function isValidMarketplaceWaitlistReview(data) {
+      return data.keys().hasOnly([
+               'name', 'phone', 'email', 'businessKind', 'community',
+               'status', 'createdAt', 'reviewNote', 'reviewedAt', 'reviewedBy'
+             ])
+        && data.keys().hasAll([
+             'name', 'phone', 'email', 'businessKind', 'community',
+             'status', 'createdAt', 'reviewNote', 'reviewedAt', 'reviewedBy'
+           ])
+        && isShortMarketplaceWaitlistString(data.name) && data.name.size() > 0
+        && isShortMarketplaceWaitlistString(data.phone) && data.phone.size() > 0
+        && isShortMarketplaceWaitlistString(data.email)
+        && isShortMarketplaceWaitlistString(data.businessKind)
+        && isShortMarketplaceWaitlistString(data.community)
+        && isShortMarketplaceWaitlistString(data.reviewNote)
+        && data.status in ['approved', 'rejected']
+        && data.createdAt is timestamp
+        && data.reviewedAt == request.time
+        && data.reviewedBy is map
+        && data.reviewedBy.keys().hasOnly(['uid', 'email'])
+        && data.reviewedBy.keys().hasAll(['uid', 'email'])
+        && request.auth != null
+        && data.reviewedBy.uid == request.auth.uid
+        && isShortMarketplaceWaitlistString(data.reviewedBy.email)
+        && (
+             (request.auth.token.email is string &&
+               data.reviewedBy.email == request.auth.token.email) ||
+             (!(request.auth.token.keys().hasAny(['email'])) &&
+               data.reviewedBy.email == '')
+           );
+    }
+
+    match /marketplaceWaitlist/{entryId} {
+      allow create: if isValidMarketplaceWaitlistCreate(request.resource.data);
+      allow read: if isAdmin();
+      allow update: if isAdmin()
+        && resource.data.status == 'new'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'reviewNote', 'reviewedAt', 'reviewedBy'])
+        && isValidMarketplaceWaitlistReview(request.resource.data);
+      allow delete: if false;
+    }
+
+    function isValidMarketplacePromotionVolunteerCreate(data) {
+      return data.keys().hasAll([
+          'promotionId', 'businessId', 'community', 'fullName', 'phone',
+          'address', 'userId', 'status', 'cancelled', 'commitment'
+        ])
+        && data.promotionId is string && data.promotionId.size() > 0 && data.promotionId.size() < 128
+        && data.businessId is string && data.businessId.size() > 0 && data.businessId.size() < 128
+        && data.community is string && data.community.size() > 0 && data.community.size() < 80
+        && data.fullName is string && data.fullName.size() > 0 && data.fullName.size() < 120
+        && data.phone is string && data.phone.size() > 0 && data.phone.size() < 40
+        && data.address is string && data.address.size() > 0 && data.address.size() < 240
+        && data.userId == request.auth.uid
+        && data.status == 'active'
+        && data.cancelled == false
+        && data.commitment is map
+        && data.commitment.keys().hasAll(['type', 'startAt', 'endAt'])
+        && data.commitment.type is string
+        && data.commitment.startAt is string
+        && data.commitment.endAt is string;
+    }
+
+    // Prototype rules for marketplace promotion volunteer pickup points.
+    // Review against deployed isAdmin()/auth helpers before production.
     match /marketplacePromotionVolunteers/{volunteerId} {
-      allow read: if false;
-      allow write: if false;
+      allow read: if isAuthenticated()
+        && (
+          resource.data.userId == request.auth.uid
+          || resource.data.businessId == request.auth.uid
+          || isAdmin()
+          // Customers need to discover active spots for a promotion they are ordering.
+          || resource.data.status == 'active'
+        );
+      allow create: if isAuthenticated()
+        && isValidMarketplacePromotionVolunteerCreate(request.resource.data);
+      allow update: if isAuthenticated()
+        && (
+          (resource.data.userId == request.auth.uid || isAdmin())
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'cancelled', 'cancelledAt', 'cancelledBy', 'updatedAt'])
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.cancelled == true
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.promotionId == resource.data.promotionId
+          && request.resource.data.businessId == resource.data.businessId
+        );
+      allow delete: if false;
     }

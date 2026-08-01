@@ -35,6 +35,12 @@ const initialCards = [
     to: '/admin/refunds'
   },
   {
+    title: 'משוב לקוחות על מוצרים',
+    description: 'דירוגים ומשוב בונה ופרטי של לקוחות על מוצרים שרכשו',
+    to: '/admin/product-feedback',
+    featured: true
+  },
+  {
     title: 'סיכום שבועי V2',
     description: 'דוחות שבועיים עם בחירת שבוע וקהילות',
     to: '/admin/weekly-summary-v2',
@@ -80,6 +86,12 @@ const initialCards = [
     title: 'ייבוא מחירון ספק',
     description: 'פענוח PDF, השוואת עלויות, התאמת מוצרים ועדכון מחירים מבוקר',
     to: '/admin/supplier-price-import',
+    featured: true
+  },
+  {
+    title: 'העתקת מוצרים בין עסקים',
+    description: 'בחירת מוצרים מעסק שבועי אחד ויצירת עותקים חדשים בעסק יעד',
+    to: '/admin/copy-products',
     featured: true
   },
   {

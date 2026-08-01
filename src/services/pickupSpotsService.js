@@ -12,6 +12,10 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { pickupSpotsData as staticPickupSpotsData, pickupSpotsByRegion as staticPickupSpotsByRegion } from '../data/pickupSpots';
+import {
+  resolveMarketplaceCommunityName,
+  setMarketplaceCommunityIdentity,
+} from '../utils/marketplaceCommunityIdentity';
 
 const COMMUNITY_COLORS = [
   '#4F46E5', '#059669', '#D97706', '#DC2626', '#7C3AED',
@@ -19,7 +23,7 @@ const COMMUNITY_COLORS = [
   '#0D9488', '#B45309', '#9333EA', '#E11D48', '#16A34A',
 ];
 
-const NITZANIM_ALIASES = ['ניצנים ה', 'ניצנים ג'];
+const LEGACY_NITZANIM_ALIASES = ['ניצנים ה', 'ניצנים ג'];
 
 let cache = {
   spots: [],
@@ -50,7 +54,7 @@ function buildFromStatic() {
   const spotsData = { ...staticPickupSpotsData };
   const spots = Object.keys(spotsData);
   const aliasMap = {};
-  NITZANIM_ALIASES.forEach((alias) => {
+  LEGACY_NITZANIM_ALIASES.forEach((alias) => {
     aliasMap[alias] = 'ניצנים';
   });
   const colorByName = {};
@@ -113,16 +117,12 @@ function dedupeCommunityDocs(docs) {
 }
 
 function buildEmptyFirestoreCache() {
-  const aliasMap = {};
-  NITZANIM_ALIASES.forEach((alias) => {
-    aliasMap[alias] = 'ניצנים';
-  });
   return {
     spots: [],
     spotsData: {},
     spotsByRegion: {},
     colorByName: {},
-    aliasMap,
+    aliasMap: {},
     loaded: true,
   };
 }
@@ -162,10 +162,6 @@ function applyCommunities(docs) {
     });
   });
 
-  NITZANIM_ALIASES.forEach((alias) => {
-    aliasMap[alias] = 'ניצנים';
-  });
-
   cache = {
     spots: communities.map((c) => c.name),
     spotsData,
@@ -178,15 +174,24 @@ function applyCommunities(docs) {
 }
 
 function notifyListeners() {
+  setMarketplaceCommunityIdentity({
+    communities: cache.spots,
+    aliases: cache.aliasMap,
+  });
   listeners.forEach((listener) => listener(getSnapshot()));
 }
 
 function getSnapshot() {
+  setMarketplaceCommunityIdentity({
+    communities: cache.spots,
+    aliases: cache.aliasMap,
+  });
   return {
     pickupSpots: [...cache.spots],
     pickupSpotsData: { ...cache.spotsData },
     pickupSpotsByRegion: { ...cache.spotsByRegion },
     colorByName: { ...cache.colorByName },
+    aliasMap: { ...cache.aliasMap },
     loaded: cache.loaded,
   };
 }
@@ -260,9 +265,12 @@ export function getPickupSpotsSync() {
 
 export function resolveCommunityName(raw) {
   if (!raw) return raw;
-  const trimmed = String(raw).trim();
   if (!cache.loaded) cache = buildFromStatic();
-  return cache.aliasMap[trimmed] || trimmed;
+  setMarketplaceCommunityIdentity({
+    communities: cache.spots,
+    aliases: cache.aliasMap,
+  });
+  return resolveMarketplaceCommunityName(raw);
 }
 
 export function getCommunityColor(name) {
@@ -278,7 +286,7 @@ export async function seedCommunitiesFromStatic() {
   Object.entries(staticData.spotsData).forEach(([name, data]) => {
     const regionEntry = Object.entries(staticData.spotsByRegion).find(([, list]) => list.includes(name));
     const region = regionEntry ? regionEntry[0] : 'אחר';
-    const aliases = name === 'ניצנים' ? [...NITZANIM_ALIASES] : [];
+    const aliases = name === 'ניצנים' ? [...LEGACY_NITZANIM_ALIASES] : [];
     const ref = doc(db, 'communities', name);
     batch.set(ref, {
       name,
@@ -370,7 +378,7 @@ async function collectCommunityDeleteRefs(name) {
   const refs = new Map();
   const namesToTry = new Set([String(name || '').trim()]);
   if (namesToTry.has('ניצנים')) {
-    NITZANIM_ALIASES.forEach((alias) => namesToTry.add(alias));
+    LEGACY_NITZANIM_ALIASES.forEach((alias) => namesToTry.add(alias));
   }
 
   await Promise.all([...namesToTry].map(async (communityName) => {
@@ -430,7 +438,7 @@ export async function migrateNitzanimNames() {
     const batch = writeBatch(db);
     let batchCount = 0;
 
-    snap.docs.forEach((docSnap) => {
+    for (const docSnap of snap.docs) {
       const data = docSnap.data();
       const updates = {};
 
@@ -460,7 +468,7 @@ export async function migrateNitzanimNames() {
         batchCount += 1;
         updated += 1;
       }
-    });
+    }
 
     if (batchCount > 0) await batch.commit();
   }

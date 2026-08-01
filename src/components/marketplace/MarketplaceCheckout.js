@@ -5,6 +5,8 @@ import { useAuth } from '../../contexts/authContext';
 import { usePickupSpot } from '../../contexts/PickupSpotContext';
 import { useMarketplaceCart } from '../../contexts/MarketplaceCartContext';
 import {
+  getCanonicalCommunityName,
+  getCommonServiceableCommunityNames,
   getDeliveryFeeForMethod,
   normalizeStoreFulfillment,
   validateFulfillmentChoice,
@@ -31,7 +33,7 @@ import {
 } from '../../services/marketplaceUserService';
 import MarketplaceCheckoutAccount from './MarketplaceCheckoutAccount';
 import MarketplaceFulfillmentPicker from './MarketplaceFulfillmentPicker';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceSubmittingOverlay from './MarketplaceSubmittingOverlay';
 import { PAYMENT_CHIP_ICONS } from '../../utils/marketplacePaymentChips';
@@ -44,6 +46,7 @@ const MarketplaceCheckout = () => {
   const navigate = useNavigate();
   const { currentUser, userLoggedIn } = useAuth();
   const { selectedPickupSpot } = usePickupSpot();
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const { cartItems, itemsByStore, cartTotal, clearStoreItems } = useMarketplaceCart();
   const storeGroups = useMemo(() => Object.values(itemsByStore), [itemsByStore]);
 
@@ -169,6 +172,49 @@ const MarketplaceCheckout = () => {
 
   const allConfirmed =
     storeGroups.length > 0 && storeGroups.every((group) => confirmedStores[group.businessId]);
+
+  const storesLoaded = storeGroups.every((group) =>
+    Object.prototype.hasOwnProperty.call(storeMap, group.businessId)
+  );
+  const serviceableCommunities = useMemo(() => {
+    if (!storesLoaded || storeGroups.length === 0) return [];
+    const fulfillments = storeGroups.map((group) =>
+      normalizeStoreFulfillment(storeMap[group.businessId])
+    );
+    return getCommonServiceableCommunityNames(fulfillments, pickupSpots);
+  }, [pickupSpots, storeGroups, storeMap, storesLoaded]);
+
+  const availablePaymentMethods = useMemo(() => {
+    if (!storesLoaded || storeGroups.length === 0) return [];
+    return DEFAULT_MANUAL_PAYMENT_METHODS.filter((method) =>
+      storeGroups.every((group) => {
+        const configured = storeMap[group.businessId]?.manualPaymentMethods;
+        const methods = Array.isArray(configured) && configured.length > 0
+          ? configured
+          : DEFAULT_MANUAL_PAYMENT_METHODS;
+        return methods.includes(method);
+      })
+    );
+  }, [storeGroups, storeMap, storesLoaded]);
+
+  useEffect(() => {
+    if (availablePaymentMethods.length === 0) return;
+    if (!availablePaymentMethods.includes(paymentMethod)) {
+      setPaymentMethod(availablePaymentMethods[0]);
+    }
+  }, [availablePaymentMethods, paymentMethod]);
+
+  useEffect(() => {
+    if (!communitiesLoaded || !storesLoaded || !customer.community) return;
+    const canonical = getCanonicalCommunityName(customer.community);
+    if (serviceableCommunities.includes(canonical)) {
+      if (canonical !== customer.community) {
+        setCustomer((current) => ({ ...current, community: canonical }));
+      }
+      return;
+    }
+    setCustomer((current) => ({ ...current, community: '' }));
+  }, [communitiesLoaded, customer.community, serviceableCommunities, storesLoaded]);
 
   const allFulfillmentValid = storeGroups.every((group) => {
     const store = storeMap[group.businessId];
@@ -386,6 +432,7 @@ const MarketplaceCheckout = () => {
           subtotal: order.subtotal,
           deliveryFee: order.deliveryFee,
           total: order.total,
+          paymentMethod: order.paymentMethod || paymentMethod,
           fulfillmentLabel: order.fulfillmentLabel || order.selectedDeliveryOption,
           notifications: order.notifications,
         })),
@@ -415,7 +462,8 @@ const MarketplaceCheckout = () => {
     submitting ||
     !allConfirmed ||
     !allFulfillmentValid ||
-    (!userLoggedIn && !wantsCreateAccount);
+    (!userLoggedIn && !wantsCreateAccount) ||
+    availablePaymentMethods.length === 0;
 
   return (
     <div className="mp-page mp-checkout-page" dir="rtl">
@@ -601,8 +649,14 @@ const MarketplaceCheckout = () => {
                 value={customer.community}
                 onChange={(e) => setCustomer((c) => ({ ...c, community: e.target.value }))}
               >
-                <option value="">בחרו קהילה</option>
-                {pickupSpots.map((spot) => (
+                <option value="">
+                  {!communitiesLoaded || !storesLoaded
+                    ? 'טוען קהילות זמינות...'
+                    : serviceableCommunities.length > 0
+                      ? 'בחרו קהילה'
+                      : 'אין קהילה משותפת לכל הבסטות'}
+                </option>
+                {serviceableCommunities.map((spot) => (
                   <option key={spot} value={spot}>
                     {spot}
                   </option>
@@ -616,7 +670,7 @@ const MarketplaceCheckout = () => {
                 בחרו אמצעי תשלום — התשלום ישירות לכל דוכן, לא דרך האתר
               </p>
               <div className="mp-payment-chips mp-checkout-payment-chips" role="radiogroup" aria-label="אמצעי תשלום">
-                {DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => (
+                {availablePaymentMethods.map((method) => (
                   <label
                     key={method}
                     className={`mp-payment-chip mp-payment-chip-select${
@@ -637,6 +691,11 @@ const MarketplaceCheckout = () => {
                   </label>
                 ))}
               </div>
+              {storesLoaded && availablePaymentMethods.length === 0 && (
+                <p className="mp-alert mp-alert-warn text-sm mt-3" role="alert">
+                  אין אמצעי תשלום משותף לכל הבסטות בסל. פצלו את ההזמנה או פנו לבסטות לתיאום.
+                </p>
+              )}
             </div>
 
             <div className="mp-checkout-total-box">

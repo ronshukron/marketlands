@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import {
   Bar,
@@ -18,6 +18,7 @@ import { useAuth } from '../../contexts/authContext';
 import {
   createMappingPreview,
   hashSupplierFile,
+  loadLatestSupplierImport,
   parseSupplierPdf,
   saveSupplierPriceImport,
 } from '../../services/supplierPriceListService';
@@ -60,6 +61,165 @@ const percent = (value) => (
   Number.isFinite(Number(value)) ? `${Number(value) > 0 ? '+' : ''}${Number(value).toFixed(1)}%` : '—'
 );
 
+const buildChangeSummary = (rows = []) => {
+  const counts = { increased: 0, decreased: 0, unchanged: 0, new: 0 };
+  rows.forEach((row) => {
+    if (counts[row.changeType] != null) counts[row.changeType] += 1;
+  });
+  const changed = rows.filter((row) => Number.isFinite(row.changePercent));
+  const average = changed.length
+    ? changed.reduce((sum, row) => sum + row.changePercent, 0) / changed.length
+    : null;
+  return { ...counts, average };
+};
+
+const buildChartData = (summary) => [
+  { name: 'התייקרו', value: summary.increased, key: 'increased' },
+  { name: 'הוזלו', value: summary.decreased, key: 'decreased' },
+  { name: 'ללא שינוי', value: summary.unchanged, key: 'unchanged' },
+  { name: 'חדשים', value: summary.new, key: 'new' },
+];
+
+const buildMovers = (rows = []) => rows
+  .filter((row) => Number.isFinite(row.changePercent))
+  .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
+  .slice(0, 10)
+  .map((row) => ({
+    name: row.name.length > 18 ? `${row.name.slice(0, 18)}…` : row.name,
+    previousCost: Number(row.previousCost),
+    currentCost: Number(row.cost),
+    changePercent: Number(row.changePercent.toFixed(1)),
+  }));
+
+const buildBusinessImpactFromMatches = (matches = []) => {
+  const totals = new Map();
+  matches.forEach((match) => {
+    if (!match.enabled || !match.product || !match.calculation?.valid) return;
+    const current = totals.get(match.businessId) || {
+      name: match.businessName.length > 18
+        ? `${match.businessName.slice(0, 18)}…`
+        : match.businessName,
+      current: 0,
+      suggested: 0,
+    };
+    current.current += Number(match.product.price || 0);
+    current.suggested += Number(match.finalPrice || match.calculation.suggestedPrice || 0);
+    totals.set(match.businessId, current);
+  });
+  return [...totals.values()].slice(0, 12);
+};
+
+const buildBusinessImpactFromReviews = (reviews = []) => {
+  const totals = new Map();
+  reviews.forEach((review) => {
+    if (!review.businessId) return;
+    const current = totals.get(review.businessId) || {
+      name: (review.businessName || review.businessId).length > 18
+        ? `${(review.businessName || review.businessId).slice(0, 18)}…`
+        : (review.businessName || review.businessId),
+      current: 0,
+      suggested: 0,
+    };
+    current.current += Number(review.previousPrice || 0);
+    current.suggested += Number(
+      review.appliedPrice ?? review.suggestedPrice ?? review.previousPrice ?? 0
+    );
+    totals.set(review.businessId, current);
+  });
+  return [...totals.values()].slice(0, 12);
+};
+
+const SupplierImportDashboard = ({
+  title,
+  subtitle,
+  summary,
+  chartData,
+  movers,
+  businessImpact,
+  removedCount = 0,
+  emptyBusinessImpactText = 'יוצג לאחר בחירת התאמות עם מחיר בסיס',
+}) => (
+  <div>
+    {(title || subtitle) && (
+      <div className="mb-4">
+        {title && <h2 className="text-lg font-bold text-slate-900">{title}</h2>}
+        {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
+      </div>
+    )}
+
+    <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      {[
+        ['התייקרו', summary.increased, 'text-red-700'],
+        ['הוזלו', summary.decreased, 'text-emerald-700'],
+        ['ללא שינוי', summary.unchanged, 'text-slate-700'],
+        ['חדשים', summary.new, 'text-blue-700'],
+        ['ירדו מהמחירון', removedCount, 'text-orange-700'],
+        ['שינוי ממוצע', percent(summary.average), 'text-violet-700'],
+      ].map(([label, value, color]) => (
+        <div key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+          <div className="text-xs text-slate-500">{label}</div>
+          <div className={`mt-1 text-2xl font-bold ${color}`}>{value}</div>
+        </div>
+      ))}
+    </div>
+
+    <section className="mb-4 grid gap-4 lg:grid-cols-3">
+      <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <h3 className="mb-2 font-bold">חלוקת השינויים</h3>
+        <div className="h-64" dir="ltr">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={chartData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={85} label>
+                {chartData.map((entry) => <Cell key={entry.key} fill={CHANGE_COLORS[entry.key]} />)}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <h3 className="mb-2 font-bold">עלות קודמת מול חדשה — השינויים הגדולים</h3>
+        <div className="h-64" dir="ltr">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={movers} layout="vertical" margin={{ left: 25 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" />
+              <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="previousCost" name="עלות קודמת" fill="#94a3b8" />
+              <Bar dataKey="currentCost" name="עלות חדשה" fill="#3b82f6" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <h3 className="mb-2 font-bold">השפעה צפויה על מחירי מכירה לפי עסק</h3>
+        <div className="h-64" dir="ltr">
+          {businessImpact.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={businessImpact}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="current" name="מחיר נוכחי מצטבר" fill="#94a3b8" />
+                <Bar dataKey="suggested" name="מחיר מוצע מצטבר" fill="#8b5cf6" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              {emptyBusinessImpactText}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+    <p className="mb-4 text-xs text-slate-500">האנליטיקה אינה משוקללת לפי כמויות רכישה, מכיוון שהמחירון אינו כולל כמויות.</p>
+  </div>
+);
+
 const SupplierPriceImportAdmin = () => {
   const { currentUser, userRole } = useAuth();
   const [stage, setStage] = useState('upload');
@@ -75,58 +235,54 @@ const SupplierPriceImportAdmin = () => {
   const [businessFilter, setBusinessFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [applyPriceUpdates, setApplyPriceUpdates] = useState(false);
+  const [latestDashboard, setLatestDashboard] = useState(null);
+  const [latestDashboardError, setLatestDashboardError] = useState('');
+  const [latestDashboardLoading, setLatestDashboardLoading] = useState(true);
 
   const isAdmin = Boolean(
     currentUser && (userRole === 'admin' || ADMIN_UIDS.includes(currentUser.uid))
   );
 
-  const summary = useMemo(() => {
-    const counts = { increased: 0, decreased: 0, unchanged: 0, new: 0 };
-    rows.forEach((row) => {
-      if (counts[row.changeType] != null) counts[row.changeType] += 1;
-    });
-    const changed = rows.filter((row) => Number.isFinite(row.changePercent));
-    const average = changed.length
-      ? changed.reduce((sum, row) => sum + row.changePercent, 0) / changed.length
-      : null;
-    return { ...counts, average };
-  }, [rows]);
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let cancelled = false;
+    const loadDashboard = async () => {
+      setLatestDashboardLoading(true);
+      setLatestDashboardError('');
+      try {
+        const latest = await loadLatestSupplierImport({ includeReviews: true });
+        if (cancelled) return;
+        if (!latest) {
+          setLatestDashboard(null);
+          return;
+        }
+        const summary = buildChangeSummary(latest.rows);
+        setLatestDashboard({
+          importMeta: latest,
+          summary,
+          chartData: buildChartData(summary),
+          movers: buildMovers(latest.rows),
+          businessImpact: buildBusinessImpactFromReviews(latest.reviews),
+          removedCount: Number(latest.removedCount || 0),
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setLatestDashboard(null);
+          setLatestDashboardError(error.message || 'לא ניתן לטעון את לוח המחירון האחרון');
+        }
+      } finally {
+        if (!cancelled) setLatestDashboardLoading(false);
+      }
+    };
+    loadDashboard();
+    return () => { cancelled = true; };
+  }, [isAdmin]);
 
-  const chartData = useMemo(() => [
-    { name: 'התייקרו', value: summary.increased, key: 'increased' },
-    { name: 'הוזלו', value: summary.decreased, key: 'decreased' },
-    { name: 'ללא שינוי', value: summary.unchanged, key: 'unchanged' },
-    { name: 'חדשים', value: summary.new, key: 'new' },
-  ], [summary]);
-
-  const movers = useMemo(() => rows
-    .filter((row) => Number.isFinite(row.changePercent))
-    .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
-    .slice(0, 10)
-    .map((row) => ({
-      name: row.name.length > 18 ? `${row.name.slice(0, 18)}…` : row.name,
-      previousCost: Number(row.previousCost),
-      currentCost: Number(row.cost),
-      changePercent: Number(row.changePercent.toFixed(1)),
-    })), [rows]);
-
-  const businessImpact = useMemo(() => {
-    const totals = new Map();
-    matches.forEach((match) => {
-      if (!match.enabled || !match.product || !match.calculation?.valid) return;
-      const current = totals.get(match.businessId) || {
-        name: match.businessName.length > 18
-          ? `${match.businessName.slice(0, 18)}…`
-          : match.businessName,
-        current: 0,
-        suggested: 0,
-      };
-      current.current += Number(match.product.price || 0);
-      current.suggested += Number(match.finalPrice || match.calculation.suggestedPrice || 0);
-      totals.set(match.businessId, current);
-    });
-    return [...totals.values()].slice(0, 12);
-  }, [matches]);
+  const summary = useMemo(() => buildChangeSummary(rows), [rows]);
+  const chartData = useMemo(() => buildChartData(summary), [summary]);
+  const movers = useMemo(() => buildMovers(rows), [rows]);
+  const businessImpact = useMemo(() => buildBusinessImpactFromMatches(matches), [matches]);
 
   const visibleMatches = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -155,12 +311,16 @@ const SupplierPriceImportAdmin = () => {
     [matches]
   );
   const priceUpdateCount = useMemo(
-    () => selectedMatches.filter((match) => (
-      context?.previousImport
-      && match.calculation?.valid
-      && Number(match.finalPrice) > 0
-    )).length,
-    [selectedMatches, context]
+    () => (
+      applyPriceUpdates
+        ? selectedMatches.filter((match) => (
+          context?.previousImport
+          && match.calculation?.valid
+          && Number(match.finalPrice) > 0
+        )).length
+        : 0
+    ),
+    [selectedMatches, context, applyPriceUpdates]
   );
 
   if (!isAdmin) return <Navigate to="/admin" replace />;
@@ -223,6 +383,7 @@ const SupplierPriceImportAdmin = () => {
       setRows(preview.rows);
       setContext(preview);
       setMatches(builtMatches);
+      setApplyPriceUpdates(false);
       setStage('review');
     } catch (error) {
       Swal.fire('שגיאה בטעינת המוצרים', error.message, 'error');
@@ -276,12 +437,16 @@ const SupplierPriceImportAdmin = () => {
     }
     const confirmation = await Swal.fire({
       icon: 'question',
-      title: context.previousImport ? 'להחיל את המחירון?' : 'לשמור מחירון בסיס?',
+      title: context.previousImport ? 'לשמור את המחירון?' : 'לשמור מחירון בסיס?',
       html: context.previousImport
-        ? `יישמרו ${selectedMatches.length} עלויות ספק ויעודכנו ${priceUpdateCount} מחירי מכירה.`
+        ? (
+          applyPriceUpdates
+            ? `יישמרו ${selectedMatches.length} עלויות ספק ויעודכנו ${priceUpdateCount} מחירי מכירה.`
+            : `יישמרו ${selectedMatches.length} עלויות ספק והתאמות בלבד. מחירי המכירה לא ישתנו.`
+        )
         : `יישמרו ${selectedMatches.length} עלויות בסיס. מחירי המכירה לא ישתנו.`,
       showCancelButton: true,
-      confirmButtonText: context.previousImport ? 'אישור והחלה' : 'שמירת בסיס',
+      confirmButtonText: applyPriceUpdates && context.previousImport ? 'אישור והחלה' : 'שמירה',
       cancelButtonText: 'ביטול',
       confirmButtonColor: '#2563eb',
     });
@@ -298,13 +463,14 @@ const SupplierPriceImportAdmin = () => {
         matches,
         currentUser,
         previousImport: context.previousImport,
+        applyPriceUpdates,
       });
       await Swal.fire({
         icon: 'success',
-        title: result.baseline ? 'מחירון הבסיס נשמר' : 'המחירון הוחל',
-        text: result.baseline
-          ? `${result.matchedCount} התאמות נשמרו ללא שינוי מחירי מכירה`
-          : `${result.priceUpdateCount} מחירי מכירה עודכנו`,
+        title: result.baseline ? 'מחירון הבסיס נשמר' : 'המחירון נשמר',
+        text: result.priceUpdateCount > 0
+          ? `${result.priceUpdateCount} מחירי מכירה עודכנו`
+          : `${result.matchedCount} התאמות נשמרו ללא שינוי מחירי מכירה`,
       });
       setStage('done');
     } catch (error) {
@@ -345,33 +511,61 @@ const SupplierPriceImportAdmin = () => {
         </div>
 
         {stage === 'upload' && (
-          <section className="mx-auto max-w-2xl rounded-xl border bg-white p-6 shadow-sm">
-            <label className="mb-2 block font-semibold text-slate-800" htmlFor="report-date">תאריך המחירון</label>
-            <input
-              id="report-date"
-              type="date"
-              value={reportDate}
-              onChange={(event) => setReportDate(event.target.value)}
-              className="mb-5 min-h-11 w-full rounded-lg border border-slate-300 px-3"
-            />
-            <label className="mb-2 block font-semibold text-slate-800" htmlFor="supplier-pdf">קובץ PDF</label>
-            <input
-              id="supplier-pdf"
-              type="file"
-              accept="application/pdf,.pdf"
-              onChange={(event) => setFile(event.target.files?.[0] || null)}
-              className="min-h-11 w-full rounded-lg border border-dashed border-slate-400 p-3"
-            />
-            <p className="mt-3 text-sm text-slate-500">הקובץ מפוענח בדפדפן ואינו נשמר. נשמרים רק שם הקובץ, טביעת קובץ והשורות שאושרו.</p>
-            <button
-              type="button"
-              onClick={handleParse}
-              disabled={!file || !reportDate}
-              className="mt-6 min-h-11 w-full rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              פענוח המחירון
-            </button>
-          </section>
+          <div className="space-y-6">
+            <section className="mx-auto max-w-2xl rounded-xl border bg-white p-6 shadow-sm">
+              <label className="mb-2 block font-semibold text-slate-800" htmlFor="report-date">תאריך המחירון</label>
+              <input
+                id="report-date"
+                type="date"
+                value={reportDate}
+                onChange={(event) => setReportDate(event.target.value)}
+                className="mb-5 min-h-11 w-full rounded-lg border border-slate-300 px-3"
+              />
+              <label className="mb-2 block font-semibold text-slate-800" htmlFor="supplier-pdf">קובץ PDF</label>
+              <input
+                id="supplier-pdf"
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={(event) => setFile(event.target.files?.[0] || null)}
+                className="min-h-11 w-full rounded-lg border border-dashed border-slate-400 p-3"
+              />
+              <p className="mt-3 text-sm text-slate-500">הקובץ מפוענח בדפדפן ואינו נשמר. נשמרים רק שם הקובץ, טביעת קובץ והשורות שאושרו.</p>
+              <button
+                type="button"
+                onClick={handleParse}
+                disabled={!file || !reportDate}
+                className="mt-6 min-h-11 w-full rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                פענוח המחירון
+              </button>
+            </section>
+
+            <section className="rounded-xl border bg-white p-4 shadow-sm">
+              {latestDashboardLoading && (
+                <div className="py-10 text-center text-slate-500">טוען לוח מחירון אחרון…</div>
+              )}
+              {!latestDashboardLoading && latestDashboardError && (
+                <div className="rounded-lg bg-red-50 p-4 text-sm text-red-800">{latestDashboardError}</div>
+              )}
+              {!latestDashboardLoading && !latestDashboardError && !latestDashboard && (
+                <div className="py-10 text-center text-slate-500">
+                  עדיין אין מחירון שמור להצגה. לאחר הייבוא הראשון הלוח יופיע כאן.
+                </div>
+              )}
+              {!latestDashboardLoading && latestDashboard && (
+                <SupplierImportDashboard
+                  title={`לוח מחירון אחרון — ${latestDashboard.importMeta.reportDate || ''}`}
+                  subtitle={`${latestDashboard.importMeta.rowCount || latestDashboard.importMeta.rows.length} שורות · ${latestDashboard.importMeta.sourceFileName || 'ללא שם קובץ'}`}
+                  summary={latestDashboard.summary}
+                  chartData={latestDashboard.chartData}
+                  movers={latestDashboard.movers}
+                  businessImpact={latestDashboard.businessImpact}
+                  removedCount={latestDashboard.removedCount}
+                  emptyBusinessImpactText="אין נתוני השפעה על מחירים בייבוא האחרון"
+                />
+              )}
+            </section>
+          </div>
         )}
 
         {stage === 'correct' && (
@@ -438,81 +632,18 @@ const SupplierPriceImportAdmin = () => {
               <strong>{context.previousImport ? 'נמצאה השוואה למחירון קודם' : 'זהו מחירון הבסיס הראשון'}</strong>
               <p className="mt-1 text-sm">
                 {context.previousImport
-                  ? `המחירון הקודם מתאריך ${context.previousImport.reportDate}. הצעות המחיר שומרות על שיעור הרווח הקיים.`
+                  ? `המחירון הקודם מתאריך ${context.previousImport.reportDate}. ניתן לשמור עלויות בלבד, או להפעיל עדכון מחירי מכירה.`
                   : 'יישמרו עלויות וקישורים בלבד. מחירי המכירה לא ישתנו בייבוא זה.'}
               </p>
             </div>
 
-            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-              {[
-                ['התייקרו', summary.increased, 'text-red-700'],
-                ['הוזלו', summary.decreased, 'text-emerald-700'],
-                ['ללא שינוי', summary.unchanged, 'text-slate-700'],
-                ['חדשים', summary.new, 'text-blue-700'],
-                ['ירדו מהמחירון', context.removed.length, 'text-orange-700'],
-                ['שינוי ממוצע', percent(summary.average), 'text-violet-700'],
-              ].map(([label, value, color]) => (
-                <div key={label} className="rounded-xl border bg-white p-4 shadow-sm">
-                  <div className="text-xs text-slate-500">{label}</div>
-                  <div className={`mt-1 text-2xl font-bold ${color}`}>{value}</div>
-                </div>
-              ))}
-            </div>
-
-            <section className="mb-4 grid gap-4 lg:grid-cols-3">
-              <div className="rounded-xl border bg-white p-4 shadow-sm">
-                <h2 className="mb-2 font-bold">חלוקת השינויים</h2>
-                <div className="h-64" dir="ltr">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={chartData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={85} label>
-                        {chartData.map((entry) => <Cell key={entry.key} fill={CHANGE_COLORS[entry.key]} />)}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-              <div className="rounded-xl border bg-white p-4 shadow-sm">
-                <h2 className="mb-2 font-bold">עלות קודמת מול חדשה — השינויים הגדולים</h2>
-                <div className="h-64" dir="ltr">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={movers} layout="vertical" margin={{ left: 25 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="previousCost" name="עלות קודמת" fill="#94a3b8" />
-                      <Bar dataKey="currentCost" name="עלות חדשה" fill="#3b82f6" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-              <div className="rounded-xl border bg-white p-4 shadow-sm">
-                <h2 className="mb-2 font-bold">השפעה צפויה על מחירי מכירה לפי עסק</h2>
-                <div className="h-64" dir="ltr">
-                  {businessImpact.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={businessImpact}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="current" name="מחיר נוכחי מצטבר" fill="#94a3b8" />
-                        <Bar dataKey="suggested" name="מחיר מוצע מצטבר" fill="#8b5cf6" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                      יוצג לאחר בחירת התאמות עם מחיר בסיס
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-            <p className="mb-4 text-xs text-slate-500">האנליטיקה אינה משוקללת לפי כמויות רכישה, מכיוון שהמחירון אינו כולל כמויות.</p>
+            <SupplierImportDashboard
+              summary={summary}
+              chartData={chartData}
+              movers={movers}
+              businessImpact={businessImpact}
+              removedCount={context.removed.length}
+            />
 
             <section className="rounded-xl border bg-white p-4 shadow-sm">
               <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -636,7 +767,8 @@ const SupplierPriceImportAdmin = () => {
                                 step="0.1"
                                 value={match.finalPrice ?? ''}
                                 onChange={(e) => handleFinalPriceChange(match.id, e.target.value)}
-                                className="w-28 rounded border p-2 font-semibold"
+                                disabled={!applyPriceUpdates}
+                                className="w-28 rounded border p-2 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                               />
                             ) : (
                               <span className="text-xs text-slate-500">בסיס בלבד</span>
@@ -653,16 +785,40 @@ const SupplierPriceImportAdmin = () => {
                 )}
               </div>
 
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-4">
-                <div>
-                  <div className="font-semibold">{selectedMatches.length} התאמות נבחרו</div>
-                  <div className="text-sm text-slate-600">
-                    {context.previousImport ? `${priceUpdateCount} מחירי מכירה יעודכנו` : 'מחירי המכירה לא ישתנו במחירון הבסיס'}
+              <div className="mt-5 space-y-4 rounded-lg bg-slate-50 p-4">
+                {context.previousImport && (
+                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-white p-3">
+                    <input
+                      type="checkbox"
+                      checked={applyPriceUpdates}
+                      onChange={(e) => setApplyPriceUpdates(e.target.checked)}
+                      className="mt-1 h-5 w-5"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">עדכן גם מחירי מכירה בחנות</span>
+                      <span className="mt-1 block text-sm text-slate-600">
+                        כבוי כברירת מחדל: נשמרות רק עלויות ספק והתאמות. הפעילו רק כשרוצים לשנות מחירי מוצרים.
+                      </span>
+                    </span>
+                  </label>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">{selectedMatches.length} התאמות נבחרו</div>
+                    <div className="text-sm text-slate-600">
+                      {context.previousImport
+                        ? (
+                          applyPriceUpdates
+                            ? `${priceUpdateCount} מחירי מכירה יעודכנו`
+                            : 'מחירי המכירה לא ישתנו — יישמרו עלויות והתאמות בלבד'
+                        )
+                        : 'מחירי המכירה לא ישתנו במחירון הבסיס'}
+                    </div>
                   </div>
+                  <button type="button" onClick={handleSave} className="min-h-11 rounded-lg bg-blue-600 px-6 font-semibold text-white">
+                    {applyPriceUpdates && context.previousImport ? 'בדיקה סופית והחלה' : 'שמירת מחירון'}
+                  </button>
                 </div>
-                <button type="button" onClick={handleSave} className="min-h-11 rounded-lg bg-blue-600 px-6 font-semibold text-white">
-                  {context.previousImport ? 'בדיקה סופית והחלה' : 'שמירת מחירון בסיס'}
-                </button>
               </div>
             </section>
           </>

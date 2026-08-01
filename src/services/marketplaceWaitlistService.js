@@ -1,10 +1,14 @@
 import {
   addDoc,
   collection,
+  doc,
   getDocs,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { validateMarketplaceWaitlistReview } from '../utils/marketplaceWaitlistReview';
+import { resolveMarketplaceCommunityName } from '../utils/marketplaceCommunityIdentity';
 
 export const MARKETPLACE_WAITLIST_COLLECTION = 'marketplaceWaitlist';
 
@@ -34,7 +38,7 @@ export const submitMarketplaceWaitlistEntry = async ({
     phone: cleanField(phone),
     email: cleanField(email).toLowerCase(),
     businessKind: cleanField(businessKind),
-    community: cleanField(community),
+    community: cleanField(resolveMarketplaceCommunityName(community)),
     status: 'new',
     createdAt: serverTimestamp(),
   };
@@ -58,4 +62,31 @@ export const getMarketplaceWaitlistEntries = async () => {
     .sort(
       (a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0)
     );
+};
+
+/** Admin review action. Firestore rules restrict this update to validated review fields. */
+export const reviewMarketplaceWaitlistEntry = async ({
+  entryId,
+  status,
+  reviewNote = '',
+  reviewer = {},
+} = {}) => {
+  const validation = validateMarketplaceWaitlistReview({
+    status,
+    reviewerId: reviewer.uid,
+  });
+  if (!entryId) throw new Error('חסר מזהה הרשמה');
+  if (!validation.valid) throw new Error(validation.message);
+
+  const payload = {
+    status,
+    reviewNote: cleanField(reviewNote),
+    reviewedAt: serverTimestamp(),
+    reviewedBy: {
+      uid: cleanField(reviewer.uid),
+      email: cleanField(reviewer.email).toLowerCase(),
+    },
+  };
+  await updateDoc(doc(db, MARKETPLACE_WAITLIST_COLLECTION, entryId), payload);
+  return payload;
 };

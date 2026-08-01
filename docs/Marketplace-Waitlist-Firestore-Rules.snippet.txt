@@ -8,13 +8,79 @@
 // Requires the existing `isAdmin()` helper (already used by the other
 // marketplace rules in Marketplace-Firestore-Rules.snippet.txt).
 //
-// Collection: marketplaceWaitlist
-//   - create: public pilot signup, no auth (name, phone, email, businessKind, community)
-//   - read:   admins only (used by /admin/marketplace-waitlist)
-//   - update/delete: disabled
+// Prototype data model: marketplaceWaitlist/{entryId}
+// Public create fields:
+//   name, phone, email, businessKind, community: string (max 200)
+//   status: "new"
+//   createdAt: server timestamp
+// Admin review fields:
+//   status: "approved" | "rejected"
+//   reviewNote: string (max 200)
+//   reviewedAt: server timestamp
+//   reviewedBy: { uid, email }
+
+    function isShortWaitlistString(value) {
+      return value is string && value.size() <= 200;
+    }
+
+    function isValidMarketplaceWaitlistCreate(data) {
+      return data.keys().hasOnly([
+               'name', 'phone', 'email', 'businessKind', 'community',
+               'status', 'createdAt'
+             ]) &&
+             data.keys().hasAll([
+               'name', 'phone', 'email', 'businessKind', 'community',
+               'status', 'createdAt'
+             ]) &&
+             isShortWaitlistString(data.name) && data.name.size() > 0 &&
+             isShortWaitlistString(data.phone) && data.phone.size() > 0 &&
+             isShortWaitlistString(data.email) &&
+             isShortWaitlistString(data.businessKind) &&
+             isShortWaitlistString(data.community) &&
+             data.status == 'new' &&
+             data.createdAt == request.time;
+    }
+
+    function isValidMarketplaceWaitlistReview(data) {
+      return data.keys().hasOnly([
+               'name', 'phone', 'email', 'businessKind', 'community',
+               'status', 'createdAt', 'reviewNote', 'reviewedAt', 'reviewedBy'
+             ]) &&
+             data.keys().hasAll([
+               'name', 'phone', 'email', 'businessKind', 'community',
+               'status', 'createdAt',
+               'reviewNote', 'reviewedAt', 'reviewedBy'
+             ]) &&
+             isShortWaitlistString(data.name) && data.name.size() > 0 &&
+             isShortWaitlistString(data.phone) && data.phone.size() > 0 &&
+             isShortWaitlistString(data.email) &&
+             isShortWaitlistString(data.businessKind) &&
+             isShortWaitlistString(data.community) &&
+             isShortWaitlistString(data.reviewNote) &&
+             data.status in ['approved', 'rejected'] &&
+             data.createdAt is timestamp &&
+             data.reviewedAt == request.time &&
+             data.reviewedBy is map &&
+             data.reviewedBy.keys().hasOnly(['uid', 'email']) &&
+             data.reviewedBy.keys().hasAll(['uid', 'email']) &&
+             request.auth != null &&
+             data.reviewedBy.uid == request.auth.uid &&
+             isShortWaitlistString(data.reviewedBy.email) &&
+             (
+               (request.auth.token.email is string &&
+                 data.reviewedBy.email == request.auth.token.email) ||
+               (!(request.auth.token.keys().hasAny(['email'])) &&
+                 data.reviewedBy.email == '')
+             );
+    }
 
     match /marketplaceWaitlist/{entryId} {
-      allow create: if true;
+      allow create: if isValidMarketplaceWaitlistCreate(request.resource.data);
       allow read: if isAdmin();
-      allow update, delete: if false;
+      allow update: if isAdmin() &&
+                    resource.data.status == 'new' &&
+                    request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['status', 'reviewNote', 'reviewedAt', 'reviewedBy']) &&
+                    isValidMarketplaceWaitlistReview(request.resource.data);
+      allow delete: if false;
     }

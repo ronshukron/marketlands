@@ -1,8 +1,10 @@
 import {
   applyQuantityPricing,
+  buildDefaultQuantityDiscountLabel,
   buildPricingSnapshot,
   getEstimatedLineTotal,
   getEffectiveUnitPrice,
+  getQuantityDiscountLabel,
   validateQuantityDiscount,
 } from './pricing';
 
@@ -69,5 +71,21 @@ describe('legacy quantity pricing', () => {
     expect(validateQuantityDiscount(0, 9, 12)).toMatch(/גדול מאפס/);
     expect(validateQuantityDiscount(5, 12, 12)).toMatch(/נמוך מהמחיר הרגיל/);
     expect(validateQuantityDiscount(5, 9, 12)).toBe('');
+  });
+
+  test('uses a custom quantity discount label when provided', () => {
+    expect(getQuantityDiscountLabel({
+      quantityDiscountLabel: 'במבצע 2 ב-14 ₪',
+      quantityDiscountThreshold: 2,
+      quantityDiscountPrice: 7,
+    })).toBe('במבצע 2 ב-14 ₪');
+  });
+
+  test('falls back to the default quantity discount label', () => {
+    expect(buildDefaultQuantityDiscountLabel(4, 4.9)).toBe('4+ ב-₪4.90 ליחידת מחיר');
+    expect(getQuantityDiscountLabel({
+      quantityDiscountThreshold: 4,
+      quantityDiscountPrice: 4.9,
+    })).toBe('4+ ב-₪4.90 ליחידת מחיר');
   });
 });

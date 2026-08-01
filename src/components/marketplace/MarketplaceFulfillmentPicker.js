@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo } from 'react';
-import { pickupSpots } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import {
   getCanonicalCommunityName,
   getConfiguredCommunityLabels,
   getCustomerFulfillmentOptions,
-  isCommunityServed,
-  PICKUP_SCOPE_ALL,
+  getServiceableCommunityNames,
 } from '../../constants/marketplaceFulfillment';
 
 const MarketplaceFulfillmentPicker = ({
@@ -17,24 +16,15 @@ const MarketplaceFulfillmentPicker = ({
   showCommunitySelect = true,
   /** Unique per business on checkout — otherwise radios share one group page-wide */
   radioGroupName = 'fulfillmentMethod',
+  volunteerAvailable = false,
+  volunteer = null,
+  volunteerCommunities = [],
 }) => {
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const communityOptions = useMemo(() => {
-    if (!fulfillment) return pickupSpots;
-    const openPickup =
-      fulfillment.pickupEnabled && fulfillment.pickupScope === PICKUP_SCOPE_ALL;
-    const openDelivery =
-      fulfillment.deliveryEnabled && !fulfillment.deliveryCommunities?.length;
-    if (openPickup || openDelivery) return pickupSpots;
-
-    const configured = getConfiguredCommunityLabels(fulfillment);
-    if (configured.length > 0) {
-      return [...configured].sort(
-        (a, b) => pickupSpots.indexOf(a) - pickupSpots.indexOf(b) || a.localeCompare(b, 'he')
-      );
-    }
-    const served = pickupSpots.filter((spot) => isCommunityServed(fulfillment, spot));
-    return served.length > 0 ? served : pickupSpots;
-  }, [fulfillment]);
+    if (!fulfillment) return [];
+    return getServiceableCommunityNames(fulfillment, pickupSpots, { volunteerCommunities });
+  }, [fulfillment, pickupSpots, volunteerCommunities]);
 
   const servedCommunityHint = useMemo(
     () => getConfiguredCommunityLabels(fulfillment),
@@ -42,8 +32,12 @@ const MarketplaceFulfillmentPicker = ({
   );
 
   const options = useMemo(
-    () => getCustomerFulfillmentOptions(fulfillment, community),
-    [fulfillment, community]
+    () =>
+      getCustomerFulfillmentOptions(fulfillment, community, {
+        volunteerAvailable,
+        volunteer,
+      }),
+    [fulfillment, community, volunteerAvailable, volunteer]
   );
 
   const optionIds = useMemo(() => options.map((o) => o.id).join(','), [options]);
@@ -57,10 +51,24 @@ const MarketplaceFulfillmentPicker = ({
   }, [community, fulfillment, onCommunityChange]);
 
   useEffect(() => {
+    if (!communitiesLoaded || !fulfillment || !community || !onCommunityChange) return;
+    const canonical = getCanonicalCommunityName(community);
+    if (!communityOptions.includes(canonical)) {
+      onCommunityChange('');
+    }
+  }, [
+    communitiesLoaded,
+    community,
+    communityOptions,
+    fulfillment,
+    onCommunityChange,
+  ]);
+
+  useEffect(() => {
     if (!community || options.length === 0) return;
     const stillValid = value && options.some((o) => o.id === value);
     if (!stillValid) {
-      onChange(options[0].id, options[0].label);
+      onChange(options[0].id, options[0].label, options[0]);
     }
   }, [community, optionIds, value, onChange, options]);
 
@@ -74,7 +82,9 @@ const MarketplaceFulfillmentPicker = ({
             value={community || ''}
             onChange={(e) => onCommunityChange?.(e.target.value)}
           >
-            <option value="">בחרו קהילה</option>
+            <option value="">
+              {communitiesLoaded ? 'בחרו קהילה' : 'טוען קהילות...'}
+            </option>
             {communityOptions.map((spot) => (
               <option key={spot} value={spot}>
                 {spot}
@@ -107,14 +117,16 @@ const MarketplaceFulfillmentPicker = ({
           {options.map((option) => (
             <label
               key={option.id}
-              className={`mp-fulfillment-option-card ${value === option.id ? 'is-selected' : ''}`}
+              className={`mp-fulfillment-option-card ${value === option.id ? 'is-selected' : ''} ${
+                option.subtype === 'volunteer' ? 'is-volunteer' : ''
+              }`}
             >
               <input
                 type="radio"
                 name={radioGroupName}
                 className="mp-fulfillment-option-radio"
                 checked={value === option.id}
-                onChange={() => onChange(option.id, option.label)}
+                onChange={() => onChange(option.id, option.label, option)}
               />
               <span className="mp-fulfillment-option-text">
                 <strong>{option.label}</strong>

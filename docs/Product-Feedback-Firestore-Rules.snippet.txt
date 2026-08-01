@@ -1,0 +1,128 @@
+// PROTOTYPE / SECURITY REVIEW REQUIRED
+// Firestore Native, Standard edition. Merge inside:
+//   match /databases/{database}/documents
+// Do not deploy this snippet by itself. It assumes the surrounding rules already
+// provide isAuthenticated() and a secure isAdmin() implementation based on an
+// immutable server-managed role/custom claim.
+//
+// Assumed schema: productFeedback/{orderId}~{lineId}
+// Required fields (strict; no extra fields):
+// - userId: string 1..128, immutable owner UID
+// - orderId: string 1..200, immutable
+// - orderCollection: customerOrders | customerOrdersDelayed, immutable
+// - lineId: path-safe string 1..500, immutable
+// - productId: string 1..200, immutable
+// - productName: string 1..160, immutable display snapshot
+// - businessId: string 0..200, immutable
+// - businessName: string 0..160, immutable display snapshot
+// - rating: integer 1..5
+// - feedback: string 10..1000
+// - active: bool
+// - submittedAt: server timestamp equal to request.time
+//
+// Customer reads are deliberately denied, including reads by the author.
+// Only admins may get/list feedback; there is no public aggregate collection.
+
+function productFeedbackOrder(data) {
+  return get(
+    /databases/$(database)/documents/$(data.orderCollection)/$(data.orderId)
+  ).data;
+}
+
+function isPurchasedFeedbackOrder(order) {
+  return order.get('paymentStatus', '') in ['paid', 'completed', 'charged', 'settled']
+    || order.get('status', '') in ['paid', 'completed', 'charged', 'settled']
+    || order.get('delayedOrderStatus', '') in ['completed', 'charged', 'settled'];
+}
+
+function isValidProductFeedback(feedbackId, data) {
+  let order = productFeedbackOrder(data);
+  return data.keys().hasOnly([
+      'userId', 'orderId', 'orderCollection', 'lineId',
+      'productId', 'productName', 'businessId', 'businessName',
+      'rating', 'feedback', 'active', 'submittedAt'
+    ])
+    && data.keys().hasAll([
+      'userId', 'orderId', 'orderCollection', 'lineId',
+      'productId', 'productName', 'businessId', 'businessName',
+      'rating', 'feedback', 'active', 'submittedAt'
+    ])
+    && data.userId is string
+    && data.userId.size() >= 1
+    && data.userId.size() <= 128
+    && data.userId == request.auth.uid
+    && data.orderId is string
+    && data.orderId.size() >= 1
+    && data.orderId.size() <= 200
+    && data.orderCollection in ['customerOrders', 'customerOrdersDelayed']
+    && data.lineId is string
+    && data.lineId.size() >= 1
+    && data.lineId.size() <= 500
+    && feedbackId == data.orderId + '~' + data.lineId
+    && data.productId is string
+    && data.productId.size() >= 1
+    && data.productId.size() <= 200
+    && data.productName is string
+    && data.productName.size() >= 1
+    && data.productName.size() <= 160
+    && data.businessId is string
+    && data.businessId.size() <= 200
+    && data.businessName is string
+    && data.businessName.size() <= 160
+    && data.rating is int
+    && data.rating >= 1
+    && data.rating <= 5
+    && data.feedback is string
+    && data.feedback.size() >= 10
+    && data.feedback.size() <= 1000
+    && data.active is bool
+    && data.submittedAt is timestamp
+    && data.submittedAt == request.time
+    && order.get('userId', '') == request.auth.uid
+    && isPurchasedFeedbackOrder(order);
+}
+
+function productFeedbackIdentityUnchanged() {
+  return request.resource.data.userId == resource.data.userId
+    && request.resource.data.orderId == resource.data.orderId
+    && request.resource.data.orderCollection == resource.data.orderCollection
+    && request.resource.data.lineId == resource.data.lineId
+    && request.resource.data.productId == resource.data.productId
+    && request.resource.data.productName == resource.data.productName
+    && request.resource.data.businessId == resource.data.businessId
+    && request.resource.data.businessName == resource.data.businessName;
+}
+
+match /productFeedback/{feedbackId} {
+  allow get, list: if isAdmin();
+  allow create: if isAuthenticated()
+    && request.resource.data.active == true
+    && isValidProductFeedback(feedbackId, request.resource.data);
+  allow update: if isAuthenticated()
+    && resource.data.userId == request.auth.uid
+    && productFeedbackIdentityUnchanged()
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      'rating', 'feedback', 'active', 'submittedAt'
+    ])
+    && isValidProductFeedback(feedbackId, request.resource.data);
+  allow delete: if false;
+}
+
+// Security/audit assumptions and devil's-advocate review:
+// - Public, other-customer, and author reads: denied; only isAdmin() can read.
+// - Ownership takeover, schema pollution, oversized strings, invalid ratings,
+//   client-chosen timestamps, deletion, and duplicate active reviews per canonical
+//   order-line ID: denied.
+// - The referenced order must exist, belong to the authenticated UID, and have a
+//   purchased payment state. Legacy orders without immutable userId are ineligible
+//   until backfilled.
+// - Firestore Rules cannot search arbitrary orderBreakdown item arrays to prove
+//   that lineId/productId snapshots match a line. The client service transaction
+//   performs that validation. Admin tooling must treat product/business snapshot
+//   labels as untrusted and audit against the referenced order when acting on a
+//   report. For a hostile-client-grade line-membership guarantee, checkout must
+//   write a bounded reviewableLineIds map/subcollection and these rules must check
+//   that canonical server-written record, or submission must move to a callable
+//   backend using the Admin SDK.
+// - Validate the merged full rules with the Emulator Suite or a dry-run before
+//   deployment; this snippet was not deployed by this change.

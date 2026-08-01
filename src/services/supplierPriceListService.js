@@ -74,7 +74,7 @@ export const loadSupplierImportContext = async () => {
   };
 };
 
-export const loadLatestSupplierImport = async () => {
+export const loadLatestSupplierImport = async ({ includeReviews = false } = {}) => {
   const snapshot = await getDocs(query(
     collection(db, IMPORTS_COLLECTION),
     orderBy('reportDate', 'desc'),
@@ -83,11 +83,17 @@ export const loadLatestSupplierImport = async () => {
   if (snapshot.empty) return null;
 
   const importSnapshot = snapshot.docs[0];
-  const itemSnapshot = await getDocs(collection(importSnapshot.ref, 'items'));
+  const [itemSnapshot, reviewSnapshot] = await Promise.all([
+    getDocs(collection(importSnapshot.ref, 'items')),
+    includeReviews
+      ? getDocs(collection(importSnapshot.ref, 'reviews'))
+      : Promise.resolve({ docs: [] }),
+  ]);
   return {
     id: importSnapshot.id,
     ...importSnapshot.data(),
     rows: itemSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+    reviews: reviewSnapshot.docs.map((review) => ({ id: review.id, ...review.data() })),
   };
 };
 
@@ -121,6 +127,7 @@ export const saveSupplierPriceImport = async ({
   matches,
   currentUser,
   previousImport,
+  applyPriceUpdates = false,
 }) => {
   const importRef = await addDoc(collection(db, IMPORTS_COLLECTION), {
     reportDate,
@@ -163,7 +170,8 @@ export const saveSupplierPriceImport = async ({
 
     selectedMatches.forEach((match, index) => {
       const shouldUpdatePrice = Boolean(
-        previousImport
+        applyPriceUpdates
+        && previousImport
         && match.calculation?.valid
         && Number.isFinite(Number(match.finalPrice))
         && Number(match.finalPrice) > 0

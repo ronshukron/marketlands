@@ -9,6 +9,7 @@ import {
 } from '../../services/marketplaceService';
 import { useMarketplaceSellerOrderActions } from '../../hooks/useMarketplaceSellerOrderActions';
 import { aggregatePromotionOrders, PROMOTION_STATUS_LABELS } from '../../utils/marketplacePromotionAggregation';
+import { formatPromotionClosingDateTime } from '../../utils/marketplacePromotionSchedule';
 import { isMarketplaceSellerRole } from '../../utils/marketplaceSellerRole';
 import LoadingSpinner from '../LoadingSpinner';
 import MarketplaceOrderCard from './MarketplaceOrderCard';
@@ -156,7 +157,7 @@ const MarketplacePromotionOrders = () => {
             <span className="mp-weekly-board-label mt-2">מהשדה השבוע</span>
             <h1 className="mp-bench-title mp-section-title-chalk mt-1">{promotion?.title}</h1>
             <p className="mp-bench-subtitle">
-              {formatDate(promotion?.startsAt)} — {formatDate(promotion?.endsAt)}
+              {formatDate(promotion?.startsAt)} — {formatPromotionClosingDateTime(promotion?.endsAt)}
               {promotion?.deliveryDate && ` · משלוח ${promotion.deliveryDate}`}
             </p>
             <p className="mp-bench-promo-status">

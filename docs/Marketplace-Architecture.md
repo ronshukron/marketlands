@@ -10,7 +10,7 @@ The first version supports:
 - Local business cards that link to the existing `/store/:businessId` store page.
 - Highlighted weekly promotion order forms built only from approved products.
 - Manual payment instructions only. Real payment capture is reserved for a later phase.
-- A volunteer pickup placeholder on promotion forms. The full volunteer workflow is future work.
+- Volunteer pickup for weekly promotions when the seller opts in (`allowVolunteerPickup`). Volunteers create docs in `marketplacePromotionVolunteers`; customers can choose business pickup vs volunteer pickup vs delivery.
 
 ## Routes
 
@@ -76,7 +76,7 @@ Weekly highlighted manual-payment order form. Promotions reference approved `mar
   availableWeekDays: number[],
   pickupInstructions: string,
   manualPaymentMethods: string[],
-  allowVolunteerPickup: false,
+  allowVolunteerPickup: boolean,
   sortRank: number,
   createdAt: Timestamp,
   updatedAt: Timestamp
@@ -98,7 +98,9 @@ Customer submissions for a marketplace promotion.
   customerCommunity: string,
   customerNotes: string,
   selectedDeliveryOption: string,
-  volunteerId: null,
+  volunteerId: string | null,
+  fulfillmentMethod: 'pickup' | 'volunteer_pickup' | 'delivery' | '',
+  fulfillmentSubtype: 'business' | 'volunteer' | 'delivery' | '',
   lines: [
     {
       productId: string,
@@ -117,9 +119,29 @@ Customer submissions for a marketplace promotion.
 }
 ```
 
-### Future `marketplacePromotionVolunteers/{volunteerId}`
+### `marketplacePromotionVolunteers/{volunteerId}`
 
-Reserved for a later volunteer pickup implementation. V1 only shows a disabled placeholder and reserves `volunteerId` on orders.
+```js
+{
+  promotionId: string,
+  businessId: string,
+  businessName: string,
+  community: string,
+  fullName: string,
+  phone: string,
+  address: string,
+  locationInstructions: string,
+  userId: string,
+  status: 'active' | 'cancelled',
+  cancelled: boolean,
+  commitment: { type: 'promotion_window', startAt: string, endAt: string },
+  volunteeredAt: string,
+  createdAt: Timestamp,
+  updatedAt: Timestamp
+}
+```
+
+Frontend: `marketplaceVolunteerService.js`, customer route `/community-marketplace/volunteer/:promotionId`.
 
 ## Local business signup
 
@@ -213,7 +235,7 @@ Backend checks:
 - Caller owns `businesses/{businessId}` or is admin.
 - Every `productId` belongs to `businessId`.
 - Every selected product is approved according to `marketplaceProducts.verified` / `marketplaceProducts.rejected`.
-- `allowVolunteerPickup` remains `false` until the volunteer phase is implemented.
+- `allowVolunteerPickup` is seller-controlled per weekly promotion; volunteer spots live in `marketplacePromotionVolunteers`.
 
 `placeMarketplaceManualOrder`:
 

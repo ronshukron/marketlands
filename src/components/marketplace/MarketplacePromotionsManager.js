@@ -8,6 +8,11 @@ import {
 } from '../../services/marketplaceService';
 import { normalizePromotionFulfillment } from '../../constants/marketplaceFulfillment';
 import { PROMOTION_STATUS_LABELS } from '../../utils/marketplacePromotionAggregation';
+import {
+  formatPromotionClosingDateTime,
+  getPromotionScheduleFormValues,
+  validatePromotionClosingSchedule,
+} from '../../utils/marketplacePromotionSchedule';
 import MarketplacePromotionEditor from './MarketplacePromotionEditor';
 
 const formatDate = (value) => {
@@ -18,6 +23,7 @@ const formatDate = (value) => {
 const promotionToForm = (promotion) => {
   if (!promotion) return null;
   const normalized = normalizePromotionFulfillment(promotion);
+  const closing = getPromotionScheduleFormValues(promotion.endsAt);
   return {
     id: promotion.id,
     title: promotion.title || '',
@@ -27,9 +33,8 @@ const promotionToForm = (promotion) => {
     startsAt: promotion.startsAt
       ? (toDate(promotion.startsAt)?.toISOString().slice(0, 10) || '')
       : '',
-    endsAt: promotion.endsAt
-      ? (toDate(promotion.endsAt)?.toISOString().slice(0, 10) || '')
-      : '',
+    endsAt: closing.endsAt,
+    endsAtTime: closing.endsAtTime,
     deliveryDate: promotion.deliveryDate || '',
     pickupInstructions: promotion.pickupInstructions || '',
     manualPaymentMethods: promotion.manualPaymentMethods || [],
@@ -93,6 +98,14 @@ const MarketplacePromotionsManager = ({
 
     if ((editForm.productIds || []).length === 0) {
       Swal.fire({ icon: 'warning', title: 'בחרו לפחות מוצר מאושר אחד' });
+      return;
+    }
+    const closingValidation = validatePromotionClosingSchedule({
+      ...editForm,
+      requireFuture: false,
+    });
+    if (!closingValidation.valid) {
+      Swal.fire({ icon: 'warning', title: 'מועד סגירה', text: closingValidation.message });
       return;
     }
 
@@ -220,7 +233,7 @@ const MarketplacePromotionsManager = ({
                       </span>
                     </div>
                     <p className="mp-bench-promo-meta">
-                      {formatDate(promotion.startsAt)} — {formatDate(promotion.endsAt)}
+                      {formatDate(promotion.startsAt)} — {formatPromotionClosingDateTime(promotion.endsAt)}
                       {promotion.deliveryDate && ` · משלוח ${promotion.deliveryDate}`}
                     </p>
                     <p className="mp-bench-promo-count">{productCount} מוצרים בקידום</p>

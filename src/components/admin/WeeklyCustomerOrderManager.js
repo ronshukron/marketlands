@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, doc, getDocs, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, runTransaction, updateDoc } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEstimatedLineTotal } from '../../utils/pricing';
+import { isSuccessfulRegularCustomerOrder } from '../../utils/customerOrderUtils';
+import { transferCustomerOrderQuantity } from '../../utils/customerOrderTransferUtils';
+import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 
@@ -91,6 +94,8 @@ const WeeklyCustomerOrderManager = () => {
   const [ordersByPickupSpot, setOrdersByPickupSpot] = useState({});
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [communityUpdates, setCommunityUpdates] = useState({});
+  const [transferDrafts, setTransferDrafts] = useState({});
+  const [transferCatalog, setTransferCatalog] = useState({ businesses: [], productsByBusiness: {} });
   const [savingActionKey, setSavingActionKey] = useState('');
   const communityDropdownRef = useRef(null);
 
@@ -111,7 +116,62 @@ const WeeklyCustomerOrderManager = () => {
       return;
     }
     fetchAvailableWeeks();
+    fetchTransferCatalog();
   }, [currentUser]);
+
+  const fetchTransferCatalog = async () => {
+    try {
+      const [businessSnap, productSnap, ordersSnap] = await Promise.all([
+        getDocs(collection(db, 'businesses')),
+        getDocs(collection(db, 'Products')),
+        getDocs(collection(db, 'Orders')),
+      ]);
+      const productsByBusiness = {};
+      productSnap.docs.forEach((productDoc) => {
+        const product = { id: productDoc.id, ...productDoc.data() };
+        const businessId = product.Owner_ID;
+        if (!businessId) return;
+        if (!productsByBusiness[businessId]) productsByBusiness[businessId] = [];
+        productsByBusiness[businessId].push(product);
+      });
+      Object.values(productsByBusiness).forEach((products) => {
+        products.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'he'));
+      });
+
+      const latestOrderByBusiness = {};
+      ordersSnap.docs.forEach((orderDoc) => {
+        const data = orderDoc.data() || {};
+        if (!data.businessId) return;
+        const timestamp = getCreatedDate(data.Order_Time || data.createdAt)?.getTime() || 0;
+        const previous = latestOrderByBusiness[data.businessId];
+        if (!previous || timestamp >= previous.timestamp) {
+          latestOrderByBusiness[data.businessId] = {
+            orderKey: orderDoc.id,
+            timestamp,
+            selectedProducts: new Set(data.selectedProducts || []),
+          };
+        }
+      });
+
+      const businesses = businessSnap.docs
+        .map((businessDoc) => {
+          const data = businessDoc.data() || {};
+          const orderMeta = latestOrderByBusiness[businessDoc.id];
+          return {
+            id: businessDoc.id,
+            ...data,
+            businessName: data.businessName || data.name || data.displayName || businessDoc.id,
+            orderKey: orderMeta?.orderKey || `admin-transfer-${businessDoc.id}`,
+            selectedProducts: orderMeta?.selectedProducts || new Set(),
+          };
+        })
+        .filter((business) => (productsByBusiness[business.id] || []).length > 0)
+        .sort((a, b) => a.businessName.localeCompare(b.businessName, 'he'));
+      setTransferCatalog({ businesses, productsByBusiness });
+    } catch (err) {
+      console.error('Error loading transfer catalog:', err);
+    }
+  };
 
   useEffect(() => {
     if (selectedWeek) {
@@ -195,11 +255,16 @@ const WeeklyCustomerOrderManager = () => {
         if (selectedCommunities.size > 0 && !selectedCommunities.has(pickupSpot)) return;
 
         if (!grouped[pickupSpot]) grouped[pickupSpot] = [];
+        const normalizedBreakdown = ensureLineIdsInBreakdown(
+          orderDoc.id,
+          orderData.orderBreakdown || {},
+        ).breakdown;
         grouped[pickupSpot].push({
           id: orderDoc.id,
           source,
           createdDate,
-          ...orderData
+          ...orderData,
+          orderBreakdown: normalizedBreakdown,
         });
       });
 
@@ -280,6 +345,106 @@ const WeeklyCustomerOrderManager = () => {
     }, false);
 
     return true;
+  };
+
+  const updateTransferDraft = (orderId, patch) => {
+    setTransferDrafts((prev) => ({
+      ...prev,
+      [orderId]: { ...(prev[orderId] || {}), ...patch },
+    }));
+  };
+
+  const resolveTargetBusinessOrderKey = (orderBreakdown, targetBusiness) => {
+    const existingEntry = Object.entries(orderBreakdown || {}).find(
+      ([, businessOrder]) => businessOrder?.businessId === targetBusiness.id,
+    );
+    if (existingEntry) return existingEntry[0];
+    return targetBusiness.orderKey;
+  };
+
+  const transferProductQuantity = async (order) => {
+    const draft = transferDrafts[order.id] || {};
+    const sourceLine = Object.values(order.orderBreakdown || {})
+      .flatMap((businessOrder) => businessOrder.items || [])
+      .find((item) => item.lineId === draft.sourceLineId);
+    const targetBusiness = transferCatalog.businesses.find(
+      (business) => business.id === draft.targetBusinessId,
+    );
+    const targetProduct = (transferCatalog.productsByBusiness[draft.targetBusinessId] || [])
+      .find((product) => product.id === draft.targetProductId);
+    const quantity = Number(draft.quantity);
+    if (!sourceLine || !targetBusiness || !targetProduct || !Number.isFinite(quantity) || quantity <= 0) {
+      window.alert('יש לבחור פריט מקור, כמות, עסק יעד ומוצר יעד.');
+      return;
+    }
+
+    const approved = window.confirm(
+      `להעביר ${quantity} יחידות מ"${sourceLine.productName}" ל"${targetProduct.name}" אצל ${targetBusiness.businessName}?`,
+    );
+    if (!approved) return;
+
+    const actionKey = `${order.id}-transfer`;
+    setSavingActionKey(actionKey);
+    try {
+      const orderRef = doc(db, order.source, order.id);
+      const transferId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      let updatedOrder;
+      await runTransaction(db, async (transaction) => {
+        const freshSnap = await transaction.get(orderRef);
+        if (!freshSnap.exists()) throw new Error('Order no longer exists');
+        const freshOrder = freshSnap.data() || {};
+        if (!isSuccessfulRegularCustomerOrder(freshOrder)) {
+          throw new Error('ניתן להעביר מוצרים רק בהזמנה רגילה ששולמה');
+        }
+        const targetBusinessOrderKey = resolveTargetBusinessOrderKey(
+          freshOrder.orderBreakdown,
+          targetBusiness,
+        );
+        const result = transferCustomerOrderQuantity({
+          orderId: order.id,
+          orderBreakdown: freshOrder.orderBreakdown,
+          sourceLineId: draft.sourceLineId,
+          quantity,
+          targetBusinessOrderKey,
+          targetBusiness,
+          targetProduct,
+          transferId,
+          deliveryFee: freshOrder.customerDetails?.deliveryDetails?.deliveryFee,
+        });
+        const auditEntry = {
+          ...result.audit,
+          transferredAt: new Date().toISOString(),
+          transferredBy: currentUser.uid,
+        };
+        transaction.update(orderRef, {
+          orderBreakdown: result.orderBreakdown,
+          businessIds: result.businessIds,
+          grandTotal: result.grandTotal,
+          transferAudit: [...(freshOrder.transferAudit || []), auditEntry],
+          adminEditedAt: auditEntry.transferredAt,
+        });
+        updatedOrder = {
+          ...order,
+          ...freshOrder,
+          orderBreakdown: result.orderBreakdown,
+          businessIds: result.businessIds,
+          grandTotal: result.grandTotal,
+          transferAudit: [...(freshOrder.transferAudit || []), auditEntry],
+        };
+      });
+      updateOrderInState(
+        order.customerDetails?.pickupSpot || 'לא צוין',
+        order.id,
+        updatedOrder,
+        false,
+      );
+      setTransferDrafts((prev) => ({ ...prev, [order.id]: {} }));
+    } catch (err) {
+      console.error('Error transferring product quantity:', err);
+      window.alert(err.message || 'שגיאה בהעברת המוצר');
+    } finally {
+      setSavingActionKey('');
+    }
   };
 
   const cancelEntireOrder = async (order) => {
@@ -565,6 +730,17 @@ const WeeklyCustomerOrderManager = () => {
                     {orders.map((order) => {
                       const pickupValue = order.customerDetails?.pickupSpot || 'לא צוין';
                       const communityKey = getOrderCommunityKey(order);
+                      const transferDraft = transferDrafts[order.id] || {};
+                      const sourceLine = Object.values(order.orderBreakdown || {})
+                        .flatMap((businessOrder) => businessOrder.items || [])
+                        .find((item) => item.lineId === transferDraft.sourceLineId);
+                      const sourceBusinessId = Object.values(order.orderBreakdown || {})
+                        .find((businessOrder) => (businessOrder.items || [])
+                          .some((item) => item.lineId === transferDraft.sourceLineId))
+                        ?.businessId;
+                      const targetProducts = transferCatalog.productsByBusiness[transferDraft.targetBusinessId] || [];
+                      const canTransfer = order.source === 'customerOrders'
+                        && isSuccessfulRegularCustomerOrder(order);
                       return (
                         <tr key={`${order.source}-${order.id}`} className="hover:bg-gray-50 align-top">
                           <td className="px-4 py-4 min-w-[210px]">
@@ -621,6 +797,78 @@ const WeeklyCustomerOrderManager = () => {
                                 </li>
                               ))}
                             </ul>
+                            {canTransfer && (
+                              <div className="mt-3 rounded border border-indigo-200 bg-indigo-50 p-3 space-y-2">
+                                <div className="text-xs font-bold text-indigo-900">העברת מוצר לעסק אחר</div>
+                                <select
+                                  value={transferDraft.sourceLineId || ''}
+                                  onChange={(e) => updateTransferDraft(order.id, {
+                                    sourceLineId: e.target.value,
+                                    quantity: '',
+                                    targetBusinessId: '',
+                                    targetProductId: '',
+                                  })}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                                >
+                                  <option value="">בחר פריט מקור</option>
+                                  {Object.entries(order.orderBreakdown || {}).flatMap(([businessKey, businessOrder]) => (
+                                    (businessOrder.items || []).map((item) => (
+                                      <option key={item.lineId} value={item.lineId}>
+                                        {businessOrder.businessName}: {item.productName} ({item.quantity})
+                                      </option>
+                                    ))
+                                  ))}
+                                </select>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                  <input
+                                    type="number"
+                                    min="0.001"
+                                    step="0.001"
+                                    max={sourceLine?.quantity || ''}
+                                    value={transferDraft.quantity || ''}
+                                    onChange={(e) => updateTransferDraft(order.id, { quantity: e.target.value })}
+                                    placeholder="כמות"
+                                    className="px-2 py-1 border border-gray-300 rounded text-xs"
+                                  />
+                                  <select
+                                    value={transferDraft.targetBusinessId || ''}
+                                    onChange={(e) => updateTransferDraft(order.id, {
+                                      targetBusinessId: e.target.value,
+                                      targetProductId: '',
+                                    })}
+                                    className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                                  >
+                                    <option value="">עסק יעד</option>
+                                    {transferCatalog.businesses
+                                      .filter((business) => business.id !== sourceBusinessId)
+                                      .map((business) => (
+                                        <option key={business.id} value={business.id}>{business.businessName}</option>
+                                      ))}
+                                  </select>
+                                  <select
+                                    value={transferDraft.targetProductId || ''}
+                                    onChange={(e) => updateTransferDraft(order.id, { targetProductId: e.target.value })}
+                                    disabled={!transferDraft.targetBusinessId}
+                                    className="px-2 py-1 border border-gray-300 rounded text-xs bg-white disabled:bg-gray-100"
+                                  >
+                                    <option value="">מוצר יעד</option>
+                                    {targetProducts.map((product) => (
+                                      <option key={product.id} value={product.id}>
+                                        {product.name} — ₪{Number(product.price || 0).toFixed(2)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => transferProductQuantity(order)}
+                                  disabled={savingActionKey === `${order.id}-transfer`}
+                                  className="w-full px-3 py-1.5 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 disabled:opacity-50"
+                                >
+                                  {savingActionKey === `${order.id}-transfer` ? 'מעביר...' : 'בצע העברה'}
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-4 text-sm font-semibold text-gray-900 whitespace-nowrap">
                             ₪{(Number(order.grandTotal) || 0).toFixed(2)}

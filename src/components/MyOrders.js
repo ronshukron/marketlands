@@ -442,8 +442,8 @@ const MyOrders = () => {
                                     <p className="text-sm text-gray-500 mt-1">תאריך משלוח: <span className="font-medium">{getOrderDeliveryDateFromCustomerOrder(order)}</span></p>
                                 )}
                                 <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
-                                    <Link to={`/my-orders/${order.id}`} className="text-sm text-blue-600 hover:underline">
-                                        פרטים נוספים
+                                    <Link to={`/my-orders/${order.id}`} className="inline-flex min-h-[44px] items-center px-2 text-sm text-blue-600 hover:underline">
+                                        {order.isIndependent ? 'פרטים נוספים' : 'פרטים ודירוג מוצרים'}
                                     </Link>
                                 </div>
                                 <div className="mt-2 text-right">
