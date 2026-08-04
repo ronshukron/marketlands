@@ -169,9 +169,6 @@ const RefundRequestForm = ({
           onChange={(e) => setReason(e.target.value)}
           className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           rows="4"
-          placeholder={isExternalOrder
-            ? 'אנא פרטו את ההזמנה ואת הסיבה לבקשת ההחזר'
-            : 'אנא הסבירו כאן על איזה מוצר תרצו לקבל זיכוי'}
           required
         />
       </div>
