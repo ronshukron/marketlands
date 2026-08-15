@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 
 const TopProducts = ({ orders }) => {
+  const [visibleCount, setVisibleCount] = useState(10);
   const data = useMemo(() => {
     const stats = {};
     orders.forEach(o => {
@@ -16,12 +17,35 @@ const TopProducts = ({ orders }) => {
         });
       });
     });
-    return Object.values(stats).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+    return Object.values(stats).sort((a, b) => b.revenue - a.revenue);
   }, [orders]);
+  const visibleProducts = visibleCount === 'all' ? data : data.slice(0, visibleCount);
 
   return (
     <div className="bg-white p-6 rounded-lg shadow h-full">
-        <h3 className="text-lg font-bold mb-4 text-gray-800">מוצרים נמכרים ביותר</h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h3 className="text-lg font-bold text-gray-800">מוצרים נמכרים ביותר</h3>
+                <p className="mt-1 text-xs text-gray-500">
+                    מציג {visibleProducts.length} מתוך {data.length} מוצרים
+                </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+                <span>הצג</span>
+                <select
+                    value={visibleCount}
+                    onChange={(event) => setVisibleCount(
+                        event.target.value === 'all' ? 'all' : Number(event.target.value),
+                    )}
+                    className="min-h-[44px] rounded-lg border border-gray-300 bg-white px-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value="all">הכול</option>
+                </select>
+            </label>
+        </div>
         <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -32,8 +56,8 @@ const TopProducts = ({ orders }) => {
                     </tr>
                 </thead>
                 <tbody className="divide-y">
-                    {data.map((prod, i) => (
-                        <tr key={i}>
+                    {visibleProducts.map((prod) => (
+                        <tr key={`${prod.business}-${prod.name}`}>
                             <td className="p-2">
                                 <div className="font-medium">{prod.name}</div>
                                 <div className="text-xs text-gray-500">{prod.business}</div>

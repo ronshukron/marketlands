@@ -18,6 +18,10 @@ import {
     isCustomerOrderOwner,
 } from '../utils/customerOrderUtils';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import {
+    REFUND_STATUSES,
+    getRefundStatusDetails,
+} from '../utils/refundUtils';
 
 const MyOrders = () => {
     const { currentUser } = useAuth();
@@ -236,29 +240,11 @@ const MyOrders = () => {
         const refund = refundStatuses[orderId];
         if (!refund) return null;
         
-        let badgeClass = '';
-        let statusText = '';
-        
-        switch (refund.status) {
-            case 'pending':
-                badgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
-                statusText = 'בקשת זיכוי בטיפול';
-                break;
-            case 'completed':
-                badgeClass = 'bg-green-100 text-green-800 border border-green-200';
-                statusText = 'זיכוי אושר';
-                break;
-            case 'rejected':
-                badgeClass = 'bg-red-100 text-red-800 border border-red-200';
-                statusText = 'זיכוי נדחה';
-                break;
-            default:
-                return null;
-        }
+        const statusDetails = getRefundStatusDetails(refund.status);
         
         return (
-            <div className={`text-xs font-medium px-2.5 py-1 rounded-full ${badgeClass} mt-2`}>
-                {statusText}
+            <div className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusDetails.badgeClass} mt-2`}>
+                {statusDetails.customerLabel}
             </div>
         );
     };
@@ -277,7 +263,7 @@ const MyOrders = () => {
                 userName: userData.name || auth.currentUser.displayName || '',
                 userPhone: userData.phone || '',
                 reason: formData.reason,
-                status: 'pending',
+                status: REFUND_STATUSES.PENDING,
                 createdAt: serverTimestamp(),
                 isExternalOrder: !formData.orderId,
                 refundItems: formData.refundItems || [],
@@ -300,7 +286,17 @@ const MyOrders = () => {
                 };
             }
 
-            await addDoc(collection(db, 'refunds'), refundData);
+            const refundDoc = await addDoc(collection(db, 'refunds'), refundData);
+            if (formData.orderId) {
+                setRefundStatuses((prev) => ({
+                    ...prev,
+                    [formData.orderId]: {
+                        status: REFUND_STATUSES.PENDING,
+                        id: refundDoc.id,
+                        createdAt: new Date(),
+                    },
+                }));
+            }
 
             setRefundSuccess(true);
             setTimeout(() => {
@@ -449,9 +445,9 @@ const MyOrders = () => {
                                 <div className="mt-2 text-right">
                                     {refundStatuses[order.id] ? (
                                         <div className="text-sm text-gray-500">
-                                            {refundStatuses[order.id].status === 'completed' ? 
-                                                'הזיכוי אושר' : 
-                                                'בקשת זיכוי הוגשה'}
+                                            {getRefundStatusDetails(
+                                                refundStatuses[order.id].status,
+                                            ).customerDescription}
                                         </div>
                                     ) : (
                                         <button

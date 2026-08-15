@@ -163,7 +163,10 @@ export function normalizeRetentionOrder(order = {}, source = '') {
     const businessId = businessOrder.businessId || businessKey;
     const businessName = String(businessOrder.businessName || businessId || '').trim();
     const deliveryDate = businessOrder.deliveryDate || defaultDate;
-    const weekKey = getRetentionWeekKey(deliveryDate);
+    const explicitWeekKey = businessOrder.deliveryWeekKey
+      || order.fulfillment?.deliveryWeekKey
+      || order.deliveryWeekKey;
+    const weekKey = getRetentionWeekKey(explicitWeekKey || deliveryDate);
     const community = String(businessOrder.community || defaultCommunity || '').trim();
     if (!weekKey) return;
 
@@ -233,11 +236,15 @@ export function buildProductRetentionIndex(orders = []) {
     customer.aliases.forEach((alias) => identities.union(customer.id, alias));
   });
 
+  const indexedOrders = normalizedOrders.map((order) => ({
+    ...order,
+    customerId: identities.find(order.customer.id),
+  }));
   const customers = new Map();
   const products = new Map();
+  const customerWeeks = new Map();
 
-  normalizedOrders.forEach(({ customer, purchases }) => {
-    const customerId = identities.find(customer.id);
+  indexedOrders.forEach(({ customer, customerId, purchases }) => {
     const existingCustomer = customers.get(customerId) || { ...customer, id: customerId };
     customers.set(customerId, {
       ...existingCustomer,
@@ -247,6 +254,11 @@ export function buildProductRetentionIndex(orders = []) {
     });
 
     purchases.forEach((purchase) => {
+      if (!customerWeeks.has(customerId)) customerWeeks.set(customerId, new Map());
+      const weeks = customerWeeks.get(customerId);
+      if (!weeks.has(purchase.weekKey)) weeks.set(purchase.weekKey, new Set());
+      weeks.get(purchase.weekKey).add(purchase.communityKey);
+
       if (!products.has(purchase.productKey)) {
         products.set(purchase.productKey, {
           ...purchase,
@@ -267,18 +279,32 @@ export function buildProductRetentionIndex(orders = []) {
     });
   });
 
-  return { normalizedOrders, customers, products };
+  return {
+    normalizedOrders: indexedOrders,
+    customers,
+    products,
+    customerWeeks,
+  };
 }
 
 export function calculateProductRetention(index, {
   anchorWeek,
   community = '',
   minimumCohortSize = 1,
+  activityLookbackWeeks = 6,
+  minimumActivityRate = 0.5,
 } = {}) {
   const anchorWeekKey = getRetentionWeekKey(anchorWeek);
-  if (!anchorWeekKey || !index?.products) return [];
+  if (!anchorWeekKey || !index?.products || !index?.customerWeeks) return [];
   const communityKey = normalizeRetentionText(community);
   const minimum = Math.max(1, Number(minimumCohortSize) || 1);
+  const lookbackWeeks = Math.max(1, Math.min(52, Number(activityLookbackWeeks) || 6));
+  const activityRate = Math.max(0, Math.min(1, Number(minimumActivityRate) || 0.5));
+  const requiredActiveWeeks = Math.max(1, Math.ceil(lookbackWeeks * activityRate));
+  const activityWeekKeys = Array.from(
+    { length: lookbackWeeks },
+    (_, position) => addRetentionWeeks(anchorWeekKey, -(position + 1)),
+  );
   const nextWeekKey = addRetentionWeeks(anchorWeekKey, 1);
   const lookaheadWeekKeys = Array.from(
     { length: RETENTION_LOOKAHEAD_WEEKS },
@@ -290,15 +316,25 @@ export function calculateProductRetention(index, {
     const anchorCustomers = product.weeks.get(anchorWeekKey);
     if (!anchorCustomers) return;
 
-    const cohortIds = Array.from(anchorCustomers.entries())
+    const productBuyerIds = Array.from(anchorCustomers.entries())
       .filter(([, purchase]) => !communityKey || purchase.communities.has(communityKey))
       .map(([customerId]) => customerId);
+    const cohortIds = productBuyerIds.filter((customerId) => {
+      const customerActivity = index.customerWeeks.get(customerId);
+      const activeWeekCount = activityWeekKeys.filter(
+        (weekKey) => customerActivity?.has(weekKey),
+      ).length;
+      return activeWeekCount >= requiredActiveWeeks;
+    });
     if (cohortIds.length < minimum) return;
 
-    const nextCustomers = product.weeks.get(nextWeekKey) || new Map();
-    const missedCustomerIds = cohortIds.filter((customerId) => !nextCustomers.has(customerId));
+    const missedCustomerIds = cohortIds.filter(
+      (customerId) => !index.customerWeeks.get(customerId)?.has(nextWeekKey),
+    );
     const lapsedCustomerIds = cohortIds.filter((customerId) => (
-      !lookaheadWeekKeys.some((weekKey) => product.weeks.get(weekKey)?.has(customerId))
+      !lookaheadWeekKeys.some(
+        (weekKey) => index.customerWeeks.get(customerId)?.has(weekKey),
+      )
     ));
 
     metrics.push({
@@ -307,11 +343,17 @@ export function calculateProductRetention(index, {
       businessName: product.businessName,
       selectedOption: product.selectedOption,
       buyers: cohortIds.length,
+      productBuyers: productBuyerIds.length,
       missedNextWeek: missedCustomerIds.length,
       missedRate: missedCustomerIds.length / cohortIds.length,
       sixWeekLapsed: lapsedCustomerIds.length,
+      requiredActiveWeeks,
+      activityLookbackWeeks: lookbackWeeks,
       customers: cohortIds.map((customerId) => ({
         ...(index.customers.get(customerId) || { id: customerId }),
+        activeWeekCount: activityWeekKeys.filter(
+          (weekKey) => index.customerWeeks.get(customerId)?.has(weekKey),
+        ).length,
         missedNextWeek: missedCustomerIds.includes(customerId),
         sixWeekLapsed: lapsedCustomerIds.includes(customerId),
       })),
@@ -319,6 +361,113 @@ export function calculateProductRetention(index, {
   });
 
   return metrics;
+}
+
+export function calculateMissedWeekProductCorrelation(index, {
+  targetWeek,
+  community = '',
+  lookbackWeeks = 6,
+  minimumActivityRate = 0.5,
+} = {}) {
+  const targetWeekKey = getRetentionWeekKey(targetWeek);
+  if (
+    !targetWeekKey
+    || !index?.normalizedOrders
+    || !index?.customers
+    || !index?.customerWeeks
+  ) {
+    return {
+      activeCustomers: 0,
+      missedCustomers: [],
+      missedCount: 0,
+      products: [],
+      commonProducts: [],
+    };
+  }
+
+  const communityKey = normalizeRetentionText(community);
+  const boundedLookback = Math.max(1, Math.min(52, Number(lookbackWeeks) || 6));
+  const activityRate = Math.max(0, Math.min(1, Number(minimumActivityRate) || 0.5));
+  const requiredActiveWeeks = Math.max(1, Math.ceil(boundedLookback * activityRate));
+  const lookbackWeekKeys = new Set(Array.from(
+    { length: boundedLookback },
+    (_, position) => addRetentionWeeks(targetWeekKey, -(position + 1)),
+  ));
+
+  const candidateCustomerIds = new Set();
+  const targetWeekCustomerIds = new Set();
+  const customerProducts = new Map();
+  const productDetails = new Map();
+
+  index.normalizedOrders.forEach(({ customerId, purchases }) => {
+    purchases.forEach((purchase) => {
+      if (purchase.weekKey === targetWeekKey) {
+        targetWeekCustomerIds.add(customerId);
+      }
+
+      if (!lookbackWeekKeys.has(purchase.weekKey)) return;
+      if (communityKey && purchase.communityKey !== communityKey) return;
+
+      candidateCustomerIds.add(customerId);
+      if (!customerProducts.has(customerId)) customerProducts.set(customerId, new Set());
+      customerProducts.get(customerId).add(purchase.productKey);
+      if (!productDetails.has(purchase.productKey)) {
+        productDetails.set(purchase.productKey, {
+          productKey: purchase.productKey,
+          productName: purchase.productName,
+          businessName: purchase.businessName,
+          selectedOption: purchase.selectedOption,
+        });
+      }
+    });
+  });
+
+  const activeCustomerIds = Array.from(candidateCustomerIds).filter((customerId) => {
+    const customerActivity = index.customerWeeks.get(customerId);
+    const activeWeekCount = Array.from(lookbackWeekKeys).filter((weekKey) => {
+      const communities = customerActivity?.get(weekKey);
+      return communities && (!communityKey || communities.has(communityKey));
+    }).length;
+    return activeWeekCount >= requiredActiveWeeks;
+  });
+  const missedCustomerIds = activeCustomerIds
+    .filter((customerId) => !targetWeekCustomerIds.has(customerId));
+  const productCustomerCounts = new Map();
+
+  missedCustomerIds.forEach((customerId) => {
+    (customerProducts.get(customerId) || new Set()).forEach((productKey) => {
+      productCustomerCounts.set(
+        productKey,
+        (productCustomerCounts.get(productKey) || 0) + 1,
+      );
+    });
+  });
+
+  const products = Array.from(productCustomerCounts.entries())
+    .map(([productKey, customerCount]) => ({
+      ...(productDetails.get(productKey) || { productKey }),
+      customerCount,
+      coverage: missedCustomerIds.length > 0
+        ? customerCount / missedCustomerIds.length
+        : 0,
+    }))
+    .sort((left, right) => (
+      right.coverage - left.coverage
+      || right.customerCount - left.customerCount
+      || left.productName.localeCompare(right.productName, 'he')
+    ));
+
+  return {
+    activeCustomers: activeCustomerIds.length,
+    requiredActiveWeeks,
+    lookbackWeeks: boundedLookback,
+    missedCustomers: missedCustomerIds.map((customerId) => (
+      index.customers.get(customerId) || { id: customerId }
+    )),
+    missedCount: missedCustomerIds.length,
+    products,
+    commonProducts: products.filter((product) => product.coverage === 1),
+  };
 }
 
 function mapSnapshot(snapshot, source) {

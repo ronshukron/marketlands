@@ -161,7 +161,7 @@ const RefundRequestForm = ({
 
       <div className="mb-4">
         <label htmlFor="refundReason" className="block text-sm font-medium text-gray-700 mb-1">
-          {isExternalOrder ? 'פרטי ההזמנה והסיבה לזיכוי' : 'הזיכוי מאושר אוטומטית — נשמח להסבר כדי להשתפר בעתיד :)'}
+          {isExternalOrder ? 'פרטי ההזמנה והסיבה לזיכוי' : 'סיבת בקשת הזיכוי — הבקשה תועבר לבדיקה'}
         </label>
         <textarea
           id="refundReason"

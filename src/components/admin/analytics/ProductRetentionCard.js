@@ -1,26 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   addRetentionWeeks,
   buildProductRetentionIndex,
   calculateProductRetention,
   getRetentionWeekKey,
 } from '../../../services/productRetentionAnalyticsService';
+import { formatAnalyticsWeekLabel } from '../../../utils/analyticsWeekUtils';
 
 const SORT_COLUMNS = {
-  buyers: 'קונים',
-  missedNextWeek: 'לא קנו בשבוע העוקב',
+  buyers: 'קונים פעילים',
+  missedNextWeek: 'לא הזמינו בשבוע העוקב',
   missedRate: 'שיעור אי־חזרה',
-  sixWeekLapsed: 'לא חזרו תוך 6 שבועות',
+  sixWeekLapsed: 'לא הזמינו תוך 6 שבועות',
 };
 
 function getDefaultAnchorWeek() {
   return addRetentionWeeks(getRetentionWeekKey(new Date()), -7);
 }
 
-function formatWeek(weekKey) {
-  if (!weekKey) return '';
-  const [year, month, day] = weekKey.split('-').map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString('he-IL');
+function getIdentityValue(customer, prefix) {
+  const identifiers = [customer?.id, ...(customer?.aliases || [])];
+  const match = identifiers.find((identifier) => String(identifier || '').startsWith(prefix));
+  return match ? String(match).slice(prefix.length) : '';
 }
 
 function getCommunity(order = {}) {
@@ -35,6 +36,7 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
   const [anchorWeek, setAnchorWeek] = useState(getDefaultAnchorWeek);
   const [community, setCommunity] = useState('');
   const [minimumCohortSize, setMinimumCohortSize] = useState(3);
+  const [activityLookbackWeeks, setActivityLookbackWeeks] = useState(6);
   const [sort, setSort] = useState({ column: 'missedRate', direction: 'desc' });
   const [expandedProductKey, setExpandedProductKey] = useState('');
 
@@ -52,7 +54,9 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
     anchorWeek,
     community,
     minimumCohortSize,
-  }), [anchorWeek, community, index, minimumCohortSize]);
+    activityLookbackWeeks,
+    minimumActivityRate: 0.5,
+  }), [activityLookbackWeeks, anchorWeek, community, index, minimumCohortSize]);
 
   const sortedMetrics = useMemo(() => [...metrics].sort((left, right) => {
     const difference = Number(left[sort.column]) - Number(right[sort.column]);
@@ -60,13 +64,9 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
     return left.productName.localeCompare(right.productName, 'he');
   }), [metrics, sort]);
 
-  const expandedMetric = sortedMetrics.find(
-    (metric) => metric.productKey === expandedProductKey,
-  ) || null;
-
   useEffect(() => {
     setExpandedProductKey('');
-  }, [anchorWeek, community, minimumCohortSize]);
+  }, [activityLookbackWeeks, anchorWeek, community, minimumCohortSize]);
 
   const changeSort = (column) => {
     setSort((current) => ({
@@ -87,11 +87,12 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
           שימור לקוחות לפי מוצר
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          קבוצת הבסיס היא הקונים בשבוע האספקה שנבחר. חזרה נספרת גם אם הלקוח עבר קהילה.
+          לכל מוצר נבדקים רק קונים פעילים — לקוחות שהזמינו בלפחות 50% מהשבועות
+          בחלון שנבחר. חזרה היא כל הזמנה בשבוע הבא, גם ממוצר אחר או בקהילה אחרת.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
         <label className="text-sm text-gray-700">
           <span className="block font-medium mb-1">שבוע אספקה (יום ראשון)</span>
           <input
@@ -101,6 +102,23 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
             onChange={(event) => setAnchorWeek(getRetentionWeekKey(event.target.value))}
             className="w-full border border-gray-300 rounded px-3 py-2"
           />
+        </label>
+
+        <label className="text-sm text-gray-700">
+          <span className="block font-medium mb-1">חלון פעילות (שבועות)</span>
+          <input
+            type="number"
+            min="2"
+            max="26"
+            value={activityLookbackWeeks}
+            onChange={(event) => setActivityLookbackWeeks(
+              Math.max(2, Math.min(26, Number(event.target.value) || 2)),
+            )}
+            className="min-h-[44px] w-full border border-gray-300 rounded px-3 py-2 bg-white"
+          />
+          <span className="mt-1 block text-xs text-gray-500">
+            פעיל = לפחות {Math.ceil(activityLookbackWeeks / 2)} מתוך {activityLookbackWeeks}
+          </span>
         </label>
 
         <label className="text-sm text-gray-700">
@@ -118,7 +136,7 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
         </label>
 
         <label className="text-sm text-gray-700">
-          <span className="block font-medium mb-1">גודל קבוצת בסיס מינימלי</span>
+          <span className="block font-medium mb-1">מינימום קונים פעילים למוצר</span>
           <input
             type="number"
             min="1"
@@ -131,7 +149,9 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
       </div>
 
       <p className="text-xs text-gray-500 mb-3">
-        שבוע בסיס: {formatWeek(anchorWeek)} · חלון מעקב עד {formatWeek(addRetentionWeeks(anchorWeek, 6))}
+        שבוע בסיס: {formatAnalyticsWeekLabel(anchorWeek)} · פעיל = לפחות {Math.ceil(activityLookbackWeeks / 2)}
+        {' '}מתוך {activityLookbackWeeks} השבועות שלפניו · מעקב עד:{' '}
+        {formatAnalyticsWeekLabel(addRetentionWeeks(anchorWeek, 6))}
       </p>
 
       <div className="overflow-x-auto border border-gray-200 rounded-lg">
@@ -155,7 +175,8 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
           </thead>
           <tbody className="divide-y">
             {sortedMetrics.map((metric) => (
-              <tr key={metric.productKey} className="hover:bg-gray-50">
+              <Fragment key={metric.productKey}>
+              <tr className="hover:bg-gray-50">
                 <td className="p-3">
                   <div className="font-medium text-gray-900">{metric.productName}</div>
                   <div className="text-xs text-gray-500">
@@ -163,7 +184,12 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
                     {metric.selectedOption ? ` · ${metric.selectedOption}` : ''}
                   </div>
                 </td>
-                <td className="p-3 text-center">{metric.buyers}</td>
+                <td className="p-3 text-center">
+                  <div>{metric.buyers}</div>
+                  {metric.productBuyers > metric.buyers && (
+                    <div className="text-xs text-gray-400">מתוך {metric.productBuyers} קונים</div>
+                  )}
+                </td>
                 <td className="p-3 text-center">{metric.missedNextWeek}</td>
                 <td className="p-3 text-center font-medium">
                   {(metric.missedRate * 100).toFixed(1)}%
@@ -182,6 +208,61 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
                   </button>
                 </td>
               </tr>
+              {expandedProductKey === metric.productKey && (
+                <tr>
+                  <td colSpan="6" className="bg-blue-50 p-0">
+                    <div className="border-y border-blue-100 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <h3 className="font-bold text-gray-800">
+                          לקוחות פעילים — {metric.productName}
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedProductKey('')}
+                          className="min-h-[44px] px-2 text-sm text-blue-700 underline"
+                        >
+                          סגור
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto rounded-lg border border-blue-100">
+                        <table className="min-w-full bg-white text-sm">
+                          <thead className="bg-blue-100">
+                            <tr>
+                              <th className="p-2 text-right">שם</th>
+                              <th className="p-2 text-right">טלפון</th>
+                              <th className="p-2 text-right">אימייל</th>
+                              <th className="p-2 text-center">שבועות פעילים</th>
+                              <th className="p-2 text-center">לא הזמין בשבוע הבא</th>
+                              <th className="p-2 text-center">לא הזמין תוך 6 שבועות</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {metric.customers.map((customer) => (
+                              <tr key={customer.id}>
+                                <td className="p-2">
+                                  {customer.name || getIdentityValue(customer, 'user:') || 'ללא שם'}
+                                </td>
+                                <td className="p-2" dir="ltr">
+                                  {customer.phone || getIdentityValue(customer, 'phone:') || '—'}
+                                </td>
+                                <td className="p-2" dir="ltr">
+                                  {customer.email || getIdentityValue(customer, 'email:') || '—'}
+                                </td>
+                                <td className="p-2 text-center">
+                                  {customer.activeWeekCount}/{metric.activityLookbackWeeks}
+                                </td>
+                                <td className="p-2 text-center">{customer.missedNextWeek ? 'כן' : 'לא'}</td>
+                                <td className="p-2 text-center">{customer.sixWeekLapsed ? 'כן' : 'לא'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {sortedMetrics.length === 0 && (
               <tr>
@@ -194,46 +275,6 @@ const ProductRetentionCard = ({ orders = [], communities = [] }) => {
         </table>
       </div>
 
-      {expandedMetric && (
-        <div className="mt-5 border border-blue-100 bg-blue-50 rounded-lg p-4">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h3 className="font-bold text-gray-800">
-              לקוחות — {expandedMetric.productName}
-            </h3>
-            <button
-              type="button"
-              onClick={() => setExpandedProductKey('')}
-              className="text-sm text-blue-700 underline"
-            >
-              סגור
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm bg-white rounded">
-              <thead className="bg-blue-100">
-                <tr>
-                  <th className="p-2 text-right">שם</th>
-                  <th className="p-2 text-right">טלפון</th>
-                  <th className="p-2 text-right">אימייל</th>
-                  <th className="p-2 text-center">פספס שבוע עוקב</th>
-                  <th className="p-2 text-center">לא חזר תוך 6 שבועות</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {expandedMetric.customers.map((customer) => (
-                  <tr key={customer.id}>
-                    <td className="p-2">{customer.name || 'ללא שם'}</td>
-                    <td className="p-2" dir="ltr">{customer.phone || '—'}</td>
-                    <td className="p-2" dir="ltr">{customer.email || '—'}</td>
-                    <td className="p-2 text-center">{customer.missedNextWeek ? 'כן' : 'לא'}</td>
-                    <td className="p-2 text-center">{customer.sixWeekLapsed ? 'כן' : 'לא'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </section>
   );
 };

@@ -80,6 +80,9 @@ const hebrewPickupSpotCollator = new Intl.Collator('he');
 const sortPickupSpotsByHebrewAlphabet = (spots) =>
     [...spots].sort((a, b) => hebrewPickupSpotCollator.compare(a, b));
 
+const normalizePickupSpotName = (spot) =>
+    resolveCommunityName(String(spot || '').trim().normalize('NFKC'));
+
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
 const buildOrderLineFromCartItem = (item) => ({
@@ -205,13 +208,20 @@ const OrderConfirmationDelayed = () => {
 
     // Add a new state to track which pickup spots are available for each business order
     const [cartOrderMeta, setCartOrderMeta] = useState({});
+    const [cartOrderMetaLoading, setCartOrderMetaLoading] = useState(true);
+    const [cartOrderMetaError, setCartOrderMetaError] = useState('');
     const [deliverySchedule, setDeliverySchedule] = useState(null);
     const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
     const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
     const [deliveryDateError, setDeliveryDateError] = useState('');
     const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some((orderData) => isAlwaysOnGroceryOrder(orderData));
+    const cartOrderMetaReady = !cartOrderMetaLoading
+        && Object.keys(itemsByOrder).length > 0
+        && Object.keys(itemsByOrder).every(
+            (orderId) => Object.prototype.hasOwnProperty.call(cartOrderMeta, orderId)
+        );
     const resolvedPickupSpot = useMemo(
-        () => resolveCommunityName(selectedPickupSpot),
+        () => normalizePickupSpotName(selectedPickupSpot),
         [selectedPickupSpot]
     );
     const selectablePickupSpots = useMemo(() => {
@@ -224,7 +234,12 @@ const OrderConfirmationDelayed = () => {
     
     // Get the selected pickup spot's data
     const selectedSpotData = resolvedPickupSpot ? pickupSpotsData[resolvedPickupSpot] : null;
-    const reusableCartonAvailable = selectedPickupSpot && reusableCartonConfig.enabledSpots.includes(selectedPickupSpot);
+    const reusableCartonAvailable = Boolean(
+        resolvedPickupSpot
+        && reusableCartonConfig.enabledSpots.some(
+            (spot) => normalizePickupSpotName(spot) === resolvedPickupSpot
+        )
+    );
 
     const [deliveryOption, setDeliveryOption] = useState(() => {
         // If selectedSpotData exists and has homeDelivery option, default to it
@@ -264,7 +279,13 @@ const OrderConfirmationDelayed = () => {
         const orderData = cartOrderMeta[orderId];
         if (!orderData || !isAlwaysOnGroceryOrder(orderData)) return false;
         if (!deliverySchedule || !selectedDeliveryDate || !selectedPickupSpot) return false;
-        return !isDeliveryDateOrderable(selectedDeliveryDate, deliverySchedule, new Date(), orderData, selectedPickupSpot);
+        return !isDeliveryDateOrderable(
+            selectedDeliveryDate,
+            deliverySchedule,
+            new Date(),
+            orderData,
+            resolveCommunityName(selectedPickupSpot)
+        );
     }, [cartOrderMeta, deliverySchedule, selectedDeliveryDate, selectedPickupSpot]);
     const cutoffCartItems = useMemo(() => {
         const items = [];
@@ -331,12 +352,13 @@ const OrderConfirmationDelayed = () => {
     }, []);
 
     useEffect(() => {
-        const isAvailable = selectedPickupSpot && reusableCartonConfig.enabledSpots.includes(selectedPickupSpot);
-        const isDefaultSelected = selectedPickupSpot && reusableCartonConfig.defaultSelectedSpots.includes(selectedPickupSpot);
+        const isDefaultSelected = reusableCartonConfig.defaultSelectedSpots.some(
+            (spot) => normalizePickupSpotName(spot) === resolvedPickupSpot
+        );
 
-        setUseReusableFarmerCartons(Boolean(isAvailable && isDefaultSelected));
+        setUseReusableFarmerCartons(Boolean(reusableCartonAvailable && isDefaultSelected));
         setShowReusableCartonInfo(false);
-    }, [selectedPickupSpot, reusableCartonConfig]);
+    }, [resolvedPickupSpot, reusableCartonAvailable, reusableCartonConfig]);
 
     // Ensure shipping product is in cart when homeDelivery is selected; remove otherwise
     useEffect(() => {
@@ -415,6 +437,7 @@ const OrderConfirmationDelayed = () => {
 
     useEffect(() => {
         const orderIds = Object.keys(itemsByOrder);
+        let isActive = true;
 
         if (userLoggedIn && currentUser) {
             // Only override with currentUser data if localStorage is empty
@@ -431,6 +454,10 @@ const OrderConfirmationDelayed = () => {
         const collectPickupSpots = async () => {
             const orderSpots = new Set();
             const orderMeta = {};
+            let metadataError = '';
+
+            setCartOrderMetaLoading(true);
+            setCartOrderMetaError('');
             
             // Fetch pickup spots for each order
             for (const orderId of orderIds) {
@@ -443,13 +470,20 @@ const OrderConfirmationDelayed = () => {
                         if (orderData.pickupSpots && orderData.pickupSpots.length > 0) {
                             orderData.pickupSpots.forEach((spot) => orderSpots.add(resolveCommunityName(spot)));
                         }
+                    } else {
+                        metadataError = 'לא ניתן לאמת את פרטי ההזמנה. יש לרענן את העמוד ולנסות שוב.';
                     }
                 } catch (error) {
                     console.error("Error fetching order pickup spots:", error);
+                    metadataError = 'טעינת פרטי ההזמנה נכשלה. יש לרענן את העמוד ולנסות שוב.';
                 }
             }
+
+            if (!isActive) return;
             
             setCartOrderMeta(orderMeta);
+            setCartOrderMetaError(metadataError);
+            setCartOrderMetaLoading(false);
             
             // Convert Set to Array
             setAvailablePickupSpots(Array.from(orderSpots));
@@ -464,6 +498,10 @@ const OrderConfirmationDelayed = () => {
         };
         
         collectPickupSpots();
+
+        return () => {
+            isActive = false;
+        };
     }, [userLoggedIn, currentUser, itemsByOrder]);
 
     // Persist selected pickup spot to localStorage whenever it changes
@@ -474,8 +512,17 @@ const OrderConfirmationDelayed = () => {
     }, [selectedPickupSpot]);
 
     useEffect(() => {
+        let isActive = true;
+
         const loadDeliverySchedule = async () => {
             setDeliveryDateError('');
+
+            if (!cartOrderMetaReady) {
+                setDeliverySchedule(null);
+                setAvailableDeliveryDates([]);
+                setSelectedDeliveryDate('');
+                return;
+            }
 
             if (!cartHasAlwaysOnGrocery) {
                 setDeliverySchedule(null);
@@ -496,6 +543,7 @@ const OrderConfirmationDelayed = () => {
 
             try {
                 const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', communityKey));
+                if (!isActive) return;
                 if (!scheduleSnap.exists()) {
                     setDeliverySchedule(null);
                     setAvailableDeliveryDates([]);
@@ -506,7 +554,18 @@ const OrderConfirmationDelayed = () => {
 
                 const scheduleData = scheduleSnap.data();
                 setDeliverySchedule(scheduleData);
-                const scheduleDates = generateAvailableDeliveryDates(scheduleData);
+                const alwaysOnOrders = Object.values(cartOrderMeta).filter(
+                    (orderData) => isAlwaysOnGroceryOrder(orderData)
+                );
+                const scheduleDates = alwaysOnOrders.reduce((sharedDates, orderData, index) => {
+                    const orderDates = generateAvailableDeliveryDates(scheduleData, {
+                        orderData,
+                        communityName: communityKey,
+                    });
+                    if (index === 0) return orderDates;
+                    const orderDateSet = new Set(orderDates);
+                    return sharedDates.filter((dateKey) => orderDateSet.has(dateKey));
+                }, []);
                 const currentWeekKey = getWeekKey(new Date());
                 const currentWeekDates = scheduleDates.filter((dateKey) => getWeekKey(dateKey) === currentWeekKey);
                 const nextVisibleWeekKey = currentWeekDates.length > 0 ? currentWeekKey : getWeekKey(scheduleDates[0]);
@@ -526,6 +585,7 @@ const OrderConfirmationDelayed = () => {
                     return dates[0];
                 });
             } catch (error) {
+                if (!isActive) return;
                 console.error('Error loading delivery schedule:', error);
                 setDeliverySchedule(null);
                 setAvailableDeliveryDates([]);
@@ -535,7 +595,11 @@ const OrderConfirmationDelayed = () => {
         };
 
         loadDeliverySchedule();
-    }, [cartHasAlwaysOnGrocery, selectedPickupSpot, cartOrderMeta]);
+
+        return () => {
+            isActive = false;
+        };
+    }, [cartHasAlwaysOnGrocery, cartOrderMetaReady, selectedPickupSpot, cartOrderMeta]);
 
     // Save userName and userPhone to localStorage whenever they change
     useEffect(() => {
@@ -558,13 +622,17 @@ const OrderConfirmationDelayed = () => {
                         (!requestAddress || userAddress.trim() !== '') &&
                         (deliveryOption !== 'homeDelivery' || userAddress.trim() !== '') &&
                         (availablePickupSpots.length === 0 || (selectedPickupSpot && selectedPickupSpot !== 'הכל')) &&
+                        cartOrderMetaReady &&
                         (!cartHasAlwaysOnGrocery || (selectedDeliveryDate && !deliveryDateError)); 
         setFormIsValid(isValid);
-    }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots, deliveryOption, cartHasAlwaysOnGrocery, selectedDeliveryDate, deliveryDateError]);
+    }, [userName, userPhone, userEmail, userAddress, requestAddress, selectedPickupSpot, availablePickupSpots, deliveryOption, cartOrderMetaReady, cartHasAlwaysOnGrocery, selectedDeliveryDate, deliveryDateError]);
 
     useEffect(() => {
         if (selectedPickupSpot && selectedDeliveryDate) {
-            localStorage.setItem(`selectedDeliveryDate:${selectedPickupSpot}`, selectedDeliveryDate);
+            localStorage.setItem(
+                `selectedDeliveryDate:${resolveCommunityName(selectedPickupSpot)}`,
+                selectedDeliveryDate
+            );
         }
     }, [selectedPickupSpot, selectedDeliveryDate]);
 
@@ -610,6 +678,16 @@ const OrderConfirmationDelayed = () => {
     }, [selectedPickupSpot, navigate, cartItems]);
 
     const validateDeliveryDateSelection = () => {
+        if (!cartOrderMetaReady) {
+            Swal.fire({
+                icon: 'error',
+                title: 'לא ניתן לאמת את פרטי ההזמנה',
+                text: cartOrderMetaError || 'פרטי ההזמנה עדיין נטענים. יש להמתין ולנסות שוב.',
+                confirmButtonText: 'הבנתי'
+            });
+            return false;
+        }
+
         if (!cartHasAlwaysOnGrocery) return true;
 
         if (deliveryDateError || !selectedDeliveryDate) {
@@ -617,6 +695,26 @@ const OrderConfirmationDelayed = () => {
                 icon: 'error',
                 title: 'נא לבחור תאריך משלוח',
                 text: deliveryDateError || 'יש לבחור תאריך משלוח זמין עבור מוצרי החנות הקבועה.',
+                confirmButtonText: 'הבנתי'
+            });
+            return false;
+        }
+
+        const communityKey = resolveCommunityName(selectedPickupSpot);
+        const hasUnavailableAlwaysOnOrder = Object.values(cartOrderMeta)
+            .filter((orderData) => isAlwaysOnGroceryOrder(orderData))
+            .some((orderData) => !isDeliveryDateOrderable(
+                selectedDeliveryDate,
+                deliverySchedule,
+                new Date(),
+                orderData,
+                communityKey
+            ));
+        if (hasUnavailableAlwaysOnOrder) {
+            Swal.fire({
+                icon: 'error',
+                title: 'תאריך המשלוח אינו זמין',
+                text: 'התאריך שנבחר אינו זמין לכל העסקים בהזמנה עבור הקהילה הזו. יש לבחור תאריך אחר.',
                 confirmButtonText: 'הבנתי'
             });
             return false;
@@ -1396,6 +1494,18 @@ const OrderConfirmationDelayed = () => {
                                 </div>
                             )}
 
+                            {cartOrderMetaLoading && Object.keys(itemsByOrder).length > 0 && (
+                                <div className="form-group md:col-span-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                                    מאמת את פרטי ההזמנה ותאריכי המשלוח...
+                                </div>
+                            )}
+
+                            {!cartOrderMetaLoading && cartOrderMetaError && (
+                                <div className="form-group md:col-span-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                                    {cartOrderMetaError}
+                                </div>
+                            )}
+
                             {cartHasAlwaysOnGrocery && (
                                 <div className="form-group md:col-span-2 bg-green-50 rounded-lg p-3 border border-green-200">
                                     {isShowingNextDeliveryWeek(availableDeliveryDates) && (
@@ -1548,7 +1658,7 @@ const OrderConfirmationDelayed = () => {
                                 <div className="md:col-span-2 w-full space-y-2">
                                     {reusableCartonAvailable && (
                                         <div className="w-full">
-                                            <div className="flex w-full items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                                            <div className="grid w-full grid-cols-[1rem_minmax(0,1fr)_2rem] items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                                                 <input
                                                     id="useReusableFarmerCartons"
                                                     type="checkbox"
@@ -1558,7 +1668,7 @@ const OrderConfirmationDelayed = () => {
                                                 />
                                                 <label
                                                     htmlFor="useReusableFarmerCartons"
-                                                    className="!m-0 !block min-w-0 flex-1 cursor-pointer text-sm font-semibold leading-5 text-emerald-900"
+                                                    className="!m-0 !block min-w-0 cursor-pointer whitespace-normal break-words text-right text-sm font-semibold leading-5 text-emerald-900"
                                                 >
                                                     🌱 אני רוצה קרטון ממוחזר
                                                 </label>

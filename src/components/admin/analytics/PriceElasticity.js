@@ -1,6 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import SharedBarChart from './SharedBarChart';
-import { format, startOfWeek, startOfMonth } from 'date-fns';
+import { format, startOfMonth } from 'date-fns';
+import {
+  formatAnalyticsWeekLabel,
+  getAnalyticsWeekRange,
+  getAnalyticsWeekStartKey,
+} from '../../../utils/analyticsWeekUtils';
 
 const PriceElasticity = ({ orders }) => {
   const [selectedProduct, setSelectedProduct] = useState('');
@@ -55,12 +60,18 @@ const PriceElasticity = ({ orders }) => {
                  totalRevenue += price * qty;
 
                  // --- Aggregated by Week / Month (Timeline) ---
-                 const bucketStart = period === 'week' 
-                   ? startOfWeek(o.createdAt, { weekStartsOn: 0 })
+                 const weekRange = getAnalyticsWeekRange(o.createdAt);
+                 const bucketStart = period === 'week'
+                   ? weekRange?.start
                    : startOfMonth(o.createdAt);
+                 if (!bucketStart) return;
 
-                 const key = format(bucketStart, period === 'week' ? 'yyyy-MM-dd' : 'yyyy-MM');
-                 const label = format(bucketStart, period === 'week' ? 'dd/MM' : 'MM/yy');
+                 const key = period === 'week'
+                   ? getAnalyticsWeekStartKey(bucketStart)
+                   : format(bucketStart, 'yyyy-MM');
+                 const label = period === 'week'
+                   ? formatAnalyticsWeekLabel(bucketStart)
+                   : format(bucketStart, 'MM/yy');
                  
                  if (!bucketData[key]) bucketData[key] = { date: bucketStart, label, totalQty: 0, sumPrice: 0, count: 0 };
                  bucketData[key].totalQty += qty;

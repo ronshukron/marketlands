@@ -1,15 +1,42 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  doc,
+  updateDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
-import { computeRefundItemAmount, sumRefundAmount } from '../../utils/refundUtils';
+import {
+  REFUND_STATUSES,
+  buildRefundCompletedWhatsAppMessage,
+  clampRefundPercent,
+  computeRefundItemAmount,
+  getRefundStatusDetails,
+  sumRefundAmount,
+} from '../../utils/refundUtils';
 import { Link } from 'react-router-dom';
+import {
+  approveRefundRequest,
+  markManualRefundCompleted,
+} from '../../services/refundApprovalService';
+import { buildOrderReadyWhatsAppUrl } from '../../utils/marketplaceOrderWhatsApp';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
+const FILTER_OPTIONS = [
+  { value: 'all', label: 'הכל' },
+  { value: REFUND_STATUSES.PENDING, label: 'ממתינים' },
+  { value: REFUND_STATUSES.APPROVED_PRE_CHARGE, label: 'הופחתו לפני חיוב' },
+  { value: REFUND_STATUSES.PENDING_MANUAL_REFUND, label: 'החזר ידני ממתין' },
+  { value: REFUND_STATUSES.MANUALLY_REFUNDED, label: 'הוחזרו' },
+  { value: REFUND_STATUSES.REJECTED, label: 'נדחו' },
+  { value: REFUND_STATUSES.LEGACY_COMPLETED, label: 'הושלמו (ישן)' },
+];
 
 const getDisplayAmount = (request) => {
-  if (request.status === 'completed' && request.approvedRefundAmount != null) {
+  if (request.approvedRefundAmount != null) {
     return request.approvedRefundAmount;
   }
   return request.requestedRefundAmount ?? request.orderAmount ?? 0;
@@ -85,13 +112,14 @@ const AdminRefundRequests = () => {
   };
 
   const updateEditItemPercent = (requestId, lineId, refundPercent) => {
+    const normalizedPercent = clampRefundPercent(refundPercent);
     setEditItemsByRequest((prev) => {
       const items = (prev[requestId] || []).map((item) => {
         if (item.lineId !== lineId) return item;
         return {
           ...item,
-          refundPercent,
-          refundAmount: computeRefundItemAmount(item.lineTotal, refundPercent),
+          refundPercent: normalizedPercent,
+          refundAmount: computeRefundItemAmount(item.lineTotal, normalizedPercent),
         };
       });
       return { ...prev, [requestId]: items };
@@ -116,28 +144,54 @@ const AdminRefundRequests = () => {
     setProcessingId(request.id);
     try {
       const editItems = getEditItems(request);
-      const approvedRefundAmount = editItems.length > 0
-        ? sumRefundAmount(editItems)
-        : (request.requestedRefundAmount ?? request.orderAmount ?? 0);
-
-      const refundRef = doc(db, 'refunds', request.id);
-      await updateDoc(refundRef, {
-        status: 'completed',
-        processedAt: new Date(),
-        processedBy: currentUser.uid,
-        approvedRefundAmount,
-        refundItems: editItems,
+      const result = await approveRefundRequest({
+        refundId: request.id,
+        adminId: currentUser.uid,
+        refundItemsOverride: editItems,
       });
 
       setAllRefundRequests((prev) => prev.map((req) => (
         req.id === request.id
-          ? { ...req, status: 'completed', approvedRefundAmount, refundItems: editItems }
+          ? {
+            ...req,
+            status: result.status,
+            approvedRefundAmount: result.approvedRefundAmount ?? req.approvedRefundAmount,
+            refundItems: result.refundItems || editItems,
+            manualRefundReason: result.reason || req.manualRefundReason,
+          }
           : req
       )));
       setExpandedId(null);
+      if (result.status === REFUND_STATUSES.PENDING_MANUAL_REFUND) {
+        alert('ההזמנה כבר חויבה או אינה ניתנת לעדכון ב-V7. הבקשה הועברה להחזר ידני.');
+      } else if (result.status === REFUND_STATUSES.APPROVED_PRE_CHARGE) {
+        alert('הזיכוי אושר ומחירי הפריטים עודכנו ב-V7 לפני החיוב.');
+      }
     } catch (err) {
       console.error('Error approving refund:', err);
       alert('אירעה שגיאה באישור ההחזר');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleMarkManualRefunded = async (request) => {
+    setProcessingId(request.id);
+    try {
+      await markManualRefundCompleted({
+        refundId: request.id,
+        adminId: currentUser.uid,
+      });
+      setAllRefundRequests((prev) => prev.map((req) => (
+        req.id === request.id
+          ? { ...req, status: REFUND_STATUSES.MANUALLY_REFUNDED }
+          : req
+      )));
+      setFilter(REFUND_STATUSES.MANUALLY_REFUNDED);
+      setExpandedId(request.id);
+    } catch (err) {
+      console.error('Error completing manual refund:', err);
+      alert('אירעה שגיאה בסימון ההחזר כבוצע');
     } finally {
       setProcessingId(null);
     }
@@ -149,7 +203,7 @@ const AdminRefundRequests = () => {
       const refundRef = doc(db, 'refunds', requestId);
       await updateDoc(refundRef, {
         status: newStatus,
-        processedAt: new Date(),
+        processedAt: serverTimestamp(),
         processedBy: currentUser.uid,
       });
       setAllRefundRequests((prev) => prev.map((req) => (
@@ -165,21 +219,11 @@ const AdminRefundRequests = () => {
   };
 
   const getStatusBadgeClass = (status) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'rejected': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+    return getRefundStatusDetails(status).badgeClass;
   };
 
   const getStatusText = (status) => {
-    switch (status) {
-      case 'pending': return 'ממתין לטיפול';
-      case 'completed': return 'הושלם';
-      case 'rejected': return 'נדחה';
-      default: return status;
-    }
+    return getRefundStatusDetails(status).adminLabel;
   };
 
   if (loading) return <LoadingSpinner />;
@@ -196,17 +240,17 @@ const AdminRefundRequests = () => {
       <h1 className="text-2xl font-bold mb-6 text-center">ניהול בקשות החזר כספי</h1>
 
       <div className="mb-6 flex justify-center">
-        <div className="inline-flex rounded-md shadow-sm" role="group">
-          {['all', 'pending', 'completed'].map((value, index) => (
+        <div className="flex flex-wrap justify-center gap-2" role="group">
+          {FILTER_OPTIONS.map(({ value, label }) => (
             <button
               key={value}
               type="button"
               onClick={() => setFilter(value)}
-              className={`px-4 py-2 text-sm font-medium border border-gray-200 ${
-                index === 0 ? 'rounded-r-lg' : index === 2 ? 'rounded-l-lg' : ''
-              } ${filter === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}
+              className={`px-3 py-2 text-sm font-medium border border-gray-200 rounded-lg ${
+                filter === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
             >
-              {value === 'all' ? 'הכל' : value === 'pending' ? 'ממתינים' : 'הושלמו'}
+              {label}
             </button>
           ))}
         </div>
@@ -258,7 +302,7 @@ const AdminRefundRequests = () => {
                     >
                       {isExpanded ? 'סגור פרטים' : 'פרטים'}
                     </button>
-                    {request.status === 'pending' && (
+                    {request.status === REFUND_STATUSES.PENDING && (
                       <>
                         <button
                           type="button"
@@ -270,7 +314,7 @@ const AdminRefundRequests = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleStatusChange(request.id, 'rejected')}
+                          onClick={() => handleStatusChange(request.id, REFUND_STATUSES.REJECTED)}
                           disabled={processingId === request.id}
                           className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
                         >
@@ -278,6 +322,37 @@ const AdminRefundRequests = () => {
                         </button>
                       </>
                     )}
+                    {request.status === REFUND_STATUSES.PENDING_MANUAL_REFUND && (
+                      <button
+                        type="button"
+                        onClick={() => handleMarkManualRefunded(request)}
+                        disabled={processingId === request.id}
+                        className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {processingId === request.id ? 'מעדכן...' : 'סמן כהוחזר'}
+                      </button>
+                    )}
+                    {request.status === REFUND_STATUSES.MANUALLY_REFUNDED && (() => {
+                      const message = buildRefundCompletedWhatsAppMessage({
+                        customerName: request.userName,
+                        amount: displayAmount,
+                        orderId: request.orderId,
+                      });
+                      const whatsappUrl = buildOrderReadyWhatsAppUrl({
+                        phone: request.userPhone,
+                        message,
+                      });
+                      return whatsappUrl ? (
+                        <a
+                          href={whatsappUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 text-xs bg-green-700 text-white rounded-md hover:bg-green-800"
+                        >
+                          שלח הודעת WhatsApp
+                        </a>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 
@@ -286,6 +361,10 @@ const AdminRefundRequests = () => {
                     <div>
                       <p className="text-sm font-semibold text-gray-800 mb-1">סיבה</p>
                       <p className="text-sm text-gray-700">{request.reason || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800 mb-1">טלפון לקוח</p>
+                      <p className="text-sm text-gray-700">{request.userPhone || 'לא צוין'}</p>
                     </div>
 
                     {request.orderId && (
@@ -318,7 +397,7 @@ const AdminRefundRequests = () => {
                                   <td className="px-3 py-2">{item.businessName || '—'}</td>
                                   <td className="px-3 py-2">₪{Number(item.lineTotal || 0).toFixed(2)}</td>
                                   <td className="px-3 py-2">
-                                    {request.status === 'pending' ? (
+                                    {request.status === REFUND_STATUSES.PENDING ? (
                                       <input
                                         type="number"
                                         min="0"
@@ -343,7 +422,7 @@ const AdminRefundRequests = () => {
                             </tbody>
                           </table>
                         </div>
-                        {request.status === 'pending' && (
+                        {request.status === REFUND_STATUSES.PENDING && (
                           <p className="text-sm font-semibold mt-2 text-green-800">
                             סה״כ לאישור: ₪{sumRefundAmount(editItems).toFixed(2)}
                           </p>

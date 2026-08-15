@@ -1,16 +1,25 @@
 import React, { useState, useMemo } from 'react';
-import { format, startOfWeek, isWithinInterval, parseISO, subWeeks, startOfDay, endOfDay } from 'date-fns';
+import { isWithinInterval } from 'date-fns';
+import {
+  getAnalyticsWeekEndKey,
+  getAnalyticsWeekStartKey,
+  getDefaultCompletedAnalyticsRange,
+  normalizeAnalyticsDateRange,
+} from '../../../utils/analyticsWeekUtils';
+
+const DEFAULT_RANGE = getDefaultCompletedAnalyticsRange(12);
 
 const AbandonedCartsCard = ({ orders, communities }) => {
-  const [startDate, setStartDate] = useState(format(subWeeks(new Date(), 12), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(DEFAULT_RANGE.startDate);
+  const [endDate, setEndDate] = useState(DEFAULT_RANGE.endDate);
   const [selectedCommunity, setSelectedCommunity] = useState('All');
 
   const stats = useMemo(() => {
       if (!orders) return { completed: 0, abandoned: 0, rate: 0 };
 
-      const start = startOfDay(parseISO(startDate));
-      const end = endOfDay(parseISO(endDate));
+      const range = normalizeAnalyticsDateRange(startDate, endDate);
+      if (!range) return { completed: 0, abandoned: 0, rate: 0 };
+      const { start, end } = range;
 
       let completed = 0;
       let abandoned = 0;
@@ -41,18 +50,24 @@ const AbandonedCartsCard = ({ orders, communities }) => {
              {/* Mini Controls */}
              <div className="flex flex-col gap-2 text-xs bg-gray-50 p-3 rounded mb-4">
                 <div className="flex gap-2">
+                  <label className="w-full">
+                    <span className="mb-1 block text-gray-500">מיום ראשון</span>
                     <input 
                         type="date" 
                         value={startDate} 
-                        onChange={(e) => setStartDate(e.target.value)}
+                        onChange={(e) => setStartDate(getAnalyticsWeekStartKey(e.target.value))}
                         className="w-full border-gray-300 rounded px-1 py-1"
                     />
+                  </label>
+                  <label className="w-full">
+                    <span className="mb-1 block text-gray-500">עד שבת</span>
                     <input 
                         type="date" 
                         value={endDate} 
-                        onChange={(e) => setEndDate(e.target.value)}
+                        onChange={(e) => setEndDate(getAnalyticsWeekEndKey(e.target.value))}
                         className="w-full border-gray-300 rounded px-1 py-1"
                     />
+                  </label>
                 </div>
                 <select 
                   value={selectedCommunity} 

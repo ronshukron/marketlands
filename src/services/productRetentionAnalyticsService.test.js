@@ -1,6 +1,7 @@
 import {
   addRetentionWeeks,
   buildProductRetentionIndex,
+  calculateMissedWeekProductCorrelation,
   calculateProductRetention,
   getRetentionWeekKey,
   makeRetentionProductKey,
@@ -108,6 +109,16 @@ describe('product retention normalization', () => {
       paymentStatus: 'paid',
     }))).not.toBeNull();
   });
+
+  test('prefers the explicit delivery week over the order creation date', () => {
+    const normalized = normalizeRetentionOrder(order({
+      id: 'explicit-week',
+      date: '2026-04-01',
+      deliveryWeekKey: '2026-05-03',
+    }));
+
+    expect(normalized.purchases[0].weekKey).toBe('2026-05-03');
+  });
 });
 
 describe('product retention indexing', () => {
@@ -116,6 +127,11 @@ describe('product retention indexing', () => {
     const product = productLine();
     const differentOption = productLine({ selectedOption: 'קטן' });
     const orders = [
+      ...[1, 2, 3].flatMap((weeksAgo) => [
+        order({ id: `a-history-${weeksAgo}`, date: addRetentionWeeks(anchor, -weeksAgo), phone: '0501111111' }),
+        order({ id: `b-history-${weeksAgo}`, date: addRetentionWeeks(anchor, -weeksAgo), phone: '0502222222' }),
+        order({ id: `c-history-${weeksAgo}`, date: addRetentionWeeks(anchor, -weeksAgo), phone: '0503333333' }),
+      ]),
       order({ id: 'a1', date: anchor, phone: '+972 50-111-1111', email: 'a@example.com' }),
       order({ id: 'a-duplicate', date: anchor, phone: '0501111111', email: '' }),
       order({ id: 'b1', date: anchor, phone: '050-222-2222', email: 'b@example.com' }),
@@ -137,12 +153,13 @@ describe('product retention indexing', () => {
 
     expect(metric).toMatchObject({
       buyers: 3,
-      missedNextWeek: 2,
-      missedRate: 2 / 3,
-      sixWeekLapsed: 1,
+      missedNextWeek: 1,
+      missedRate: 1 / 3,
+      sixWeekLapsed: 0,
+      requiredActiveWeeks: 3,
     });
     expect(metric.customers).toHaveLength(3);
-    expect(metric.customers.filter((customer) => customer.sixWeekLapsed)).toHaveLength(1);
+    expect(metric.customers.filter((customer) => customer.sixWeekLapsed)).toHaveLength(0);
   });
 
   test('enforces the minimum cohort size', () => {
@@ -154,5 +171,114 @@ describe('product retention indexing', () => {
       anchorWeek: '2026-05-03',
       minimumCohortSize: 2,
     })).toEqual([]);
+  });
+});
+
+describe('missed week product correlation', () => {
+  test('finds products shared by active customers who skipped the target week', () => {
+    const targetWeek = '2026-06-14';
+    const tomatoes = productLine();
+    const bread = productLine({
+      lineId: 'bread',
+      productId: 'bread',
+      productName: 'לחם',
+      selectedOption: '',
+    });
+    const apples = productLine({
+      lineId: 'apples',
+      productId: 'apples',
+      productName: 'תפוחים',
+      selectedOption: '',
+    });
+    const orders = [
+      order({
+        id: 'missed-a',
+        date: addRetentionWeeks(targetWeek, -1),
+        phone: '0501111111',
+        items: [tomatoes, bread],
+      }),
+      order({
+        id: 'missed-b',
+        date: addRetentionWeeks(targetWeek, -2),
+        phone: '0502222222',
+        items: [tomatoes, apples],
+      }),
+      order({
+        id: 'returned',
+        date: addRetentionWeeks(targetWeek, -1),
+        phone: '0503333333',
+        items: [tomatoes],
+      }),
+      order({
+        id: 'returned-target',
+        date: targetWeek,
+        phone: '0503333333',
+        community: 'ניצנים',
+        items: [bread],
+      }),
+      order({
+        id: 'too-old',
+        date: addRetentionWeeks(targetWeek, -3),
+        phone: '0504444444',
+        items: [tomatoes],
+      }),
+    ];
+
+    const result = calculateMissedWeekProductCorrelation(
+      buildProductRetentionIndex(orders),
+      { targetWeek, community: 'נגבה', lookbackWeeks: 2 },
+    );
+
+    expect(result.activeCustomers).toBe(3);
+    expect(result.missedCount).toBe(2);
+    expect(result.commonProducts).toHaveLength(1);
+    expect(result.commonProducts[0]).toMatchObject({
+      productName: 'עגבניות',
+      customerCount: 2,
+      coverage: 1,
+    });
+    expect(result.products.find((product) => product.productName === 'לחם')).toMatchObject({
+      customerCount: 1,
+      coverage: 0.5,
+    });
+  });
+
+  test('returns an empty result when no active customer missed the week', () => {
+    const targetWeek = '2026-06-14';
+    const orders = [
+      order({ id: 'before', date: addRetentionWeeks(targetWeek, -1) }),
+      order({ id: 'target', date: targetWeek }),
+    ];
+
+    const result = calculateMissedWeekProductCorrelation(
+      buildProductRetentionIndex(orders),
+      { targetWeek },
+    );
+
+    expect(result.missedCount).toBe(0);
+    expect(result.products).toEqual([]);
+    expect(result.commonProducts).toEqual([]);
+  });
+
+  test('requires orders in at least half of the lookback weeks', () => {
+    const targetWeek = '2026-06-14';
+    const orders = [
+      order({ id: 'occasional', date: addRetentionWeeks(targetWeek, -1), phone: '0501111111' }),
+      ...[1, 2, 3].map((weeksAgo) => order({
+        id: `active-${weeksAgo}`,
+        date: addRetentionWeeks(targetWeek, -weeksAgo),
+        phone: '0502222222',
+      })),
+    ];
+
+    const result = calculateMissedWeekProductCorrelation(
+      buildProductRetentionIndex(orders),
+      { targetWeek, lookbackWeeks: 6, minimumActivityRate: 0.5 },
+    );
+
+    expect(result.activeCustomers).toBe(1);
+    expect(result.missedCustomers).toHaveLength(1);
+    expect(result.missedCustomers[0].phone).toBe('0502222222');
+    expect(result.requiredActiveWeeks).toBe(3);
   });
 });

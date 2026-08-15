@@ -1,10 +1,20 @@
 import React, { useState, useMemo } from 'react';
 import SharedBarChart from './SharedBarChart';
-import { format, startOfWeek, startOfMonth, isWithinInterval, parseISO, subWeeks, startOfDay, endOfDay } from 'date-fns';
+import { format, startOfMonth, isWithinInterval } from 'date-fns';
+import {
+  formatAnalyticsWeekLabel,
+  getAnalyticsWeekEndKey,
+  getAnalyticsWeekRange,
+  getAnalyticsWeekStartKey,
+  getDefaultCompletedAnalyticsRange,
+  normalizeAnalyticsDateRange,
+} from '../../../utils/analyticsWeekUtils';
+
+const DEFAULT_RANGE = getDefaultCompletedAnalyticsRange(12);
 
 const RevenueChart = ({ orders, communities }) => {
-  const [startDate, setStartDate] = useState(format(subWeeks(new Date(), 12), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(DEFAULT_RANGE.startDate);
+  const [endDate, setEndDate] = useState(DEFAULT_RANGE.endDate);
   const [selectedCommunity, setSelectedCommunity] = useState('All');
   const [metric, setMetric] = useState('revenue');
   const [groupBy, setGroupBy] = useState('week');
@@ -12,8 +22,9 @@ const RevenueChart = ({ orders, communities }) => {
   const { chartData, totalRevenue, totalOrders, avgOrderValue } = useMemo(() => {
     if (!orders || orders.length === 0) return { chartData: [], totalRevenue: 0, totalOrders: 0, avgOrderValue: 0 };
 
-    const start = startOfDay(parseISO(startDate));
-    const end = endOfDay(parseISO(endDate));
+    const range = normalizeAnalyticsDateRange(startDate, endDate);
+    if (!range) return { chartData: [], totalRevenue: 0, totalOrders: 0, avgOrderValue: 0 };
+    const { start, end } = range;
 
     const stats = {};
     let sumRevenue = 0;
@@ -34,12 +45,16 @@ const RevenueChart = ({ orders, communities }) => {
       if (!isWithinInterval(o.createdAt, { start, end })) return;
       if (selectedCommunity !== 'All' && o.customerDetails?.pickupSpot !== selectedCommunity) return;
 
-      const bucketStart = groupBy === 'week'
-        ? startOfWeek(o.createdAt, { weekStartsOn: 0 })
-        : startOfMonth(o.createdAt);
+      const weekRange = getAnalyticsWeekRange(o.createdAt);
+      const bucketStart = groupBy === 'week' ? weekRange?.start : startOfMonth(o.createdAt);
+      if (!bucketStart) return;
 
-      const key = format(bucketStart, groupBy === 'week' ? 'yyyy-MM-dd' : 'yyyy-MM');
-      const label = format(bucketStart, groupBy === 'week' ? 'dd/MM' : 'MM/yy');
+      const key = groupBy === 'week'
+        ? getAnalyticsWeekStartKey(bucketStart)
+        : format(bucketStart, 'yyyy-MM');
+      const label = groupBy === 'week'
+        ? formatAnalyticsWeekLabel(bucketStart)
+        : format(bucketStart, 'MM/yy');
 
       if (!stats[key]) stats[key] = { date: bucketStart, label, revenue: 0, count: 0 };
       
@@ -58,7 +73,7 @@ const RevenueChart = ({ orders, communities }) => {
       totalOrders: sumOrders,
       avgOrderValue: sumOrders > 0 ? Math.round(sumRevenue / sumOrders) : 0
     };
-  }, [orders, startDate, endDate, selectedCommunity, metric, groupBy]);
+  }, [orders, startDate, endDate, selectedCommunity, groupBy]);
 
   return (
     <div className="flex flex-col w-full">
@@ -66,20 +81,20 @@ const RevenueChart = ({ orders, communities }) => {
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-4">
         <div className="flex flex-wrap gap-4 items-end">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">מתאריך</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">מתאריך (יום ראשון)</label>
             <input 
               type="date" 
               value={startDate} 
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => setStartDate(getAnalyticsWeekStartKey(e.target.value))}
               className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">עד תאריך</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">עד תאריך (שבת)</label>
             <input 
               type="date" 
               value={endDate} 
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => setEndDate(getAnalyticsWeekEndKey(e.target.value))}
               className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
             />
           </div>

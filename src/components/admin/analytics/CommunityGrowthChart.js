@@ -1,10 +1,20 @@
 import React, { useState, useMemo } from 'react';
 import SharedBarChart from './SharedBarChart';
-import { format, startOfWeek, startOfMonth, isWithinInterval, parseISO, subWeeks, startOfDay, endOfDay } from 'date-fns';
+import { format, startOfMonth, isWithinInterval } from 'date-fns';
+import {
+  formatAnalyticsWeekLabel,
+  getAnalyticsWeekEndKey,
+  getAnalyticsWeekRange,
+  getAnalyticsWeekStartKey,
+  getDefaultCompletedAnalyticsRange,
+  normalizeAnalyticsDateRange,
+} from '../../../utils/analyticsWeekUtils';
+
+const DEFAULT_RANGE = getDefaultCompletedAnalyticsRange(12);
 
 const CommunityGrowthChart = ({ orders, communities }) => {
-  const [startDate, setStartDate] = useState(format(subWeeks(new Date(), 12), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(DEFAULT_RANGE.startDate);
+  const [endDate, setEndDate] = useState(DEFAULT_RANGE.endDate);
   const [selectedCommunity, setSelectedCommunity] = useState('All');
   const [groupBy, setGroupBy] = useState('week'); // 'week' or 'month'
 
@@ -27,8 +37,9 @@ const CommunityGrowthChart = ({ orders, communities }) => {
   const { chartData, summary } = useMemo(() => {
     if (!orders || orders.length === 0) return { chartData: [], summary: {} };
 
-    const start = startOfDay(parseISO(startDate));
-    const end = endOfDay(parseISO(endDate));
+    const range = normalizeAnalyticsDateRange(startDate, endDate);
+    if (!range) return { chartData: [], summary: {} };
+    const { start, end } = range;
 
     const bucketData = {}; 
     let totalActive = 0;
@@ -39,12 +50,16 @@ const CommunityGrowthChart = ({ orders, communities }) => {
       if (!isWithinInterval(o.createdAt, { start, end })) return;
       if (selectedCommunity !== 'All' && o.customerDetails?.pickupSpot !== selectedCommunity) return;
 
-      const bucketStart = groupBy === 'week'
-        ? startOfWeek(o.createdAt, { weekStartsOn: 0 })
-        : startOfMonth(o.createdAt);
+      const weekRange = getAnalyticsWeekRange(o.createdAt);
+      const bucketStart = groupBy === 'week' ? weekRange?.start : startOfMonth(o.createdAt);
+      if (!bucketStart) return;
 
-      const key = format(bucketStart, groupBy === 'week' ? 'yyyy-MM-dd' : 'yyyy-MM');
-      const label = format(bucketStart, groupBy === 'week' ? 'dd/MM' : 'MM/yy');
+      const key = groupBy === 'week'
+        ? getAnalyticsWeekStartKey(bucketStart)
+        : format(bucketStart, 'yyyy-MM');
+      const label = groupBy === 'week'
+        ? formatAnalyticsWeekLabel(bucketStart)
+        : format(bucketStart, 'MM/yy');
       
       const userId = o.customerDetails?.email || o.customerDetails?.phone;
       if (!userId) return;
@@ -103,20 +118,20 @@ const CommunityGrowthChart = ({ orders, communities }) => {
 
         <div className="flex flex-wrap gap-4 items-end">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">מתאריך</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">מתאריך (יום ראשון)</label>
             <input 
               type="date" 
               value={startDate} 
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => setStartDate(getAnalyticsWeekStartKey(e.target.value))}
               className="text-sm border-gray-300 rounded px-2 py-1"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">עד תאריך</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">עד תאריך (שבת)</label>
             <input 
               type="date" 
               value={endDate} 
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => setEndDate(getAnalyticsWeekEndKey(e.target.value))}
               className="text-sm border-gray-300 rounded px-2 py-1"
             />
           </div>

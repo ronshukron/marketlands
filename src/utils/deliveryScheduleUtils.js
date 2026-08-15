@@ -194,6 +194,19 @@ export function isOrderParticipatingInDeliveryDate(deliveryDate, orderData = {},
   return value !== false;
 }
 
+function getOrderWeeklyDeliveryDays(orderData = {}, communityName = '') {
+  const fulfillmentConfig = orderData.fulfillmentConfig || {};
+  const perCommunityDays = communityName
+    ? fulfillmentConfig.weeklyDaysByCommunity?.[communityName]
+    : null;
+  const configuredDays = Array.isArray(perCommunityDays) && perCommunityDays.length > 0
+    ? perCommunityDays
+    : fulfillmentConfig.weeklyDeliveryDays;
+
+  if (!Array.isArray(configuredDays) || configuredDays.length === 0) return null;
+  return configuredDays.map(Number).filter((day) => day >= 0 && day <= 6);
+}
+
 export function isDeliveryDateOrderable(deliveryDate, scheduleDoc = {}, now = new Date(), orderData = null, communityName = '') {
   if (!scheduleDoc || scheduleDoc.active === false) return false;
   if (orderData && !isAlwaysOnGroceryOrderEnabled(orderData)) return false;
@@ -207,6 +220,10 @@ export function isDeliveryDateOrderable(deliveryDate, scheduleDoc = {}, now = ne
 
   const parsedDeliveryDate = parseDateSafe(dateKey);
   if (!parsedDeliveryDate) return false;
+  const orderWeeklyDays = orderData
+    ? getOrderWeeklyDeliveryDays(orderData, communityName)
+    : null;
+  if (orderWeeklyDays && !orderWeeklyDays.includes(parsedDeliveryDate.getDay())) return false;
   parsedDeliveryDate.setHours(23, 59, 59, 999);
   if (parsedDeliveryDate < now) return false;
 
@@ -235,16 +252,8 @@ export function generateAvailableDeliveryDates(scheduleDoc, options = {}) {
     ? scheduleDoc.weeklyDays.map(Number).filter((day) => day >= 0 && day <= 6)
     : [];
 
-  const fulfillmentConfig = options.orderData?.fulfillmentConfig || {};
-  const globalBusinessDays = fulfillmentConfig.weeklyDeliveryDays;
-  const perCommunityDays = options.communityName
-    ? fulfillmentConfig.weeklyDaysByCommunity?.[options.communityName]
-    : null;
-  const businessWeeklyDays = Array.isArray(globalBusinessDays) && globalBusinessDays.length > 0
-    ? globalBusinessDays
-    : perCommunityDays;
-  const allowedBusinessDays = Array.isArray(businessWeeklyDays) && businessWeeklyDays.length > 0
-    ? businessWeeklyDays.map(Number).filter((day) => day >= 0 && day <= 6)
+  const allowedBusinessDays = options.orderData
+    ? getOrderWeeklyDeliveryDays(options.orderData, options.communityName)
     : null;
 
   const dateKeys = new Set();
