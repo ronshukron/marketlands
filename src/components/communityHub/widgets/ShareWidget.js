@@ -48,7 +48,7 @@ const ShareWidget = ({ communityName }) => {
 
   const shareUrl = referralMode === 'personal' && referralCode
     ? `${window.location.origin}/?ref=${encodeURIComponent(referralCode)}`
-    : `${window.location.origin}/?pickupSpot=${encodeURIComponent(communityName)}`;
+    : `${window.location.origin}/?community=${encodeURIComponent(communityName)}`;
 
   const getShareMessage = () => {
     if (referralMode === 'personal' && referralCode) {

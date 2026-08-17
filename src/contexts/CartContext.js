@@ -3,7 +3,10 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
 import { applyQuantityPricing, getEstimatedLineTotal } from '../utils/pricing';
-import { isAlwaysOnGroceryOrder } from '../utils/deliveryScheduleUtils';
+import {
+  isAlwaysOnGroceryOrder,
+  isAlwaysOnGroceryOrderEnabled,
+} from '../utils/deliveryScheduleUtils';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -79,6 +82,10 @@ export const CartProvider = ({ children }) => {
           if (orderSnap.exists()) {
             const orderData = orderSnap.data();
             if (isAlwaysOnGroceryOrder(orderData)) {
+              if (!isAlwaysOnGroceryOrderEnabled(orderData)) {
+                console.log(`Order ${orderId} is disabled. Removing it from the cart.`);
+                idsToRemove.push(orderId);
+              }
               continue;
             }
             const pickupSpots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];

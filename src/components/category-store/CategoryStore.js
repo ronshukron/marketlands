@@ -16,10 +16,13 @@ import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
 import { enrichProductsWithFarmerBadge } from '../../utils/farmerBadgeUtils';
 import { getEstimatedLineTotal } from '../../utils/pricing';
+import { communityListIncludes } from '../../constants/marketplaceFulfillment';
+import { resolveCommunityName } from '../../services/pickupSpotsService';
 import {
   INTRODUCTION_BASKET_ADJUSTMENT_PREFIX,
   listActiveIntroductionBasketsForCommunity,
 } from '../../services/introductionBasketService';
+import CommunityDiscountWidget from '../communityHub/widgets/CommunityDiscountWidget';
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
 const PRODUCT_QUERY_CONCURRENCY = 6;
@@ -139,6 +142,7 @@ const CategoryStore = () => {
   const [communityQuery, setCommunityQuery] = useState('');
   const [deliverySchedule, setDeliverySchedule] = useState(null);
   const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
+  const [deliveryDatesLoading, setDeliveryDatesLoading] = useState(false);
   const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
   const [introductionBaskets, setIntroductionBaskets] = useState([]);
   const [basketsLoading, setBasketsLoading] = useState(false);
@@ -163,17 +167,20 @@ const CategoryStore = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const cat = params.get('category') || 'הכל';
-    const comm = params.get('community');
+    const comm = params.get('community') || params.get('pickupSpot');
     setSelectedCategory(cat);
     setIsSearchActive(false); // leave search mode when category changes
     if (comm && comm.trim()) {
-      setSelectedCommunity(comm);
+      const resolvedCommunity = resolveCommunityName(comm.trim()) || comm.trim();
+      setSelectedCommunity(resolvedCommunity);
       try {
-        localStorage.setItem('selectedPickupSpot', comm);
+        localStorage.setItem('selectedPickupSpot', resolvedCommunity);
       } catch {}
     } else {
       const saved = localStorage.getItem('selectedPickupSpot');
-      if (saved && saved !== 'הכל') setSelectedCommunity(saved);
+      if (saved && saved !== 'הכל') {
+        setSelectedCommunity(resolveCommunityName(saved) || saved);
+      }
     }
     
     // Update slider position when category changes
@@ -256,13 +263,16 @@ const CategoryStore = () => {
       if (!selectedCommunity) {
         setDeliverySchedule(null);
         setAvailableDeliveryDates([]);
+        setDeliveryDatesLoading(false);
         setSelectedDeliveryDate('');
         return;
       }
+      const communityKey = resolveCommunityName(selectedCommunity) || selectedCommunity;
       setDeliverySchedule(null);
       setAvailableDeliveryDates([]);
+      setDeliveryDatesLoading(true);
       try {
-        const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', selectedCommunity));
+        const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', communityKey));
         if (!active) return;
         const scheduleData = scheduleSnap.exists() ? scheduleSnap.data() : null;
         setDeliverySchedule(scheduleData);
@@ -273,7 +283,7 @@ const CategoryStore = () => {
         const visibleDates = dates.filter((dateKey) => getWeekKey(dateKey) === visibleWeekKey);
         setAvailableDeliveryDates(visibleDates);
         setSelectedDeliveryDate((current) => {
-          const stored = localStorage.getItem(`selectedDeliveryDate:${selectedCommunity}`);
+          const stored = localStorage.getItem(`selectedDeliveryDate:${communityKey}`);
           if (current && visibleDates.includes(current)) return current;
           if (stored && visibleDates.includes(stored)) return stored;
           return visibleDates[0] || '';
@@ -284,6 +294,8 @@ const CategoryStore = () => {
         setDeliverySchedule(null);
         setAvailableDeliveryDates([]);
         setSelectedDeliveryDate('');
+      } finally {
+        if (active) setDeliveryDatesLoading(false);
       }
     };
 
@@ -678,7 +690,7 @@ const CategoryStore = () => {
   const filterProductsForCommunity = useCallback((productList) => {
     if (!selectedCommunity) return productList;
     return productList.filter((p) => {
-      if (!Array.isArray(p.pickupSpots) || !p.pickupSpots.includes(selectedCommunity)) {
+      if (!communityListIncludes(p.pickupSpots, selectedCommunity)) {
         return false;
       }
 
@@ -719,7 +731,7 @@ const CategoryStore = () => {
 
   const handleMultiSearch = useCallback((terms) => {
     const pool = selectedCommunity
-      ? productsWithFarmerBadges.filter((p) => Array.isArray(p.pickupSpots) && p.pickupSpots.includes(selectedCommunity))
+      ? productsWithFarmerBadges.filter((p) => communityListIncludes(p.pickupSpots, selectedCommunity))
       : productsWithFarmerBadges;
     const sections = terms.map((term) => ({
       term,
@@ -882,7 +894,7 @@ const CategoryStore = () => {
   const displayProducts = (selectedCommunity)
     ? baseProducts.filter(p => {
         // Must include this pickup spot
-        if (!Array.isArray(p.pickupSpots) || !p.pickupSpots.includes(selectedCommunity)) {
+        if (!communityListIncludes(p.pickupSpots, selectedCommunity)) {
           return false;
         }
 
@@ -930,7 +942,7 @@ const CategoryStore = () => {
   const searchableProducts = useMemo(() => {
     if (!selectedCommunity) return productsWithFarmerBadges;
     return productsWithFarmerBadges.filter(
-      (product) => Array.isArray(product.pickupSpots) && product.pickupSpots.includes(selectedCommunity)
+      (product) => communityListIncludes(product.pickupSpots, selectedCommunity)
     );
   }, [productsWithFarmerBadges, selectedCommunity]);
 
@@ -1028,6 +1040,14 @@ const CategoryStore = () => {
           </div>
         </div>
 
+        {selectedCommunity && !deliveryDatesLoading && availableDeliveryDates.length === 0 && (
+          <div className="mb-3 px-1">
+            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-right">
+              אין תאריכי משלוח זמינים לקהילה זו כרגע.
+            </p>
+          </div>
+        )}
+
         {selectedCommunity && availableDeliveryDates.length > 0 && (
           <div className="mb-3 px-1">
             {isShowingNextDeliveryWeek(availableDeliveryDates) && (
@@ -1063,6 +1083,17 @@ const CategoryStore = () => {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {selectedCommunity && (
+          <div className="mb-3 px-1">
+            <CommunityDiscountWidget
+              communityName={selectedCommunity}
+              deliveryWeekKey={selectedDeliveryDate ? getWeekKey(selectedDeliveryDate) : undefined}
+              variant="compact"
+              showCommunityLink
+            />
           </div>
         )}
 

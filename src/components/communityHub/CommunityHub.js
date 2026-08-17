@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getWidgetsForCommunity } from '../../services/communityHubService';
+import {
+  DEFAULT_COMMUNITY_HUB_WIDGETS,
+  getWidgetsForCommunity,
+} from '../../services/communityHubService';
 import { getWidgetById } from './widgetRegistry';
 import { pickupSpotsData } from '../../data/pickupSpots';
 import { usePickupSpot } from '../../contexts/PickupSpotContext';
@@ -11,8 +14,11 @@ const CommunityHub = () => {
   const { selectedPickupSpot, updatePickupSpot } = usePickupSpot();
 
   const communityName = decodeURIComponent(communityId || '');
-  const [widgets, setWidgets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [widgets, setWidgets] = useState(() => (
+    DEFAULT_COMMUNITY_HUB_WIDGETS
+      .filter((widget) => widget.enabled)
+      .sort((a, b) => a.order - b.order)
+  ));
 
   // All available communities (from pickupSpots data)
   const communities = Object.keys(pickupSpotsData);
@@ -22,14 +28,11 @@ const CommunityHub = () => {
     let cancelled = false;
 
     const load = async () => {
-      setLoading(true);
       try {
         const widgetList = await getWidgetsForCommunity(communityName);
         if (!cancelled) setWidgets(widgetList);
       } catch (err) {
         console.error('Error loading hub config:', err);
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     };
     load();
@@ -113,35 +116,24 @@ const CommunityHub = () => {
 
       {/* Widgets */}
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {loading ? (
-          <div className="space-y-6">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 animate-pulse">
-                <div className="h-6 bg-gray-200 rounded w-1/3 mb-4" />
-                <div className="h-24 bg-gray-200 rounded w-full" />
+        <div className="space-y-6">
+          {widgets.map((widgetConfig) => {
+            const widgetDef = getWidgetById(widgetConfig.id);
+            if (!widgetDef) return null;
+            const WidgetComponent = widgetDef.component;
+            return (
+              <div key={widgetConfig.id}>
+                <WidgetComponent communityName={communityName} />
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {widgets.map((widgetConfig) => {
-              const widgetDef = getWidgetById(widgetConfig.id);
-              if (!widgetDef) return null;
-              const WidgetComponent = widgetDef.component;
-              return (
-                <div key={widgetConfig.id}>
-                  <WidgetComponent communityName={communityName} />
-                </div>
-              );
-            })}
-            {widgets.length === 0 && (
-              <div className="text-center py-12 text-gray-400">
-                <p className="text-lg">עמוד הקהילה בהקמה</p>
-                <p className="text-sm mt-2">התכנים יופיעו כאן בקרוב</p>
-              </div>
-            )}
-          </div>
-        )}
+            );
+          })}
+          {widgets.length === 0 && (
+            <div className="text-center py-12 text-gray-400">
+              <p className="text-lg">עמוד הקהילה בהקמה</p>
+              <p className="text-sm mt-2">התכנים יופיעו כאן בקרוב</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -50,6 +50,9 @@ export function buildV7RefundDiscountPlan({
 }) {
   if (!orderId) return buildManualPlan(MANUAL_REASONS.EXTERNAL_ORDER);
   if (!orderData) return buildManualPlan(MANUAL_REASONS.ORDER_NOT_FOUND);
+  if (orderData.communityDiscountPreparation?.status === 'prepared') {
+    return buildManualPlan(MANUAL_REASONS.ORDER_NOT_EDITABLE);
+  }
   if (!isV7OrderEditableForRefund(orderData, draftData)) {
     return buildManualPlan(MANUAL_REASONS.ORDER_NOT_EDITABLE);
   }
@@ -89,10 +92,16 @@ export function buildV7RefundDiscountPlan({
     const discountedUnitPrice = alreadyApplied
       ? safeNumber(line.price)
       : calculateDiscountedUnitPrice(originalUnitPrice, refundItem.refundPercent);
+    const estimatedChargeQuantity = safeNumber(
+      line.estimatedChargeQuantity ?? line.quantity,
+      0,
+    );
 
     items[location.itemIndex] = {
       ...line,
       price: discountedUnitPrice,
+      effectivePrice: discountedUnitPrice,
+      estimatedLineTotal: roundTo(estimatedChargeQuantity * discountedUnitPrice, 2),
       refundOriginalUnitPrice: originalUnitPrice,
       refundAppliedPercent: safeNumber(refundItem.refundPercent, 0),
       refundRequestId: refundId,

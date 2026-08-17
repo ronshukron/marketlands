@@ -92,7 +92,10 @@ export function isCustomerBusinessLineEditable({
 
 export function isCustomerLineExcluded(order = {}, lineOrId = '') {
   const lineId = typeof lineOrId === 'string' ? lineOrId : lineOrId?.lineId;
-  return Boolean(lineId && order.customerExcludedLineIds?.[lineId]);
+  if (!lineId) return false;
+  const excludedLineIds = order.customerExcludedLineIds;
+  if (Array.isArray(excludedLineIds)) return excludedLineIds.includes(lineId);
+  return Boolean(excludedLineIds?.[lineId]);
 }
 
 export function filterCustomerActiveLines(order = {}, lines = []) {

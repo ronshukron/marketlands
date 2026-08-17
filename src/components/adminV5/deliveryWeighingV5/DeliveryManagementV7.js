@@ -9,6 +9,7 @@ import {
   fetchAvailableDeliveryWeeksV7,
   fetchProductDetailsV7,
   handleSuspendedPaymentV7,
+  prepareCommunityDiscountForSettlementV7,
   removeDelayedOrderLineV7,
   searchProductsV7,
   subscribeDelayedOrdersForWeekV7,
@@ -76,6 +77,9 @@ import {
 import CustomerOrderDeliveryTransferControl from '../../admin/CustomerOrderDeliveryTransferControl';
 import { getCustomerKey, getCustomerProfiles } from '../../../services/customerProfileService';
 import { classifyCustomer, loadCustomerHistoryStats } from '../../../services/customerHistoryService';
+import {
+  subscribeDisplayDiscountInfo,
+} from '../../../services/communityDiscountService';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 const WEIGHT_ON_THRESHOLD = 0.020;
@@ -151,6 +155,14 @@ const TR = {
     phone: 'טלפון',
     useOrderedQty: 'כמות הזמנה לכל הפריטים',
     completeBtn: 'השלם + חיוב',
+    applyCommunityDiscount: 'החל הנחת קהילה',
+    removeCommunityDiscount: 'הסר הנחת קהילה',
+    communityDiscountAuto: 'הנחת קהילה אוטומטית',
+    communityDiscountPrepared: 'הנחת קהילה הוכנה לחיוב',
+    communityDiscountTier: 'רמת הנחת קהילה',
+    beforeDiscount: 'לפני הנחה',
+    discountAmount: 'הנחה',
+    afterDiscount: 'לחיוב אחרי הנחה',
     orderedKg: 'הוזמן (ק"ג)',
     weighedKg: 'נשקל (ק"ג)',
     orderedPrice: 'מחיר הזמנה (₪)',
@@ -280,6 +292,14 @@ const TR = {
     phone: 'โทร',
     useOrderedQty: 'ใช้จำนวนที่สั่งทั้งหมด',
     completeBtn: 'เสร็จ + เก็บเงิน',
+    applyCommunityDiscount: 'ใช้ส่วนลดชุมชน',
+    removeCommunityDiscount: 'ยกเลิกส่วนลดชุมชน',
+    communityDiscountAuto: 'ส่วนลดชุมชนอัตโนมัติ',
+    communityDiscountPrepared: 'เตรียมส่วนลดชุมชนแล้ว',
+    communityDiscountTier: 'ระดับส่วนลดชุมชน',
+    beforeDiscount: 'ก่อนส่วนลด',
+    discountAmount: 'ส่วนลด',
+    afterDiscount: 'ยอดหลังส่วนลด',
     orderedKg: 'สั่ง (กก.)',
     weighedKg: 'ชั่ง (กก.)',
     orderedPrice: 'ราคาสั่ง (₪)',
@@ -871,6 +891,8 @@ export default function DeliveryManagementV7() {
   const [communityColorOverrides, setCommunityColorOverrides] = useState(() => readCommunityColorOverrides());
   const [pendingCommunityColors, setPendingCommunityColors] = useState({});
   const [showCommunityNumbering, setShowCommunityNumbering] = useState(() => readShowCommunityNumbering());
+  const [communityDiscountInfo, setCommunityDiscountInfo] = useState(null);
+  const [manualDiscountOrders, setManualDiscountOrders] = useState({});
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const showToast = useCallback((msg, dur = 2500) => {
@@ -1629,6 +1651,22 @@ export default function DeliveryManagementV7() {
   }, []);
 
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) || null, [orders, selectedOrderId]);
+  const selectedOrderCommunity = selectedOrder?.pickupSpot || selectedOrder?.customerDetails?.pickupSpot || '';
+  useEffect(() => {
+    if (!selectedOrderCommunity || !selectedWeek) {
+      setCommunityDiscountInfo(null);
+      return undefined;
+    }
+    return subscribeDisplayDiscountInfo({
+      communityName: selectedOrderCommunity,
+      deliveryWeekKey: selectedWeek,
+      onValue: setCommunityDiscountInfo,
+      onError: (discountError) => {
+        console.error('Failed to subscribe to community discount:', discountError);
+        setCommunityDiscountInfo(null);
+      },
+    });
+  }, [selectedOrderCommunity, selectedWeek]);
   const effectiveDraftsByOrder = useMemo(
     () => localDraftsByOrder || remoteDraftsByOrder || {},
     [localDraftsByOrder, remoteDraftsByOrder]
@@ -2101,6 +2139,69 @@ export default function DeliveryManagementV7() {
     return { requestedTotal, actualTotal, requestedSum, actualSum };
   }, [items, weightsByLineId, removedLineIds]);
 
+  const buildCommunityDiscountSnapshot = useCallback((mode) => {
+    if (!communityDiscountInfo || communityDiscountInfo.discountPercent <= 0 || !selectedOrder) return null;
+    return {
+      percent: communityDiscountInfo.discountPercent,
+      tierIndex: communityDiscountInfo.tierIndex,
+      displayThreshold: communityDiscountInfo.currentTier?.displayThreshold ?? null,
+      realThreshold: communityDiscountInfo.currentTier?.realThreshold ?? null,
+      cohortTotal: communityDiscountInfo.weeklyTotal,
+      cohortOrderCount: communityDiscountInfo.orderCount,
+      deliveryWeekKey: selectedWeek,
+      community: selectedOrder.pickupSpot || selectedOrder.customerDetails?.pickupSpot || '',
+      mode,
+      appliedAtIso: new Date().toISOString(),
+    };
+  }, [communityDiscountInfo, selectedOrder, selectedWeek]);
+
+  const preparedCommunityDiscount = useMemo(() => {
+    const preparation = selectedOrder?.rawData?.communityDiscountPreparation;
+    if (preparation?.status !== 'prepared' || !preparation?.snapshot) return null;
+    return preparation.snapshot;
+  }, [selectedOrder]);
+  const preparedDiscountSelected = Boolean(preparedCommunityDiscount);
+  const manualDiscountSelected = selectedOrderId && manualDiscountOrders[selectedOrderId] === true;
+  const autoDiscountSelected = !preparedDiscountSelected
+    && communityDiscountInfo?.enabled === true
+    && communityDiscountInfo?.autoApplyInV7 === true
+    && (communityDiscountInfo?.discountPercent || 0) > 0;
+  const selectedCommunityDiscount = useMemo(() => {
+    if (preparedCommunityDiscount) return preparedCommunityDiscount;
+    if (!communityDiscountInfo?.enabled) return null;
+    if (manualDiscountSelected) return buildCommunityDiscountSnapshot('manual');
+    if (autoDiscountSelected) return buildCommunityDiscountSnapshot('auto');
+    return null;
+  }, [
+    autoDiscountSelected,
+    buildCommunityDiscountSnapshot,
+    communityDiscountInfo?.enabled,
+    manualDiscountSelected,
+    preparedCommunityDiscount,
+  ]);
+  const discountedSettlementPreview = useMemo(() => {
+    if (!selectedOrder || !selectedCommunityDiscount || !canComplete) return null;
+    return buildSettlementPayload({
+      selectedOrder,
+      items,
+      draft: selectedOrderSaved,
+      communityDiscount: selectedCommunityDiscount,
+    });
+  }, [canComplete, items, selectedCommunityDiscount, selectedOrder, selectedOrderSaved]);
+
+  const toggleCommunityDiscount = () => {
+    if (
+      !selectedOrderId
+      || preparedDiscountSelected
+      || autoDiscountSelected
+      || (communityDiscountInfo?.discountPercent || 0) <= 0
+    ) return;
+    setManualDiscountOrders((previous) => ({
+      ...previous,
+      [selectedOrderId]: previous[selectedOrderId] !== true,
+    }));
+  };
+
   const saveDraftPatch = useCallback(async (patch) => {
     if (!selectedWeek || !selectedOrder) return;
     await applyQueuedOpsOnline({
@@ -2548,9 +2649,29 @@ export default function DeliveryManagementV7() {
       await biAlert({ heText: 'הזמנה זו פתוחה בתחנה אחרת.', thText: 'คำสั่งซื้อนี้เปิดอยู่ที่สถานีอื่น', title: 'warning' });
       return;
     }
+    const settlementDiscount = preparedCommunityDiscount || (
+      selectedCommunityDiscount
+        ? buildCommunityDiscountSnapshot(selectedCommunityDiscount.mode)
+        : null
+    );
+    const confirmationPreview = buildSettlementPayload({
+      selectedOrder,
+      items,
+      draft: selectedOrderSaved,
+      communityDiscount: settlementDiscount,
+    });
+    const appliedSettlementDiscount = confirmationPreview.communityDiscount
+      ? settlementDiscount
+      : null;
+    const discountConfirmationHe = appliedSettlementDiscount
+      ? `\nהנחת קהילה ${settlementDiscount.percent}%: ₪${confirmationPreview.communityDiscount.amount.toFixed(2)}\nסכום לחיוב: ₪${confirmationPreview.finalSum.toFixed(2)}`
+      : '';
+    const discountConfirmationTh = appliedSettlementDiscount
+      ? `\nส่วนลดชุมชน ${settlementDiscount.percent}%: ₪${confirmationPreview.communityDiscount.amount.toFixed(2)}\nยอดเรียกเก็บ: ₪${confirmationPreview.finalSum.toFixed(2)}`
+      : '';
     const ok = await biConfirm({
-      heText: 'לסמן כהושלם ולחייב את הלקוח?',
-      thText: 'ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?',
+      heText: `לסמן כהושלם ולחייב את הלקוח?${discountConfirmationHe}`,
+      thText: `ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?${discountConfirmationTh}`,
       title: 'info',
     });
     if (!ok) return;
@@ -2575,12 +2696,28 @@ export default function DeliveryManagementV7() {
         finalizedAtIso: completedAtIso,
         source: 'delivery-v7',
       };
-      const payload = buildSettlementPayload({
+      let payload = buildSettlementPayload({
         selectedOrder,
         items,
         draft: settlingDraft,
         weighingAudit,
+        communityDiscount: appliedSettlementDiscount,
       });
+      if (payload.communityDiscount) {
+        const preparationResult = await prepareCommunityDiscountForSettlementV7({
+          orderId: selectedOrder.id,
+          communityDiscount: payload.communityDiscount,
+          removedLineIds: payload.removedLineIds,
+          session,
+        });
+        payload = buildSettlementPayload({
+          selectedOrder,
+          items: preparationResult.preparedItems || items,
+          draft: settlingDraft,
+          weighingAudit,
+          communityDiscount: appliedSettlementDiscount,
+        });
+      }
       await handleSuspendedPaymentV7(payload);
       const completedWeighing = {
         weightsByLineId: payload.weightsByLineId || {},
@@ -2588,7 +2725,8 @@ export default function DeliveryManagementV7() {
         finalInvoiceLines: payload.finalInvoiceLines || [],
         finalSum: payload.finalSum,
         completedAtIso,
-        weighingAudit,
+        ...(payload.communityDiscount ? { communityDiscount: payload.communityDiscount } : {}),
+        weighingAudit: payload.weighingAudit || weighingAudit,
       };
       setOrders((prev) => prev.map((order) => (
         order.id === selectedOrder.id
@@ -2619,6 +2757,11 @@ export default function DeliveryManagementV7() {
         return next;
       });
       setLocalDraftsByOrder((prev) => {
+        const next = { ...prev };
+        delete next[selectedOrder.id];
+        return next;
+      });
+      setManualDiscountOrders((prev) => {
         const next = { ...prev };
         delete next[selectedOrder.id];
         return next;
@@ -3400,6 +3543,31 @@ export default function DeliveryManagementV7() {
                         {t.useOrderedQty}
                       </button>
                       <button
+                        type="button"
+                        onClick={toggleCommunityDiscount}
+                        disabled={
+                          !isOnline
+                          || !canComplete
+                          || selectedOrderCompleted
+                          || claimedByOther
+                          || communityDiscountInfo?.enabled !== true
+                          || (communityDiscountInfo?.discountPercent || 0) <= 0
+                          || autoDiscountSelected
+                          || preparedDiscountSelected
+                        }
+                        className={`px-4 py-2 font-bold rounded-lg text-sm border transition-colors disabled:opacity-50 ${
+                          manualDiscountSelected
+                            ? 'bg-amber-100 border-amber-300 text-amber-800 hover:bg-amber-200'
+                            : 'bg-amber-500 border-amber-500 text-white hover:bg-amber-600'
+                        }`}
+                      >
+                        {preparedDiscountSelected
+                          ? `${t.communityDiscountPrepared} (${preparedCommunityDiscount.percent}%)`
+                          : autoDiscountSelected
+                          ? `${t.communityDiscountAuto} (${communityDiscountInfo.discountPercent}%)`
+                          : (manualDiscountSelected ? t.removeCommunityDiscount : t.applyCommunityDiscount)}
+                      </button>
+                      <button
                         onClick={completeOrder}
                         disabled={completeDisabled}
                         className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors ${
@@ -3540,6 +3708,53 @@ export default function DeliveryManagementV7() {
                     <div className="text-xl font-black text-green-700">{totals.actualSum.toFixed(2)}</div>
                   </div>
                 </div>
+
+                {(communityDiscountInfo?.enabled === true || preparedDiscountSelected) && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="font-black text-amber-900">
+                          {t.communityDiscountTier}:{' '}
+                          {selectedCommunityDiscount?.percent ?? communityDiscountInfo?.discountPercent ?? 0}%
+                        </div>
+                        <div className="text-xs text-amber-800 mt-1">
+                          {selectedCommunityDiscount?.cohortOrderCount ?? communityDiscountInfo?.orderCount ?? 0}{' '}
+                          {lang === 'th' ? 'คำสั่งซื้อ' : 'הזמנות'}
+                          {' • '}
+                          ₪{Number(
+                            selectedCommunityDiscount?.cohortTotal
+                            ?? communityDiscountInfo?.weeklyTotal
+                            ?? 0,
+                          ).toFixed(2)}
+                          {' • '}
+                          {selectedWeek}
+                        </div>
+                      </div>
+                      {selectedCommunityDiscount && discountedSettlementPreview && (
+                        <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                          <div>
+                            <div className="text-amber-700">{t.beforeDiscount}</div>
+                            <div className="font-black text-amber-950">
+                              ₪{discountedSettlementPreview.communityDiscount.preDiscountTotal.toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-amber-700">{t.discountAmount}</div>
+                            <div className="font-black text-red-700">
+                              -₪{discountedSettlementPreview.communityDiscount.amount.toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-amber-700">{t.afterDiscount}</div>
+                            <div className="font-black text-green-700">
+                              ₪{discountedSettlementPreview.finalSum.toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white rounded-xl shadow-sm p-4">
                   <div className="flex flex-col gap-3">

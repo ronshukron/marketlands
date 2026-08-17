@@ -18,6 +18,7 @@ import {
 import {
   filterCustomerActiveLines,
   isCustomerBusinessLineEditable,
+  isCustomerLineExcluded,
   isCustomerOrderOwner,
   isCustomerOrderStatusEditable,
   isSuccessfulDelayedCustomerOrder,
@@ -107,10 +108,10 @@ export function getOrderPickupSpot(order = {}) {
     || '';
 }
 
-function sumActiveItemsTotal(orderBreakdown, excludedLineIds = {}) {
+function sumActiveItemsTotal(order = {}, orderBreakdown = {}) {
   return Object.values(orderBreakdown || {}).reduce((sum, businessOrder) => {
     const subtotal = (businessOrder?.items || []).reduce((inner, item) => {
-      if (excludedLineIds[item?.lineId]) return inner;
+      if (isCustomerLineExcluded(order, item)) return inner;
       const savedTotal = Number(item?.estimatedLineTotal);
       return inner + (
         Number.isFinite(savedTotal)
@@ -124,9 +125,8 @@ function sumActiveItemsTotal(orderBreakdown, excludedLineIds = {}) {
 
 export function computeCustomerOrderGrandTotal(order = {}, orderBreakdown = null) {
   const breakdown = orderBreakdown || order.orderBreakdown || {};
-  const excluded = order.customerExcludedLineIds || {};
   const deliveryFee = safeNumber(order.customerDetails?.deliveryDetails?.deliveryFee, 0);
-  return roundTo(sumActiveItemsTotal(breakdown, excluded) + deliveryFee, 2);
+  return roundTo(sumActiveItemsTotal(order, breakdown) + deliveryFee, 2);
 }
 
 export function isLineEditableForCustomer({

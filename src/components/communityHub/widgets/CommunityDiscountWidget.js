@@ -1,33 +1,45 @@
 import React, { useState, useEffect } from 'react';
-import { getDisplayDiscountInfo } from '../../../services/communityDiscountService';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../../../contexts/authContext';
+import { subscribeDisplayDiscountInfo } from '../../../services/communityDiscountService';
 
-const CommunityDiscountWidget = ({ communityName }) => {
+const CommunityDiscountWidget = ({
+  communityName,
+  deliveryWeekKey,
+  variant = 'full',
+  showCommunityLink = false,
+}) => {
+  const { userLoggedIn, loading: authLoading } = useAuth();
   const [discountInfo, setDiscountInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!communityName) return;
-    let cancelled = false;
-
-    const load = async () => {
-      setLoading(true);
+    if (!communityName) {
+      setDiscountInfo(null);
       setError(null);
-      try {
-        const info = await getDisplayDiscountInfo(communityName);
-        if (!cancelled) setDiscountInfo(info);
-      } catch (err) {
+      setLoading(false);
+      return undefined;
+    }
+    setLoading(true);
+    setError(null);
+    return subscribeDisplayDiscountInfo({
+      communityName,
+      ...(deliveryWeekKey ? { deliveryWeekKey } : {}),
+      onValue: (info) => {
+        setDiscountInfo(info);
+        setLoading(false);
+      },
+      onError: (err) => {
         console.error('Error loading discount info:', err);
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, [communityName]);
+        setError(err.message);
+        setLoading(false);
+      },
+    });
+  }, [communityName, deliveryWeekKey]);
 
-  if (loading) {
+  if (loading || authLoading) {
+    if (variant === 'compact') return null;
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 animate-pulse">
         <div className="h-6 bg-gray-200 rounded w-1/3 mb-4" />
@@ -38,6 +50,7 @@ const CommunityDiscountWidget = ({ communityName }) => {
   }
 
   if (error) {
+    if (variant === 'compact') return null;
     return (
       <div className="bg-white rounded-xl shadow-sm border border-red-100 p-6">
         <p className="text-red-500 text-sm text-center">שגיאה בטעינת נתוני הנחה: {error}</p>
@@ -49,7 +62,57 @@ const CommunityDiscountWidget = ({ communityName }) => {
     return null;
   }
 
-  const { discountPercent, currentTier, nextTier, weeklyTotal, tiers, isVip, vipPerks } = discountInfo;
+  if (!userLoggedIn) {
+    if (variant === 'compact') {
+      return (
+        <section
+          className="rounded-lg border border-green-200 bg-gradient-to-l from-green-50 to-emerald-50 px-3 py-2 shadow-sm"
+          aria-label="הנחת קהילה"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-gray-900">הנחת קהילה</h2>
+            <Link
+              to="/login"
+              className="inline-flex min-h-11 items-center text-xs font-semibold text-green-800 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            >
+              התחברות
+            </Link>
+          </div>
+          <p className="mt-1 text-xs text-gray-600">יש להתחבר כדי לצפות</p>
+        </section>
+      );
+    }
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 text-center">
+        <h3 className="text-lg font-bold text-gray-900">הנחת קהילה</h3>
+        <p className="mt-2 text-sm text-gray-600">יש להתחבר כדי לצפות</p>
+        <Link
+          to="/login"
+          className="mt-3 inline-flex min-h-11 items-center font-semibold text-green-700 underline-offset-4 hover:underline"
+        >
+          התחברות
+        </Link>
+      </div>
+    );
+  }
+
+  const {
+    discountPercent,
+    currentTier,
+    nextTier,
+    weeklyTotal,
+    tiers,
+    isVip,
+    vipPerks,
+    weekStart,
+    weekEnd,
+  } = discountInfo;
+  const formatDate = (value) => value
+    ? new Date(value).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })
+    : '';
+  const weekLabel = weekStart && weekEnd
+    ? `${formatDate(weekStart)}–${formatDate(weekEnd)}`
+    : '';
 
   // Calculate progress toward the next display threshold
   const nextDisplayThreshold = nextTier?.displayThreshold;
@@ -57,6 +120,83 @@ const CommunityDiscountWidget = ({ communityName }) => {
   const progressPercent = nextDisplayThreshold
     ? Math.min(100, (weeklyTotal / nextDisplayThreshold) * 100)
     : 100;
+
+  if (variant === 'compact') {
+    return (
+      <section
+        className={`rounded-lg border px-3 py-2 shadow-sm ${
+          isVip
+            ? 'border-yellow-300 bg-gradient-to-l from-yellow-50 to-amber-50'
+            : 'border-green-200 bg-gradient-to-l from-green-50 to-emerald-50'
+        }`}
+        aria-label="התקדמות הנחת הקהילה"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-bold text-gray-900">הנחת קהילה</h2>
+            {isVip && (
+              <span className="rounded-full bg-yellow-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                VIP
+              </span>
+            )}
+          </div>
+          {discountPercent > 0 && (
+            <span className={`flex-shrink-0 text-sm font-bold ${
+              isVip ? 'text-yellow-700' : 'text-green-700'
+            }`}>
+              {discountPercent}%
+            </span>
+          )}
+        </div>
+
+        {nextTier ? (
+          <div className="mt-2">
+            <div className="mb-1 flex justify-between gap-3 text-[11px] text-gray-500">
+              <span>{Math.round(weeklyTotal).toLocaleString('he-IL')}</span>
+              <span>{nextDisplayThreshold.toLocaleString('he-IL')}</span>
+            </div>
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-white"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={nextDisplayThreshold}
+              aria-valuenow={Math.min(weeklyTotal, nextDisplayThreshold)}
+              aria-label={`התקדמות ליעד הבא: ${Math.round(progressPercent)} אחוז`}
+            >
+              <div
+                className={`h-full rounded-full transition-all duration-700 ease-out ${
+                  isVip
+                    ? 'bg-gradient-to-l from-yellow-300 to-yellow-500'
+                    : 'bg-gradient-to-l from-green-400 to-green-600'
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <p className={`mt-1 text-xs font-semibold ${isVip ? 'text-yellow-700' : 'text-green-700'}`}>
+              להנחה הבאה: {nextTier.discountPercent}%
+            </p>
+          </div>
+        ) : (
+          <p className={`mt-1.5 text-xs font-semibold ${isVip ? 'text-yellow-700' : 'text-green-700'}`}>
+            רמת ההנחה הגבוהה ביותר
+          </p>
+        )}
+
+        {showCommunityLink && (
+          <Link
+            to={`/community/${encodeURIComponent(communityName)}`}
+            className={`mt-0.5 inline-flex items-center py-1 text-xs font-medium underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isVip
+                ? 'text-yellow-800 focus:ring-yellow-500'
+                : 'text-green-800 focus:ring-green-500'
+            }`}
+          >
+            למרכז הקהילה
+          </Link>
+        )}
+      </section>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -101,10 +241,13 @@ const CommunityDiscountWidget = ({ communityName }) => {
 
         {/* Current week total */}
         <div className="text-center mb-6">
-          <p className="text-gray-500 text-sm">סה"כ הזמנות הקהילה השבוע</p>
+          <p className="text-gray-500 text-sm">
+            סה"כ הזמנות הקהילה לשבוע המשלוח{weekLabel ? ` ${weekLabel}` : ''}
+          </p>
           <p className="text-3xl font-bold text-gray-900 mt-1">
             {Math.round(weeklyTotal).toLocaleString('he-IL')} &#8362;
           </p>
+          <p className="text-xs text-gray-400 mt-1">לפי הסכום המשוער לפני שקילה, ללא משלוח</p>
           {discountPercent > 0 && (
             <p className={`font-semibold mt-1 ${isVip ? 'text-yellow-600' : 'text-green-600'}`}>
               הקהילה זכאית להנחה של {discountPercent}%!

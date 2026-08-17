@@ -212,6 +212,7 @@ export function buildSettlementPayload({
   items = [],
   draft = {},
   weighingAudit = null,
+  communityDiscount = null,
 }) {
   const weightsByLineId = draft?.weightsByLineId || {};
   const removedLineIds = draft?.removedLineIds || {};
@@ -290,8 +291,55 @@ export function buildSettlementPayload({
     ...(hasWeighingAudit ? { audit: weighingAudit } : {}),
   }));
 
-  const finalInvoiceLines = [...normalInvoiceLines, ...basketInvoiceLines];
-  const finalSum = roundTo(finalInvoiceLines.reduce((sum, line) => sum + safeNumber(line?.linePrice), 0), 2);
+  const undiscountedInvoiceLines = [...normalInvoiceLines, ...basketInvoiceLines];
+  const preDiscountTotal = roundTo(
+    undiscountedInvoiceLines.reduce((sum, line) => sum + safeNumber(line?.linePrice), 0),
+    2,
+  );
+  const requestedDiscountPercent = safeNumber(communityDiscount?.percent, 0);
+  const discountPercent = Math.min(100, Math.max(0, requestedDiscountPercent));
+  const shouldApplyCommunityDiscount = discountPercent > 0 && preDiscountTotal > 0;
+  const discountFactor = 1 - (discountPercent / 100);
+  const finalInvoiceLines = undiscountedInvoiceLines.map((line) => {
+    if (!shouldApplyCommunityDiscount) return line;
+    const preDiscountPricePerUnit = safeNumber(line.pricePerUnit, 0);
+    const discountedPricePerUnit = roundTo(preDiscountPricePerUnit * discountFactor, 6);
+    const discountedLinePrice = roundTo(
+      safeNumber(line.actualQuantity, 0) * discountedPricePerUnit,
+      2,
+    );
+    return {
+      ...line,
+      preDiscountPricePerUnit,
+      pricePerUnit: discountedPricePerUnit,
+      preDiscountLinePrice: line.linePrice,
+      communityDiscountShare: roundTo(safeNumber(line.linePrice, 0) - discountedLinePrice, 2),
+      communityDiscountPercent: discountPercent,
+      linePrice: discountedLinePrice,
+    };
+  });
+  const finalSum = roundTo(
+    finalInvoiceLines.reduce((sum, line) => sum + safeNumber(line.linePrice, 0), 0),
+    2,
+  );
+  const discountAmount = shouldApplyCommunityDiscount
+    ? roundTo(preDiscountTotal - finalSum, 2)
+    : 0;
+  const communityDiscountAudit = shouldApplyCommunityDiscount
+    ? {
+      ...communityDiscount,
+      percent: discountPercent,
+      preDiscountTotal,
+      amount: discountAmount,
+      finalTotal: finalSum,
+    }
+    : null;
+  const finalWeighingAudit = hasWeighingAudit
+    ? {
+      ...weighingAudit,
+      ...(communityDiscountAudit ? { communityDiscount: communityDiscountAudit } : {}),
+    }
+    : null;
   const productDataForGrow = {};
 
   finalInvoiceLines.forEach((line, index) => {
@@ -318,7 +366,165 @@ export function buildSettlementPayload({
     finalInvoiceLines,
     finalSum,
     productDataForGrow,
-    ...(hasWeighingAudit ? { weighingAudit } : {}),
+    ...(communityDiscountAudit ? { communityDiscount: communityDiscountAudit } : {}),
+    ...(finalWeighingAudit ? { weighingAudit: finalWeighingAudit } : {}),
+  };
+}
+
+function getExcludedLineIdSet(orderData = {}) {
+  const excluded = orderData.customerExcludedLineIds || {};
+  if (Array.isArray(excluded)) return new Set(excluded);
+  return new Set(
+    Object.entries(excluded)
+      .filter(([, isExcluded]) => isExcluded)
+      .map(([lineId]) => lineId),
+  );
+}
+
+export function buildCommunityDiscountFingerprint({
+  orderId,
+  communityDiscount = {},
+  removedLineIds = {},
+}) {
+  const removed = Object.entries(removedLineIds || {})
+    .filter(([, isRemoved]) => isRemoved)
+    .map(([lineId]) => lineId)
+    .sort();
+  return [
+    orderId || '',
+    safeNumber(communityDiscount.percent, 0),
+    communityDiscount.tierIndex ?? '',
+    communityDiscount.deliveryWeekKey || '',
+    communityDiscount.community || '',
+    removed.join(','),
+  ].join('|');
+}
+
+export function buildCommunityDiscountOrderPatch({
+  orderId,
+  orderData = {},
+  communityDiscount = null,
+  fingerprint = '',
+  removedLineIds = {},
+}) {
+  const percent = Math.min(100, Math.max(0, safeNumber(communityDiscount?.percent, 0)));
+  if (!orderId || !communityDiscount || percent <= 0 || !fingerprint) return null;
+
+  const factor = 1 - (percent / 100);
+  const excludedLineIds = getExcludedLineIdSet(orderData);
+  const removed = new Set(
+    Object.entries(removedLineIds || {})
+      .filter(([, isRemoved]) => isRemoved)
+      .map(([lineId]) => lineId),
+  );
+  const canonical = ensureLineIdsInBreakdown(orderId, orderData.orderBreakdown || {}).breakdown;
+  const activeBasketIds = new Set();
+  const activeBasketOriginalPrices = new Map();
+  flattenOrderBreakdown(canonical).forEach((item) => {
+    if (
+      item?.isBasketComponent === true
+      && item?.basketInstanceId
+      && !excludedLineIds.has(item.lineId)
+      && !removed.has(item.lineId)
+    ) {
+      activeBasketIds.add(item.basketInstanceId);
+      if (!activeBasketOriginalPrices.has(item.basketInstanceId)) {
+        activeBasketOriginalPrices.set(
+          item.basketInstanceId,
+          safeNumber(
+            item.communityDiscountOriginalBasketPrice ?? item.basketPrice,
+            0,
+          ),
+        );
+      }
+    }
+  });
+
+  let estimatedDiscountAmount = Array.from(activeBasketOriginalPrices.values())
+    .reduce(
+      (sum, basketPrice) => sum + basketPrice - roundTo(basketPrice * factor, 2),
+      0,
+    );
+  const nextBreakdown = {};
+  Object.entries(canonical).forEach(([businessOrderKey, businessOrder]) => {
+    const items = (businessOrder?.items || []).map((item) => {
+      const isActiveBasketLine = Boolean(
+        item?.basketInstanceId
+        && activeBasketIds.has(item.basketInstanceId)
+        && !excludedLineIds.has(item?.lineId)
+        && !removed.has(item?.lineId),
+      );
+      const isNormalApplicable = (
+        !item?.basketInstanceId
+        && !item?.isShipping
+        && item?.catalogNumber !== BUFFER_LINE_CATALOG_NUMBER
+        && !excludedLineIds.has(item?.lineId)
+        && !removed.has(item?.lineId)
+      );
+      if (!isNormalApplicable && !isActiveBasketLine) return item;
+
+      const originalPrice = safeNumber(
+        item.communityDiscountOriginalPrice ?? item.price,
+        0,
+      );
+      const originalEffectivePrice = safeNumber(
+        item.communityDiscountOriginalEffectivePrice ?? item.effectivePrice ?? originalPrice,
+        originalPrice,
+      );
+      const fallbackEstimate = safeNumber(
+        item.estimatedChargeQuantity ?? item.quantity,
+        0,
+      ) * originalPrice;
+      const originalEstimatedLineTotal = safeNumber(
+        item.communityDiscountOriginalEstimatedLineTotal
+          ?? item.estimatedLineTotal
+          ?? fallbackEstimate,
+        fallbackEstimate,
+      );
+      const discountedPrice = roundTo(originalPrice * factor, 6);
+      const discountedEstimatedLineTotal = roundTo(originalEstimatedLineTotal * factor, 2);
+      if (isNormalApplicable) {
+        estimatedDiscountAmount += originalEstimatedLineTotal - discountedEstimatedLineTotal;
+      }
+
+      const originalBasketPrice = isActiveBasketLine
+        ? safeNumber(
+          item.communityDiscountOriginalBasketPrice ?? item.basketPrice,
+          0,
+        )
+        : null;
+
+      return {
+        ...item,
+        communityDiscountOriginalPrice: originalPrice,
+        communityDiscountOriginalEffectivePrice: originalEffectivePrice,
+        communityDiscountOriginalEstimatedLineTotal: roundTo(originalEstimatedLineTotal, 2),
+        price: discountedPrice,
+        effectivePrice: discountedPrice,
+        estimatedLineTotal: discountedEstimatedLineTotal,
+        communityDiscountPercent: percent,
+        communityDiscountFingerprint: fingerprint,
+        ...(isActiveBasketLine ? {
+          communityDiscountOriginalBasketPrice: originalBasketPrice,
+          basketPrice: roundTo(originalBasketPrice * factor, 2),
+        } : {}),
+      };
+    });
+    nextBreakdown[businessOrderKey] = {
+      ...(businessOrder || {}),
+      items,
+    };
+  });
+
+  const orderBreakdown = recomputeBreakdownTotals(nextBreakdown);
+  return {
+    orderBreakdown,
+    items: flattenOrderBreakdown(orderBreakdown),
+    estimatedDiscountAmount: roundTo(estimatedDiscountAmount, 2),
+    grandTotal: Math.max(
+      0,
+      roundTo(safeNumber(orderData.grandTotal, 0) - estimatedDiscountAmount, 2),
+    ),
   };
 }
 

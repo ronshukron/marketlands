@@ -1,8 +1,5 @@
 import React from 'react';
 import CommunityDiscountWidget from './widgets/CommunityDiscountWidget';
-import CommunityStatsWidget from './widgets/CommunityStatsWidget';
-import PopularItemsWidget from './widgets/PopularItemsWidget';
-import ShareWidget from './widgets/ShareWidget';
 import RecipeWidget from './widgets/RecipeWidget';
 
 /**
@@ -16,27 +13,6 @@ const WIDGET_REGISTRY = {
     title: 'הנחת קהילה',
     icon: '💰',
     description: 'מעקב אחר הנחות קהילתיות לפי סכום הזמנות שבועי',
-  },
-  communityStats: {
-    id: 'communityStats',
-    component: CommunityStatsWidget,
-    title: 'סטטיסטיקות קהילה',
-    icon: '📊',
-    description: 'נתוני הזמנות שבועיים ומגמות',
-  },
-  popularItems: {
-    id: 'popularItems',
-    component: PopularItemsWidget,
-    title: 'מוצרים פופולריים',
-    icon: '🔥',
-    description: 'המוצרים הנמכרים ביותר בקהילה',
-  },
-  share: {
-    id: 'share',
-    component: ShareWidget,
-    title: 'שיתוף ומכרים',
-    icon: '📤',
-    description: 'שיתוף לינק הקהילה והזמנת חברים',
   },
   recipes: {
     id: 'recipes',

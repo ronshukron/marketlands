@@ -1,5 +1,6 @@
 import { getEstimatedLineTotal, roundTo2 } from './pricing';
 import {
+  isCustomerLineExcluded,
   isSuccessfulDelayedCustomerOrder,
   isSuccessfulRegularCustomerOrder,
 } from './customerOrderUtils';
@@ -52,11 +53,10 @@ function checkoutTotal(item) {
 }
 
 function flattenCheckoutLines(order) {
-  const excluded = order?.customerExcludedLineIds || {};
   const lines = [];
   Object.entries(order?.orderBreakdown || {}).forEach(([businessOrderKey, businessOrder]) => {
     (businessOrder?.items || []).forEach((item, index) => {
-      if (item?.isShipping || item?.productId === SHIPPING_PRODUCT_ID || excluded[item?.lineId]) return;
+      if (item?.isShipping || item?.productId === SHIPPING_PRODUCT_ID || isCustomerLineExcluded(order, item)) return;
       lines.push({
         ...item,
         checkoutIndex: index,

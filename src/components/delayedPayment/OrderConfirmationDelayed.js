@@ -21,11 +21,13 @@ import {
     getEstimatedLineTotal,
 } from '../../utils/pricing';
 import {
-    generateAvailableDeliveryDates,
+    generateSharedAvailableDeliveryDates,
     getWeekKey,
-    isDeliveryDateOrderable,
     isAlwaysOnGroceryOrder,
+    isAlwaysOnGroceryOrderEnabled,
+    isDeliveryDateOrderable,
     isShowingNextDeliveryWeek,
+    orderServesCommunity,
 } from '../../utils/deliveryScheduleUtils';
 import {
   getReferralConfig,
@@ -40,6 +42,7 @@ import {
     CHECKOUT_ACCOUNT_ACTIONS,
     resolveCheckoutAccountAction,
 } from '../../utils/checkoutAccountUtils';
+import { buildGrowInvoiceItem } from '../../utils/growInvoiceUtils';
 
 async function processReferralReward({ orderId, buyerUid, orderTotal }) {
   const refCode = getStoredReferralCode();
@@ -214,7 +217,9 @@ const OrderConfirmationDelayed = () => {
     const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
     const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
     const [deliveryDateError, setDeliveryDateError] = useState('');
-    const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some((orderData) => isAlwaysOnGroceryOrder(orderData));
+    const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some(
+        (orderData) => isAlwaysOnGroceryOrder(orderData) && isAlwaysOnGroceryOrderEnabled(orderData)
+    );
     const cartOrderMetaReady = !cartOrderMetaLoading
         && Object.keys(itemsByOrder).length > 0
         && Object.keys(itemsByOrder).every(
@@ -278,13 +283,16 @@ const OrderConfirmationDelayed = () => {
     const isOrderUnavailableForSelectedDate = useCallback((orderId) => {
         const orderData = cartOrderMeta[orderId];
         if (!orderData || !isAlwaysOnGroceryOrder(orderData)) return false;
+        if (!isAlwaysOnGroceryOrderEnabled(orderData)) return true;
+        const communityKey = resolveCommunityName(selectedPickupSpot);
+        if (selectedPickupSpot && !orderServesCommunity(orderData, communityKey)) return true;
         if (!deliverySchedule || !selectedDeliveryDate || !selectedPickupSpot) return false;
         return !isDeliveryDateOrderable(
             selectedDeliveryDate,
             deliverySchedule,
             new Date(),
             orderData,
-            resolveCommunityName(selectedPickupSpot)
+            communityKey
         );
     }, [cartOrderMeta, deliverySchedule, selectedDeliveryDate, selectedPickupSpot]);
     const cutoffCartItems = useMemo(() => {
@@ -555,17 +563,13 @@ const OrderConfirmationDelayed = () => {
                 const scheduleData = scheduleSnap.data();
                 setDeliverySchedule(scheduleData);
                 const alwaysOnOrders = Object.values(cartOrderMeta).filter(
-                    (orderData) => isAlwaysOnGroceryOrder(orderData)
+                    (orderData) => isAlwaysOnGroceryOrder(orderData) && isAlwaysOnGroceryOrderEnabled(orderData)
                 );
-                const scheduleDates = alwaysOnOrders.reduce((sharedDates, orderData, index) => {
-                    const orderDates = generateAvailableDeliveryDates(scheduleData, {
-                        orderData,
-                        communityName: communityKey,
-                    });
-                    if (index === 0) return orderDates;
-                    const orderDateSet = new Set(orderDates);
-                    return sharedDates.filter((dateKey) => orderDateSet.has(dateKey));
-                }, []);
+                const scheduleDates = generateSharedAvailableDeliveryDates(
+                    scheduleData,
+                    alwaysOnOrders,
+                    { communityName: communityKey }
+                );
                 const currentWeekKey = getWeekKey(new Date());
                 const currentWeekDates = scheduleDates.filter((dateKey) => getWeekKey(dateKey) === currentWeekKey);
                 const nextVisibleWeekKey = currentWeekDates.length > 0 ? currentWeekKey : getWeekKey(scheduleDates[0]);
@@ -702,7 +706,11 @@ const OrderConfirmationDelayed = () => {
 
         const communityKey = resolveCommunityName(selectedPickupSpot);
         const hasUnavailableAlwaysOnOrder = Object.values(cartOrderMeta)
-            .filter((orderData) => isAlwaysOnGroceryOrder(orderData))
+            .filter((orderData) => (
+                isAlwaysOnGroceryOrder(orderData)
+                && isAlwaysOnGroceryOrderEnabled(orderData)
+                && orderServesCommunity(orderData, communityKey)
+            ))
             .some((orderData) => !isDeliveryDateOrderable(
                 selectedDeliveryDate,
                 deliverySchedule,
@@ -1000,10 +1008,11 @@ const OrderConfirmationDelayed = () => {
                 orderData.items.forEach(item => {
                     if (item.quantity > 0 && !item.isBasketComponent && !item.isBasketAdjustment) {
                         const linePrice = getEstimatedLineTotal(item);
+                        const invoiceItem = buildGrowInvoiceItem(item);
                         paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
-                        paymentData[`productData[${productIndex}][quantity]`] = item.quantity;
+                        paymentData[`productData[${productIndex}][quantity]`] = invoiceItem.quantity;
                         paymentData[`productData[${productIndex}][price]`] = linePrice;
-                        paymentData[`productData[${productIndex}][itemDescription]`] = item.name || item.productName || 'Unknown Item';
+                        paymentData[`productData[${productIndex}][itemDescription]`] = invoiceItem.description;
                         paymentData[`productData[${productIndex}][vatType]`] = item.vatType ?? 3;
                         productLinesSum += linePrice;
                         productIndex++;

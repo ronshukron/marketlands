@@ -25,7 +25,10 @@ const buildOrder = (overrides = {}) => ({
         productName: 'Tomato',
         lineSeed: 's0',
         quantity: 2,
+        estimatedChargeQuantity: 1.5,
+        estimatedLineTotal: 30,
         price: 20,
+        effectivePrice: 20,
       }],
     },
   },
@@ -51,6 +54,8 @@ describe('buildV7RefundDiscountPlan', () => {
 
     expect(plan.canApply).toBe(true);
     expect(plan.orderBreakdown[businessOrderKey].items[0].price).toBe(10);
+    expect(plan.orderBreakdown[businessOrderKey].items[0].effectivePrice).toBe(10);
+    expect(plan.orderBreakdown[businessOrderKey].items[0].estimatedLineTotal).toBe(15);
     expect(plan.orderBreakdown[businessOrderKey].items[0].refundOriginalUnitPrice).toBe(20);
     expect(plan.grandTotal).toBe(30);
   });
@@ -76,6 +81,22 @@ describe('buildV7RefundDiscountPlan', () => {
     const plan = buildV7RefundDiscountPlan({
       orderId,
       orderData: buildOrder({ paymentStatus: 'completed' }),
+      refundId: 'refund-1',
+      refundItems,
+    });
+
+    expect(plan).toEqual({
+      canApply: false,
+      reason: MANUAL_REASONS.ORDER_NOT_EDITABLE,
+    });
+  });
+
+  test('routes orders with prepared community prices to manual refund', () => {
+    const plan = buildV7RefundDiscountPlan({
+      orderId,
+      orderData: buildOrder({
+        communityDiscountPreparation: { status: 'prepared', fingerprint: 'locked' },
+      }),
       refundId: 'refund-1',
       refundItems,
     });

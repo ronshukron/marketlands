@@ -7,6 +7,7 @@ import {
   getDocs,
   onSnapshot,
   query,
+  runTransaction,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -21,6 +22,8 @@ import {
   toLocalDateKey,
 } from '../../../utils/deliveryScheduleUtils';
 import {
+  buildCommunityDiscountFingerprint,
+  buildCommunityDiscountOrderPatch,
   ensureLineIdsInBreakdown,
   flattenOrderBreakdown,
   recomputeBreakdownTotals,
@@ -28,6 +31,7 @@ import {
   safeNumber,
 } from './v7/orderDraftUtils';
 import { filterCustomerActiveLines } from '../../../utils/customerOrderUtils';
+import { isCommunityDiscountAvailable } from '../../../services/communityDiscountService';
 
 async function getIdTokenIfAvailable() {
   try {
@@ -49,6 +53,50 @@ function weekWindowFromKey(weekKey) {
   return { start, end };
 }
 
+function normalizeDelayedItems(data, canonicalBreakdown) {
+  const hasPreparedCommunityDiscount = data.communityDiscountPreparation?.status === 'prepared';
+  const rawItems = filterCustomerActiveLines(data, flattenOrderBreakdown(canonicalBreakdown));
+  const items = (rawItems || [])
+    .filter((item) => item && (item.quantity || item.quantity === 0))
+    .filter((item) => !item.isShipping && item.productId !== 'Mdean61FIezxRcMUZjVn')
+    .map((item) => {
+      const productId = item.productId || item.id || '';
+      return ({
+        lineId: item.lineId,
+        productId,
+        productName: item.productName || item.name || 'Item',
+        requestedQuantity: safeNumber(item.quantity, 0),
+        pricePerUnit: safeNumber(
+          hasPreparedCommunityDiscount
+            ? (item.communityDiscountOriginalPrice ?? item.price)
+            : item.price,
+          0,
+        ),
+        selectedOption: item.selectedOption || '',
+        businessId: item.businessId || '',
+        businessName: item.businessName || '',
+        catalogNumber: item.catalogNumber || '',
+        vatType: item.vatType ?? 3,
+        measurementType: item.measurementType || 'kg',
+        unitSize: safeNumber(item.unitSize, 1),
+        averageWeightKg: safeNumber(item.averageWeightKg, 1),
+        isBasketComponent: item.isBasketComponent === true,
+        basketId: item.basketId || '',
+        basketInstanceId: item.basketInstanceId || '',
+        basketTitle: item.basketTitle || '',
+        basketPrice: safeNumber(
+          hasPreparedCommunityDiscount
+            ? (item.communityDiscountOriginalBasketPrice ?? item.basketPrice)
+            : item.basketPrice,
+          0,
+        ),
+        basketComponentSubtotal: safeNumber(item.basketComponentSubtotal, 0),
+        basketCommunity: item.basketCommunity || '',
+      });
+    });
+  return { rawItems, items };
+}
+
 function normalizeDelayedOrder(docSnap, weekKey) {
   const data = docSnap.data() || {};
   const deliveryDate = getOrderDeliveryDate(data) || new Date();
@@ -66,35 +114,12 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     updateDoc(orderRef, { orderBreakdown: breakdownToSave }).catch(() => {});
   }
 
-  const rawItems = filterCustomerActiveLines(data, flattenOrderBreakdown(canonicalBreakdown));
-  const items = (rawItems || [])
-    .filter((item) => item && (item.quantity || item.quantity === 0))
-    .filter((item) => !item.isShipping && item.productId !== 'Mdean61FIezxRcMUZjVn')
-    .map((item) => {
-      const productId = item.productId || item.id || '';
-      return ({
-        lineId: item.lineId,
-        productId,
-        productName: item.productName || item.name || 'Item',
-        requestedQuantity: safeNumber(item.quantity, 0),
-        pricePerUnit: safeNumber(item.price, 0),
-        selectedOption: item.selectedOption || '',
-        businessId: item.businessId || '',
-        businessName: item.businessName || '',
-        catalogNumber: item.catalogNumber || '',
-        vatType: item.vatType ?? 3,
-        measurementType: item.measurementType || 'kg',
-        unitSize: safeNumber(item.unitSize, 1),
-        averageWeightKg: safeNumber(item.averageWeightKg, 1),
-        isBasketComponent: item.isBasketComponent === true,
-        basketId: item.basketId || '',
-        basketInstanceId: item.basketInstanceId || '',
-        basketTitle: item.basketTitle || '',
-        basketPrice: safeNumber(item.basketPrice, 0),
-        basketComponentSubtotal: safeNumber(item.basketComponentSubtotal, 0),
-        basketCommunity: item.basketCommunity || '',
-      });
-    });
+  const { rawItems, items } = normalizeDelayedItems(data, canonicalBreakdown);
+  const computedGrandTotal = roundTo(
+    rawItems.reduce((sum, item) => sum + (safeNumber(item.quantity) * safeNumber(item.price)), 0)
+      + safeNumber(data.customerDetails?.deliveryDetails?.deliveryFee, 0),
+    2,
+  );
 
   return {
     id: docSnap.id,
@@ -122,11 +147,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     orderBreakdown: canonicalBreakdown,
     items,
     businessIds: Array.isArray(data.businessIds) ? data.businessIds : [],
-    grandTotal: roundTo(
-      rawItems.reduce((sum, item) => sum + (safeNumber(item.quantity) * safeNumber(item.price)), 0)
-        + safeNumber(data.customerDetails?.deliveryDetails?.deliveryFee, 0),
-      2,
-    ),
+    grandTotal: safeNumber(data.grandTotal, computedGrandTotal),
     rawData: data,
   };
 }
@@ -531,6 +552,115 @@ export async function removeDelayedOrderLineV7({
       },
     });
   }
+}
+
+export async function prepareCommunityDiscountForSettlementV7({
+  orderId,
+  communityDiscount,
+  removedLineIds = {},
+  session,
+}) {
+  if (!orderId) throw new Error('Order ID is required.');
+  if (safeNumber(communityDiscount?.percent, 0) <= 0) {
+    throw new Error('A positive community discount is required.');
+  }
+
+  const fingerprint = buildCommunityDiscountFingerprint({
+    orderId,
+    communityDiscount,
+    removedLineIds,
+  });
+  const preparedAtIso = new Date().toISOString();
+  const orderRef = doc(db, 'customerOrdersDelayed', orderId);
+
+  return runTransaction(db, async (transaction) => {
+    const orderSnap = await transaction.get(orderRef);
+    if (!orderSnap.exists()) throw new Error('Order not found.');
+    const orderData = orderSnap.data() || {};
+    const paymentStatus = String(orderData.paymentStatus || '').toLowerCase();
+    const delayedStatus = String(orderData.delayedOrderStatus || '').toLowerCase();
+    if (paymentStatus !== 'held' || delayedStatus !== 'pending_weighing') {
+      throw new Error('Order is no longer eligible for settlement preparation.');
+    }
+
+    const existingPreparation = orderData.communityDiscountPreparation;
+    if (existingPreparation?.status === 'prepared') {
+      if (existingPreparation.fingerprint === fingerprint) {
+        const canonicalBreakdown = ensureLineIdsInBreakdown(
+          orderId,
+          orderData.orderBreakdown || {},
+        ).breakdown;
+        return {
+          ok: true,
+          skipped: true,
+          fingerprint,
+          preparation: existingPreparation,
+          preparedItems: normalizeDelayedItems(orderData, canonicalBreakdown).items,
+        };
+      }
+      throw new Error('A different community discount is already prepared for this order.');
+    }
+
+    const configRef = doc(db, 'settings', 'communityDiscount');
+    const configSnap = await transaction.get(configRef);
+    const discountConfig = configSnap.exists() ? configSnap.data() : {};
+    if (!isCommunityDiscountAvailable(communityDiscount?.community, discountConfig)) {
+      throw new Error('Community discount is not available for this community.');
+    }
+
+    const patch = buildCommunityDiscountOrderPatch({
+      orderId,
+      orderData,
+      communityDiscount,
+      fingerprint,
+      removedLineIds,
+    });
+    if (!patch) throw new Error('Unable to prepare community discount prices.');
+
+    const snapshot = {
+      ...communityDiscount,
+      fingerprint,
+      source: 'delivery-v7',
+    };
+    const preparation = {
+      status: 'prepared',
+      fingerprint,
+      snapshot,
+      preparedAtIso,
+      preparedBySessionId: session?.sessionId || '',
+      preparedByStationId: session?.stationId || '',
+      preparedByUserId: session?.userId || '',
+      preparedByName: session?.userName || '',
+    };
+    const preparedOrderData = {
+      ...orderData,
+      orderBreakdown: patch.orderBreakdown,
+      items: patch.items,
+      grandTotal: patch.grandTotal,
+      communityDiscount: snapshot,
+      communityDiscountPreparation: preparation,
+    };
+    transaction.update(orderRef, {
+      orderBreakdown: patch.orderBreakdown,
+      items: patch.items,
+      grandTotal: patch.grandTotal,
+      communityDiscount: snapshot,
+      communityDiscountPreparation: preparation,
+      ...buildAuditPatch(session, 'prepare_community_discount'),
+    });
+
+    return {
+      ok: true,
+      skipped: false,
+      fingerprint,
+      preparation,
+      grandTotal: patch.grandTotal,
+      preparedItems: normalizeDelayedItems(
+        preparedOrderData,
+        patch.orderBreakdown,
+      ).items,
+    };
+  });
 }
 
 export async function handleSuspendedPaymentV7({

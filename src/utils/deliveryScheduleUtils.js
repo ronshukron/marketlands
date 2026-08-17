@@ -120,7 +120,8 @@ export function getOrderCutoffOverrideAt(deliveryDate, orderData = {}, community
   if (!dateKey) return null;
 
   const overrides = orderData.fulfillmentConfig?.cutoffOverrides || orderData.cutoffOverrides || {};
-  const communityOverride = communityName ? overrides?.[communityName]?.[dateKey] : null;
+  const communityOverrides = getCommunityKeyedEntry(overrides, communityName);
+  const communityOverride = communityName ? communityOverrides?.[dateKey] : null;
   const dateOverride = overrides?.[dateKey];
   return parseDateSafe(communityOverride?.cutoffAt || dateOverride?.cutoffAt || communityOverride || dateOverride);
 }
@@ -129,7 +130,7 @@ const LEGACY_CUTOFF_TIME_REGEX = /^\d{1,2}:\d{2}$/;
 
 function readWeekdayCutoffValue(config = {}, communityName = '', weekday) {
   const dayKey = String(weekday);
-  const byCommunity = config.cutoffByWeekdayByCommunity?.[communityName];
+  const byCommunity = getCommunityKeyedEntry(config.cutoffByWeekdayByCommunity, communityName);
   const communityValue = byCommunity?.[dayKey] ?? byCommunity?.[weekday];
   if (communityValue !== undefined && communityValue !== null && communityValue !== '') return communityValue;
   return config.weeklyCutoffByDay?.[dayKey] ?? config.weeklyCutoffByDay?.[weekday] ?? null;
@@ -188,17 +189,36 @@ export function isOrderParticipatingInDeliveryDate(deliveryDate, orderData = {},
   const availability = orderData.fulfillmentConfig?.deliveryDateAvailability
     || orderData.deliveryDateAvailability
     || {};
-  const communityAvailability = communityName ? availability?.[communityName]?.[dateKey] : null;
+  const communityAvailabilityMap = getCommunityKeyedEntry(availability, communityName);
+  const communityAvailability = communityName ? communityAvailabilityMap?.[dateKey] : null;
   const dateAvailability = availability?.[dateKey];
   const value = communityAvailability?.enabled ?? dateAvailability?.enabled ?? communityAvailability ?? dateAvailability;
   return value !== false;
 }
 
+function getCommunityKeyedEntry(map, communityName) {
+  if (!map || typeof map !== 'object' || !communityName) return undefined;
+  if (Object.prototype.hasOwnProperty.call(map, communityName)) return map[communityName];
+  const resolved = resolveCommunityName(communityName) || communityName;
+  if (resolved && Object.prototype.hasOwnProperty.call(map, resolved)) return map[resolved];
+  const matchedKey = Object.keys(map).find((key) => (resolveCommunityName(key) || key) === resolved);
+  return matchedKey !== undefined ? map[matchedKey] : undefined;
+}
+
+export function orderServesCommunity(orderData = {}, communityName = '') {
+  const spots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];
+  if (spots.length === 0) return true;
+  const resolved = resolveCommunityName(communityName) || communityName;
+  if (!resolved) return true;
+  return spots.some((spot) => (resolveCommunityName(spot) || spot) === resolved);
+}
+
 function getOrderWeeklyDeliveryDays(orderData = {}, communityName = '') {
   const fulfillmentConfig = orderData.fulfillmentConfig || {};
-  const perCommunityDays = communityName
-    ? fulfillmentConfig.weeklyDaysByCommunity?.[communityName]
-    : null;
+  const perCommunityDays = getCommunityKeyedEntry(
+    fulfillmentConfig.weeklyDaysByCommunity,
+    communityName
+  );
   const configuredDays = Array.isArray(perCommunityDays) && perCommunityDays.length > 0
     ? perCommunityDays
     : fulfillmentConfig.weeklyDeliveryDays;
@@ -276,6 +296,34 @@ export function generateAvailableDeliveryDates(scheduleDoc, options = {}) {
   return Array.from(dateKeys)
     .filter((dateKey) => includePastCutoff || isDeliveryDateOrderable(dateKey, scheduleDoc, now, options.orderData, options.communityName))
     .sort();
+}
+
+export function generateSharedAvailableDeliveryDates(
+  scheduleDoc,
+  orderDataList = [],
+  options = {}
+) {
+  const eligibleOrders = orderDataList.filter(
+    (orderData) => isAlwaysOnGroceryOrder(orderData)
+      && isAlwaysOnGroceryOrderEnabled(orderData)
+      && orderServesCommunity(orderData, options.communityName)
+  );
+
+  if (eligibleOrders.length === 0) {
+    const scheduleOptions = { ...options };
+    delete scheduleOptions.orderData;
+    return generateAvailableDeliveryDates(scheduleDoc, scheduleOptions);
+  }
+
+  return eligibleOrders.reduce((sharedDates, orderData, index) => {
+    const orderDates = generateAvailableDeliveryDates(scheduleDoc, {
+      ...options,
+      orderData,
+    });
+    if (index === 0) return orderDates;
+    const orderDateSet = new Set(orderDates);
+    return sharedDates.filter((dateKey) => orderDateSet.has(dateKey));
+  }, []);
 }
 
 export function getOrderDeliveryDate(orderData = {}) {

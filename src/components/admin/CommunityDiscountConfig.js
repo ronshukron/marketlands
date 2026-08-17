@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getDiscountConfig, saveDiscountConfig } from '../../services/communityDiscountService';
-import { pickupSpotsData } from '../../data/pickupSpots';
+import usePickupSpots from '../../hooks/usePickupSpots';
 
 // ─── Perk definitions ───────────────────────────────────────
 // To add a new perk in the future, just add an entry here.
@@ -53,8 +53,10 @@ const CommunityDiscountConfig = () => {
   const [message, setMessage] = useState('');
   const [addingVip, setAddingVip] = useState(false);
   const [newVipCommunity, setNewVipCommunity] = useState('');
+  const [communitySearch, setCommunitySearch] = useState('');
+  const { pickupSpots } = usePickupSpots();
 
-  const allCommunities = Object.keys(pickupSpotsData);
+  const allCommunities = pickupSpots || [];
 
   useEffect(() => {
     const load = async () => {
@@ -76,6 +78,31 @@ const CommunityDiscountConfig = () => {
   // ─── Tiers ───
   const handleToggleEnabled = () => {
     setConfig(prev => ({ ...prev, enabled: !prev.enabled }));
+  };
+
+  const handleToggleAutoApplyInV7 = () => {
+    setConfig(prev => ({ ...prev, autoApplyInV7: prev.autoApplyInV7 !== true }));
+  };
+
+  const handleAvailabilityModeChange = (availabilityMode) => {
+    setConfig(prev => ({ ...prev, availabilityMode }));
+  };
+
+  const handleTogglePilotCommunity = (communityName) => {
+    setConfig(prev => {
+      const selected = new Set(prev.pilotCommunities || []);
+      if (selected.has(communityName)) selected.delete(communityName);
+      else selected.add(communityName);
+      return { ...prev, pilotCommunities: Array.from(selected) };
+    });
+  };
+
+  const handleSelectAllPilotCommunities = () => {
+    setConfig(prev => ({ ...prev, pilotCommunities: [...allCommunities] }));
+  };
+
+  const handleClearPilotCommunities = () => {
+    setConfig(prev => ({ ...prev, pilotCommunities: [] }));
   };
 
   const handleTierChange = (index, field, value) => {
@@ -181,6 +208,10 @@ const CommunityDiscountConfig = () => {
   const vipEntries = Object.entries(config?.vipCommunities || {});
   const usedVipNames = new Set(vipEntries.map(([name]) => name));
   const availableForVip = allCommunities.filter(c => !usedVipNames.has(c));
+  const selectedPilotCommunities = config?.pilotCommunities || [];
+  const filteredCommunities = allCommunities.filter((communityName) => (
+    communityName.toLowerCase().includes(communitySearch.trim().toLowerCase())
+  ));
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
@@ -233,6 +264,144 @@ const CommunityDiscountConfig = () => {
               />
             </button>
           </div>
+          <div className="mt-5 pt-5 border-t border-gray-100 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-semibold text-gray-800">החלה אוטומטית בחיוב V7</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                כאשר מופעל, ההנחה שהקהילה השיגה תוחל אוטומטית בעת השלמת השקילה והחיוב.
+                ברירת המחדל כבויה; ניתן תמיד להחיל ידנית במסך V7.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={config?.autoApplyInV7 === true}
+              onClick={handleToggleAutoApplyInV7}
+              className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors ${
+                config?.autoApplyInV7 === true ? 'bg-green-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  config?.autoApplyInV7 === true ? 'translate-x-1' : 'translate-x-8'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        {/* ───── Community availability ───── */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="mb-5">
+            <h2 className="text-lg font-semibold text-gray-800">זמינות לפי קהילה</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              לפיילוט אפשר להציג ולהחיל את ההנחה רק בקהילות שתבחרו.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="זמינות הנחת קהילה">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={config?.availabilityMode !== 'selected'}
+              onClick={() => handleAvailabilityModeChange('all')}
+              className={`min-h-12 rounded-lg border px-4 py-3 text-right transition-colors ${
+                config?.availabilityMode !== 'selected'
+                  ? 'border-blue-500 bg-blue-50 text-blue-800'
+                  : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <span className="block font-semibold">כל הקהילות</span>
+              <span className="block text-xs mt-1 opacity-80">ההנחה זמינה בכל קהילה פעילה</span>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={config?.availabilityMode === 'selected'}
+              onClick={() => handleAvailabilityModeChange('selected')}
+              className={`min-h-12 rounded-lg border px-4 py-3 text-right transition-colors ${
+                config?.availabilityMode === 'selected'
+                  ? 'border-blue-500 bg-blue-50 text-blue-800'
+                  : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <span className="block font-semibold">קהילות נבחרות — פיילוט</span>
+              <span className="block text-xs mt-1 opacity-80">רק הקהילות המסומנות ישתתפו</span>
+            </button>
+          </div>
+
+          {config?.availabilityMode === 'selected' && (
+            <div className="mt-5 border border-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-gray-50 border-b border-gray-200 p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm font-medium text-gray-700">
+                  נבחרו {selectedPilotCommunities.length} מתוך {allCommunities.length} קהילות
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllPilotCommunities}
+                    className="min-h-11 px-3 text-sm font-medium text-blue-600 hover:bg-blue-100 rounded-lg"
+                  >
+                    בחירת הכל
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearPilotCommunities}
+                    className="min-h-11 px-3 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg"
+                  >
+                    ניקוי
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 border-b border-gray-100">
+                <label htmlFor="pilot-community-search" className="sr-only">חיפוש קהילה</label>
+                <input
+                  id="pilot-community-search"
+                  type="search"
+                  value={communitySearch}
+                  onChange={(event) => setCommunitySearch(event.target.value)}
+                  placeholder="חיפוש קהילה..."
+                  className="w-full min-h-11 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+
+              {selectedPilotCommunities.length === 0 && (
+                <div className="m-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                  לא נבחרו קהילות. לאחר השמירה ההנחה לא תוצג ולא תוחל באף קהילה.
+                </div>
+              )}
+
+              <div className="grid gap-2 p-3 sm:grid-cols-2 max-h-72 overflow-y-auto">
+                {filteredCommunities.map((communityName) => {
+                  const checked = selectedPilotCommunities.includes(communityName);
+                  return (
+                    <label
+                      key={communityName}
+                      className={`min-h-11 flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer ${
+                        checked
+                          ? 'border-blue-300 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => handleTogglePilotCommunity(communityName)}
+                        className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-800">{communityName}</span>
+                    </label>
+                  );
+                })}
+                {filteredCommunities.length === 0 && (
+                  <p className="sm:col-span-2 text-center text-sm text-gray-400 py-5">
+                    לא נמצאו קהילות מתאימות
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ───── Discount tiers table ───── */}

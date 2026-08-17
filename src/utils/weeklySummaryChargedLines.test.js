@@ -191,4 +191,21 @@ describe('weekly charged-line reconciliation', () => {
     expect(result.discrepancy).toBe(0.03);
     expect(result.hasDiscrepancy).toBe(true);
   });
+
+  test('skips customer-excluded checkout lines from regular order charges', () => {
+    const result = reconcileChargedOrder({
+      id: 'regular',
+      paymentStatus: 'completed',
+      grandTotal: 20,
+      customerExcludedLineIds: { 'order-1::tomato::business-a::Large::s0': true },
+      customerDetails: { deliveryDetails: { deliveryFee: 0 } },
+      orderBreakdown: {
+        business: {
+          items: [checkoutItem()],
+        },
+      },
+    });
+    expect(result.lines).toHaveLength(0);
+    expect(result.productCharges).toBe(0);
+  });
 });

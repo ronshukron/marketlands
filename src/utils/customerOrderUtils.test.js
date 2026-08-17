@@ -144,4 +144,10 @@ describe('customer line exclusions', () => {
     expect(isCustomerLineExcluded(order, lines[0])).toBe(false);
     expect(filterCustomerActiveLines(order, lines)).toEqual([{ lineId: 'active' }]);
   });
+
+  test('supports legacy array-shaped exclusions', () => {
+    const arrayOrder = { customerExcludedLineIds: ['removed'] };
+    expect(isCustomerLineExcluded(arrayOrder, 'removed')).toBe(true);
+    expect(filterCustomerActiveLines(arrayOrder, lines)).toEqual([{ lineId: 'active' }]);
+  });
 });

@@ -20,7 +20,7 @@ import {
   getDuplicateOrderKey,
   shouldIncludeOrderInDeliverySummary,
 } from '../../utils/weeklyDeliveryOrderSummaryUtils';
-import { filterCustomerActiveLines } from '../../utils/customerOrderUtils';
+import { filterCustomerActiveLines, isCustomerLineExcluded } from '../../utils/customerOrderUtils';
 import { computeCustomerOrderGrandTotal } from '../../services/customerOrderService';
 import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 import LoadingSpinner from '../LoadingSpinner';
@@ -800,6 +800,8 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                       <tbody className="bg-white divide-y divide-gray-200">
                         {communityOrders.map((order) => {
                           const whatsappUrl = buildWhatsappLink(order.customerDetails?.phone);
+                          const displayTotal = computeCustomerOrderGrandTotal(order);
+                          const storedTotal = Number(order.grandTotal || 0);
                           return (
                           <tr
                             key={order.id}
@@ -823,23 +825,43 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                             </td>
                             <td className="px-4 py-3 text-sm">
                               <ul className="list-disc list-inside space-y-1">
-                                {order.orderBreakdown && Object.values(order.orderBreakdown).map((businessOrder, businessIndex) => (
-                                  <React.Fragment key={`${order.id}-${businessIndex}`}>
-                                    {(businessOrder.items || []).map((item, itemIndex) => (
-                                      <li key={`${businessIndex}-${itemIndex}`}>
-                                        <span className="font-medium">{item.quantity} x {item.productName || item.name}</span>
-                                        {normalizeOption(item.selectedOption) && (
-                                          <span className="text-gray-500"> ({normalizeOption(item.selectedOption)})</span>
-                                        )}
-                                        <span className="text-xs text-gray-500"> - {businessOrder.businessName}</span>
-                                      </li>
-                                    ))}
-                                  </React.Fragment>
-                                ))}
+                                {order.orderBreakdown && Object.values(order.orderBreakdown).map((businessOrder, businessIndex) => {
+                                  const activeItems = filterCustomerActiveLines(order, businessOrder.items);
+                                  const removedItems = (businessOrder.items || []).filter((item) => (
+                                    isCustomerLineExcluded(order, item)
+                                  ));
+                                  return (
+                                    <React.Fragment key={`${order.id}-${businessIndex}`}>
+                                      {activeItems.map((item, itemIndex) => (
+                                        <li key={`${businessIndex}-active-${item.lineId || itemIndex}`}>
+                                          <span className="font-medium">{item.quantity} x {item.productName || item.name}</span>
+                                          {normalizeOption(item.selectedOption) && (
+                                            <span className="text-gray-500"> ({normalizeOption(item.selectedOption)})</span>
+                                          )}
+                                          <span className="text-xs text-gray-500"> - {businessOrder.businessName}</span>
+                                        </li>
+                                      ))}
+                                      {removedItems.map((item, itemIndex) => (
+                                        <li key={`${businessIndex}-removed-${item.lineId || itemIndex}`} className="text-gray-400">
+                                          <span className="font-medium line-through">{item.quantity} x {item.productName || item.name}</span>
+                                          {normalizeOption(item.selectedOption) && (
+                                            <span className="line-through"> ({normalizeOption(item.selectedOption)})</span>
+                                          )}
+                                          <span className="text-xs"> - {businessOrder.businessName} (הוסר ע״י הלקוח)</span>
+                                        </li>
+                                      ))}
+                                    </React.Fragment>
+                                  );
+                                })}
                               </ul>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap font-semibold">
-                              ₪{Number(order.grandTotal || 0).toFixed(2)}
+                              <div>₪{displayTotal.toFixed(2)}</div>
+                              {storedTotal !== displayTotal && (
+                                <div className="text-xs text-gray-400 line-through font-normal">
+                                  ₪{storedTotal.toFixed(2)}
+                                </div>
+                              )}
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="flex flex-col gap-2 items-start">

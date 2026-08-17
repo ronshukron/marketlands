@@ -110,4 +110,42 @@ describe('weekly delivery order summary utilities', () => {
     });
     expect(Object.keys(summary['business-1'].products)).toHaveLength(1);
   });
+
+  test('omits a supplier when every line was excluded by the customer', () => {
+    const summary = aggregateDeliveryBusinessSummary([
+      order({
+        customerExcludedLineIds: { 'line-1': true },
+        orderBreakdown: {
+          business: {
+            businessId: 'business-1',
+            businessName: 'Supplier',
+            items: [item()],
+          },
+        },
+      }),
+    ]);
+
+    expect(summary).toEqual({});
+  });
+
+  test('treats array-shaped customerExcludedLineIds as excluded lines', () => {
+    const summary = aggregateDeliveryBusinessSummary([
+      order({
+        customerExcludedLineIds: ['removed'],
+        orderBreakdown: {
+          business: {
+            businessId: 'business-1',
+            businessName: 'Supplier',
+            items: [
+              item(),
+              item({ lineId: 'removed', productId: 'removed', quantity: 10, estimatedLineTotal: 100 }),
+            ],
+          },
+        },
+      }),
+    ]);
+
+    expect(summary['business-1'].totalRevenue).toBe(20);
+    expect(Object.keys(summary['business-1'].products)).toEqual(['product-1_large']);
+  });
 });

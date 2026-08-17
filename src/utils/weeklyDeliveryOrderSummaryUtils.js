@@ -1,4 +1,5 @@
 import { getEstimatedLineTotal } from './pricing';
+import { isCustomerLineExcluded } from './customerOrderUtils';
 import { toLocalDateKey } from './deliveryScheduleUtils';
 
 const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
@@ -52,21 +53,20 @@ function getDeliveryDateIdentity(order = {}) {
   return match ? `${match[3]}-${match[2]}-${match[1]}` : label;
 }
 
-function shouldExcludeLine(item = {}, excluded = {}) {
+function shouldExcludeLine(item = {}, order = {}) {
   const productId = item.productId || item.id;
   return item.isShipping === true
     || productId === SHIPPING_PRODUCT_ID
-    || Boolean(item.lineId && excluded[item.lineId]);
+    || isCustomerLineExcluded(order, item);
 }
 
 export function getOrderContentSignature(order = {}) {
-  const excluded = order.customerExcludedLineIds || {};
   const lines = [];
 
   Object.entries(order.orderBreakdown || {}).forEach(([businessKey, businessOrder = {}]) => {
     const businessId = normalizeText(businessOrder.businessId || businessOrder.businessName || businessKey);
     (businessOrder.items || []).forEach((item = {}) => {
-      if (shouldExcludeLine(item, excluded)) return;
+      if (shouldExcludeLine(item, order)) return;
       const productId = normalizeText(item.productId || item.id || item.productName || item.name || 'unknown');
       lines.push([
         businessId,
@@ -93,16 +93,17 @@ export function aggregateDeliveryBusinessSummary(orders = []) {
   const summary = {};
 
   orders.forEach((order = {}) => {
-    const excluded = order.customerExcludedLineIds || {};
     Object.entries(order.orderBreakdown || {}).forEach(([businessKey, businessOrder = {}]) => {
+      const activeItems = (businessOrder.items || []).filter((item) => !shouldExcludeLine(item, order));
+      if (activeItems.length === 0) return;
+
       const businessId = businessOrder.businessId || businessOrder.businessName || businessKey || 'unknown';
       const businessName = businessOrder.businessName || 'עסק לא ידוע';
       if (!summary[businessId]) {
         summary[businessId] = { businessName, products: {}, totalRevenue: 0 };
       }
 
-      (businessOrder.items || []).forEach((item = {}) => {
-        if (shouldExcludeLine(item, excluded)) return;
+      activeItems.forEach((item = {}) => {
         const productId = item.productId || item.id || item.productName || 'unknown';
         const selectedOption = normalizeOption(item.selectedOption);
         const productKey = `${normalizeText(productId)}_${normalizeText(selectedOption)}`;

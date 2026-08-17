@@ -7,12 +7,9 @@ const HUB_CONFIG_PATH = 'settings/communityHubConfig';
  * Default widget configuration – used when no Firestore doc exists yet.
  * Each entry: { id, enabled, order }
  */
-const DEFAULT_WIDGETS = [
+export const DEFAULT_COMMUNITY_HUB_WIDGETS = [
   { id: 'communityDiscount', enabled: true, order: 0 },
-  { id: 'communityStats', enabled: true, order: 1 },
-  { id: 'popularItems', enabled: true, order: 2 },
-  { id: 'share', enabled: true, order: 3 },
-  { id: 'recipes', enabled: true, order: 4 },
+  { id: 'recipes', enabled: true, order: 1 },
 ];
 
 /**
@@ -26,10 +23,10 @@ export const getCommunityHubConfig = async () => {
     if (snap.exists()) {
       return snap.data();
     }
-    return { widgets: DEFAULT_WIDGETS, communityOverrides: {} };
+    return { widgets: DEFAULT_COMMUNITY_HUB_WIDGETS, communityOverrides: {} };
   } catch (error) {
     console.error('Error fetching community hub config:', error);
-    return { widgets: DEFAULT_WIDGETS, communityOverrides: {} };
+    return { widgets: DEFAULT_COMMUNITY_HUB_WIDGETS, communityOverrides: {} };
   }
 };
 
@@ -41,7 +38,7 @@ export const getWidgetsForCommunity = async (communityId) => {
   const config = await getCommunityHubConfig();
   const overrides = config.communityOverrides?.[communityId];
 
-  let widgets = config.widgets || DEFAULT_WIDGETS;
+  let widgets = config.widgets || DEFAULT_COMMUNITY_HUB_WIDGETS;
 
   if (overrides?.widgets) {
     // Merge: override-level enabled/order takes precedence
