@@ -4,15 +4,14 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
-  query,
   setDoc,
-  where,
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getWeekKey } from '../utils/deliveryScheduleUtils';
 
 const DISCOUNT_CONFIG_PATH = 'settings/communityDiscount';
 const DELAYED_ORDERS_COLLECTION = 'customerOrdersDelayed';
+const PROGRESS_COLLECTION = 'communityDiscountProgress';
 const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
 const BUFFER_CATALOG_NUMBER = '999003';
 
@@ -47,6 +46,20 @@ export const normalizeDiscountConfig = (config = {}) => ({
   communityOverrides: config.communityOverrides || {},
   vipCommunities: config.vipCommunities || {},
 });
+
+export const getCommunityDiscountProgressDocId = (communityName, deliveryWeekKey) => (
+  `${communityName}__${deliveryWeekKey}`
+);
+
+const getDeliveryWeekRange = (deliveryWeekKey) => {
+  const weekStart = deliveryWeekKey ? new Date(`${deliveryWeekKey}T00:00:00`) : null;
+  const weekEnd = weekStart ? new Date(weekStart) : null;
+  if (weekEnd) {
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+  }
+  return { weekStart, weekEnd };
+};
 
 export const isCommunityDiscountAvailable = (communityName, rawConfig = {}) => {
   const config = normalizeDiscountConfig(rawConfig);
@@ -226,19 +239,12 @@ export const aggregateCommunityDeliveryWeek = ({
     (sum, order) => sum + getEstimatedCommunityProductSubtotal(order),
     0,
   );
-  const weekStart = deliveryWeekKey ? new Date(`${deliveryWeekKey}T00:00:00`) : null;
-  const weekEnd = weekStart ? new Date(weekStart) : null;
-  if (weekEnd) {
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-  }
   return {
     total: Math.round(total * 100) / 100,
     orderCount: eligibleOrders.length,
     orders: eligibleOrders,
     deliveryWeekKey,
-    weekStart,
-    weekEnd,
+    ...getDeliveryWeekRange(deliveryWeekKey),
   };
 };
 
@@ -411,6 +417,8 @@ export const calculateCommunityDiscountFromOrders = ({
   communityName,
   deliveryWeekKey,
   orders = [],
+  weeklyTotal: weeklyTotalOverride,
+  orderCount: orderCountOverride,
   config: rawConfig = DEFAULT_CONFIG,
 }) => {
   const config = normalizeDiscountConfig(rawConfig);
@@ -432,7 +440,14 @@ export const calculateCommunityDiscountFromOrders = ({
 
   const tiers = config.communityOverrides?.[communityName]?.tiers || config.tiers || DEFAULT_TIERS;
   const sorted = [...tiers].sort((a, b) => a.realThreshold - b.realThreshold);
-  const cohort = aggregateCommunityDeliveryWeek({ orders, communityName, deliveryWeekKey });
+  const hasProgressOverride = weeklyTotalOverride != null;
+  const cohort = hasProgressOverride
+    ? {
+      total: Math.max(0, Math.round(Number(weeklyTotalOverride) * 100) / 100 || 0),
+      orderCount: Math.max(0, Math.round(Number(orderCountOverride) || 0)),
+      ...getDeliveryWeekRange(deliveryWeekKey),
+    }
+    : aggregateCommunityDeliveryWeek({ orders, communityName, deliveryWeekKey });
   const weeklyTotal = cohort.total;
 
   // VIP: check for base-discount perk
@@ -511,13 +526,14 @@ export const subscribeDisplayDiscountInfo = ({
   if (!communityName || !deliveryWeekKey) return () => {};
 
   let config = null;
-  let orders = [];
+  let progress = { total: 0, orderCount: 0 };
   const emit = () => {
     if (!config) return;
     onValue?.(calculateCommunityDiscountFromOrders({
       communityName,
       deliveryWeekKey,
-      orders,
+      weeklyTotal: progress.total,
+      orderCount: progress.orderCount,
       config,
     }));
   };
@@ -529,24 +545,25 @@ export const subscribeDisplayDiscountInfo = ({
     },
     (error) => onError?.(error),
   );
-  const unsubscribeOrders = onSnapshot(
-    query(
-      collection(db, DELAYED_ORDERS_COLLECTION),
-      where('deliveryWeekKey', '==', deliveryWeekKey),
-    ),
+  const unsubscribeProgress = onSnapshot(
+    doc(db, PROGRESS_COLLECTION, getCommunityDiscountProgressDocId(communityName, deliveryWeekKey)),
     (snapshot) => {
-      orders = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
+      const data = snapshot.exists() ? snapshot.data() : {};
+      progress = {
+        total: Number(data.total) || 0,
+        orderCount: Number(data.orderCount) || 0,
+      };
       emit();
     },
     (error) => {
       console.warn('Community discount progress is using config only:', error?.message || error);
-      orders = [];
+      progress = { total: 0, orderCount: 0 };
       emit();
     },
   );
 
   return () => {
     unsubscribeConfig();
-    unsubscribeOrders();
+    unsubscribeProgress();
   };
 };

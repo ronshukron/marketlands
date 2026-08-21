@@ -11,9 +11,10 @@ jest.mock('firebase/firestore', () => ({
 
 jest.mock('../firebase/firebase', () => ({ db: {} }));
 
-import { onSnapshot, query, where } from 'firebase/firestore';
+import { onSnapshot } from 'firebase/firestore';
 import {
   calculateCommunityDiscountFromOrders,
+  getCommunityDiscountProgressDocId,
   getEstimatedCommunityProductSubtotal,
   isCommunityDiscountAvailable,
   isEligibleCommunityDiscountOrder,
@@ -350,10 +351,31 @@ describe('community delayed-order discount calculation', () => {
     });
   });
 
-  test('combines realtime config and delivery-week order snapshots and unsubscribes both', () => {
+  test('uses a progress-doc override for weekly totals without scanning orders', () => {
+    const result = calculateCommunityDiscountFromOrders({
+      communityName: 'קהילה א',
+      deliveryWeekKey: '2026-08-09',
+      weeklyTotal: 1600,
+      orderCount: 7,
+      config: {
+        enabled: true,
+        tiers: [
+          { displayThreshold: 1000, realThreshold: 800, discountPercent: 1 },
+          { displayThreshold: 2000, realThreshold: 1600, discountPercent: 2 },
+        ],
+      },
+    });
+
+    expect(result.weeklyTotal).toBe(1600);
+    expect(result.orderCount).toBe(7);
+    expect(result.discountPercent).toBe(2);
+    expect(result.tierIndex).toBe(1);
+  });
+
+  test('combines realtime config and progress snapshots and unsubscribes both', () => {
     const snapshotCallbacks = [];
     const unsubscribeConfig = jest.fn();
-    const unsubscribeOrders = jest.fn();
+    const unsubscribeProgress = jest.fn();
     onSnapshot
       .mockImplementationOnce((ref, next) => {
         snapshotCallbacks.push(next);
@@ -361,10 +383,8 @@ describe('community delayed-order discount calculation', () => {
       })
       .mockImplementationOnce((ref, next) => {
         snapshotCallbacks.push(next);
-        return unsubscribeOrders;
+        return unsubscribeProgress;
       });
-    where.mockReturnValue('delivery-week-filter');
-    query.mockReturnValue('delivery-week-query');
     const onValue = jest.fn();
 
     const unsubscribe = subscribeDisplayDiscountInfo({
@@ -388,36 +408,34 @@ describe('community delayed-order discount calculation', () => {
     }));
 
     snapshotCallbacks[1]({
-      docs: [{ id: 'order-1', data: () => heldOrder() }],
+      exists: () => true,
+      data: () => ({
+        community: 'קהילה א',
+        deliveryWeekKey: '2026-08-09',
+        total: 100,
+        orderCount: 1,
+      }),
     });
 
-    expect(where).toHaveBeenCalledWith('deliveryWeekKey', '==', '2026-08-09');
     expect(onValue).toHaveBeenCalledWith(expect.objectContaining({
       enabled: true,
       autoApplyInV7: true,
       weeklyTotal: 100,
+      orderCount: 1,
       discountPercent: 5,
     }));
 
     unsubscribe();
     expect(unsubscribeConfig).toHaveBeenCalledTimes(1);
-    expect(unsubscribeOrders).toHaveBeenCalledTimes(1);
+    expect(unsubscribeProgress).toHaveBeenCalledTimes(1);
   });
 
-  test('still shows public discount progress when delayed orders are not readable', () => {
+  test('treats a missing progress document as zero weekly total', () => {
     const snapshotCallbacks = [];
-    const snapshotErrors = [];
-    onSnapshot
-      .mockImplementationOnce((ref, next, error) => {
-        snapshotCallbacks.push(next);
-        snapshotErrors.push(error);
-        return jest.fn();
-      })
-      .mockImplementationOnce((ref, next, error) => {
-        snapshotCallbacks.push(next);
-        snapshotErrors.push(error);
-        return jest.fn();
-      });
+    onSnapshot.mockImplementation((ref, next) => {
+      snapshotCallbacks.push(next);
+      return jest.fn();
+    });
     const onValue = jest.fn();
     const onError = jest.fn();
 
@@ -440,12 +458,17 @@ describe('community delayed-order discount calculation', () => {
         ],
       }),
     });
-    snapshotErrors[1](new Error('Missing or insufficient permissions.'));
+    snapshotCallbacks[1]({
+      exists: () => false,
+      data: () => undefined,
+    });
 
     expect(onError).not.toHaveBeenCalled();
+    expect(getCommunityDiscountProgressDocId('קהילה א', '2026-08-09')).toBe('קהילה א__2026-08-09');
     expect(onValue).toHaveBeenLastCalledWith(expect.objectContaining({
       enabled: true,
       weeklyTotal: 0,
+      orderCount: 0,
       discountPercent: 0,
       nextTier: expect.objectContaining({ discountPercent: 1 }),
       tiers: expect.arrayContaining([
