@@ -78,6 +78,7 @@ asarUnpack:
   - "**/*.node"
   - "**/node_modules/serialport/**/*"
   - "**/node_modules/@serialport/**/*"
+  - "**/node_modules/usb/**/*"
 
 # Compression
 compression: normal

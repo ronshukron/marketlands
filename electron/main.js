@@ -2,10 +2,12 @@ const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 const ScaleService = require('./services/scaleService');
+const PrinterService = require('./services/printerService');
 
 // Keep a global reference of the window object to prevent garbage collection
 let mainWindow = null;
 let scaleService = null;
+let printerService = null;
 
 // Determine if we're in development mode
 const isDev = !app.isPackaged;
@@ -47,6 +49,9 @@ function createWindow() {
     mainWindow = null;
     if (scaleService) {
       void scaleService.disconnect();
+    }
+    if (printerService) {
+      void printerService.close();
     }
   });
 
@@ -92,6 +97,11 @@ function setupMenu() {
           label: 'Admin Panel',
           accelerator: 'CmdOrCtrl+Shift+A',
           click: () => navigateTo('/admin')
+        },
+        {
+          label: 'Delivery V7 (Stations) / ניהול משלוחים V7',
+          accelerator: 'CmdOrCtrl+Shift+V',
+          click: () => navigateTo('/admin/delivery-v7')
         },
         {
           label: 'Delivery V6 (Weighing) / จัดการจัดส่ง V6',
@@ -402,9 +412,56 @@ function setupScaleIPC() {
   });
 }
 
+function setupPrinterIPC() {
+  printerService = new PrinterService();
+
+  ipcMain.handle('printer:status', async () => {
+    try {
+      return await printerService.getStatus();
+    } catch (error) {
+      return {
+        connected: false,
+        error: error.code || 'print_failed',
+        message: error.message,
+        editorLite: error.code === 'no_printer',
+        twoColor: false,
+        mediaWidthMm: 0,
+        errors: [error.code || 'print_failed'],
+      };
+    }
+  });
+
+  ipcMain.handle('printer:print', async (event, payload) => {
+    try {
+      console.error('[QL-800] IPC print', {
+        width: payload?.width,
+        height: payload?.height,
+        dataType: payload?.data && payload.data.constructor && payload.data.constructor.name,
+        dataLength: payload?.data && payload.data.length,
+      });
+      return await printerService.print(payload || {});
+    } catch (error) {
+      console.error('[QL-800] IPC print threw', error);
+      return {
+        ok: false,
+        code: error.code || 'print_failed',
+        error: error.code || 'print_failed',
+        message: error.message,
+      };
+    }
+  });
+
+  printerService.onError((error) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('printer:error', error);
+    }
+  });
+}
+
 // App lifecycle events
 app.whenReady().then(() => {
   setupScaleIPC();
+  setupPrinterIPC();
   createWindow();
 
   app.on('activate', () => {
@@ -426,6 +483,9 @@ app.on('before-quit', () => {
   // Cleanup scale connection before quitting
   if (scaleService) {
     void scaleService.disconnect();
+  }
+  if (printerService) {
+    void printerService.close();
   }
 });
 

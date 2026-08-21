@@ -16,6 +16,7 @@ import {
 } from '../services/customerOrderService';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 import ProductFeedbackSection from './ProductFeedbackSection';
+import PackedCartonPickupBanner from './PackedCartonPickupBanner';
 
 const formatDate = (timestamp) => {
   if (!timestamp) return 'לא זמין';
@@ -196,6 +197,12 @@ const CustomerOrderDetail = () => {
             )}
           </div>
         </div>
+
+        <PackedCartonPickupBanner
+          count={order.packedCartonCount}
+          pickupSpot={pickupSpot}
+          className="mx-6 mt-4"
+        />
 
         {!canEditOrder && (
           <div className="mx-6 mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">

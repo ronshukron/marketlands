@@ -12,6 +12,7 @@ import {
   prepareCommunityDiscountForSettlementV7,
   removeDelayedOrderLineV7,
   searchProductsV7,
+  setPackedCartonCountV7,
   subscribeDelayedOrdersForWeekV7,
   updateDelayedOrderLineV7,
 } from './apiV7';
@@ -35,7 +36,9 @@ import {
   upsertPresenceV7,
 } from './realtimeStateV7';
 import { useWeightScale } from '../../../hooks/useWeightScale';
+import { useBrotherLabelPrinter } from '../../../hooks/useBrotherLabelPrinter';
 import ScaleConnectionPanel from '../../scale/ScaleConnectionPanel';
+import LabelPrinterPanel from '../../printer/LabelPrinterPanel';
 import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../../utils/pricing';
 import {
   BUFFER_LINE_CATALOG_NUMBER,
@@ -80,6 +83,9 @@ import { classifyCustomer, loadCustomerHistoryStats } from '../../../services/cu
 import {
   subscribeDisplayDiscountInfo,
 } from '../../../services/communityDiscountService';
+import { crateLabelAfterPrint, normalizeCrateLabel } from '../../../utils/crateLabelCounter';
+import { readCrateLabel, writeCrateLabel } from '../../../utils/crateLabelStorage';
+import { renderQl800Label } from '../../../utils/ql800LabelCanvas';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 const WEIGHT_ON_THRESHOLD = 0.020;
@@ -261,6 +267,37 @@ const TR = {
     auditStation: 'תחנת שקילה',
     auditUser: 'עובד',
     auditCompletedAt: 'הושלם',
+    printLabel: 'הדפס מדבקה',
+    carton: 'קרטון',
+    crate: 'ארגז',
+    printing: 'מדפיס…',
+    testPrint: 'הדפסת בדיקה',
+    printerRefresh: 'רענון',
+    showPrinter: 'הצג מדפסת',
+    hidePrinter: 'הסתר מדפסת',
+    printerConnected: 'מדפסת מדבקות מחוברת',
+    printerDisconnected: 'מדפסת מדבקות לא מחוברת',
+    printerEditorLite: 'כבו את Editor Lite (הנורית הירוקה חייבת להיות כבויה)',
+    printerBrowserHint: 'הדפסת מדבקות זמינה באפליקציית שולחן העבודה',
+    printOk: (n) => `מודפס קרטון ${n}#`,
+    packedCartonSyncFailed: 'המדבקה הודפסה, אבל מספר הקרטונים לא נשמר ללקוח. בדקו אינטרנט.',
+    printerError: (code, detail) => {
+      const base = {
+        no_printer: 'המדפסת לא נמצאה. בדקו USB ו-Editor Lite.',
+        busy: 'המדפסת תפוסה. Windows כנראה תפס את ה-USB — השתמשו ב-Zadig (WinUSB).',
+        need_winusb: 'Windows חוסם גישת USB. התקינו WinUSB עם Zadig (בלי דרייבר Brother).',
+        no_usb_module: 'מודול USB לא נטען. הריצו npx electron-builder install-app-deps',
+        no_media: 'אין גליל במדפסת',
+        cover_open: 'המכסה פתוח',
+        editor_lite: 'כבו את Editor Lite (הנורית הירוקה)',
+        wrong_media: 'הגליל במדפסת לא תואם',
+        timeout: 'המדפסת לא ענתה בזמן',
+        print_failed: 'ההדפסה נכשלה',
+        no_electron: 'הדפסה זמינה רק באפליקציית שולחן העבודה',
+      }[code] || 'ההדפסה נכשלה';
+      const extra = detail && detail !== code ? ` — ${detail}` : '';
+      return `${base}${extra}`;
+    },
   },
   th: {
     title: 'จัดการจัดส่ง V7',
@@ -398,6 +435,37 @@ const TR = {
     auditStation: 'สถานีชั่ง',
     auditUser: 'ผู้ปฏิบัติงาน',
     auditCompletedAt: 'เสร็จเมื่อ',
+    printLabel: 'พิมพ์ฉลาก',
+    carton: 'กล่อง',
+    crate: 'ลัง',
+    printing: 'กำลังพิมพ์…',
+    testPrint: 'พิมพ์ทดสอบ',
+    printerRefresh: 'รีเฟรช',
+    showPrinter: 'แสดงเครื่องพิมพ์',
+    hidePrinter: 'ซ่อนเครื่องพิมพ์',
+    printerConnected: 'เครื่องพิมพ์ฉลากเชื่อมต่อแล้ว',
+    printerDisconnected: 'เครื่องพิมพ์ฉลากไม่ได้เชื่อมต่อ',
+    printerEditorLite: 'ปิด Editor Lite (ไฟเขียวต้องดับ)',
+    printerBrowserHint: 'พิมพ์ฉลากได้เฉพาะแอปเดสก์ท็อป',
+    printOk: (n) => `พิมพ์แล้ว กล่อง ${n}#`,
+    packedCartonSyncFailed: 'พิมพ์ฉลากแล้ว แต่ยังบันทึกจำนวนกล่องให้ลูกค้าไม่ได้ ตรวจเน็ต',
+    printerError: (code, detail) => {
+      const base = {
+        no_printer: 'ไม่พบเครื่องพิมพ์ ตรวจ USB และ Editor Lite',
+        busy: 'เครื่องพิมพ์ไม่ว่าง Windows จับ USB ไว้ — ใช้ Zadig (WinUSB)',
+        need_winusb: 'Windows บล็อก USB ติดตั้ง WinUSB ด้วย Zadig (ไม่ติดตั้งไดรเวอร์ Brother)',
+        no_usb_module: 'โหลดโมดูล USB ไม่ได้ รัน npx electron-builder install-app-deps',
+        no_media: 'ไม่มีม้วนในเครื่องพิมพ์',
+        cover_open: 'ฝาเปิดอยู่',
+        editor_lite: 'ปิด Editor Lite (ไฟเขียว)',
+        wrong_media: 'ม้วนไม่ตรงกับงานพิมพ์',
+        timeout: 'เครื่องพิมพ์ไม่ตอบ',
+        print_failed: 'พิมพ์ไม่สำเร็จ',
+        no_electron: 'พิมพ์ได้เฉพาะแอปเดสก์ท็อป',
+      }[code] || 'พิมพ์ไม่สำเร็จ';
+      const extra = detail && detail !== code ? ` — ${detail}` : '';
+      return `${base}${extra}`;
+    },
   },
 };
 
@@ -878,7 +946,16 @@ export default function DeliveryManagementV7() {
   const [customerHistoryLoaded, setCustomerHistoryLoaded] = useState(false);
   const currentScreenRef = useRef({ orders: [] });
   const [showScalePanel, setShowScalePanel] = useState(false);
+  const [showPrinterPanel, setShowPrinterPanel] = useState(false);
   const { isElectron: isElectronEnv, isConnected: scaleConnected, weight: liveWeight, lastStableWeight } = useWeightScale();
+  const {
+    hasPrinterSupport,
+    status: printerStatus,
+    isPrinting,
+    printImage,
+  } = useBrotherLabelPrinter();
+  const [crateIndex, setCrateIndex] = useState(1);
+  const [showAdvancedOrderActions, setShowAdvancedOrderActions] = useState(false);
   const [editingLineId, setEditingLineId] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [editingPriceLineId, setEditingPriceLineId] = useState(null);
@@ -1689,6 +1766,21 @@ export default function DeliveryManagementV7() {
   const selectedClaim = selectedOrderId ? claimsByOrder[selectedOrderId] : null;
   const claimedByOther = isOnline && !!(selectedClaim && selectedClaim.sessionId !== session.sessionId && !isClaimStaleV7(selectedClaim));
 
+  useEffect(() => {
+    if (!selectedOrderId) {
+      setCrateIndex(1);
+      setShowAdvancedOrderActions(false);
+      return;
+    }
+    const fromLocal = readCrateLabel(selectedOrderId);
+    const fromDraft = effectiveDraftsByOrder[selectedOrderId]?.crateLabel;
+    const next = normalizeCrateLabel(fromLocal || fromDraft || { index: 1 });
+    setCrateIndex(next.index);
+    setShowAdvancedOrderActions(false);
+    // Only re-run when the selected order changes so a late draft snapshot cannot rewind the counter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedOrderId]);
+
   const items = useMemo(() => {
     const base = selectedOrder?.items || [];
     const merged = mergeProductDetailsIntoItems(base, productDetails);
@@ -2221,6 +2313,93 @@ export default function DeliveryManagementV7() {
     });
   }, [applyQueuedOpsOnline, selectedOrder, selectedWeek, session]);
 
+  const persistCrateLabel = useCallback(async (orderId, value) => {
+    const next = normalizeCrateLabel(value);
+    writeCrateLabel(orderId, next);
+    if (!selectedWeek || !isOnline) return;
+    try {
+      await saveOrderDraftV7({
+        weekKey: selectedWeek,
+        orderId,
+        draftPatch: { crateLabel: next },
+        session,
+      });
+    } catch (e) {
+      if (!isLikelyNetworkErrorV7(e)) console.error(e);
+    }
+  }, [isOnline, selectedWeek, session]);
+
+  const handlePrintLabel = useCallback(async () => {
+    if (!selectedOrder || claimedByOther || isPrinting) return;
+    if (!hasPrinterSupport) {
+      showToast(t.printerBrowserHint);
+      return;
+    }
+    const { printUses, afterPrint } = crateLabelAfterPrint(crateIndex);
+    const cid = selectedOrder?.customerDetails?.phone || selectedOrder?.customerDetails?.email || null;
+    const customerNumber = cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-';
+    try {
+      const image = renderQl800Label({
+        customerNumber,
+        name: selectedOrder.customerDetails?.name || t.customer,
+        community: selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot || '',
+        crateIndex: printUses.index,
+      });
+      const result = await printImage(image);
+      if (!result?.ok) {
+        console.error('[QL-800] print failed', result);
+        showToast(t.printerError(result?.code || result?.error, result?.message), 8000);
+        return;
+      }
+      setCrateIndex(afterPrint.index);
+      await persistCrateLabel(selectedOrder.id, afterPrint);
+      try {
+        const synced = await setPackedCartonCountV7({
+          orderId: selectedOrder.id,
+          printedIndex: printUses.index,
+        });
+        const packedCartonCount = synced?.packedCartonCount || printUses.index;
+        setOrders((prev) => prev.map((order) => (
+          order.id === selectedOrder.id
+            ? {
+              ...order,
+              packedCartonCount,
+              rawData: {
+                ...(order.rawData || {}),
+                packedCartonCount,
+              },
+            }
+            : order
+        )));
+        showToast(t.printOk(printUses.index), 2500);
+      } catch (syncError) {
+        if (!isLikelyNetworkErrorV7(syncError)) console.error(syncError);
+        showToast(`${t.printOk(printUses.index)}. ${t.packedCartonSyncFailed}`, 6000);
+      }
+    } catch (e) {
+      showToast(t.printerError(e?.code || e?.message, e?.message), 8000);
+    }
+  }, [
+    claimedByOther,
+    crateIndex,
+    hasPrinterSupport,
+    isPrinting,
+    permanentNumbersMap,
+    persistCrateLabel,
+    printImage,
+    selectedOrder,
+    showToast,
+    t,
+  ]);
+
+  const handleCrateFieldChange = useCallback((rawValue) => {
+    const next = normalizeCrateLabel({ index: rawValue });
+    setCrateIndex(next.index);
+    if (selectedOrder?.id) {
+      writeCrateLabel(selectedOrder.id, next);
+    }
+  }, [selectedOrder?.id]);
+
   const selectItemForWeighing = useCallback(async (idx) => {
     if (idx < 0 || idx >= items.length || claimedByOther) return;
     const it = items[idx];
@@ -2719,6 +2898,21 @@ export default function DeliveryManagementV7() {
         });
       }
       await handleSuspendedPaymentV7(payload);
+      const packedCartonCount = Math.max(
+        0,
+        Math.floor(Number(selectedOrder.packedCartonCount) || 0),
+        Math.floor(Number(selectedOrder.rawData?.packedCartonCount) || 0),
+      );
+      if (packedCartonCount > 0) {
+        try {
+          await setPackedCartonCountV7({
+            orderId: selectedOrder.id,
+            printedIndex: packedCartonCount,
+          });
+        } catch (e) {
+          if (!isLikelyNetworkErrorV7(e)) console.error(e);
+        }
+      }
       const completedWeighing = {
         weightsByLineId: payload.weightsByLineId || {},
         removedLineIds: payload.removedLineIds || {},
@@ -2733,6 +2927,7 @@ export default function DeliveryManagementV7() {
           ? {
             ...order,
             status: 'completed',
+            ...(packedCartonCount > 0 ? { packedCartonCount } : {}),
             delayedMeta: {
               ...(order.delayedMeta || {}),
               paymentStatus: 'completed',
@@ -2742,6 +2937,7 @@ export default function DeliveryManagementV7() {
               ...(order.rawData || {}),
               paymentStatus: 'completed',
               delayedOrderStatus: 'completed',
+              ...(packedCartonCount > 0 ? { packedCartonCount } : {}),
               weighing: {
                 ...((order.rawData || {}).weighing || {}),
                 ...completedWeighing,
@@ -3047,6 +3243,27 @@ export default function DeliveryManagementV7() {
             >
               {showScalePanel ? t.hideScale : t.showScale}
             </button>
+            {hasPrinterSupport && (
+              <>
+                <div className={`px-3 py-2 rounded-lg text-sm font-bold ${
+                  printerStatus?.connected ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+                }`}>
+                  {printerStatus?.editorLite
+                    ? t.printerEditorLite
+                    : printerStatus?.connected
+                      ? t.printerConnected
+                      : t.printerDisconnected}
+                </div>
+                <button
+                  onClick={() => setShowPrinterPanel(!showPrinterPanel)}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+                    showPrinterPanel ? 'bg-amber-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {showPrinterPanel ? t.hidePrinter : t.showPrinter}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -3055,6 +3272,14 @@ export default function DeliveryManagementV7() {
         <div className="bg-white border-b px-4 py-3">
           <div className="max-w-[1600px] mx-auto">
             <ScaleConnectionPanel className="max-w-md" />
+          </div>
+        </div>
+      )}
+
+      {showPrinterPanel && (
+        <div className="bg-white border-b px-4 py-3">
+          <div className="max-w-[1600px] mx-auto">
+            <LabelPrinterPanel t={t} className="max-w-xl" />
           </div>
         </div>
       )}
@@ -3509,76 +3734,121 @@ export default function DeliveryManagementV7() {
                       </div>
                       <div className="ml-2">{statusBadge(selectedOrderStatus)}</div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={claimSelectedOrder}
-                        disabled={!isOnline || savingActionKey === `claim:${selectedOrder.id}` || selectedOrderCompleted}
-                        className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
-                      >
-                        {t.claim}
-                      </button>
-                      <button
-                        onClick={releaseSelectedOrder}
-                        disabled={!isOnline || selectedClaim?.sessionId !== session.sessionId || savingActionKey === `release:${selectedOrder.id}`}
-                        className="px-4 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
-                      >
-                        {t.release}
-                      </button>
-                      <CustomerOrderDeliveryTransferControl
-                        orderId={selectedOrder.id}
-                        source="customerOrdersDelayed"
-                        orderData={selectedOrder.rawData}
-                        currentDeliveryDateKey={toLocalDateKey(parseOrderDeliveryDate(selectedOrder))}
-                        adminUid={currentUser?.uid || null}
-                        onTransferred={handleDeliveryTransferred}
-                        buttonLabel={t.transferDelivery}
-                        disabled={claimedByOther}
-                        buttonClassName="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
-                      />
-                      <button
-                        onClick={useOrderedQuantities}
-                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg text-sm border transition-colors"
-                        disabled={claimedByOther}
-                      >
-                        {t.useOrderedQty}
-                      </button>
+                    <button
+                      onClick={completeOrder}
+                      disabled={completeDisabled}
+                      className={`px-5 py-3 font-bold rounded-lg text-sm transition-colors ${
+                        completeDisabled
+                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          : 'bg-green-600 hover:bg-green-700 text-white shadow'
+                      }`}
+                    >
+                      {t.completeBtn}
+                    </button>
+                  </div>
+
+                  {hasPrinterSupport ? (
+                    <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-5">
                       <button
                         type="button"
-                        onClick={toggleCommunityDiscount}
-                        disabled={
-                          !isOnline
-                          || !canComplete
-                          || selectedOrderCompleted
-                          || claimedByOther
-                          || communityDiscountInfo?.enabled !== true
-                          || (communityDiscountInfo?.discountPercent || 0) <= 0
-                          || autoDiscountSelected
-                          || preparedDiscountSelected
-                        }
-                        className={`px-4 py-2 font-bold rounded-lg text-sm border transition-colors disabled:opacity-50 ${
-                          manualDiscountSelected
-                            ? 'bg-amber-100 border-amber-300 text-amber-800 hover:bg-amber-200'
-                            : 'bg-amber-500 border-amber-500 text-white hover:bg-amber-600'
-                        }`}
+                        onClick={handlePrintLabel}
+                        disabled={claimedByOther || isPrinting}
+                        className="w-36 h-36 shrink-0 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white font-black shadow-lg flex flex-col items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {preparedDiscountSelected
-                          ? `${t.communityDiscountPrepared} (${preparedCommunityDiscount.percent}%)`
-                          : autoDiscountSelected
-                          ? `${t.communityDiscountAuto} (${communityDiscountInfo.discountPercent}%)`
-                          : (manualDiscountSelected ? t.removeCommunityDiscount : t.applyCommunityDiscount)}
+                        <span className="text-4xl leading-none" aria-hidden="true">🏷️</span>
+                        <span className="text-base leading-tight text-center px-2">
+                          {isPrinting ? t.printing : t.printLabel}
+                        </span>
                       </button>
-                      <button
-                        onClick={completeOrder}
-                        disabled={completeDisabled}
-                        className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors ${
-                          completeDisabled
-                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                            : 'bg-green-600 hover:bg-green-700 text-white shadow'
-                        }`}
-                      >
-                        {t.completeBtn}
-                      </button>
+                      <label className="flex flex-col gap-1 text-sm font-bold text-gray-600">
+                        <span className="flex items-center gap-2 text-gray-900">
+                          <span className="text-xl font-black">{t.carton}</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={crateIndex}
+                            onChange={(e) => handleCrateFieldChange(e.target.value)}
+                            className="w-20 h-14 px-2 border-2 border-sky-300 rounded-xl text-center text-2xl font-black"
+                            disabled={claimedByOther}
+                            aria-label={t.carton}
+                          />
+                          <span className="text-xl font-black">#</span>
+                        </span>
+                      </label>
                     </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-gray-500">{t.printerBrowserHint}</div>
+                  )}
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedOrderActions((open) => !open)}
+                      className="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                    >
+                      {t.advancedActions}
+                    </button>
+                    {showAdvancedOrderActions && (
+                      <div className="mt-2 flex flex-wrap gap-2 items-center">
+                        <button
+                          onClick={claimSelectedOrder}
+                          disabled={!isOnline || savingActionKey === `claim:${selectedOrder.id}` || selectedOrderCompleted}
+                          className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
+                        >
+                          {t.claim}
+                        </button>
+                        <button
+                          onClick={releaseSelectedOrder}
+                          disabled={!isOnline || selectedClaim?.sessionId !== session.sessionId || savingActionKey === `release:${selectedOrder.id}`}
+                          className="px-4 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
+                        >
+                          {t.release}
+                        </button>
+                        <CustomerOrderDeliveryTransferControl
+                          orderId={selectedOrder.id}
+                          source="customerOrdersDelayed"
+                          orderData={selectedOrder.rawData}
+                          currentDeliveryDateKey={toLocalDateKey(parseOrderDeliveryDate(selectedOrder))}
+                          adminUid={currentUser?.uid || null}
+                          onTransferred={handleDeliveryTransferred}
+                          buttonLabel={t.transferDelivery}
+                          disabled={claimedByOther}
+                          buttonClassName="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50"
+                        />
+                        <button
+                          onClick={useOrderedQuantities}
+                          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg text-sm border transition-colors"
+                          disabled={claimedByOther}
+                        >
+                          {t.useOrderedQty}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={toggleCommunityDiscount}
+                          disabled={
+                            !isOnline
+                            || !canComplete
+                            || selectedOrderCompleted
+                            || claimedByOther
+                            || communityDiscountInfo?.enabled !== true
+                            || (communityDiscountInfo?.discountPercent || 0) <= 0
+                            || autoDiscountSelected
+                            || preparedDiscountSelected
+                          }
+                          className={`px-4 py-2 font-bold rounded-lg text-sm border transition-colors disabled:opacity-50 ${
+                            manualDiscountSelected
+                              ? 'bg-amber-100 border-amber-300 text-amber-800 hover:bg-amber-200'
+                              : 'bg-amber-500 border-amber-500 text-white hover:bg-amber-600'
+                          }`}
+                        >
+                          {preparedDiscountSelected
+                            ? `${t.communityDiscountPrepared} (${preparedCommunityDiscount.percent}%)`
+                            : autoDiscountSelected
+                            ? `${t.communityDiscountAuto} (${communityDiscountInfo.discountPercent}%)`
+                            : (manualDiscountSelected ? t.removeCommunityDiscount : t.applyCommunityDiscount)}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {claimedByOther && (

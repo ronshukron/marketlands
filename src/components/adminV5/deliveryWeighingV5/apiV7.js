@@ -148,6 +148,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     items,
     businessIds: Array.isArray(data.businessIds) ? data.businessIds : [],
     grandTotal: safeNumber(data.grandTotal, computedGrandTotal),
+    packedCartonCount: Math.max(0, Math.floor(Number(data.packedCartonCount) || 0)),
     rawData: data,
   };
 }
@@ -691,4 +692,22 @@ export async function handleSuspendedPaymentV7({
     },
   );
   return data;
+}
+
+export async function setPackedCartonCountV7({ orderId, printedIndex }) {
+  if (!orderId) return { ok: false, packedCartonCount: 0 };
+  const printed = Math.max(1, Math.floor(Number(printedIndex) || 1));
+  const orderRef = doc(db, 'customerOrdersDelayed', orderId);
+  let packedCartonCount = printed;
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(orderRef);
+    if (!snap.exists()) throw new Error('Order not found.');
+    const existing = Math.max(0, Math.floor(Number(snap.data()?.packedCartonCount) || 0));
+    packedCartonCount = Math.max(existing, printed);
+    transaction.update(orderRef, {
+      packedCartonCount,
+      packedCartonUpdatedAtIso: new Date().toISOString(),
+    });
+  });
+  return { ok: true, packedCartonCount };
 }

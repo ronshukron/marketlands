@@ -13,6 +13,7 @@ import {
     getOrderPickupSpot,
 } from '../services/customerOrderService';
 import RefundRequestForm from './RefundRequestForm';
+import PackedCartonPickupBanner from './PackedCartonPickupBanner';
 import {
     filterCustomerActiveLines,
     isCustomerOrderOwner,
@@ -386,6 +387,11 @@ const MyOrders = () => {
                             </div>
 
                             <div className="p-4 sm:p-6">
+                                <PackedCartonPickupBanner
+                                    count={order.packedCartonCount}
+                                    pickupSpot={getOrderPickupSpot(order)}
+                                    className="mb-4"
+                                />
                                 <div className="mb-4">
                                     <h3 className="text-md font-semibold text-gray-700 mb-2">סיכום הזמנה:</h3>
                                     {/* Prefer business-style breakdown when present (weekly orders) */}

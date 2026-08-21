@@ -41,6 +41,14 @@ export const hasScaleSupport = () => {
 };
 
 /**
+ * Check if Brother label printer API is available
+ * @returns {boolean} True if printer API is available
+ */
+export const hasPrinterSupport = () => {
+  return isElectron() && window.electron.printer !== undefined;
+};
+
+/**
  * Check if auto-updater is available
  * @returns {boolean} True if auto-updater is available
  */
@@ -79,6 +87,7 @@ export default {
   isDevelopment,
   getPlatform,
   hasScaleSupport,
+  hasPrinterSupport,
   hasAutoUpdater,
   electronOnly,
   webOnly,

@@ -81,6 +81,16 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  printer: {
+    getStatus: () => ipcRenderer.invoke('printer:status'),
+    print: (payload) => ipcRenderer.invoke('printer:print', payload),
+    onError: (callback) => {
+      const listener = (event, error) => callback(error);
+      ipcRenderer.on('printer:error', listener);
+      return () => ipcRenderer.removeListener('printer:error', listener);
+    },
+  },
+
   // Auto-updater API
   updater: {
     // Check for updates
