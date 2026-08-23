@@ -15,6 +15,8 @@ const EditOrderProducts = () => {
   const [order, setOrder] = useState(null);
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [minimumOrderAmount, setMinimumOrderAmount] = useState('');
+  const [minimumOrderItemCount, setMinimumOrderItemCount] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -27,6 +29,8 @@ const EditOrderProducts = () => {
         if (orderData.businessId !== currentUser.uid) throw new Error('אין הרשאה לערוך הזמנה זו');
         setOrder(orderData);
         setSelectedProducts(Array.isArray(orderData.selectedProducts) ? [...new Set(orderData.selectedProducts)] : []);
+        setMinimumOrderAmount(orderData.minimumOrderAmount > 0 ? String(orderData.minimumOrderAmount) : '');
+        setMinimumOrderItemCount(orderData.minimumOrderItemCount > 0 ? String(orderData.minimumOrderItemCount) : '');
 
         const productsSnap = await getDocs(query(
           collection(db, 'Products'),
@@ -59,6 +63,8 @@ const EditOrderProducts = () => {
     try {
       await updateDoc(doc(db, 'Orders', order.id), {
         selectedProducts: [...new Set(selectedProducts)],
+        minimumOrderAmount: minimumOrderAmount ? parseFloat(minimumOrderAmount) || 0 : 0,
+        minimumOrderItemCount: minimumOrderItemCount ? parseInt(minimumOrderItemCount, 10) || 0 : 0,
         updatedAt: new Date(),
       });
       Swal.fire('נשמר', 'מוצרי טופס ההזמנה עודכנו', 'success');
@@ -86,7 +92,36 @@ const EditOrderProducts = () => {
       <p className="text-gray-600 mb-6">{order?.orderName || order?.name || order.id}</p>
 
       <div className="mb-4 bg-blue-50 border border-blue-200 rounded p-4">
-        <p className="font-medium">נבחרו {selectedProducts.length} מוצרים</p>
+        <p className="font-medium mb-3">נבחרו {selectedProducts.length} מוצרים</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="block text-sm">
+            <span className="block text-gray-700 mb-1">סכום מינימום (₪)</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={minimumOrderAmount}
+              onChange={(e) => setMinimumOrderAmount(e.target.value)}
+              className="w-full px-3 py-2 border border-blue-200 rounded bg-white"
+              placeholder="אופציונלי"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="block text-gray-700 mb-1">מינימום יחידות/מארזים</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={minimumOrderItemCount}
+              onChange={(e) => setMinimumOrderItemCount(e.target.value)}
+              className="w-full px-3 py-2 border border-blue-200 rounded bg-white"
+              placeholder="אופציונלי"
+            />
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-gray-600">
+          הלקוח יכול לעמוד באחד מהתנאים. רק פריטי יחידה או מארז נספרים למינימום הכמות.
+        </p>
         {selectedList.length > 0 && (
           <ul className="mt-2 text-sm text-gray-700 list-disc list-inside">
             {selectedList.map((p) => <li key={p.id}>{p.Product_Name || p.name}</li>)}

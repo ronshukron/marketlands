@@ -608,6 +608,12 @@ const BusinessProducts = () => {
             + הוסף מוצר
           </button>
           <button
+            onClick={() => navigate('/business-promotions')}
+            className="w-40 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
+          >
+            מבצעים משותפים
+          </button>
+          <button
             onClick={() => navigate('/bulk-edit-products')}
             className="w-40 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
           >

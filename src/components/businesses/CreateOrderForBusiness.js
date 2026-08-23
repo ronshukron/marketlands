@@ -57,6 +57,7 @@ const CreateOrderForBusiness = () => {
   const [selectedAreas, setSelectedAreas] = useState([]);
   const [bitPhoneNumber, setBitPhoneNumber] = useState('');
   const [minimumOrderAmount, setMinimumOrderAmount] = useState('');
+  const [minimumOrderItemCount, setMinimumOrderItemCount] = useState('');
   const [description, setDescription] = useState('');
   const [shippingDateStart, setShippingDateStart] = useState('');
   const [shippingDateEnd, setShippingDateEnd] = useState('');
@@ -335,6 +336,7 @@ const CreateOrderForBusiness = () => {
         isFarmerOrder: isFarmerOrder,
         areas: isFarmerOrder ? selectedAreas : [],
         minimumOrderAmount: minimumOrderAmount ? parseFloat(minimumOrderAmount) : 0,
+        minimumOrderItemCount: minimumOrderItemCount ? parseInt(minimumOrderItemCount, 10) || 0 : 0,
         description,
         pickupSpots: selectedPickupSpots,
       };
@@ -810,6 +812,24 @@ const CreateOrderForBusiness = () => {
             min="0"
             step="0.01"
           />
+        </div>
+
+        <div className="form-group">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            מינימום פריטי יחידה/מארז
+          </label>
+          <input
+            type="number"
+            value={minimumOrderItemCount}
+            onChange={(e) => setMinimumOrderItemCount(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="השאר ריק אם אין מינימום פריטים"
+            min="0"
+            step="1"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            הלקוח יכול לעמוד במינימום הסכום או במספר פריטי יחידה/מארז. מוצרים שנמכרים לפי ק״ג לא נספרים.
+          </p>
         </div>
 
         {/* Description */}

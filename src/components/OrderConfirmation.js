@@ -14,9 +14,13 @@ import { getEndingTimeForSpot } from '../utils/orderUtils';
 import { isDelayedPaymentSpot } from '../services/paymentConfigService';
 import {
     buildPricingSnapshot,
+    evaluateOrderMinimum,
+    formatOrderMinimumFailure,
     getEstimatedChargeableQuantity,
     getEstimatedLineTotal,
+    groupPricedItemsByOrder,
 } from '../utils/pricing';
+import { refreshCartCommercialTerms } from '../services/productPromotionService';
 import { persistCustomerOrderWithCompensation } from '../services/compensationService';
 import CheckoutAccountModal from './CheckoutAccountModal';
 import {
@@ -33,7 +37,7 @@ const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
 const OrderConfirmation = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems } = useCart();
+    const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems, applyCommercialRefresh, orderInfoMap } = useCart();
     
     const [loading, setLoading] = useState(false);
     const [userName, setUserName] = useState(() => {
@@ -143,7 +147,7 @@ const OrderConfirmation = () => {
                                 vatType: shipData.vatType ?? 1,
                                 isShipping: true
                             };
-                            addItem(productToAdd, targetOrderId, targetOrderMeta.businessId, targetOrderMeta.minimumOrderAmount || 0);
+                            addItem(productToAdd, targetOrderId, targetOrderMeta.businessId, targetOrderMeta.minimumOrderAmount || 0, targetOrderMeta.minimumOrderItemCount || 0);
                         }
                     }
                 } else {
@@ -388,28 +392,36 @@ const OrderConfirmation = () => {
             return;
         }
 
-        // Check if any order doesn't meet minimum order amount
-        const invalidOrders = Object.entries(itemsByOrder).filter(([orderId, orderData]) => {
-            return orderData.total < orderData.minimumOrderAmount;
-        });
+        let checkoutItemsByOrder = itemsByOrder;
+        try {
+            const refreshed = await refreshCartCommercialTerms({ items: cartItems });
+            applyCommercialRefresh(refreshed);
+            checkoutItemsByOrder = groupPricedItemsByOrder(refreshed.items, {
+                ...orderInfoMap,
+                ...refreshed.orderMinimums,
+            });
+        } catch (refreshError) {
+            console.error('Error refreshing checkout terms:', refreshError);
+        }
+
+        const invalidOrders = Object.values(checkoutItemsByOrder).filter((orderData) => (
+            !evaluateOrderMinimum(orderData).valid
+        ));
 
         if (invalidOrders.length > 0) {
-            const ordersList = invalidOrders.map(([orderId, orderData]) => {
-                const businessName = orderData.items[0]?.businessName || "Unknown Business";
-                return `${businessName}: סכום מינימום ${orderData.minimumOrderAmount}₪, סכום נוכחי ${orderData.total}₪`;
-            }).join('\n');
-
             Swal.fire({
                 icon: 'error',
-                title: 'סכום מינימום להזמנה',
-                html: `ההזמנות הבאות לא מגיעות לסכום המינימלי הנדרש:<br><br>${ordersList.replace(/\n/g, '<br>')}`,
+                title: 'מינימום הזמנה',
+                html: `ניתן להמשיך כשעומדים בסכום המינימום או במספר פריטי היחידה/מארז.<br><br>${
+                    invalidOrders.map((orderData) => formatOrderMinimumFailure(orderData)).join('<br>')
+                }`,
                 confirmButtonText: 'הבנתי'
             });
             return;
         }
 
         // Check if any order has ended
-        for (const [orderId, orderData] of Object.entries(itemsByOrder)) {
+        for (const [orderId, orderData] of Object.entries(checkoutItemsByOrder)) {
             const orderHasEnded = await checkIfOrderEnded(orderId);
             if (orderHasEnded) {
                 const businessName = orderData.items[0]?.businessName || "Unknown Business";
@@ -431,7 +443,7 @@ const OrderConfirmation = () => {
         const orderBreakdown = {};
         const businessIds = [];
         // Process each order in the cart
-        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+        Object.entries(checkoutItemsByOrder).forEach(([orderId, orderData]) => {
             const orderItems = [];
             
             // Process each item in this order
@@ -505,7 +517,7 @@ const OrderConfirmation = () => {
         });
 
         // Update the original orders with the actual document ID
-        await updateOrdersWithReference(Object.keys(itemsByOrder), customerOrderId);
+        await updateOrdersWithReference(Object.keys(checkoutItemsByOrder), customerOrderId);
 
         // Add the order to the user's document
         if (checkoutUid) {
@@ -520,7 +532,7 @@ const OrderConfirmation = () => {
         }
 
         // Get all orderIds instead of just the first one
-        const orderIds = Object.keys(itemsByOrder);
+        const orderIds = Object.keys(checkoutItemsByOrder);
         console.log('orderIds', orderIds);
 
         try {
@@ -539,7 +551,7 @@ const OrderConfirmation = () => {
 
             // Add product data for each item in the cart
             let productIndex = 0;
-            Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            Object.entries(checkoutItemsByOrder).forEach(([orderId, orderData]) => {
                 orderData.items.forEach(item => {
                     if (item.quantity > 0) {
                         paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
@@ -625,10 +637,35 @@ const OrderConfirmation = () => {
     // Add this function to handle free orders
     const handleFreeOrder = async (checkoutUid = null) => {
         try {
+            let checkoutItemsByOrder = itemsByOrder;
+            try {
+                const refreshed = await refreshCartCommercialTerms({ items: cartItems });
+                applyCommercialRefresh(refreshed);
+                checkoutItemsByOrder = groupPricedItemsByOrder(refreshed.items, {
+                    ...orderInfoMap,
+                    ...refreshed.orderMinimums,
+                });
+            } catch (refreshError) {
+                console.error('Error refreshing checkout terms:', refreshError);
+            }
+
+            const invalidOrders = Object.values(checkoutItemsByOrder).filter((orderData) => (
+                !evaluateOrderMinimum(orderData).valid
+            ));
+            if (invalidOrders.length > 0) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'מינימום הזמנה',
+                    html: invalidOrders.map((orderData) => formatOrderMinimumFailure(orderData)).join('<br>'),
+                    confirmButtonText: 'הבנתי',
+                });
+                return;
+            }
+
             setLoading(true);
             
             // Check and update stock levels first
-            const filteredForStock = Object.entries(itemsByOrder).reduce((acc, [oid, data]) => {
+            const filteredForStock = Object.entries(checkoutItemsByOrder).reduce((acc, [oid, data]) => {
                 acc[oid] = {
                     ...data,
                     items: data.items.filter(i => i.id !== SHIPPING_PRODUCT_ID && !i.isShipping)
@@ -658,14 +695,14 @@ const OrderConfirmation = () => {
             }
             
             // Continue with order processing...
-            const orderIds = Object.keys(itemsByOrder);
+            const orderIds = Object.keys(checkoutItemsByOrder);
             const customerOrderRef = doc(collection(db, "customerOrders"));
             const customerOrderId = customerOrderRef.id;
             
             const orderBreakdown = {};
             const businessIds = [];
             // Process each order in the cart
-            Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
+            Object.entries(checkoutItemsByOrder).forEach(([orderId, orderData]) => {
                 const orderItems = [];
                 
                 // Process each item in this order
@@ -773,7 +810,7 @@ const OrderConfirmation = () => {
                         orderDetails: {
                             customerName: userName,
                             totalAmount: 0,
-                            items: Object.values(itemsByOrder).reduce((total, order) => 
+                            items: Object.values(checkoutItemsByOrder).reduce((total, order) => 
                                 total + order.items.length, 0)
                         }
                     } 
@@ -1268,13 +1305,17 @@ const OrderConfirmation = () => {
                                             ))}
                                         </div>
 
-                                        {orderData.minimumOrderAmount > 0 && orderData.total < orderData.minimumOrderAmount && (
+                                        {(() => {
+                                            const evaluation = evaluateOrderMinimum(orderData);
+                                            if (evaluation.valid || (evaluation.amountRequired <= 0 && evaluation.itemsRequired <= 0)) return null;
+                                            return (
                                             <div className="bg-red-50 px-4 py-2 border-t border-red-100">
                                                 <p className="text-xs text-red-600">
-                                                    ⚠️ סכום מינימום: {orderData.minimumOrderAmount}₪ (חסרים {(orderData.minimumOrderAmount - orderData.total).toFixed(2)}₪)
+                                                    {formatOrderMinimumFailure(orderData, evaluation)}
                                                 </p>
                                             </div>
-                                        )}
+                                            );
+                                        })()}
                                     </div>
                                 ))}
                             </div>

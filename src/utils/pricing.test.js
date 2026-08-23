@@ -1,10 +1,17 @@
 import {
+  applyCartPricing,
   applyQuantityPricing,
+  attachGroupPromotionFields,
+  buildDefaultGroupPromotionLabel,
   buildDefaultQuantityDiscountLabel,
   buildPricingSnapshot,
+  evaluateOrderMinimum,
+  formatOrderMinimumFailure,
   getEstimatedLineTotal,
   getEffectiveUnitPrice,
+  getEligibleMinimumItemCount,
   getQuantityDiscountLabel,
+  validateGroupPromotion,
   validateQuantityDiscount,
 } from './pricing';
 
@@ -55,6 +62,12 @@ describe('legacy quantity pricing', () => {
       quantityDiscountThreshold: 5,
       quantityDiscountPrice: 9.5,
       quantityDiscountApplied: true,
+      groupPromotionId: null,
+      groupPromotionLabel: null,
+      groupPromotionThreshold: null,
+      groupPromotionPrice: null,
+      groupPromotionPricingBasis: null,
+      groupPromotionApplied: false,
     });
 
     expect(getEstimatedLineTotal({
@@ -87,5 +100,226 @@ describe('legacy quantity pricing', () => {
       quantityDiscountThreshold: 4,
       quantityDiscountPrice: 4.9,
     })).toBe('4+ ב-₪4.90 ליחידת מחיר');
+  });
+});
+
+const greensPromo = {
+  id: 'greens-3-10',
+  active: true,
+  label: 'הנחה על ירק 3 ב-10',
+  productIds: ['cilantro', 'parsley', 'dill'],
+  threshold: 3,
+  pricingBasis: 'package',
+  discountedPrice: 10 / 3,
+  bundleTotalPrice: 10,
+};
+
+const attachGreen = (item) => attachGroupPromotionFields(item, greensPromo);
+
+describe('group promotions and order minimums', () => {
+  test('applies a shared package promotion once mixed items reach the threshold', () => {
+    const priced = applyCartPricing([
+      attachGreen({ id: 'cilantro', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+      attachGreen({ id: 'parsley', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+      attachGreen({ id: 'dill', orderId: 'o1', price: 4, quantity: 1, measurementType: 'package' }),
+    ]);
+
+    expect(priced.every((item) => item.groupPromotionApplied)).toBe(true);
+    priced.forEach((item) => {
+      expect(item.effectivePrice).toBeCloseTo(3.33, 2);
+    });
+    expect(priced.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0)).toBeCloseTo(9.99, 2);
+
+    const snapshot = buildPricingSnapshot(priced[0]);
+    expect(snapshot.groupPromotionApplied).toBe(true);
+    expect(snapshot.groupPromotionId).toBe(greensPromo.id);
+    expect(snapshot.effectivePrice).toBeCloseTo(3.33, 2);
+    expect(snapshot.basePrice).toBe(5);
+  });
+
+  test('reprices in both directions when the mixed cart crosses the threshold', () => {
+    const below = applyCartPricing([
+      attachGreen({ id: 'cilantro', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+      attachGreen({ id: 'parsley', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+    ]);
+    expect(below.every((item) => item.groupPromotionApplied === false)).toBe(true);
+    expect(below[0].effectivePrice).toBe(5);
+
+    const atThreshold = applyCartPricing([
+      ...below,
+      attachGreen({ id: 'dill', orderId: 'o1', price: 4, quantity: 1, measurementType: 'package' }),
+    ]);
+    expect(atThreshold.every((item) => item.groupPromotionApplied)).toBe(true);
+
+    const afterRemoval = applyCartPricing(atThreshold.filter((item) => item.id !== 'dill'));
+    expect(afterRemoval.every((item) => item.groupPromotionApplied === false)).toBe(true);
+    expect(afterRemoval[0].effectivePrice).toBe(5);
+  });
+
+  test('does not pool quantities across different sales orders', () => {
+    const priced = applyCartPricing([
+      attachGreen({ id: 'cilantro', orderId: 'o1', price: 5, quantity: 2, measurementType: 'package' }),
+      attachGreen({ id: 'parsley', orderId: 'o2', price: 5, quantity: 2, measurementType: 'package' }),
+    ]);
+    expect(priced.every((item) => item.groupPromotionApplied === false)).toBe(true);
+  });
+
+  test('applies a weighed-unit promotion per kg after the unit count threshold', () => {
+    const unitPromo = {
+      id: 'melons-4',
+      active: true,
+      label: '4 יחידות במבצע',
+      productIds: ['melon-a', 'melon-b'],
+      threshold: 4,
+      pricingBasis: 'unit',
+      discountedPrice: 6,
+    };
+    const priced = applyCartPricing([
+      attachGroupPromotionFields({
+        id: 'melon-a',
+        orderId: 'o1',
+        price: 10,
+        quantity: 2,
+        measurementType: 'unit',
+        averageWeightKg: 2,
+      }, unitPromo),
+      attachGroupPromotionFields({
+        id: 'melon-b',
+        orderId: 'o1',
+        price: 9,
+        quantity: 2,
+        measurementType: 'unit',
+        averageWeightKg: 1.5,
+      }, unitPromo),
+    ]);
+
+    expect(priced.every((item) => item.groupPromotionApplied)).toBe(true);
+    expect(getEstimatedLineTotal(priced[0])).toBe(24);
+    expect(getEstimatedLineTotal(priced[1])).toBe(18);
+  });
+
+  test('falls back to a per-product quantity discount below the group threshold', () => {
+    const priced = applyCartPricing([
+      attachGreen({
+        id: 'cilantro',
+        orderId: 'o1',
+        price: 5,
+        quantity: 2,
+        measurementType: 'package',
+        quantityDiscountThreshold: 2,
+        quantityDiscountPrice: 4,
+      }),
+    ]);
+    expect(priced[0].groupPromotionApplied).toBe(false);
+    expect(priced[0].quantityDiscountApplied).toBe(true);
+    expect(priced[0].effectivePrice).toBe(4);
+  });
+
+  test('gives an active group promotion priority over a per-product quantity discount', () => {
+    const priced = applyCartPricing([
+      attachGreen({
+        id: 'cilantro',
+        orderId: 'o1',
+        price: 5,
+        quantity: 2,
+        measurementType: 'package',
+        quantityDiscountThreshold: 2,
+        quantityDiscountPrice: 4,
+      }),
+      attachGreen({ id: 'parsley', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+    ]);
+    expect(priced[0].groupPromotionApplied).toBe(true);
+    expect(priced[0].quantityDiscountApplied).toBe(false);
+    expect(priced[0].effectivePrice).toBeCloseTo(3.33, 2);
+  });
+
+  test('excludes kg, shipping, and basket-adjustment lines from group promotions and item minimums', () => {
+    const priced = applyCartPricing([
+      attachGreen({ id: 'cilantro', orderId: 'o1', price: 5, quantity: 3, measurementType: 'kg' }),
+      attachGreen({ id: 'parsley', orderId: 'o1', price: 5, quantity: 3, measurementType: 'package', isShipping: true }),
+      attachGreen({ id: 'dill', orderId: 'o1', price: 5, quantity: 3, measurementType: 'package', isBasketAdjustment: true }),
+    ]);
+    expect(priced.every((item) => item.groupPromotionApplied === false)).toBe(true);
+    expect(getEligibleMinimumItemCount(priced)).toBe(0);
+  });
+
+  test('builds a familiar default package promotion label', () => {
+    expect(buildDefaultGroupPromotionLabel(greensPromo)).toBe('3 ב-₪10.00');
+  });
+
+  test('rejects invalid group promotions and overlapping products', () => {
+    const products = [
+      { id: 'cilantro', name: 'כוסברה', price: 5, measurementType: 'package' },
+      { id: 'tomato', name: 'עגבניה', price: 8, measurementType: 'kg' },
+    ];
+    expect(validateGroupPromotion({
+      pricingBasis: 'package',
+      productIds: ['cilantro'],
+      threshold: 3,
+      bundleTotalPrice: 10,
+      products,
+    })).toBe('');
+    expect(validateGroupPromotion({
+      pricingBasis: 'package',
+      productIds: ['tomato'],
+      threshold: 3,
+      bundleTotalPrice: 10,
+      products,
+    })).toMatch(/מארז/);
+    expect(validateGroupPromotion({
+      pricingBasis: 'package',
+      productIds: ['cilantro'],
+      threshold: 3,
+      bundleTotalPrice: 20,
+      products,
+    })).toMatch(/נמוך ממחיר/);
+    expect(validateGroupPromotion({
+      pricingBasis: 'package',
+      productIds: ['cilantro'],
+      threshold: 3,
+      bundleTotalPrice: 10,
+      products,
+      existingPromotions: [greensPromo],
+    })).toMatch(/מבצע פעיל אחר/);
+  });
+
+  test('treats missing minimums as valid and uses OR when both are configured', () => {
+    const items = [
+      { measurementType: 'package', quantity: 2 },
+      { measurementType: 'kg', quantity: 5 },
+    ];
+    expect(evaluateOrderMinimum({ total: 10, items }).valid).toBe(true);
+    expect(evaluateOrderMinimum({ total: 20, items, minimumOrderAmount: 50 }).valid).toBe(false);
+    expect(evaluateOrderMinimum({ total: 10, items, minimumOrderItemCount: 3 }).valid).toBe(false);
+    expect(evaluateOrderMinimum({
+      total: 20,
+      items,
+      minimumOrderAmount: 50,
+      minimumOrderItemCount: 2,
+    }).valid).toBe(true);
+    expect(evaluateOrderMinimum({
+      total: 60,
+      items: [{ measurementType: 'package', quantity: 1 }],
+      minimumOrderAmount: 50,
+      minimumOrderItemCount: 4,
+    }).valid).toBe(true);
+    expect(evaluateOrderMinimum({
+      total: 10,
+      items,
+      minimumOrderAmount: 50,
+      minimumOrderItemCount: 4,
+    }).valid).toBe(false);
+  });
+
+  test('formats a Hebrew minimum-order failure that mentions both routes', () => {
+    const message = formatOrderMinimumFailure({
+      total: 12,
+      items: [{ businessName: 'החקלאי', measurementType: 'package', quantity: 1 }],
+      minimumOrderAmount: 40,
+      minimumOrderItemCount: 3,
+    });
+    expect(message).toMatch(/החקלאי/);
+    expect(message).toMatch(/40/);
+    expect(message).toMatch(/3/);
   });
 });

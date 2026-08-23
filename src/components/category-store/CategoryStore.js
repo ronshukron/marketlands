@@ -15,7 +15,7 @@ import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
 import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
 import { enrichProductsWithFarmerBadge } from '../../utils/farmerBadgeUtils';
-import { getEstimatedLineTotal } from '../../utils/pricing';
+import { attachGroupPromotionFields, findActiveGroupPromotionForProduct, getEstimatedLineTotal, normalizeProductPromotions } from '../../utils/pricing';
 import { communityListIncludes } from '../../constants/marketplaceFulfillment';
 import {
   getCommunityCode,
@@ -118,6 +118,9 @@ const buildCartItemFromProduct = (product) => {
     measurementType,
     unitSize,
     averageWeightKg: product.averageWeightKg || 1,
+    minimumOrderAmount: product.minimumOrderAmount || 0,
+    minimumOrderItemCount: product.minimumOrderItemCount || 0,
+    ...attachGroupPromotionFields({}, product.groupPromotion),
   };
 };
 
@@ -561,6 +564,12 @@ const CategoryStore = () => {
                 measurementType: productData.measurementType || 'kg',
                 unitSize: productData.unitSize || 1,
                 averageWeightKg: productData.averageWeightKg || 1,
+                minimumOrderAmount: metadata.orderData.minimumOrderAmount || 0,
+                minimumOrderItemCount: metadata.orderData.minimumOrderItemCount || 0,
+                groupPromotion: findActiveGroupPromotionForProduct(
+                  normalizeProductPromotions(metadata.businessData.productPromotions),
+                  { id: productDoc.id, measurementType: productData.measurementType || 'kg' },
+                ),
 
                 // Order-related fields
                 orderId: metadata.orderId,
@@ -771,7 +780,13 @@ const CategoryStore = () => {
         return;
       }
       const item = buildCartItemFromProduct(product);
-      addItem(item, product.orderId, product.businessId, 0);
+      addItem(
+        item,
+        product.orderId,
+        product.businessId,
+        product.minimumOrderAmount || 0,
+        product.minimumOrderItemCount || 0,
+      );
       added += 1;
     });
 
@@ -823,7 +838,7 @@ const CategoryStore = () => {
         basketComponentSubtotal: componentSubtotal,
         basketCommunity: selectedCommunity,
         isBasketComponent: true,
-      }, line.orderId, line.businessId, line.minimumOrderAmount || 0);
+      }, line.orderId, line.businessId, line.minimumOrderAmount || 0, line.minimumOrderItemCount || 0);
     });
 
     const adjustment = Math.round((displayPrice - componentSubtotal) * 100) / 100;

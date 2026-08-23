@@ -1,0 +1,15 @@
+// Paste into the EXISTING match /businesses/{businessId} block if one already
+// exists. Do not add a second businesses match and do not replace production
+// rules for this collection.
+//
+// Prototype field check for owner-only catalog promotions stored on the
+// business document. Review before publishing.
+
+function isValidProductPromotions(data) {
+  return !('productPromotions' in data)
+    || (data.productPromotions is list
+        && data.productPromotions.size() <= 20);
+}
+
+// Example usage inside the existing businesses rule:
+// allow update: if isOwner(businessId) && isValidProductPromotions(request.resource.data);

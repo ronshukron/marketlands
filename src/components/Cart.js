@@ -5,10 +5,10 @@ import { useAuth } from '../contexts/authContext';
 import { getCheckoutRoute } from '../services/paymentConfigService';
 import { saveCart } from '../services/savedCartService';
 import Swal from 'sweetalert2';
-import { getEstimatedChargeableQuantity } from '../utils/pricing';
+import { evaluateOrderMinimum, formatOrderMinimumFailure, getEstimatedChargeableQuantity } from '../utils/pricing';
 
 const Cart = ({ isOpen, onClose }) => {
-  const { cartItems, removeItem, removeBasketInstance, updateQuantity, cartTotal, totalItems, getCartSnapshot } = useCart();
+  const { cartItems, removeItem, removeBasketInstance, updateQuantity, cartTotal, totalItems, getCartSnapshot, itemsByOrder } = useCart();
   const { userLoggedIn, currentUser } = useAuth();
   const navigate = useNavigate();
   const [checkingRoute, setCheckingRoute] = useState(false);
@@ -90,6 +90,21 @@ const Cart = ({ isOpen, onClose }) => {
   const handleCheckout = async () => {
     if (cartItems.length === 0) {
       Swal.fire('הסל ריק', 'אנא הוסף פריטים לסל לפני המעבר לתשלום.', 'warning');
+      return;
+    }
+
+    const invalidOrders = Object.values(itemsByOrder).filter((orderData) => (
+      !evaluateOrderMinimum(orderData).valid
+    ));
+    if (invalidOrders.length > 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'מינימום הזמנה',
+        html: `ניתן להמשיך כשעומדים בסכום המינימום או במספר פריטי היחידה/מארז.<br><br>${
+          invalidOrders.map((orderData) => formatOrderMinimumFailure(orderData)).join('<br>')
+        }`,
+        confirmButtonText: 'הבנתי',
+      });
       return;
     }
 
@@ -213,7 +228,17 @@ const Cart = ({ isOpen, onClose }) => {
                         {!isBasketAdjustment && isUnitItem && '/ק"ג'}
                         {!isBasketAdjustment && isPackageItem && '/מארז'}
                       </p>
-                      {item.quantityDiscountApplied && (
+                      {item.groupPromotionApplied && (
+                        <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
+                          {item.groupPromotionLabel || 'מבצע משותף הופעל'}
+                          {Number(item.basePrice) > Number(item.effectivePrice) && (
+                            <span className="text-gray-400 font-normal mr-1 line-through">
+                              ₪{Number(item.basePrice).toFixed(2)}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {!item.groupPromotionApplied && item.quantityDiscountApplied && (
                         <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
                           הנחת כמות הופעלה
                           {Number(item.basePrice) > Number(item.effectivePrice) && (
@@ -301,6 +326,23 @@ const Cart = ({ isOpen, onClose }) => {
               <span className="text-xs font-medium text-gray-800">סה"כ לתשלום:</span>
               <span className="text-xs font-semibold text-blue-600">₪{cartTotal.toFixed(2)}</span>
             </div>
+            {Object.values(itemsByOrder).map((orderData) => {
+              const evaluation = evaluateOrderMinimum(orderData);
+              if (evaluation.amountRequired <= 0 && evaluation.itemsRequired <= 0) return null;
+              const businessName = orderData.items?.[0]?.businessName || 'העסק';
+              return (
+                <div key={`${orderData.businessId}-${businessName}`} className={`mb-2 rounded-md px-2 py-1.5 text-[11px] ${evaluation.valid ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                  <p className="font-semibold">{businessName}</p>
+                  {evaluation.amountRequired > 0 && (
+                    <p>סכום: ₪{(orderData.total || 0).toFixed(2)} / ₪{evaluation.amountRequired.toFixed(2)}</p>
+                  )}
+                  {evaluation.itemsRequired > 0 && (
+                    <p>יחידות/מארזים: {evaluation.eligibleCount} / {evaluation.itemsRequired}</p>
+                  )}
+                  <p>{evaluation.valid ? 'אפשר להמשיך לתשלום' : 'יש להשלים סכום או מספר פריטים'}</p>
+                </div>
+              );
+            })}
             <div className="mt-4 pb-16 md:pb-5 space-y-2">
               {userLoggedIn && (
                 <button

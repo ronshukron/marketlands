@@ -37,6 +37,7 @@ import BusinessProducts from './components/businesses/BusinessProducts';
 import AddProduct from './components/businesses/AddProduct';
 import EditProduct from './components/businesses/EditProduct';
 import BulkEditProducts from './components/businesses/BulkEditProducts';
+import BusinessPromotions from './components/businesses/BusinessPromotions';
 import BulkReplaceProductImages from './components/businesses/BulkReplaceProductImages';
 import CreateOrderForBusiness from './components/businesses/CreateOrderForBusiness';
 import AlwaysOnCutoffSettings from './components/businesses/AlwaysOnCutoffSettings';
@@ -177,6 +178,7 @@ const App = () => {
                   <Route path="/marketplace/register" element={<LocalBusinessRegister />} />
                   <Route path="/Business-DashBoard" element={<BusinessDashBoard />} />
                   <Route path="/Business-Products" element={<BusinessProducts />} />
+                  <Route path="/business-promotions" element={<BusinessPromotions />} />
                   <Route path="/add-product" element={<AddProduct />} />
                   <Route path="/edit-product/:productId" element={<EditProduct />} />
                   <Route path="/bulk-edit-products" element={<BulkEditProducts />} />

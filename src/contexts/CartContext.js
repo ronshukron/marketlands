@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useMemo, useEffect } from '
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
-import { applyQuantityPricing, getEstimatedLineTotal } from '../utils/pricing';
+import { applyCartPricing, applyQuantityPricing, getEstimatedLineTotal } from '../utils/pricing';
 import {
   isAlwaysOnGroceryOrder,
   isAlwaysOnGroceryOrderEnabled,
@@ -39,7 +39,7 @@ export const CartProvider = ({ children }) => {
       
       if (savedCartItems) {
         const parsedCartItems = JSON.parse(savedCartItems);
-        setCartItems(parsedCartItems.map((item) => applyQuantityPricing(item, item.quantity)));
+        setCartItems(applyCartPricing(parsedCartItems.map((item) => applyQuantityPricing(item, item.quantity))));
       }
       
       if (savedOrderInfoMap) {
@@ -179,8 +179,9 @@ export const CartProvider = ({ children }) => {
    * @param {string} orderId - The identifier for the order this item belongs to.
    * @param {string} businessId - The identifier for the business associated with the order.
    * @param {number} minimumOrderAmount - The minimum amount required for the order.
+   * @param {number} [minimumOrderItemCount=0] - Minimum eligible unit/package count.
    */
-  const addItem = (item, orderId, businessId, minimumOrderAmount) => {
+  const addItem = (item, orderId, businessId, minimumOrderAmount, minimumOrderItemCount = 0) => {
     setCartItems(prevItems => {
       const incomingKey = getCartLineKey({ ...item, orderId });
       // Check if item already exists in cart
@@ -197,7 +198,7 @@ export const CartProvider = ({ children }) => {
             Number(updatedItems[existingItemIndex].quantity) + Number(item.quantity),
           ),
         };
-        return updatedItems;
+        return applyCartPricing(updatedItems);
       }
 
       // If item doesn't exist, add it to cart
@@ -219,13 +220,14 @@ export const CartProvider = ({ children }) => {
         // Add or update the info for the current orderId.
         [orderId]: {
           businessId,
-          minimumOrderAmount,
+          minimumOrderAmount: Number(minimumOrderAmount) || prev[orderId]?.minimumOrderAmount || 0,
+          minimumOrderItemCount: Number(minimumOrderItemCount) || prev[orderId]?.minimumOrderItemCount || 0,
           lastUpdated: new Date().toISOString() // Track when this order was last touched
         }
       }));
 
       // Return the updated list of cart items.
-      return [...prevItems, newItemWithDetails];
+      return applyCartPricing([...prevItems, newItemWithDetails]);
     });
   };
 
@@ -259,7 +261,7 @@ export const CartProvider = ({ children }) => {
       }
 
       // Return the updated list of cart items.
-      return newItems;
+      return applyCartPricing(newItems);
     });
   };
 
@@ -270,7 +272,7 @@ export const CartProvider = ({ children }) => {
    * @param {number} quantity - The new quantity for the item.
    */
   const updateQuantity = (uid, quantity) => {
-    setCartItems((prevItems) =>
+    setCartItems((prevItems) => applyCartPricing(
       // Map over the items: update the target item's quantity (ensuring it's not negative).
       prevItems.map((item) =>
         item.uid === uid
@@ -279,7 +281,7 @@ export const CartProvider = ({ children }) => {
       )
       // Filter out any items whose quantity was set to 0 or less.
       .filter(item => item.quantity > 0)
-    );
+    ));
     // Note: This function doesn't currently update orderInfoMap if an item removal
     // leads to an empty order. This might be desired or an area for enhancement
     // depending on requirements (removeItem handles this cleanup).
@@ -337,7 +339,7 @@ export const CartProvider = ({ children }) => {
         });
         return updated;
       });
-      return newItems;
+      return applyCartPricing(newItems);
     });
   };
 
@@ -355,8 +357,27 @@ export const CartProvider = ({ children }) => {
       ...applyQuantityPricing(item, item.quantity),
       uid: generateCartItemUid(item.orderId, item.id, item.selectedOption),
     }));
-    setCartItems(items);
+    setCartItems(applyCartPricing(items));
     setOrderInfoMap(snapshot.orderInfoMap || {});
+  };
+
+  const applyCommercialRefresh = ({ items, orderMinimums } = {}) => {
+    if (Array.isArray(items)) {
+      setCartItems(applyCartPricing(items));
+    }
+    if (orderMinimums) {
+      setOrderInfoMap((prev) => {
+        const updated = { ...prev };
+        Object.entries(orderMinimums).forEach(([orderId, mins]) => {
+          updated[orderId] = {
+            ...updated[orderId],
+            ...mins,
+            lastUpdated: new Date().toISOString(),
+          };
+        });
+        return updated;
+      });
+    }
   };
 
   const mergeCart = (snapshot) => {
@@ -383,7 +404,7 @@ export const CartProvider = ({ children }) => {
           });
         }
       });
-      return merged;
+      return applyCartPricing(merged);
     });
 
     if (snapshot.orderInfoMap) {
@@ -419,7 +440,8 @@ export const CartProvider = ({ children }) => {
           items: [], // Array to hold items for this order
           businessId: item.businessId, // Store the businessId associated with this order
           // Retrieve the minimum order amount from the orderInfoMap, defaulting to 0 if not found.
-          minimumOrderAmount: orderInfoMap[item.orderId]?.minimumOrderAmount || 0
+          minimumOrderAmount: orderInfoMap[item.orderId]?.minimumOrderAmount || 0,
+          minimumOrderItemCount: orderInfoMap[item.orderId]?.minimumOrderItemCount || 0
         };
       }
       // Add the current item to the items array for its corresponding orderId.
@@ -456,6 +478,7 @@ export const CartProvider = ({ children }) => {
     getCartSnapshot,
     replaceCart,
     mergeCart,
+    applyCommercialRefresh,
   };
 
   // Render the CartContext.Provider, passing the 'value' object down

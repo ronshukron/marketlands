@@ -9,7 +9,14 @@ import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext'; // Import useCart
-import { getEffectiveUnitPrice, getQuantityDiscountLabel, normalizeQuantityDiscount } from '../../utils/pricing';
+import {
+  attachGroupPromotionFields,
+  findActiveGroupPromotionForProduct,
+  getEffectiveUnitPrice,
+  getQuantityDiscountLabel,
+  normalizeProductPromotions,
+  normalizeQuantityDiscount,
+} from '../../utils/pricing';
 
 const OrderFormBusiness = () => {
   const { orderId } = useParams();
@@ -20,6 +27,8 @@ const OrderFormBusiness = () => {
   const [orderEnded, setOrderEnded] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState([]);
   const [minimumOrderAmount, setMinimumOrderAmount] = useState(0);
+  const [minimumOrderItemCount, setMinimumOrderItemCount] = useState(0);
+  const [productPromotions, setProductPromotions] = useState([]);
   const navigate = useNavigate();
 
   // Get cart functions from context
@@ -35,6 +44,7 @@ const OrderFormBusiness = () => {
         setOrderDetails(orderData);
         setSelectedProductIds(orderData.selectedProducts || []);
         setMinimumOrderAmount(orderData.minimumOrderAmount || 0);
+        setMinimumOrderItemCount(orderData.minimumOrderItemCount || 0);
 
         if (orderData.endingTime) {
           const endingTime = orderData.endingTime.toDate();
@@ -67,6 +77,7 @@ const OrderFormBusiness = () => {
         image: businessData.logo || '',
         id: businessId
       });
+      setProductPromotions(normalizeProductPromotions(businessData.productPromotions));
   
       // Fetch only the selected products
       let fetchedProducts = [];
@@ -170,7 +181,11 @@ const OrderFormBusiness = () => {
       vatType: product.vatType ?? 3,
       measurementType: product.measurementType || 'kg',
       unitSize: product.unitSize || 1,
-      averageWeightKg: product.averageWeightKg || 1
+      averageWeightKg: product.averageWeightKg || 1,
+      ...attachGroupPromotionFields(
+        {},
+        findActiveGroupPromotionForProduct(productPromotions, product),
+      ),
     };
     console.log('productToAdd', productToAdd);
     // Add to global cart only
@@ -178,7 +193,8 @@ const OrderFormBusiness = () => {
       productToAdd,
       orderId,
       businessInfo.id,
-      minimumOrderAmount
+      minimumOrderAmount,
+      minimumOrderItemCount
     );
 
     // Reset product quantity to 0
@@ -301,6 +317,12 @@ const OrderFormBusiness = () => {
                     </svg>
                     <span className="font-medium">סכום מינימום להזמנה:</span>&nbsp;
                     <span>{minimumOrderAmount}₪</span>
+                  </div>
+                )}
+                {minimumOrderItemCount > 0 && (
+                  <div className="flex items-center text-gray-700">
+                    <span className="font-medium">מינימום יחידות/מארזים:</span>&nbsp;
+                    <span>{minimumOrderItemCount}</span>
                   </div>
                 )}
               </div>

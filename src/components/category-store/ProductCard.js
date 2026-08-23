@@ -4,7 +4,13 @@ import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext';
-import { getEffectiveUnitPrice, getQuantityDiscountLabel, normalizeQuantityDiscount } from '../../utils/pricing';
+import {
+  attachGroupPromotionFields,
+  getEffectiveUnitPrice,
+  getGroupPromotionLabel,
+  getQuantityDiscountLabel,
+  normalizeQuantityDiscount,
+} from '../../utils/pricing';
 import { isNewProduct } from '../../utils/productFreshness';
 
 const CATEGORY_CARD_IMAGE_LIMIT = 1;
@@ -21,10 +27,9 @@ const ProductImage = ({ src, alt, className, width, height }) => (
   />
 );
 
-const QuantityDiscountBadge = ({ product, quantityDiscount }) => {
-  if (!quantityDiscount) return null;
-
-  const label = getQuantityDiscountLabel(product);
+const QuantityDiscountBadge = ({ product, quantityDiscount, groupPromotion }) => {
+  const groupLabel = groupPromotion ? getGroupPromotionLabel(groupPromotion) : '';
+  const label = groupLabel || (quantityDiscount ? getQuantityDiscountLabel(product) : '');
   if (!label) return null;
 
   return (
@@ -92,6 +97,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     product.quantityDiscountThreshold,
     product.quantityDiscountPrice,
   );
+  const groupPromotion = product.groupPromotion || null;
 
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
   const [selectedOption] = useState(
@@ -204,14 +210,16 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       vatType: product.vatType ?? 3,
       measurementType: measurementType,
       unitSize: unitSize,
-      averageWeightKg: averageWeightKg
+      averageWeightKg: averageWeightKg,
+      ...attachGroupPromotionFields({}, groupPromotion),
     };
 
     addItem(
       productToAdd,
       product.orderId,
       product.businessId,
-      0
+      product.minimumOrderAmount || 0,
+      product.minimumOrderItemCount || 0,
     );
 
     setQuantity(isKgItem ? unitSize : 1);
@@ -236,7 +244,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
 
   const isOutOfStock = product.stockAmount <= 0;
   const quantityInCartLabel = formatQuantityWithUnit(quantityInCart);
-  const hasQuantityDiscount = Boolean(quantityDiscount);
+  const hasQuantityDiscount = Boolean(quantityDiscount || groupPromotion);
 
   return (
     <div className={`product-card relative ${hasQuantityDiscount ? 'pt-3' : ''}`}>
@@ -251,7 +259,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       {/* Desktop Layout - Vertical with larger image */}
       <div className="hidden md:flex md:flex-col">
         <div className="relative h-56 w-full flex-shrink-0">
-          <QuantityDiscountBadge product={product} quantityDiscount={quantityDiscount} />
+          <QuantityDiscountBadge product={product} quantityDiscount={quantityDiscount} groupPromotion={groupPromotion} />
           <div className="h-full overflow-hidden rounded-t-md">
           {cardImages.length > 0 ? (
             cardImages.length > 1 ? (
@@ -390,7 +398,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       {/* Mobile Layout - Horizontal */}
       <div className="md:hidden flex border-b">
         <div className="relative h-28 w-28 flex-shrink-0 border-l">
-          <QuantityDiscountBadge product={product} quantityDiscount={quantityDiscount} />
+          <QuantityDiscountBadge product={product} quantityDiscount={quantityDiscount} groupPromotion={groupPromotion} />
           <div className="h-full overflow-hidden">
           {cardImages.length > 0 ? (
             cardImages.length > 1 ? (
