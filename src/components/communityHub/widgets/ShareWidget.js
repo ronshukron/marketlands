@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../contexts/authContext';
 import { getDisplayDiscountInfo, getCommunityMemberCount } from '../../../services/communityDiscountService';
 import { getReferralConfig, getOrCreateReferralCode } from '../../../services/referralService';
+import { getCommunityCode } from '../../../services/pickupSpotsService';
 
 const ShareWidget = ({ communityName }) => {
   const { currentUser } = useAuth();
@@ -48,7 +49,7 @@ const ShareWidget = ({ communityName }) => {
 
   const shareUrl = referralMode === 'personal' && referralCode
     ? `${window.location.origin}/?ref=${encodeURIComponent(referralCode)}`
-    : `${window.location.origin}/?community=${encodeURIComponent(communityName)}`;
+    : `${window.location.origin}/?c=${getCommunityCode(communityName)}`;
 
   const getShareMessage = () => {
     if (referralMode === 'personal' && referralCode) {

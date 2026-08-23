@@ -17,7 +17,11 @@ import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, 
 import { enrichProductsWithFarmerBadge } from '../../utils/farmerBadgeUtils';
 import { getEstimatedLineTotal } from '../../utils/pricing';
 import { communityListIncludes } from '../../constants/marketplaceFulfillment';
-import { resolveCommunityName } from '../../services/pickupSpotsService';
+import {
+  getCommunityCode,
+  resolveCommunityByCode,
+  resolveCommunityName,
+} from '../../services/pickupSpotsService';
 import {
   INTRODUCTION_BASKET_ADJUSTMENT_PREFIX,
   listActiveIntroductionBasketsForCommunity,
@@ -163,11 +167,14 @@ const CategoryStore = () => {
     return sortedPickupSpots.filter(s => s.toLowerCase().includes(query));
   }, [communityQuery, sortedPickupSpots]);
   
-  // Sync selected category and community with URL query params (?category=, ?community=)
+  // Sync selected category and community with URL query params.
+  // Compact links use ?c=<code>; legacy ?community= and ?pickupSpot= links remain supported.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const cat = params.get('category') || 'הכל';
-    const comm = params.get('community') || params.get('pickupSpot');
+    const communityCode = params.get('c');
+    const legacyCommunity = params.get('community') || params.get('pickupSpot');
+    const comm = communityCode ? resolveCommunityByCode(communityCode) : legacyCommunity;
     setSelectedCategory(cat);
     setIsSearchActive(false); // leave search mode when category changes
     if (comm && comm.trim()) {
@@ -176,6 +183,12 @@ const CategoryStore = () => {
       try {
         localStorage.setItem('selectedPickupSpot', resolvedCommunity);
       } catch {}
+      if (!communityCode && legacyCommunity) {
+        params.delete('community');
+        params.delete('pickupSpot');
+        params.set('c', getCommunityCode(resolvedCommunity));
+        navigate({ pathname: '/', search: `?${params.toString()}` }, { replace: true });
+      }
     } else {
       const saved = localStorage.getItem('selectedPickupSpot');
       if (saved && saved !== 'הכל') {
@@ -194,7 +207,7 @@ const CategoryStore = () => {
         }
       }, 100);
     }
-  }, [location.search]);
+  }, [location.search, navigate, pickupSpots]);
 
   // Close community dropdown on outside click
   useEffect(() => {
@@ -224,10 +237,15 @@ const CategoryStore = () => {
   
   const handleCategoryChange = (category) => {
     const params = new URLSearchParams(location.search);
-    const currentCommunity = params.get('community') || selectedCommunity || '';
+    const currentCommunity = resolveCommunityByCode(params.get('c')) ||
+      params.get('community') ||
+      selectedCommunity ||
+      '';
     const nextParams = new URLSearchParams();
-    nextParams.set('category', category);
-    if (currentCommunity && currentCommunity !== 'הכל') nextParams.set('community', currentCommunity);
+    if (category && category !== 'הכל') nextParams.set('category', category);
+    if (currentCommunity && currentCommunity !== 'הכל') {
+      nextParams.set('c', getCommunityCode(currentCommunity));
+    }
     navigate({ pathname: '/', search: `?${nextParams.toString()}` });
   };
 
@@ -242,8 +260,10 @@ const CategoryStore = () => {
     const params = new URLSearchParams(location.search);
     const currentCategory = params.get('category') || selectedCategory || 'הכל';
     const nextParams = new URLSearchParams();
-    if (currentCategory) nextParams.set('category', currentCategory);
-    if (community && community !== 'הכל') nextParams.set('community', community);
+    if (currentCategory && currentCategory !== 'הכל') nextParams.set('category', currentCategory);
+    if (community && community !== 'הכל') {
+      nextParams.set('c', getCommunityCode(community));
+    }
     navigate({ pathname: '/', search: `?${nextParams.toString()}` });
   };
 

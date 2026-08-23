@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
-import { doc, updateDoc, getDoc, setDoc, collection, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
+import { doc, getDoc, setDoc, collection, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
 import { db } from '../../firebase/firebase';
 import '../OrderConfirmation.css';
 import LoadingSpinner from '../LoadingSpinner';
@@ -43,6 +43,7 @@ import {
     resolveCheckoutAccountAction,
 } from '../../utils/checkoutAccountUtils';
 import { buildGrowInvoiceItem } from '../../utils/growInvoiceUtils';
+import { validateCheckoutCustomer } from '../../utils/marketplaceCustomerValidation';
 
 async function processReferralReward({ orderId, buyerUid, orderTotal }) {
   const refCode = getStoredReferralCode();
@@ -186,7 +187,13 @@ const OrderConfirmationDelayed = () => {
     const [userEmail, setUserEmail] = useState('');
     const [paymentUrl, setPaymentUrl] = useState('');
     const [formIsValid, setFormIsValid] = useState(false);
-    const [showPopup, setShowPopup] = useState(false);
+    const [detailsValidationAttempted, setDetailsValidationAttempted] = useState(false);
+    const [touchedDetails, setTouchedDetails] = useState({
+        name: false,
+        phone: false,
+        email: false,
+        address: false,
+    });
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [createAccount, setCreateAccount] = useState(true);
     const [showAccountInfo, setShowAccountInfo] = useState(false);
@@ -194,6 +201,10 @@ const OrderConfirmationDelayed = () => {
     const [userAddress, setUserAddress] = useState(''); 
     const [requestAddress, setRequestAddress] = useState(false); 
     const [userDirections, setUserDirections] = useState('');
+    const userNameRef = useRef(null);
+    const userPhoneRef = useRef(null);
+    const userEmailRef = useRef(null);
+    const userAddressRef = useRef(null);
     const [selectedPickupSpot, setSelectedPickupSpot] = useState(() => {
         return localStorage.getItem('selectedPickupSpot') || '';
     });
@@ -416,33 +427,6 @@ const OrderConfirmationDelayed = () => {
         syncShippingItem();
     }, [deliveryOption, itemsByOrder, cartItems, addItem, removeItem]);
 
-    // Move the updateOrdersWithReference function to component level so it can be used everywhere
-    const updateOrdersWithReference = async (orderIds, customerOrderDocId) => {
-        try {
-            // Create an array of promises for each order update
-            const updatePromises = orderIds.map(async (orderId) => {
-                try {
-                    // Get a reference to the Order document
-                    const orderRef = doc(db, "Orders", orderId);
-                    
-                    // Update the customerOrderIds array in the Orders document
-                    await updateDoc(orderRef, {
-                        customerOrderIds: arrayUnion(customerOrderDocId)
-                    });
-                    
-                    console.log(`Successfully updated order ${orderId} with customer order reference ${customerOrderDocId}`);
-                } catch (orderError) {
-                    console.error(`Error updating order ${orderId}:`, orderError);
-                }
-            });
-            
-            // Wait for all updates to complete
-            await Promise.all(updatePromises);
-        } catch (error) {
-            console.error("Error updating orders with customer order reference:", error);
-        }
-    };
-
     useEffect(() => {
         const orderIds = Object.keys(itemsByOrder);
         let isActive = true;
@@ -619,12 +603,17 @@ const OrderConfirmationDelayed = () => {
     }, [userPhone]);
 
     useEffect(() => {
+        const customerValidation = validateCheckoutCustomer({
+            name: userName,
+            phone: userPhone,
+            email: userEmail,
+        });
+        const addressRequired = requestAddress || deliveryOption === 'homeDelivery';
         const isValid = userName.trim() !== '' && 
                         userPhone.trim() !== '' && 
                         userEmail.trim() !== '' &&
-                        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) &&
-                        (!requestAddress || userAddress.trim() !== '') &&
-                        (deliveryOption !== 'homeDelivery' || userAddress.trim() !== '') &&
+                        customerValidation.valid &&
+                        (!addressRequired || userAddress.trim() !== '') &&
                         (availablePickupSpots.length === 0 || (selectedPickupSpot && selectedPickupSpot !== 'הכל')) &&
                         cartOrderMetaReady &&
                         (!cartHasAlwaysOnGrocery || (selectedDeliveryDate && !deliveryDateError)); 
@@ -803,8 +792,7 @@ const OrderConfirmationDelayed = () => {
     }, [itemsByOrder, navigate, removeOrderFromCart]);
 
     const handleSubmitOrder = async (checkoutUid = null) => {
-        if (!formIsValid) {
-            setShowPopup(true);
+        if (!validateCustomerDetailsAndFocus()) {
             return;
         }
 
@@ -949,9 +937,6 @@ const OrderConfirmationDelayed = () => {
             },
             ...buildOrderAccountPayload(checkoutUid)
         }, { merge: true });
-
-        // Update the original orders with the actual document ID
-        await updateOrdersWithReference(Object.keys(effectiveItemsByOrder), customerOrderId);
 
         // Add the order to the user's document
         if (checkoutUid) {
@@ -1126,7 +1111,6 @@ const OrderConfirmationDelayed = () => {
             }
             
             // Continue with order processing...
-            const orderIds = Object.keys(effectiveItemsByOrder);
             const customerOrderRef = doc(collection(db, "customerOrdersDelayed"));
             const customerOrderId = customerOrderRef.id;
             
@@ -1206,8 +1190,6 @@ const OrderConfirmationDelayed = () => {
             // Create a customer order document
             await setDoc(customerOrderRef, customerOrderData);
             
-            // Now call the function that's defined at component level
-            await updateOrdersWithReference(orderIds, customerOrderRef.id);
             await processReferralReward({
               orderId: customerOrderRef.id,
               buyerUid: checkoutUid,
@@ -1265,6 +1247,52 @@ const OrderConfirmationDelayed = () => {
         }
     };
 
+    const customerDetailsValidation = validateCheckoutCustomer({
+        name: userName,
+        phone: userPhone,
+        email: userEmail,
+    });
+    const addressIsRequired = requestAddress || deliveryOption === 'homeDelivery';
+    const customerDetailsErrors = {
+        ...customerDetailsValidation.errors,
+        address: addressIsRequired && !userAddress.trim() ? 'כתובת למשלוח היא שדה חובה' : '',
+    };
+    const customerDetailsAreValid = customerDetailsValidation.valid && !customerDetailsErrors.address;
+
+    const markDetailTouched = (field) => {
+        setTouchedDetails((current) => ({ ...current, [field]: true }));
+    };
+
+    const shouldShowDetailError = (field) =>
+        Boolean(customerDetailsErrors[field] && (detailsValidationAttempted || touchedDetails[field]));
+
+    const detailInputClass = (field, readOnly = false) =>
+        `w-full px-3 py-3 border rounded-lg shadow-sm transition-colors focus:outline-none focus:ring-2 ${
+            shouldShowDetailError(field)
+                ? 'border-red-500 bg-red-50 focus:border-red-500 focus:ring-red-200'
+                : 'border-gray-300 bg-white focus:border-purple-500 focus:ring-purple-200'
+        } ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`;
+
+    const validateCustomerDetailsAndFocus = () => {
+        setDetailsValidationAttempted(true);
+        if (customerDetailsAreValid) return true;
+
+        const firstInvalidField = ['name', 'phone', 'email', 'address']
+            .find((field) => customerDetailsErrors[field]);
+        const refs = {
+            name: userNameRef,
+            phone: userPhoneRef,
+            email: userEmailRef,
+            address: userAddressRef,
+        };
+        window.requestAnimationFrame(() => {
+            const input = refs[firstInvalidField]?.current;
+            input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            input?.focus({ preventScroll: true });
+        });
+        return false;
+    };
+
     // Update the proceedToCheckout function to check for terms and pickup spot
     const proceedToCheckout = async (resolvedUid) => {
         // First check agreement to terms
@@ -1289,10 +1317,12 @@ const OrderConfirmationDelayed = () => {
             return;
         }
 
-        // Check general form validity (name, phone, email, etc.)
+        if (!validateCustomerDetailsAndFocus()) {
+            return;
+        }
+
+        // Check non-customer fields and asynchronously loaded checkout data.
         if (!formIsValid) {
-            // Show general form validation popup
-            setShowPopup(true);
             return;
         }
         
@@ -1427,6 +1457,17 @@ const OrderConfirmationDelayed = () => {
                     {/* User Details Form - FIRST */}
                     <div className="mb-6">
                         <h2 className="text-xl font-semibold text-gray-800 mb-4">פרטים אישיים</h2>
+
+                        {detailsValidationAttempted && !customerDetailsAreValid && (
+                            <div
+                                className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-red-900"
+                                role="alert"
+                                aria-live="assertive"
+                            >
+                                <p className="font-bold">כמעט סיימנו — יש לתקן את הפרטים המסומנים</p>
+                                <p className="mt-1 text-sm">העברנו אותך לשדה הראשון שדורש תיקון.</p>
+                            </div>
+                        )}
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             <div className="form-group">
@@ -1435,13 +1476,23 @@ const OrderConfirmationDelayed = () => {
                                 </label>
                                 <input 
                                     id="userName"
+                                    ref={userNameRef}
                                     type="text" 
-                                    placeholder="שם מלא" 
+                                    placeholder="לדוגמה: ישראל ישראלי"
                                     value={userName} 
                                     onChange={(e) => setUserName(e.target.value)} 
+                                    onBlur={() => markDetailTouched('name')}
+                                    autoComplete="name"
+                                    aria-invalid={shouldShowDetailError('name')}
+                                    aria-describedby={shouldShowDetailError('name') ? 'userName-error' : undefined}
                                     required
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                    className={detailInputClass('name')}
                                 />
+                                {shouldShowDetailError('name') && (
+                                    <p id="userName-error" className="mt-1.5 text-sm font-medium text-red-700" role="alert">
+                                        {customerDetailsErrors.name}
+                                    </p>
+                                )}
                             </div>
                             
                             <div className="form-group">
@@ -1450,13 +1501,28 @@ const OrderConfirmationDelayed = () => {
                                 </label>
                                 <input 
                                     id="userPhone"
+                                    ref={userPhoneRef}
                                     type="tel" 
-                                    placeholder="מספר טלפון" 
+                                    placeholder="050-123-4567"
                                     value={userPhone} 
                                     onChange={(e) => setUserPhone(e.target.value)} 
+                                    onBlur={() => markDetailTouched('phone')}
+                                    autoComplete="tel"
+                                    inputMode="tel"
+                                    dir="ltr"
+                                    aria-invalid={shouldShowDetailError('phone')}
+                                    aria-describedby={shouldShowDetailError('phone') ? 'userPhone-error' : 'userPhone-help'}
                                     required
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                    className={`${detailInputClass('phone')} text-left`}
                                 />
+                                <p id="userPhone-help" className="mt-1.5 text-xs text-gray-500">
+                                    10 ספרות, מתחיל ב־05 (לדוגמה: 050-123-4567)
+                                </p>
+                                {shouldShowDetailError('phone') && (
+                                    <p id="userPhone-error" className="mt-1.5 text-sm font-medium text-red-700" role="alert">
+                                        {customerDetailsErrors.phone}
+                                    </p>
+                                )}
                             </div>
                             
                             <div className="form-group md:col-span-2">
@@ -1465,14 +1531,26 @@ const OrderConfirmationDelayed = () => {
                                 </label>
                                 <input 
                                     id="userEmail"
+                                    ref={userEmailRef}
                                     type="email" 
-                                    placeholder="כתובת אימייל" 
+                                    placeholder="name@example.com"
                                     value={userEmail} 
                                     onChange={(e) => setUserEmail(e.target.value)} 
+                                    onBlur={() => markDetailTouched('email')}
+                                    autoComplete="email"
+                                    inputMode="email"
+                                    dir="ltr"
+                                    aria-invalid={shouldShowDetailError('email')}
+                                    aria-describedby={shouldShowDetailError('email') ? 'userEmail-error' : undefined}
                                     required
                                     readOnly={userLoggedIn}
-                                    className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${userLoggedIn ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                    className={`${detailInputClass('email', userLoggedIn)} text-left`}
                                 />
+                                {shouldShowDetailError('email') && (
+                                    <p id="userEmail-error" className="mt-1.5 text-sm font-medium text-red-700" role="alert">
+                                        {customerDetailsErrors.email}
+                                    </p>
+                                )}
                                 {userLoggedIn && (
                                     <p className="mt-1 text-sm text-gray-500">
                                         כתובת האימייל מקושרת לחשבון שלך ואינה ניתנת לשינוי
@@ -1741,13 +1819,23 @@ const OrderConfirmationDelayed = () => {
                                     </label>
                                     <input
                                         id="userAddress"
+                                        ref={userAddressRef}
                                         type="text"
                                         placeholder="כתובת מלאה"
                                         value={userAddress} 
                                         onChange={(e) => setUserAddress(e.target.value)}
+                                        onBlur={() => markDetailTouched('address')}
+                                        autoComplete="street-address"
+                                        aria-invalid={shouldShowDetailError('address')}
+                                        aria-describedby={shouldShowDetailError('address') ? 'userAddress-error' : undefined}
                                         required
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                        className={detailInputClass('address')}
                                     />
+                                    {shouldShowDetailError('address') && (
+                                        <p id="userAddress-error" className="mt-1.5 text-sm font-medium text-red-700" role="alert">
+                                            {customerDetailsErrors.address}
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
@@ -1760,13 +1848,23 @@ const OrderConfirmationDelayed = () => {
                                         </label>
                                         <input
                                             id="homeDeliveryAddress"
+                                        ref={userAddressRef}
                                             type="text"
                                             placeholder="כתובת מלאה למשלוח"
                                             value={userAddress} 
                                             onChange={(e) => setUserAddress(e.target.value)}
+                                        onBlur={() => markDetailTouched('address')}
+                                        autoComplete="street-address"
+                                        aria-invalid={shouldShowDetailError('address')}
+                                        aria-describedby={shouldShowDetailError('address') ? 'homeDeliveryAddress-error' : undefined}
                                             required
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                        className={detailInputClass('address')}
                                         />
+                                    {shouldShowDetailError('address') && (
+                                        <p id="homeDeliveryAddress-error" className="mt-1.5 text-sm font-medium text-red-700" role="alert">
+                                            {customerDetailsErrors.address}
+                                        </p>
+                                    )}
                                     </div>
                                     <div className="form-group md:col-span-2">
                                         <label htmlFor="deliveryDirections" className="block text-sm font-medium text-gray-700 mb-1">
@@ -1822,7 +1920,7 @@ const OrderConfirmationDelayed = () => {
 
                         <button
                             onClick={() => proceedToCheckout()}
-                            disabled={!agreeToTerms || !formIsValid}
+                            disabled={loading || cartOrderMetaLoading}
                             className="w-full bg-purple-700 hover:bg-purple-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-3 sm:py-4 px-4 sm:px-6 rounded-lg text-base sm:text-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-purple-300 shadow-lg"
                         >
                             {effectiveTotalWithDelivery === 0

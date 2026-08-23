@@ -240,7 +240,14 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
 
   return (
     <div className={`product-card relative ${hasQuantityDiscount ? 'pt-3' : ''}`}>
-      <div className={`bg-white rounded-md shadow-sm ${isOutOfStock ? 'opacity-60 grayscale' : ''}`}>
+      <div
+        className={`rounded-md bg-white transition-shadow ${
+          product.isRecommended ? 'border-2 border-amber-400' : 'shadow-sm'
+        } ${isOutOfStock ? 'opacity-60 grayscale' : ''}`}
+        style={product.isRecommended ? {
+          boxShadow: '0 0 0 3px rgba(251, 191, 36, 0.55), 0 0 24px 8px rgba(245, 158, 11, 0.45)',
+        } : undefined}
+      >
       {/* Desktop Layout - Vertical with larger image */}
       <div className="hidden md:flex md:flex-col">
         <div className="relative h-56 w-full flex-shrink-0">
@@ -347,20 +354,20 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
         </div>
 
         <div className="p-2.5 space-y-2 border-t">
-          <div className={`flex items-center border border-gray-300 rounded-md w-full ${isOutOfStock ? 'opacity-50' : ''}`}>
+          <div className={`flex items-center border border-gray-300 rounded-sm w-full ${isOutOfStock ? 'opacity-50' : ''}`}>
             <button
               onClick={() => handleQuantityChange(false)}
-              className="flex-shrink-0 w-9 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium text-center text-lg"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center bg-gray-50 text-2xl font-bold leading-none text-gray-700 hover:bg-gray-100"
               disabled={isOutOfStock}
             >
               -
             </button>
-            <span className="flex-1 py-1.5 text-sm text-center font-medium truncate">
+            <span className="flex-1 truncate py-1.5 text-center text-sm font-medium">
               {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
             </span>
             <button
               onClick={() => handleQuantityChange(true)}
-              className="flex-shrink-0 w-9 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium text-center text-lg"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center bg-gray-50 text-2xl font-bold leading-none text-gray-700 hover:bg-gray-100"
               disabled={isOutOfStock}
             >
               +
@@ -370,7 +377,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
           <button
             onClick={addToCart}
             disabled={isOutOfStock}
-            className={`w-full ${isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'} text-white py-2 rounded-md text-sm font-medium flex items-center justify-center gap-1.5`}
+            className={`flex h-11 w-full items-center justify-center gap-1.5 rounded-sm text-sm font-medium text-white ${isOutOfStock ? 'cursor-not-allowed bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'}`}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -487,21 +494,21 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       </div>
 
       <div className="md:hidden p-2.5 space-y-1.5">
-        <div className="flex items-center gap-2">
-          <div className={`flex items-center border border-gray-300 rounded-md overflow-hidden ${isOutOfStock ? 'opacity-50' : ''}`}>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className={`flex flex-shrink-0 items-center overflow-hidden rounded-sm border border-gray-300 ${isOutOfStock ? 'opacity-50' : ''}`}>
             <button
               onClick={() => handleQuantityChange(false)}
-              className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700"
+              className="flex h-11 w-10 flex-shrink-0 items-center justify-center bg-gray-50 text-2xl font-bold leading-none text-gray-700 hover:bg-gray-100"
               disabled={isOutOfStock}
             >
               -
             </button>
-            <span className="px-2.5 py-1 text-sm text-center min-w-[50px]">
+            <span className="min-w-[36px] px-1 py-1 text-center text-sm">
               {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
             </span>
             <button
               onClick={() => handleQuantityChange(true)}
-              className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700"
+              className="flex h-11 w-10 flex-shrink-0 items-center justify-center bg-gray-50 text-2xl font-bold leading-none text-gray-700 hover:bg-gray-100"
               disabled={isOutOfStock}
             >
               +
@@ -511,12 +518,9 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
           <button
             onClick={addToCart}
             disabled={isOutOfStock}
-            className={`flex-1 ${isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'} text-white py-1.5 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-1`}
+            className={`flex h-11 min-w-0 flex-1 items-center justify-center rounded-sm px-2 text-sm font-medium text-white ${isOutOfStock ? 'cursor-not-allowed bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            הוסף לסל
+            <span className="truncate">הוסף לסל</span>
           </button>
         </div>
       </div>

@@ -273,6 +273,20 @@ export function resolveCommunityName(raw) {
   return resolveMarketplaceCommunityName(raw);
 }
 
+export function getCommunityCode(name) {
+  const resolved = resolveCommunityName(name);
+  if (!resolved) return '';
+  return hashString(resolved).toString(36).padStart(6, '0');
+}
+
+export function resolveCommunityByCode(code) {
+  if (!code) return '';
+  if (!cache.loaded) cache = buildFromStatic();
+  const normalizedCode = String(code).trim().toLowerCase();
+  const matches = cache.spots.filter((name) => getCommunityCode(name) === normalizedCode);
+  return matches.length === 1 ? matches[0] : '';
+}
+
 export function getCommunityColor(name) {
   const resolved = resolveCommunityName(name);
   if (!cache.loaded) cache = buildFromStatic();
