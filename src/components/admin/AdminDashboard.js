@@ -192,7 +192,7 @@ const initialCards = [
   },
   {
     title: 'ניתוח לקוחות',
-    description: 'מעקב אחרי לקוחות בודדים: כמה הזמנות ביצעו ומה ההיסטוריה שלהם',
+    description: 'מעקב אחרי לקוחות בודדים, היסטוריית הזמנות והוספת פיצוי להזמנה הבאה',
     to: '/admin/customers',
     featured: true
   },

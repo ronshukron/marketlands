@@ -1,0 +1,18 @@
+// Paste BEFORE the final catch-all:
+//   match /{document=**} { allow read, write: if false; }
+// Reuse the existing isAdmin(). Do not redefine it.
+//
+// Parent docs hold phone/email. Items are readable by hashed path so checkout
+// can claim them. Guest phone/email spoofing is not preventable without a backend.
+
+match /compensationRecipients/{identityKey} {
+  allow read, write: if isAdmin();
+
+  match /items/{itemId} {
+    allow read: if isAdmin() || true;
+    allow create, delete: if isAdmin();
+    allow update: if isAdmin()
+      || (resource.data.status == 'active'
+          && request.resource.data.status == 'redeemed');
+  }
+}

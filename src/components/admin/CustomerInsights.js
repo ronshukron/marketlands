@@ -9,6 +9,8 @@ import {
   getCustomerProfiles,
   setCustomerProfile,
 } from '../../services/customerProfileService';
+import { normalizeEmail, normalizePhone } from '../../services/compensationService';
+import CustomerCompensationPanel from './CustomerCompensationPanel';
 
 const CustomerInsights = () => {
   const { currentUser } = useAuth();
@@ -18,6 +20,9 @@ const CustomerInsights = () => {
 
   const [targetOrderCount, setTargetOrderCount] = useState(2);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [manualLookup, setManualLookup] = useState('');
+  const [manualCustomer, setManualCustomer] = useState(null);
 
   // VIP / bilingual-notes profiles, keyed by (phone || email) so they line up
   // with how the V7 delivery view identifies customers.
@@ -28,7 +33,7 @@ const CustomerInsights = () => {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
 
-  const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
+  const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
   useEffect(() => {
     if (!currentUser || !ADMIN_UIDS.includes(currentUser.uid)) {
@@ -42,22 +47,24 @@ const CustomerInsights = () => {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const ref = collection(db, 'customerOrders');
-      const q = query(ref, orderBy('createdAt', 'asc'));
-      const snap = await getDocs(q);
-
-      const data = snap.docs.map(doc => {
-        const raw = doc.data();
+      const mapDocs = (snap) => snap.docs.map((orderDoc) => {
+        const raw = orderDoc.data();
         const createdAt = raw.createdAt?.toDate ? raw.createdAt.toDate() : new Date(raw.createdAt);
         return {
-          id: doc.id,
+          id: orderDoc.id,
           ...raw,
           createdAt,
           grandTotal: Number(raw.grandTotal || 0)
         };
       });
 
-      setOrders(data);
+      const [regularSnap, delayedSnap] = await Promise.all([
+        getDocs(query(collection(db, 'customerOrders'), orderBy('createdAt', 'asc'))),
+        getDocs(collection(db, 'customerOrdersDelayed')),
+      ]);
+
+      const delayed = mapDocs(delayedSnap).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      setOrders([...mapDocs(regularSnap), ...delayed]);
     } catch (e) {
       console.error('Failed to load customer orders', e);
       setError('שגיאה בטעינת נתוני לקוחות');
@@ -87,6 +94,7 @@ const CustomerInsights = () => {
           name: details.name || 'ללא שם',
           email: details.email || '',
           phone: details.phone || '',
+          userId: order.userId || '',
           completedCount: 0,
           abandonedCount: 0,
           totalSpent: 0,
@@ -120,7 +128,14 @@ const CustomerInsights = () => {
         orderBreakdown: order.orderBreakdown || {}
       };
 
-      if (order.paymentStatus === 'completed') {
+      if (order.userId && !entry.userId) {
+        entry.userId = order.userId;
+      }
+
+      const isCompletedOrder = ['completed', 'paid', 'charged', 'settled', 'held'].includes(order.paymentStatus)
+        || ['pending_weighing', 'completed', 'charged', 'settled'].includes(order.delayedOrderStatus);
+
+      if (isCompletedOrder) {
         entry.completedCount += 1;
         entry.totalSpent += order.grandTotal;
         entry.totalItems += itemCount;
@@ -155,6 +170,15 @@ const CustomerInsights = () => {
     [customersMap]
   );
 
+  const searchedCustomers = useMemo(() => {
+    const queryText = customerSearch.trim().toLowerCase();
+    if (!queryText) return customersList;
+    return customersList.filter((customer) => (
+      [customer.name, customer.email, customer.phone, customer.userId]
+        .some((value) => String(value || '').toLowerCase().includes(queryText))
+    ));
+  }, [customerSearch, customersList]);
+
   // Customers by number of orders
   const filteredByOrderCount = useMemo(() => {
     if (!targetOrderCount || targetOrderCount <= 0) return [];
@@ -164,9 +188,8 @@ const CustomerInsights = () => {
   }, [customersList, targetOrderCount]);
 
   const selectedCustomer =
-    selectedCustomerId && customersMap[selectedCustomerId]
-      ? customersMap[selectedCustomerId]
-      : null;
+    (selectedCustomerId && customersMap[selectedCustomerId])
+      || (manualCustomer && manualCustomer.id === selectedCustomerId ? manualCustomer : null);
 
   // Profile key for the selected customer (phone || email), matching V7.
   const selectedProfileKey = selectedCustomer
@@ -201,6 +224,40 @@ const CustomerInsights = () => {
     setEditNoteHe(profile?.noteHebrew || '');
     setEditNoteTh(profile?.noteThai || '');
   }, [selectedProfileKey, profilesMap]);
+
+  const handleManualLookup = () => {
+    const raw = manualLookup.trim();
+    if (!raw) return;
+    const phone = normalizePhone(raw);
+    const email = raw.includes('@') ? normalizeEmail(raw) : '';
+    const match = customersList.find((customer) => (
+      (phone && normalizePhone(customer.phone) === phone)
+      || (email && normalizeEmail(customer.email) === email)
+      || String(customer.id).toLowerCase() === raw.toLowerCase()
+    ));
+    if (match) {
+      setManualCustomer(null);
+      setSelectedCustomerId(match.id);
+      return;
+    }
+    const guest = {
+      id: phone || email || raw,
+      name: 'לקוח ללא הזמנות',
+      email,
+      phone: phone || (email ? '' : raw),
+      userId: '',
+      completedCount: 0,
+      abandonedCount: 0,
+      totalSpent: 0,
+      totalItems: 0,
+      firstOrderDate: null,
+      lastOrderDate: null,
+      orders: [],
+      abandonedOrders: [],
+    };
+    setManualCustomer(guest);
+    setSelectedCustomerId(guest.id);
+  };
 
   const handleSaveProfile = async () => {
     if (!selectedProfileKey || savingProfile) return;
@@ -333,22 +390,53 @@ const CustomerInsights = () => {
                 נטושות, פריטים וסכומים.
               </p>
             </div>
-            <div className="w-full md:w-80">
-              <label className="block text-xs font-medium text-gray-500 mb-1">
-                בחר לקוח
+            <div className="w-full md:w-[28rem] space-y-2">
+              <label className="block text-xs font-medium text-gray-500">
+                חיפוש לקוח
               </label>
+              <input
+                type="search"
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm"
+                placeholder="שם, טלפון או אימייל"
+              />
               <select
                 value={selectedCustomerId}
-                onChange={e => setSelectedCustomerId(e.target.value)}
+                onChange={e => {
+                  setSelectedCustomerId(e.target.value);
+                  setManualCustomer(null);
+                }}
                 className="w-full border border-gray-300 rounded px-2 py-2 text-sm"
               >
                 <option value="">בחר לקוח...</option>
-                {customersList.map(c => (
+                {manualCustomer && (
+                  <option value={manualCustomer.id}>
+                    {manualCustomer.name} {manualCustomer.phone || manualCustomer.email}
+                  </option>
+                )}
+                {searchedCustomers.map(c => (
                   <option key={c.id} value={c.id}>
-                    {c.name} {c.email ? `(${c.email})` : ''}
+                    {c.name} {c.phone || c.email ? `(${c.phone || c.email})` : ''}
                   </option>
                 ))}
               </select>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={manualLookup}
+                  onChange={(e) => setManualLookup(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded px-2 py-2 text-sm"
+                  placeholder="טלפון או אימייל ללקוח ללא הזמנות"
+                />
+                <button
+                  type="button"
+                  onClick={handleManualLookup}
+                  className="px-3 py-2 bg-gray-800 text-white rounded text-sm"
+                >
+                  מצא
+                </button>
+              </div>
             </div>
           </div>
 
@@ -501,6 +589,12 @@ const CustomerInsights = () => {
                 </div>
               </div>
 
+              <CustomerCompensationPanel
+                customer={selectedCustomer}
+                adminUid={currentUser?.uid || ''}
+                adminName={currentUser?.displayName || currentUser?.email || ''}
+              />
+
               {/* Completed Orders */}
               <div>
                 <h3 className="text-lg font-bold text-gray-800 mb-2">
@@ -547,6 +641,7 @@ const CustomerInsights = () => {
                                           {item.selectedOption &&
                                             item.selectedOption !== 'None' &&
                                             `(${item.selectedOption})`}
+                                          {item.isCompensation ? ' · פיצוי' : ''}
                                         </li>
                                       ))}
                                     </ul>

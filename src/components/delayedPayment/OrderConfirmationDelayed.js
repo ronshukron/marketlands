@@ -35,7 +35,7 @@ import {
   recordReferralUse,
 } from '../../services/referralService';
 import { INTRODUCTION_BASKET_CATALOG_NUMBER } from '../../services/introductionBasketService';
-import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import { persistCustomerOrderWithCompensation } from '../../services/compensationService';
 import CheckoutAccountModal from '../CheckoutAccountModal';
 import {
     buildOrderAccountPayload,
@@ -885,9 +885,14 @@ const OrderConfirmationDelayed = () => {
             };
         });
 
-        const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
-        await setDoc(customerOrderIdOrderRef, {
-            orderBreakdown: persistedOrderBreakdown,
+        await persistCustomerOrderWithCompensation({
+            collectionName: 'customerOrdersDelayed',
+            orderRef: customerOrderIdOrderRef,
+            orderId: customerOrderId,
+            identity: { uid: checkoutUid, phone: userPhone, email: userEmail },
+            merge: true,
+            orderData: {
+            orderBreakdown,
             customerDetails: {
                 name: userName,
                 phone: userPhone,
@@ -936,7 +941,8 @@ const OrderConfirmationDelayed = () => {
                 holdSum: Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100
             },
             ...buildOrderAccountPayload(checkoutUid)
-        }, { merge: true });
+            },
+        });
 
         // Add the order to the user's document
         if (checkoutUid) {
@@ -1145,9 +1151,8 @@ const OrderConfirmationDelayed = () => {
             });
 
             // Create the pending order document
-            const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
             const customerOrderData = {
-                orderBreakdown: persistedOrderBreakdown,
+                orderBreakdown,
                 customerDetails: {
                     name: userName,
                     phone: userPhone,
@@ -1187,8 +1192,13 @@ const OrderConfirmationDelayed = () => {
                 ...buildOrderAccountPayload(checkoutUid)
             };
             
-            // Create a customer order document
-            await setDoc(customerOrderRef, customerOrderData);
+            await persistCustomerOrderWithCompensation({
+                collectionName: 'customerOrdersDelayed',
+                orderRef: customerOrderRef,
+                orderId: customerOrderId,
+                identity: { uid: checkoutUid, phone: userPhone, email: userEmail },
+                orderData: customerOrderData,
+            });
             
             await processReferralReward({
               orderId: customerOrderRef.id,

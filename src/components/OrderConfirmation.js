@@ -17,7 +17,7 @@ import {
     getEstimatedChargeableQuantity,
     getEstimatedLineTotal,
 } from '../utils/pricing';
-import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import { persistCustomerOrderWithCompensation } from '../services/compensationService';
 import CheckoutAccountModal from './CheckoutAccountModal';
 import {
     buildOrderAccountPayload,
@@ -475,28 +475,33 @@ const OrderConfirmation = () => {
         // const customerOrderRef = doc(collection(db, 'customerOrders'));
         // generatedCustomerOrderId = customerOrderRef.id;
 
-        const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
-        await setDoc(customerOrderIdOrderRef, {
-            orderBreakdown: persistedOrderBreakdown,
-            customerDetails: {
-                name: userName,
-                phone: userPhone,
-                email: userEmail,
-                address: userAddress,
-                directions: userDirections,
-                pickupSpot: selectedPickupSpot,
-                deliveryOption,
-                deliveryDetails: {
-                    type: deliveryOption,
-                    boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                    deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 0,
-                }
-            },
-            businessIds: businessIds,
+        await persistCustomerOrderWithCompensation({
+            collectionName: 'customerOrders',
+            orderRef: customerOrderIdOrderRef,
+            orderId: customerOrderId,
+            identity: { uid: checkoutUid, phone: userPhone, email: userEmail },
+            orderData: {
+                orderBreakdown,
+                customerDetails: {
+                    name: userName,
+                    phone: userPhone,
+                    email: userEmail,
+                    address: userAddress,
+                    directions: userDirections,
+                    pickupSpot: selectedPickupSpot,
+                    deliveryOption,
+                    deliveryDetails: {
+                        type: deliveryOption,
+                        boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
+                        deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 0,
+                    }
+                },
+                businessIds: businessIds,
                 createdAt: new Date().toISOString(),
-            paymentStatus: 'pending_payment',
-            grandTotal: totalWithDelivery,
-            ...buildOrderAccountPayload(checkoutUid)
+                paymentStatus: 'pending_payment',
+                grandTotal: totalWithDelivery,
+                ...buildOrderAccountPayload(checkoutUid)
+            },
         });
 
         // Update the original orders with the actual document ID
@@ -698,9 +703,8 @@ const OrderConfirmation = () => {
             });
 
             // Create the pending order document
-            const persistedOrderBreakdown = ensureLineIdsInBreakdown(customerOrderId, orderBreakdown).breakdown;
             const customerOrderData = {
-                orderBreakdown: persistedOrderBreakdown,
+                orderBreakdown,
                 customerDetails: {
                     name: userName,
                     phone: userPhone,
@@ -723,8 +727,13 @@ const OrderConfirmation = () => {
                 ...buildOrderAccountPayload(checkoutUid)
             };
             
-            // Create a customer order document
-            await setDoc(customerOrderRef, customerOrderData);
+            await persistCustomerOrderWithCompensation({
+                collectionName: 'customerOrders',
+                orderRef: customerOrderRef,
+                orderId: customerOrderId,
+                identity: { uid: checkoutUid, phone: userPhone, email: userEmail },
+                orderData: customerOrderData,
+            });
             console.log('customerOrderRef', customerOrderRef);
             
             // Now call the function that's defined at component level
