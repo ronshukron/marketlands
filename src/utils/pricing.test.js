@@ -322,4 +322,84 @@ describe('group promotions and order minimums', () => {
     expect(message).toMatch(/40/);
     expect(message).toMatch(/3/);
   });
+
+  test('does not let introduction-basket components trigger or receive a group promotion', () => {
+    const priced = applyCartPricing([
+      attachGreen({
+        id: 'cilantro',
+        orderId: 'o1',
+        price: 5,
+        quantity: 2,
+        measurementType: 'package',
+        isBasketComponent: true,
+      }),
+      attachGreen({ id: 'parsley', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+    ]);
+
+    expect(priced[0].groupPromotionApplied).toBe(false);
+    expect(priced[0].effectivePrice).toBe(5);
+    expect(priced[1].groupPromotionApplied).toBe(false);
+    expect(priced[1].effectivePrice).toBe(5);
+  });
+
+  test('does not mutate source cart lines while repricing', () => {
+    const cilantro = attachGreen({ id: 'cilantro', orderId: 'o1', price: 5, quantity: 3, measurementType: 'package' });
+    const originalPrice = cilantro.price;
+    const priced = applyCartPricing([cilantro]);
+    expect(cilantro.price).toBe(originalPrice);
+    expect(priced[0].groupPromotionApplied).toBe(true);
+    expect(priced[0].effectivePrice).toBeCloseTo(3.33, 2);
+    expect(priced[0]).not.toBe(cilantro);
+  });
+
+  test('restores mix-and-match pricing from flattened cart fields after reload', () => {
+    const live = applyCartPricing([
+      attachGreen({ id: 'cilantro', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+      attachGreen({ id: 'parsley', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+      attachGreen({ id: 'dill', orderId: 'o1', price: 4, quantity: 1, measurementType: 'package' }),
+    ]);
+    const reloaded = applyCartPricing(live.map((item) => applyQuantityPricing(item, item.quantity)));
+    expect(reloaded.every((item) => item.groupPromotionApplied)).toBe(true);
+    reloaded.forEach((item) => {
+      expect(item.effectivePrice).toBeCloseTo(3.33, 2);
+      expect(item.basePrice).toBeGreaterThan(item.effectivePrice);
+    });
+  });
+
+  test('lets shipping help the amount minimum but not the item-count minimum', () => {
+    const items = [
+      { measurementType: 'package', quantity: 1, price: 10 },
+      { measurementType: 'package', quantity: 1, price: 25, isShipping: true },
+    ];
+    expect(getEligibleMinimumItemCount(items)).toBe(1);
+    expect(evaluateOrderMinimum({
+      total: 35,
+      items,
+      minimumOrderAmount: 30,
+      minimumOrderItemCount: 3,
+    }).valid).toBe(true);
+    expect(evaluateOrderMinimum({
+      total: 10,
+      items: [items[0]],
+      minimumOrderAmount: 30,
+      minimumOrderItemCount: 3,
+    }).valid).toBe(false);
+  });
+
+  test('preserves a checkout snapshot even when the isolated line is below the group threshold', () => {
+    const priced = applyCartPricing([
+      attachGreen({ id: 'cilantro', orderId: 'o1', price: 5, quantity: 1, measurementType: 'package' }),
+      attachGreen({ id: 'parsley', orderId: 'o1', price: 5, quantity: 2, measurementType: 'package' }),
+    ]);
+    const isolated = buildPricingSnapshot(priced[0]);
+    expect(isolated.groupPromotionApplied).toBe(true);
+    expect(isolated.effectivePrice).toBeCloseTo(3.33, 2);
+    expect(buildPricingSnapshot({
+      id: 'cilantro',
+      price: 5,
+      quantity: 1,
+      measurementType: 'package',
+      ...attachGreen({}),
+    }).groupPromotionApplied).toBe(false);
+  });
 });

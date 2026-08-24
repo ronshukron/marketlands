@@ -292,8 +292,12 @@ export const getItemGroupPromotion = (item = {}) => normalizeGroupPromotion({
   bundleTotalPrice: item.groupPromotionBundleTotalPrice,
 });
 
+export const isExcludedFromGroupPromotion = (item) => (
+  Boolean(item?.isShipping || item?.isBasketAdjustment || item?.isBasketComponent)
+);
+
 export const isLineEligibleForGroupPromotion = (item, promotion) => {
-  if (!item || item.isShipping || item.isBasketAdjustment) return false;
+  if (!item || isExcludedFromGroupPromotion(item)) return false;
   const promo = normalizeGroupPromotion(promotion);
   if (!promo || !promo.active) return false;
   const productId = String(item.id || item.productId || '').trim();

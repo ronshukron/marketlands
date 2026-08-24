@@ -49,7 +49,10 @@ const BusinessPromotions = () => {
 
   useEffect(() => {
     const load = async () => {
-      if (!currentUser) return;
+      if (!currentUser) {
+        navigate('/login');
+        return;
+      }
       setLoading(true);
       try {
         const [promos, productsSnap] = await Promise.all([
@@ -66,7 +69,7 @@ const BusinessPromotions = () => {
       }
     };
     load();
-  }, [currentUser]);
+  }, [currentUser, navigate]);
 
   const selectableProducts = useMemo(() => (
     products.filter((product) => (

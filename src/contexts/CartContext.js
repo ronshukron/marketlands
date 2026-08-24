@@ -306,7 +306,7 @@ export const CartProvider = ({ children }) => {
    */
   const clearOrderItems = (orderId) => {
     // Filter out items belonging to the specified orderId.
-    setCartItems(prevItems => prevItems.filter(item => item.orderId !== orderId));
+    setCartItems(prevItems => applyCartPricing(prevItems.filter(item => item.orderId !== orderId)));
 
     // Remove this order's information from the orderInfoMap.
     setOrderInfoMap(prev => {

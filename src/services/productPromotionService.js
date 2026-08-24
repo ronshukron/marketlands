@@ -4,6 +4,7 @@ import {
   attachGroupPromotionFields,
   applyCartPricing,
   findActiveGroupPromotionForProduct,
+  isExcludedFromGroupPromotion,
   MAX_GROUP_PROMOTION_LABEL_LENGTH,
   MAX_GROUP_PROMOTIONS,
   normalizeGroupPromotion,
@@ -34,6 +35,9 @@ export const saveBusinessProductPromotions = async (businessId, promotions) => {
 
 export const attachLivePromotionsToItems = (items = [], promotionsByBusinessId = {}) => (
   (Array.isArray(items) ? items : []).map((item) => {
+    if (isExcludedFromGroupPromotion(item)) {
+      return attachGroupPromotionFields(item, null);
+    }
     const live = findActiveGroupPromotionForProduct(
       promotionsByBusinessId[item.businessId] || [],
       item,
