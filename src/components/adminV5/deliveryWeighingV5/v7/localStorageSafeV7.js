@@ -138,6 +138,28 @@ export function readCommunityColorOverrides() {
   }
 }
 
+const BATCH_CHARGE_EXCLUDED_PREFIX = 'deliveryV7::batchChargeExcluded::';
+
+export function readBatchChargeExcludedOrderIds(weekKey) {
+  if (!weekKey || typeof localStorage === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`${BATCH_CHARGE_EXCLUDED_PREFIX}${weekKey}`) || '[]');
+    return Array.isArray(parsed) ? [...new Set(parsed.map(String).filter(Boolean))] : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveBatchChargeExcludedOrderIds(weekKey, orderIds, keepScopeKeys = []) {
+  if (!weekKey) return false;
+  const ids = [...new Set([...(orderIds || [])].map(String).filter(Boolean))];
+  return safeSetLocalStorage(
+    `${BATCH_CHARGE_EXCLUDED_PREFIX}${weekKey}`,
+    JSON.stringify(ids),
+    { keepScopeKeys },
+  );
+}
+
 export function saveCommunityColorOverride(communityName, color) {
   if (!communityName || typeof localStorage === 'undefined') return false;
   const current = readCommunityColorOverrides();

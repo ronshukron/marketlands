@@ -21,11 +21,18 @@ const CommunityDiscountWidget = ({
       setLoading(false);
       return undefined;
     }
+    if (authLoading) {
+      setDiscountInfo(null);
+      setError(null);
+      setLoading(true);
+      return undefined;
+    }
     setLoading(true);
     setError(null);
     return subscribeDisplayDiscountInfo({
       communityName,
       ...(deliveryWeekKey ? { deliveryWeekKey } : {}),
+      listenToProgress: userLoggedIn === true,
       onValue: (info) => {
         setDiscountInfo(info);
         setLoading(false);
@@ -36,7 +43,7 @@ const CommunityDiscountWidget = ({
         setLoading(false);
       },
     });
-  }, [communityName, deliveryWeekKey]);
+  }, [authLoading, communityName, deliveryWeekKey, userLoggedIn]);
 
   if (loading || authLoading) {
     if (variant === 'compact') return null;

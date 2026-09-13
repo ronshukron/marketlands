@@ -21,6 +21,7 @@ import {
     groupPricedItemsByOrder,
 } from '../utils/pricing';
 import { refreshCartCommercialTerms } from '../services/productPromotionService';
+import { describeCommunityWeeklyCheckoutRefreshError } from '../services/communityWeeklyPromotionService';
 import { persistCustomerOrderWithCompensation } from '../services/compensationService';
 import CheckoutAccountModal from './CheckoutAccountModal';
 import {
@@ -28,6 +29,7 @@ import {
     CHECKOUT_ACCOUNT_ACTIONS,
     resolveCheckoutAccountAction,
 } from '../utils/checkoutAccountUtils';
+import { buildCommunityWeeklyPromotionOrderAttribution } from '../utils/communityWeeklyPromotionUrl';
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
 const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
@@ -63,6 +65,7 @@ const OrderConfirmation = () => {
         return localStorage.getItem('selectedPickupSpot') || '';
     });
     const { userLoggedIn, currentUser } = useAuth();
+    const promotionOrderAttribution = buildCommunityWeeklyPromotionOrderAttribution(localStorage);
 
     // Get pickup spots from the order
     const [availablePickupSpots, setAvailablePickupSpots] = useState([]);
@@ -401,6 +404,16 @@ const OrderConfirmation = () => {
                 ...refreshed.orderMinimums,
             });
         } catch (refreshError) {
+            const weeklyError = describeCommunityWeeklyCheckoutRefreshError(refreshError);
+            if (weeklyError) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: weeklyError.title,
+                    text: weeklyError.text,
+                    confirmButtonText: 'הבנתי',
+                });
+                return;
+            }
             console.error('Error refreshing checkout terms:', refreshError);
         }
 
@@ -509,6 +522,9 @@ const OrderConfirmation = () => {
                     }
                 },
                 businessIds: businessIds,
+                ...(promotionOrderAttribution ? {
+                    communityWeeklyPromotionAttribution: promotionOrderAttribution
+                } : {}),
                 createdAt: new Date().toISOString(),
                 paymentStatus: 'pending_payment',
                 grandTotal: totalWithDelivery,
@@ -646,6 +662,16 @@ const OrderConfirmation = () => {
                     ...refreshed.orderMinimums,
                 });
             } catch (refreshError) {
+                const weeklyError = describeCommunityWeeklyCheckoutRefreshError(refreshError);
+                if (weeklyError) {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: weeklyError.title,
+                        text: weeklyError.text,
+                        confirmButtonText: 'הבנתי',
+                    });
+                    return;
+                }
                 console.error('Error refreshing checkout terms:', refreshError);
             }
 
@@ -757,6 +783,9 @@ const OrderConfirmation = () => {
                     }
                 },
                 businessIds: businessIds,
+                ...(promotionOrderAttribution ? {
+                    communityWeeklyPromotionAttribution: promotionOrderAttribution
+                } : {}),
                 createdAt: new Date().toISOString(),
                 paymentStatus: 'completed',
                 paymentMethod: 'free',
@@ -973,7 +1002,10 @@ const OrderConfirmation = () => {
                     setShowAccountModal(false);
                     proceedToCheckout(null);
                 }}
-                onCancel={() => setShowAccountModal(false)}
+                onCancel={() => {
+                    setCreateAccount(false);
+                    setShowAccountModal(false);
+                }}
             />
             <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="bg-blue-600 text-white px-6 py-4">

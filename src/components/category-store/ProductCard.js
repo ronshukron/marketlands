@@ -5,12 +5,16 @@ import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
 import { useCart } from '../../contexts/CartContext';
 import {
+  attachCommunityWeeklyPromotionFields,
   attachGroupPromotionFields,
   getEffectiveUnitPrice,
   getGroupPromotionLabel,
+  getItemCommunityWeeklyPromotion,
+  hasEligibleCommunityWeeklyPromotion,
   getQuantityDiscountLabel,
   normalizeQuantityDiscount,
 } from '../../utils/pricing';
+import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
 import { isNewProduct } from '../../utils/productFreshness';
 
 const CATEGORY_CARD_IMAGE_LIMIT = 1;
@@ -54,6 +58,9 @@ const ProductImageBadges = ({ product, compact = false }) => {
   if (product.isRecommended) {
     badges.push({ key: 'recommended', label: 'מומלץ', className: 'bg-amber-100 text-amber-800' });
   }
+  if (product.hasFarmerBadge) {
+    badges.push({ key: 'farmer', label: '🌾 חקלאי', className: 'bg-orange-100 text-orange-900' });
+  }
 
   if (badges.length === 0) return null;
 
@@ -92,21 +99,29 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
   const isUnitItem = measurementType === 'unit';
   const isPackageItem = measurementType === 'package';
   const isSoldByWeight = isKgItem || isUnitItem;
-  const pricePer100g = isSoldByWeight ? (product.price / 10).toFixed(2) : null;
   const quantityDiscount = normalizeQuantityDiscount(
     product.quantityDiscountThreshold,
     product.quantityDiscountPrice,
   );
   const groupPromotion = product.groupPromotion || null;
+  const weeklyPromotion = getItemCommunityWeeklyPromotion(product);
+  const weeklyPromotionApplied = hasEligibleCommunityWeeklyPromotion(product);
+  const hasWeeklyPromotion = Boolean(weeklyPromotion);
 
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
   const [selectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
   );
   const { addItem, cartItems } = useCart();
-  const selectedUnitPrice = getEffectiveUnitPrice(product, quantity);
+  const { openUnlockModal } = useCommunityWeeklyPromotion();
+  const selectedUnitPrice = weeklyPromotionApplied
+    ? weeklyPromotion.price
+    : getEffectiveUnitPrice(product, quantity);
+  const pricePer100g = isSoldByWeight ? (selectedUnitPrice / 10).toFixed(2) : null;
   const selectedDiscountApplied = Boolean(
-    quantityDiscount && quantity >= quantityDiscount.quantityDiscountThreshold,
+    !weeklyPromotionApplied
+    && quantityDiscount
+    && quantity >= quantityDiscount.quantityDiscountThreshold,
   );
 
   const quantityInCart = useMemo(() => {
@@ -192,7 +207,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       return;
     }
 
-    const productToAdd = {
+    const productToAdd = attachCommunityWeeklyPromotionFields({
       id: product.id,
       name: product.name,
       price: product.price,
@@ -212,7 +227,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
       unitSize: unitSize,
       averageWeightKg: averageWeightKg,
       ...attachGroupPromotionFields({}, groupPromotion),
-    };
+    }, weeklyPromotion);
 
     addItem(
       productToAdd,
@@ -244,7 +259,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
 
   const isOutOfStock = product.stockAmount <= 0;
   const quantityInCartLabel = formatQuantityWithUnit(quantityInCart);
-  const hasQuantityDiscount = Boolean(quantityDiscount || groupPromotion);
+  const hasQuantityDiscount = Boolean(quantityDiscount || groupPromotion || hasWeeklyPromotion);
 
   return (
     <div className={`product-card relative ${hasQuantityDiscount ? 'pt-3' : ''}`}>
@@ -323,8 +338,8 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">דגימה בחינם</span>
             )}
           </h3>
-          <p className="text-lg font-semibold text-blue-600 mb-1">
-            ₪{product.price}
+          <p className={`text-lg font-semibold mb-1 ${hasWeeklyPromotion ? 'text-gray-500' : 'text-blue-600'}`}>
+            <span className={hasWeeklyPromotion ? 'line-through' : ''}>₪{product.price}</span>
             {isKgItem && '/ק"ג'}
             {isUnitItem && '/ק"ג'}
             {isPackageItem && '/מארז'}
@@ -337,6 +352,24 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <span className="text-xs text-gray-500 mr-1">(נשקל - יחידה)</span>
             )}
           </p>
+          {hasWeeklyPromotion && (
+            <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 p-2">
+              <p className="text-sm font-bold text-blue-800">
+                {weeklyPromotionApplied
+                  ? `מחיר קהילתי: ₪${weeklyPromotion.price.toFixed(2)}`
+                  : `מחיר שבועי נעול: ₪${weeklyPromotion.price.toFixed(2)}`}
+              </p>
+              {!weeklyPromotionApplied && (
+                <button
+                  type="button"
+                  onClick={openUnlockModal}
+                  className="mt-1 min-h-11 w-full rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                >
+                  שתפו ב-WhatsApp לפתיחת המחיר
+                </button>
+              )}
+            </div>
+          )}
           {quantityDiscount && selectedDiscountApplied && (
             <p className="text-xs font-semibold text-emerald-700 mb-1">
               המחיר הנבחר: ₪{selectedUnitPrice.toFixed(2)}
@@ -463,7 +496,7 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
             )}
           </h3>
           <p className="text-sm text-gray-500 mb-0.5">
-            ₪{product.price}
+            <span className={hasWeeklyPromotion ? 'line-through' : ''}>₪{product.price}</span>
             {isKgItem && '/ק"ג'}
             {isUnitItem && '/ק"ג'}
             {isPackageItem && '/מארז'}
@@ -476,6 +509,24 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
               <span className="text-xs text-gray-400 mr-1">(נשקל ~{averageWeightKg} ק"ג ליח')</span>
             )}
           </p>
+          {hasWeeklyPromotion && (
+            <div className="mb-1">
+              <p className="text-[11px] font-bold text-blue-800">
+                {weeklyPromotionApplied
+                  ? `מחיר קהילתי ₪${weeklyPromotion.price.toFixed(2)}`
+                  : `מחיר נעול ₪${weeklyPromotion.price.toFixed(2)}`}
+              </p>
+              {!weeklyPromotionApplied && (
+                <button
+                  type="button"
+                  onClick={openUnlockModal}
+                  className="mt-1 min-h-11 w-full rounded-lg bg-emerald-600 px-2 py-2 text-[11px] font-bold text-white"
+                >
+                  שיתוף ב-WhatsApp לפתיחה
+                </button>
+              )}
+            </div>
+          )}
           {quantityDiscount && selectedDiscountApplied && (
             <p className="text-[11px] font-semibold text-emerald-700 mb-0.5">
               ההנחה הופעלה · ₪{selectedUnitPrice.toFixed(2)}

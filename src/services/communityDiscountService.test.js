@@ -10,12 +10,23 @@ jest.mock('firebase/firestore', () => ({
 }));
 
 jest.mock('../firebase/firebase', () => ({ db: {} }));
+jest.mock('./pickupSpotsService', () => ({
+  resolveCommunityName: (name) => {
+    const raw = String(name || '').trim();
+    if (raw === 'alias-a') return 'קהילה א';
+    return raw;
+  },
+}));
 
-import { onSnapshot } from 'firebase/firestore';
+import { waitFor } from '@testing-library/react';
+import { getDocs, onSnapshot } from 'firebase/firestore';
 import {
   calculateCommunityDiscountFromOrders,
+  communitiesMatchForDiscount,
   getCommunityDiscountProgressDocId,
+  getCommunityOrdersForDeliveryWeek,
   getEstimatedCommunityProductSubtotal,
+  invalidateOrdersCache,
   isCommunityDiscountAvailable,
   isEligibleCommunityDiscountOrder,
   normalizeDiscountConfig,
@@ -42,6 +53,8 @@ const heldOrder = (overrides = {}) => ({
 describe('community delayed-order discount calculation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    invalidateOrdersCache();
+    getDocs.mockRejectedValue({ code: 'permission-denied' });
   });
 
   test('defaults V7 automatic application to off for legacy config', () => {
@@ -60,6 +73,7 @@ describe('community delayed-order discount calculation', () => {
     };
 
     expect(isCommunityDiscountAvailable('קהילה א', config)).toBe(true);
+    expect(isCommunityDiscountAvailable('alias-a', config)).toBe(true);
     expect(isCommunityDiscountAvailable('קהילה ב', config)).toBe(false);
     expect(calculateCommunityDiscountFromOrders({
       communityName: 'קהילה א',
@@ -140,6 +154,15 @@ describe('community delayed-order discount calculation', () => {
     });
 
     expect(getEstimatedCommunityProductSubtotal(order)).toBe(70);
+  });
+
+  test('matches the same community after trimming pickup-spot names', () => {
+    expect(communitiesMatchForDiscount('אור הנר', '  אור הנר  ')).toBe(true);
+    expect(getCommunityOrdersForDeliveryWeek(
+      [heldOrder({ customerDetails: { pickupSpot: '  אור הנר  ' } })],
+      'אור הנר',
+      '2026-08-09',
+    )).toHaveLength(1);
   });
 
   test('selects the cohort tier and applies a VIP floor', () => {
@@ -430,6 +453,70 @@ describe('community delayed-order discount calculation', () => {
     expect(unsubscribeProgress).toHaveBeenCalledTimes(1);
   });
 
+  test('prefers the live delayed-order total over a stale progress document', async () => {
+    const snapshotCallbacks = [];
+    onSnapshot.mockImplementation((ref, next) => {
+      snapshotCallbacks.push(next);
+      return jest.fn();
+    });
+    getDocs.mockResolvedValue({
+      docs: [
+        {
+          id: 'order-1',
+          data: () => heldOrder({
+            customerDetails: { pickupSpot: 'אור הנר' },
+            orderBreakdown: {
+              business: {
+                items: [{ lineId: 'produce', quantity: 1, price: 190, estimatedLineTotal: 190 }],
+              },
+            },
+          }),
+        },
+        {
+          id: 'other-community',
+          data: () => heldOrder({
+            id: 'other-community',
+            customerDetails: { pickupSpot: 'קהילה אחרת' },
+            orderBreakdown: {
+              business: {
+                items: [{ lineId: 'produce', quantity: 1, price: 300, estimatedLineTotal: 300 }],
+              },
+            },
+          }),
+        },
+      ],
+    });
+    const onValue = jest.fn();
+
+    subscribeDisplayDiscountInfo({
+      communityName: 'אור הנר',
+      deliveryWeekKey: '2026-08-09',
+      onValue,
+    });
+
+    snapshotCallbacks[0]({
+      exists: () => true,
+      data: () => ({
+        enabled: true,
+        tiers: [{ displayThreshold: 1000, realThreshold: 800, discountPercent: 1 }],
+      }),
+    });
+    snapshotCallbacks[1]({
+      exists: () => true,
+      data: () => ({ total: 518, orderCount: 4 }),
+    });
+    expect(onValue).toHaveBeenLastCalledWith(expect.objectContaining({
+      weeklyTotal: 518,
+    }));
+
+    await waitFor(() => {
+      expect(onValue).toHaveBeenLastCalledWith(expect.objectContaining({
+        weeklyTotal: 190,
+        orderCount: 1,
+      }));
+    });
+  });
+
   test('treats a missing progress document as zero weekly total', () => {
     const snapshotCallbacks = [];
     onSnapshot.mockImplementation((ref, next) => {
@@ -475,5 +562,59 @@ describe('community delayed-order discount calculation', () => {
         expect.objectContaining({ discountPercent: 1 }),
       ]),
     }));
+  });
+
+  test('does not listen to progress for guests and ignores permission-denied on progress', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const snapshotCallbacks = [];
+    const snapshotErrors = [];
+    onSnapshot.mockImplementation((ref, next, error) => {
+      snapshotCallbacks.push(next);
+      snapshotErrors.push(error);
+      return jest.fn();
+    });
+    const onValue = jest.fn();
+    const onError = jest.fn();
+
+    subscribeDisplayDiscountInfo({
+      communityName: 'קהילה א',
+      deliveryWeekKey: '2026-08-09',
+      listenToProgress: false,
+      onValue,
+      onError,
+    });
+
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    snapshotCallbacks[0]({
+      exists: () => true,
+      data: () => ({
+        enabled: true,
+        tiers: [{ displayThreshold: 1000, realThreshold: 800, discountPercent: 1 }],
+      }),
+    });
+    expect(onValue).toHaveBeenCalledWith(expect.objectContaining({ weeklyTotal: 0 }));
+    expect(onError).not.toHaveBeenCalled();
+
+    onSnapshot.mockClear();
+    onSnapshot.mockImplementation((ref, next, error) => {
+      snapshotCallbacks.push(next);
+      snapshotErrors.push(error);
+      return jest.fn();
+    });
+
+    subscribeDisplayDiscountInfo({
+      communityName: 'קהילה א',
+      deliveryWeekKey: '2026-08-09',
+      onValue,
+      onError,
+    });
+    snapshotErrors[snapshotErrors.length - 1]({
+      code: 'permission-denied',
+      message: 'Missing or insufficient permissions.',
+    });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

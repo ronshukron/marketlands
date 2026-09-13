@@ -13,9 +13,16 @@ import { useAuth } from '../../contexts/authContext';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import {
   generateAvailableDeliveryDates,
+  getDeliveryScheduleDocumentKeys,
   getEffectiveCutoffAt,
 } from '../../utils/deliveryScheduleUtils';
-import { normalizeFarmerBadgeBusinessIds } from '../../utils/farmerBadgeUtils';
+import { loadFarmerBadgeBusinessIds, saveFarmerBadgeBusinessIds } from '../../services/farmerBadgeService';
+import {
+  expandFarmerBadgeSelection,
+  farmerBadgeGroupIsSelected,
+  groupBusinessesForFarmerBadge,
+  toggleFarmerBadgeGroupIds,
+} from '../../utils/farmerBadgeUtils';
 import LoadingSpinner from '../LoadingSpinner';
 import AdminBusinessWeeklyCutoffs from './AdminBusinessWeeklyCutoffs';
 
@@ -46,8 +53,11 @@ const defaultForm = {
   cutoffHours: '10',
   horizonWeeks: '8',
   exceptions: [],
-  farmerBadgeBusinessIds: [],
 };
+
+const getScheduleCommunityKey = (communityName) => (
+  getDeliveryScheduleDocumentKeys(communityName)[0] || communityName
+);
 
 const parsePositiveInt = (value, fallback) => {
   const parsed = Number.parseInt(String(value).trim(), 10);
@@ -69,10 +79,6 @@ const toDatetimeLocal = (value) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
-const getBusinessLabel = (business) => (
-  business.businessName || business.name || business.email || business.id
-);
-
 const DeliveryScheduleAdmin = () => {
   const { currentUser, userRole } = useAuth();
   const { pickupSpots } = usePickupSpots();
@@ -89,22 +95,40 @@ const DeliveryScheduleAdmin = () => {
   const [businesses, setBusinesses] = useState([]);
   const [businessesLoading, setBusinessesLoading] = useState(false);
   const [businessSearch, setBusinessSearch] = useState('');
+  const [farmerBadgeBusinessIds, setFarmerBadgeBusinessIds] = useState([]);
+  const [savingFarmerBadges, setSavingFarmerBadges] = useState(false);
   const [error, setError] = useState('');
 
   const isAdmin = Boolean(
     currentUser && (userRole === 'admin' || ADMIN_UIDS.includes(currentUser.uid))
   );
 
-  const visibleBusinesses = useMemo(() => {
+  const farmerBadgeGroups = useMemo(
+    () => groupBusinessesForFarmerBadge(businesses),
+    [businesses],
+  );
+
+  const selectedFarmerGroups = useMemo(() => (
+    farmerBadgeGroups
+      .filter((group) => farmerBadgeGroupIsSelected(group, farmerBadgeBusinessIds))
+      .sort((a, b) => a.label.localeCompare(b.label, 'he'))
+  ), [farmerBadgeBusinessIds, farmerBadgeGroups]);
+
+  const visibleFarmerGroups = useMemo(() => {
     const normalizedSearch = businessSearch.trim().toLowerCase();
-    return businesses
-      .filter((business) => (
+    return farmerBadgeGroups
+      .filter((group) => (
         !normalizedSearch
-        || getBusinessLabel(business).toLowerCase().includes(normalizedSearch)
-        || business.id.toLowerCase().includes(normalizedSearch)
+        || group.label.toLowerCase().includes(normalizedSearch)
+        || group.ids.some((id) => id.toLowerCase().includes(normalizedSearch))
       ))
-      .sort((a, b) => getBusinessLabel(a).localeCompare(getBusinessLabel(b), 'he'));
-  }, [businessSearch, businesses]);
+      .sort((a, b) => {
+        const aSelected = farmerBadgeGroupIsSelected(a, farmerBadgeBusinessIds);
+        const bSelected = farmerBadgeGroupIsSelected(b, farmerBadgeBusinessIds);
+        if (aSelected !== bSelected) return aSelected ? -1 : 1;
+        return a.label.localeCompare(b.label, 'he');
+      });
+  }, [businessSearch, farmerBadgeBusinessIds, farmerBadgeGroups]);
 
   useEffect(() => {
     if (!selectedCommunity && pickupSpots.length > 0) {
@@ -152,25 +176,45 @@ const DeliveryScheduleAdmin = () => {
     };
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+
+    let active = true;
+    loadFarmerBadgeBusinessIds()
+      .then((businessIds) => {
+        if (active) setFarmerBadgeBusinessIds(businessIds);
+      })
+      .catch((err) => {
+        console.error('Error loading farmer badges:', err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAdmin]);
+
   const loadSchedule = async (communityName) => {
     if (!communityName) return;
     setLoading(true);
     setError('');
     try {
-      const scheduleRef = doc(db, 'deliverySchedules', communityName);
-      const scheduleSnap = await getDoc(scheduleRef);
-      if (!scheduleSnap.exists()) {
+      const scheduleKeys = getDeliveryScheduleDocumentKeys(communityName);
+      let data = null;
+      for (const key of scheduleKeys) {
+        const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', key));
+        if (scheduleSnap.exists()) {
+          data = scheduleSnap.data() || {};
+          break;
+        }
+      }
+      if (!data) {
         setForm(defaultForm);
         return;
       }
-
-      const data = scheduleSnap.data() || {};
       setForm({
         active: data.active !== false,
         weeklyDays: Array.isArray(data.weeklyDays) ? data.weeklyDays.map(Number) : [],
         cutoffHours: String(data.defaultCutoff?.hoursBeforeDelivery ?? 10),
         horizonWeeks: String(data.horizonWeeks ?? 8),
-        farmerBadgeBusinessIds: normalizeFarmerBadgeBusinessIds(data.farmerBadgeBusinessIds),
         exceptions: Object.entries(data.exceptions || {})
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([date, exception]) => ({
@@ -198,13 +242,8 @@ const DeliveryScheduleAdmin = () => {
     });
   };
 
-  const toggleFarmerBadgeBusiness = (businessId) => {
-    setForm((prev) => ({
-      ...prev,
-      farmerBadgeBusinessIds: prev.farmerBadgeBusinessIds.includes(businessId)
-        ? prev.farmerBadgeBusinessIds.filter((id) => id !== businessId)
-        : [...prev.farmerBadgeBusinessIds, businessId],
-    }));
+  const toggleFarmerBadgeGroup = (group) => {
+    setFarmerBadgeBusinessIds((prev) => toggleFarmerBadgeGroupIds(prev, group));
   };
 
   const toggleBulkCommunity = (communityName) => {
@@ -262,8 +301,9 @@ const DeliveryScheduleAdmin = () => {
 
     setSaving(true);
     try {
-      await setDoc(doc(db, 'deliverySchedules', selectedCommunity), {
-        communityName: selectedCommunity,
+      const communityKey = getScheduleCommunityKey(selectedCommunity);
+      await setDoc(doc(db, 'deliverySchedules', communityKey), {
+        communityName: communityKey,
         active: Boolean(form.active),
         weeklyDays: form.weeklyDays,
         defaultCutoff: {
@@ -271,7 +311,6 @@ const DeliveryScheduleAdmin = () => {
         },
         horizonWeeks,
         exceptions,
-        farmerBadgeBusinessIds: normalizeFarmerBadgeBusinessIds(form.farmerBadgeBusinessIds),
         updatedAt: serverTimestamp(),
       }, { merge: true });
       await loadSchedule(selectedCommunity);
@@ -281,6 +320,25 @@ const DeliveryScheduleAdmin = () => {
       Swal.fire('שגיאה', formatFirestoreError(err), 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveFarmerBadges = async () => {
+    setSavingFarmerBadges(true);
+    try {
+      const expanded = expandFarmerBadgeSelection({
+        selectedIds: farmerBadgeBusinessIds,
+        selectedNames: selectedFarmerGroups.map((group) => group.label),
+        businesses,
+      });
+      const saved = await saveFarmerBadgeBusinessIds(expanded.ids, expanded.names);
+      setFarmerBadgeBusinessIds(saved.ids);
+      Swal.fire('נשמר', 'תגי החקלאי נשמרו לכל נקודות האיסוף', 'success');
+    } catch (err) {
+      console.error('Error saving farmer badges:', err);
+      Swal.fire('שגיאה', formatFirestoreError(err), 'error');
+    } finally {
+      setSavingFarmerBadges(false);
     }
   };
 
@@ -299,9 +357,10 @@ const DeliveryScheduleAdmin = () => {
 
     setBulkSaving(true);
     try {
-      await Promise.all(bulkSelectedCommunities.map((communityName) => (
-        setDoc(doc(db, 'deliverySchedules', communityName), {
-          communityName,
+      await Promise.all(bulkSelectedCommunities.map((communityName) => {
+        const communityKey = getScheduleCommunityKey(communityName);
+        return setDoc(doc(db, 'deliverySchedules', communityKey), {
+          communityName: communityKey,
           active: Boolean(bulkActive),
           weeklyDays: bulkWeeklyDays,
           defaultCutoff: {
@@ -309,8 +368,8 @@ const DeliveryScheduleAdmin = () => {
           },
           horizonWeeks,
           updatedAt: serverTimestamp(),
-        }, { merge: true })
-      )));
+        }, { merge: true });
+      }));
 
       if (bulkSelectedCommunities.includes(selectedCommunity)) {
         await loadSchedule(selectedCommunity);
@@ -485,6 +544,87 @@ const DeliveryScheduleAdmin = () => {
         </button>
       </div>
 
+      <div className="bg-amber-50 border border-amber-200 rounded-lg shadow p-5 mb-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-xl font-semibold text-amber-950">עסקים עם תג חקלאי</h2>
+            <p className="text-sm text-amber-900/80 mt-1">
+              בחירה לפי שם העסק לכל הקהילות. אם לאותו שם יש כמה רשומות, כולן נבחרות יחד כדי שהתג יופיע בחנות.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFarmerBadgeBusinessIds([])}
+            disabled={farmerBadgeBusinessIds.length === 0}
+            className="text-xs min-h-11 px-3 py-2 rounded bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+          >
+            נקה בחירה
+          </button>
+        </div>
+        <input
+          type="search"
+          value={businessSearch}
+          onChange={(event) => setBusinessSearch(event.target.value)}
+          placeholder="חיפוש עסק..."
+          className="w-full border border-amber-300 rounded-md px-3 py-2 bg-white"
+        />
+        <p className="text-sm text-amber-950">
+          נבחרו {selectedFarmerGroups.length} עסקים
+        </p>
+        {selectedFarmerGroups.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {selectedFarmerGroups.map((group) => (
+              <button
+                key={`selected-${group.key}`}
+                type="button"
+                onClick={() => toggleFarmerBadgeGroup(group)}
+                className="inline-flex min-h-11 items-center gap-1 rounded-full bg-amber-200 px-3 py-1.5 text-sm text-amber-950 hover:bg-amber-300"
+              >
+                <span>{group.label}</span>
+                <span aria-hidden="true">×</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="max-h-64 overflow-auto border border-amber-200 rounded-md divide-y divide-amber-100 bg-white">
+          {businessesLoading && (
+            <p className="p-3 text-sm text-gray-500">טוען עסקים...</p>
+          )}
+          {!businessesLoading && visibleFarmerGroups.map((group) => {
+            const selected = farmerBadgeGroupIsSelected(group, farmerBadgeBusinessIds);
+            return (
+              <label
+                key={group.key}
+                className={`flex items-center gap-2 p-2 hover:bg-amber-50 cursor-pointer min-h-11 ${selected ? 'bg-amber-50' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => toggleFarmerBadgeGroup(group)}
+                />
+                <span className="text-sm text-gray-800">
+                  {group.label}
+                  {group.ids.length > 1 && (
+                    <span className="text-xs text-gray-500 mr-2">({group.ids.length} רשומות)</span>
+                  )}
+                </span>
+              </label>
+            );
+          })}
+          {!businessesLoading && visibleFarmerGroups.length === 0 && (
+            <p className="p-3 text-sm text-gray-500">לא נמצאו עסקים.</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleSaveFarmerBadges}
+          disabled={savingFarmerBadges}
+          className="w-full min-h-11 bg-amber-700 hover:bg-amber-800 disabled:bg-gray-400 text-white font-bold py-2.5 px-4 rounded-lg"
+        >
+          {savingFarmerBadges ? 'שומר תגי חקלאי...' : 'שמור תגי חקלאי'}
+        </button>
+      </div>
+
       <div className="bg-white rounded-lg shadow p-5 mb-6 space-y-4">
         <h2 className="text-xl font-semibold">עריכה ותצוגה של קהילה אחת</h2>
         <label className="block">
@@ -499,7 +639,6 @@ const DeliveryScheduleAdmin = () => {
             ))}
           </select>
         </label>
-
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -509,56 +648,6 @@ const DeliveryScheduleAdmin = () => {
           />
           <span>לוח משלוחים פעיל</span>
         </label>
-
-        <div>
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div>
-              <p className="text-sm font-medium text-gray-700">עסקים עם תג חקלאי</p>
-              <p className="text-xs text-gray-500">
-                התג יוצג לכל מוצרי העסק בקהילה הנבחרת בלבד.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setForm((prev) => ({ ...prev, farmerBadgeBusinessIds: [] }))}
-              disabled={form.farmerBadgeBusinessIds.length === 0}
-              className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
-            >
-              נקה בחירה
-            </button>
-          </div>
-          <input
-            type="search"
-            value={businessSearch}
-            onChange={(event) => setBusinessSearch(event.target.value)}
-            placeholder="חיפוש עסק..."
-            className="w-full border border-gray-300 rounded-md px-3 py-2 mb-2"
-          />
-          <p className="text-xs text-gray-600 mb-2">
-            נבחרו {form.farmerBadgeBusinessIds.length} עסקים
-          </p>
-          <div className="max-h-64 overflow-auto border border-gray-200 rounded-md divide-y divide-gray-100">
-            {businessesLoading && (
-              <p className="p-3 text-sm text-gray-500">טוען עסקים...</p>
-            )}
-            {!businessesLoading && visibleBusinesses.map((business) => (
-              <label
-                key={business.id}
-                className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={form.farmerBadgeBusinessIds.includes(business.id)}
-                  onChange={() => toggleFarmerBadgeBusiness(business.id)}
-                />
-                <span className="text-sm text-gray-800">{getBusinessLabel(business)}</span>
-              </label>
-            ))}
-            {!businessesLoading && visibleBusinesses.length === 0 && (
-              <p className="p-3 text-sm text-gray-500">לא נמצאו עסקים.</p>
-            )}
-          </div>
-        </div>
 
         <div>
           <p className="text-sm font-medium text-gray-700 mb-2">ימי משלוח קבועים</p>

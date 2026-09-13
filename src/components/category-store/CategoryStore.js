@@ -13,8 +13,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Slider from 'react-slick';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
-import { generateAvailableDeliveryDates, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
+import { generateAvailableDeliveryDates, getDeliveryScheduleDocumentKeys, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
 import { enrichProductsWithFarmerBadge } from '../../utils/farmerBadgeUtils';
+import { loadFarmerBadgeSelection } from '../../services/farmerBadgeService';
 import { attachGroupPromotionFields, findActiveGroupPromotionForProduct, getEstimatedLineTotal, normalizeProductPromotions } from '../../utils/pricing';
 import { communityListIncludes } from '../../constants/marketplaceFulfillment';
 import {
@@ -27,6 +28,8 @@ import {
   listActiveIntroductionBasketsForCommunity,
 } from '../../services/introductionBasketService';
 import CommunityDiscountWidget from '../communityHub/widgets/CommunityDiscountWidget';
+import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
+import { usePickupSpot } from '../../contexts/PickupSpotContext';
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
 const PRODUCT_QUERY_CONCURRENCY = 6;
@@ -127,6 +130,8 @@ const buildCartItemFromProduct = (product) => {
 const CategoryStore = () => {
   const { addItem } = useCart();
   const { pickupSpots } = usePickupSpots();
+  const { updatePickupSpot } = usePickupSpot();
+  const { activePromotion, unlocked, openUnlockModal } = useCommunityWeeklyPromotion();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -154,14 +159,15 @@ const CategoryStore = () => {
   const [introductionBaskets, setIntroductionBaskets] = useState([]);
   const [basketsLoading, setBasketsLoading] = useState(false);
   const [, setTimeTick] = useState(0);
-  const farmerBadgeBusinessIds = deliverySchedule?.farmerBadgeBusinessIds;
+  const [farmerBadgeBusinessIds, setFarmerBadgeBusinessIds] = useState([]);
+  const [farmerBadgeBusinessNames, setFarmerBadgeBusinessNames] = useState([]);
   const productsWithFarmerBadges = useMemo(
-    () => enrichProductsWithFarmerBadge(products, farmerBadgeBusinessIds),
-    [farmerBadgeBusinessIds, products]
+    () => enrichProductsWithFarmerBadge(products, farmerBadgeBusinessIds, farmerBadgeBusinessNames),
+    [farmerBadgeBusinessIds, farmerBadgeBusinessNames, products]
   );
   const searchResultsWithFarmerBadges = useMemo(
-    () => enrichProductsWithFarmerBadge(searchResults, farmerBadgeBusinessIds),
-    [farmerBadgeBusinessIds, searchResults]
+    () => enrichProductsWithFarmerBadge(searchResults, farmerBadgeBusinessIds, farmerBadgeBusinessNames),
+    [farmerBadgeBusinessIds, farmerBadgeBusinessNames, searchResults]
   );
   const sortedPickupSpots = useMemo(() => sortPickupSpotsByHebrewAlphabet(pickupSpots), [pickupSpots]);
   const filteredPickupSpots = useMemo(() => {
@@ -183,6 +189,7 @@ const CategoryStore = () => {
     if (comm && comm.trim()) {
       const resolvedCommunity = resolveCommunityName(comm.trim()) || comm.trim();
       setSelectedCommunity(resolvedCommunity);
+      updatePickupSpot(resolvedCommunity);
       try {
         localStorage.setItem('selectedPickupSpot', resolvedCommunity);
       } catch {}
@@ -195,7 +202,9 @@ const CategoryStore = () => {
     } else {
       const saved = localStorage.getItem('selectedPickupSpot');
       if (saved && saved !== 'הכל') {
-        setSelectedCommunity(resolveCommunityName(saved) || saved);
+        const resolvedSaved = resolveCommunityName(saved) || saved;
+        setSelectedCommunity(resolvedSaved);
+        updatePickupSpot(resolvedSaved);
       }
     }
     
@@ -210,7 +219,7 @@ const CategoryStore = () => {
         }
       }, 100);
     }
-  }, [location.search, navigate, pickupSpots]);
+  }, [location.search, navigate, pickupSpots, updatePickupSpot]);
 
   // Close community dropdown on outside click
   useEffect(() => {
@@ -253,6 +262,7 @@ const CategoryStore = () => {
   };
 
   const handleCommunityChange = (community) => {
+    updatePickupSpot(community && community !== 'הכל' ? community : '');
     // Save to localStorage immediately when user selects a community
     if (community && community !== 'הכל') {
       localStorage.setItem('selectedPickupSpot', community);
@@ -295,9 +305,16 @@ const CategoryStore = () => {
       setAvailableDeliveryDates([]);
       setDeliveryDatesLoading(true);
       try {
-        const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', communityKey));
+        const scheduleKeys = getDeliveryScheduleDocumentKeys(selectedCommunity);
+        let scheduleData = null;
+        for (const key of scheduleKeys) {
+          const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', key));
+          if (scheduleSnap.exists()) {
+            scheduleData = scheduleSnap.data();
+            break;
+          }
+        }
         if (!active) return;
-        const scheduleData = scheduleSnap.exists() ? scheduleSnap.data() : null;
         setDeliverySchedule(scheduleData);
         const dates = scheduleData ? generateAvailableDeliveryDates(scheduleData) : [];
         const currentWeekKey = getWeekKey(new Date());
@@ -327,6 +344,26 @@ const CategoryStore = () => {
       active = false;
     };
   }, [selectedCommunity]);
+
+  useEffect(() => {
+    let active = true;
+    loadFarmerBadgeSelection()
+      .then((selection) => {
+        if (!active) return;
+        setFarmerBadgeBusinessIds(selection.ids);
+        setFarmerBadgeBusinessNames(selection.names);
+      })
+      .catch((error) => {
+        console.error('Error loading farmer badge businesses:', error);
+        if (active) {
+          setFarmerBadgeBusinessIds([]);
+          setFarmerBadgeBusinessNames([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedCommunity && selectedDeliveryDate) {
@@ -897,10 +934,10 @@ const CategoryStore = () => {
     return multiSearchSections.map(({ term, products: sectionProducts }) => ({
       term,
       products: filterProductsForCommunity(
-        enrichProductsWithFarmerBadge(sectionProducts, farmerBadgeBusinessIds)
+        enrichProductsWithFarmerBadge(sectionProducts, farmerBadgeBusinessIds, farmerBadgeBusinessNames)
       ),
     }));
-  }, [farmerBadgeBusinessIds, multiSearchSections, filterProductsForCommunity]);
+  }, [farmerBadgeBusinessIds, farmerBadgeBusinessNames, multiSearchSections, filterProductsForCommunity]);
 
   // Determine which products to display with community filter
   const baseProducts = isMultiSearchActive
@@ -1129,6 +1166,33 @@ const CategoryStore = () => {
               variant="compact"
               showCommunityLink
             />
+            {activePromotion && (
+              <section
+                className="mt-2 rounded-lg border border-blue-200 bg-gradient-to-l from-blue-50 to-sky-50 px-3 py-2 shadow-sm"
+                aria-label="מבצע שבועי לקהילה"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-blue-700">מבצע שבועי</p>
+                    <h2 className="truncate text-sm font-bold text-gray-900">
+                      {activePromotion.title || 'מחיר קהילתי מיוחד'}
+                    </h2>
+                    <p className="mt-0.5 text-xs text-gray-600">
+                      {unlocked ? 'המחיר הקהילתי פתוח לקהילה זו.' : 'שתפו בקבוצת הקהילה כדי לפתוח את המחיר.'}
+                    </p>
+                  </div>
+                  {!unlocked && (
+                    <button
+                      type="button"
+                      onClick={openUnlockModal}
+                      className="min-h-11 flex-shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    >
+                      שיתוף לפתיחה
+                    </button>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         )}
 

@@ -7,6 +7,7 @@ import {
   isAlwaysOnGroceryOrder,
   isAlwaysOnGroceryOrderEnabled,
 } from '../utils/deliveryScheduleUtils';
+import CommunityWeeklyPromotionContext from './CommunityWeeklyPromotionContext';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -19,6 +20,8 @@ export const useCart = () => useContext(CartContext);
 // CartProvider component wraps parts of the application that need access to cart state.
 // It manages the cart's state and provides it down the component tree via CartContext.
 export const CartProvider = ({ children }) => {
+  const weeklyPromotion = useContext(CommunityWeeklyPromotionContext);
+  const decorateProduct = weeklyPromotion?.decorateProduct || ((item) => item);
   // State variable to store the array of items currently in the cart.
   // Each item is an object with details like id, name, price, quantity, orderId, businessId, and a unique uid.
   const [cartItems, setCartItems] = useState([]);
@@ -56,6 +59,13 @@ export const CartProvider = ({ children }) => {
     // Mark that we've completed the initial load
     setHasLoadedFromStorage(true);
   }, []);
+
+  // Re-evaluate community-wide weekly prices after unlock, expiry, or a
+  // pickup-spot change. Decoration also removes stale promotion snapshots.
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return;
+    setCartItems((current) => applyCartPricing(current.map(decorateProduct)));
+  }, [decorateProduct, hasLoadedFromStorage]);
 
   // Check for expired orders (ended more than 24h ago)
   // With per-pickup-spot ending times, an order is expired only if ALL pickup spots have ended

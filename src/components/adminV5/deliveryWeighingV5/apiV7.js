@@ -373,6 +373,61 @@ function locateItem(orderBreakdown = {}, lineId) {
   return null;
 }
 
+function omitUndefinedDeep(value) {
+  if (Array.isArray(value)) return value.map(omitUndefinedDeep);
+  if (!value || typeof value !== 'object') return value;
+  if (typeof value.toDate === 'function') return value;
+  const next = {};
+  Object.entries(value).forEach(([key, entry]) => {
+    if (entry === undefined) return;
+    next[key] = omitUndefinedDeep(entry);
+  });
+  return next;
+}
+
+function applyDelayedLineChanges(orderBreakdown, lineId, changes = {}, currentData = {}) {
+  const next = { ...(orderBreakdown || {}) };
+  const found = locateItem(next, lineId);
+  if (!found) throw new Error('Line item not found.');
+
+  const targetBusiness = next[found.businessOrderKey];
+  const items = [...(targetBusiness.items || [])];
+  const current = items[found.itemIndex] || {};
+  const prepared = currentData?.communityDiscountPreparation?.status === 'prepared'
+    || current.communityDiscountOriginalPrice != null;
+  const percent = Math.min(100, Math.max(0, safeNumber(
+    current.communityDiscountPercent ?? currentData?.communityDiscount?.percent,
+    0,
+  )));
+  const nextPrice = changes?.price != null ? safeNumber(changes.price, current.price) : null;
+  const shouldKeepDiscount = prepared && percent > 0 && nextPrice != null;
+  const factor = 1 - (percent / 100);
+  const quantityForEstimate = safeNumber(current.estimatedChargeQuantity ?? current.quantity, 0);
+  const originalEstimated = nextPrice != null ? quantityForEstimate * nextPrice : null;
+
+  items[found.itemIndex] = {
+    ...current,
+    ...(changes?.productName != null ? { productName: changes.productName } : {}),
+    ...(changes?.selectedOption != null ? { selectedOption: changes.selectedOption } : {}),
+    ...(changes?.quantity != null ? { quantity: safeNumber(changes.quantity, current.quantity) } : {}),
+    ...(nextPrice == null ? {} : shouldKeepDiscount
+      ? {
+        communityDiscountOriginalPrice: nextPrice,
+        communityDiscountOriginalEffectivePrice: nextPrice,
+        communityDiscountOriginalEstimatedLineTotal: roundTo(originalEstimated, 2),
+        price: roundTo(nextPrice * factor, 6),
+        effectivePrice: roundTo(nextPrice * factor, 6),
+        estimatedLineTotal: roundTo(originalEstimated * factor, 2),
+      }
+      : { price: nextPrice }),
+  };
+  next[found.businessOrderKey] = {
+    ...targetBusiness,
+    items,
+  };
+  return next;
+}
+
 async function mutateDelayedOrderFallback({
   orderId,
   session,
@@ -394,9 +449,16 @@ async function mutateDelayedOrderFallback({
   const items = flattenOrderBreakdown(orderBreakdown);
   const activeItems = filterCustomerActiveLines(currentData, items);
   const deliveryFee = safeNumber(currentData.customerDetails?.deliveryDetails?.deliveryFee, 0);
+  const hasPreparedDiscount = currentData.communityDiscountPreparation?.status === 'prepared';
   const grandTotal = roundTo(
     activeItems.reduce((sum, item) => sum + (safeNumber(item.quantity) * safeNumber(item.price)), 0)
       + deliveryFee,
+    2,
+  );
+  const originalGrandTotal = roundTo(
+    activeItems.reduce((sum, item) => (
+      sum + (safeNumber(item.quantity) * safeNumber(item.communityDiscountOriginalPrice ?? item.price, 0))
+    ), 0) + deliveryFee,
     2,
   );
   const businessIds = Array.from(new Set(
@@ -405,13 +467,14 @@ async function mutateDelayedOrderFallback({
       .filter(Boolean),
   ));
 
-  await updateDoc(orderRef, {
+  await updateDoc(orderRef, omitUndefinedDeep({
     orderBreakdown,
     items,
     businessIds,
     grandTotal,
+    ...(hasPreparedDiscount ? { communityDiscountOriginalGrandTotal: originalGrandTotal } : {}),
     ...buildAuditPatch(session, action),
-  });
+  }));
 
   return {
     ok: true,
@@ -483,36 +546,27 @@ export async function updateDelayedOrderLineV7({
   changes,
   session,
 }) {
+  const runFallback = () => mutateDelayedOrderFallback({
+    orderId,
+    session,
+    action: 'update_line',
+    mutation: (orderBreakdown, currentData) => applyDelayedLineChanges(
+      orderBreakdown,
+      lineId,
+      changes,
+      currentData,
+    ),
+  });
+
+  if (changes?.price != null) {
+    return runFallback();
+  }
+
   const payload = { orderId, lineId, changes, session };
   try {
     return await callMutationEndpoint('updateDelayedOrderLine', payload);
   } catch (error) {
-    return mutateDelayedOrderFallback({
-      orderId,
-      session,
-      action: 'update_line',
-      mutation: (orderBreakdown) => {
-        const next = { ...(orderBreakdown || {}) };
-        const found = locateItem(next, lineId);
-        if (!found) throw new Error('Line item not found.');
-
-        const targetBusiness = next[found.businessOrderKey];
-        const items = [...(targetBusiness.items || [])];
-        const current = items[found.itemIndex] || {};
-        items[found.itemIndex] = {
-          ...current,
-          ...(changes?.productName != null ? { productName: changes.productName } : {}),
-          ...(changes?.selectedOption != null ? { selectedOption: changes.selectedOption } : {}),
-          ...(changes?.quantity != null ? { quantity: safeNumber(changes.quantity, current.quantity) } : {}),
-          ...(changes?.price != null ? { price: safeNumber(changes.price, current.price) } : {}),
-        };
-        next[found.businessOrderKey] = {
-          ...targetBusiness,
-          items,
-        };
-        return next;
-      },
-    });
+    return runFallback();
   }
 }
 
@@ -585,28 +639,28 @@ export async function prepareCommunityDiscountForSettlementV7({
     }
 
     const existingPreparation = orderData.communityDiscountPreparation;
-    if (existingPreparation?.status === 'prepared') {
-      if (existingPreparation.fingerprint === fingerprint) {
-        const canonicalBreakdown = ensureLineIdsInBreakdown(
-          orderId,
-          orderData.orderBreakdown || {},
-        ).breakdown;
-        return {
-          ok: true,
-          skipped: true,
-          fingerprint,
-          preparation: existingPreparation,
-          preparedItems: normalizeDelayedItems(orderData, canonicalBreakdown).items,
-        };
-      }
-      throw new Error('A different community discount is already prepared for this order.');
+    const alreadyPrepared = existingPreparation?.status === 'prepared';
+    if (alreadyPrepared && existingPreparation.fingerprint === fingerprint) {
+      const canonicalBreakdown = ensureLineIdsInBreakdown(
+        orderId,
+        orderData.orderBreakdown || {},
+      ).breakdown;
+      return {
+        ok: true,
+        skipped: true,
+        fingerprint,
+        preparation: existingPreparation,
+        preparedItems: normalizeDelayedItems(orderData, canonicalBreakdown).items,
+      };
     }
 
-    const configRef = doc(db, 'settings', 'communityDiscount');
-    const configSnap = await transaction.get(configRef);
-    const discountConfig = configSnap.exists() ? configSnap.data() : {};
-    if (!isCommunityDiscountAvailable(communityDiscount?.community, discountConfig)) {
-      throw new Error('Community discount is not available for this community.');
+    if (!alreadyPrepared) {
+      const configRef = doc(db, 'settings', 'communityDiscount');
+      const configSnap = await transaction.get(configRef);
+      const discountConfig = configSnap.exists() ? configSnap.data() : {};
+      if (!isCommunityDiscountAvailable(communityDiscount?.community, discountConfig)) {
+        throw new Error('Community discount is not available for this community.');
+      }
     }
 
     const patch = buildCommunityDiscountOrderPatch({
@@ -632,6 +686,7 @@ export async function prepareCommunityDiscountForSettlementV7({
       preparedByStationId: session?.stationId || '',
       preparedByUserId: session?.userId || '',
       preparedByName: session?.userName || '',
+      estimatedDiscountAmount: patch.estimatedDiscountAmount,
     };
     const preparedOrderData = {
       ...orderData,
@@ -640,15 +695,17 @@ export async function prepareCommunityDiscountForSettlementV7({
       grandTotal: patch.grandTotal,
       communityDiscount: snapshot,
       communityDiscountPreparation: preparation,
+      communityDiscountOriginalGrandTotal: patch.originalGrandTotal,
     };
-    transaction.update(orderRef, {
+    transaction.update(orderRef, omitUndefinedDeep({
       orderBreakdown: patch.orderBreakdown,
       items: patch.items,
       grandTotal: patch.grandTotal,
       communityDiscount: snapshot,
       communityDiscountPreparation: preparation,
+      communityDiscountOriginalGrandTotal: patch.originalGrandTotal,
       ...buildAuditPatch(session, 'prepare_community_discount'),
-    });
+    }));
 
     return {
       ok: true,

@@ -215,6 +215,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'מבצעי קהילה שבועיים',
+    description: 'בחירת מוצרים ומחירים מיוחדים לקהילות, פתיחה בשיתוף WhatsApp ומעקב ביצועים',
+    to: '/admin/community-weekly-promotions',
+    featured: true
+  },
+  {
     title: 'ניהול מרכז קהילה',
     description: 'הפעלה/כיבוי רכיבים בעמוד הקהילה, שינוי סדר תצוגה',
     to: '/admin/community-hub',

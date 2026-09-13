@@ -344,6 +344,13 @@ export function isOrderDeliveryDateFallback(orderData = {}) {
   return !parseDateSafe(orderData.fulfillment?.deliveryDate) && !parseDateSafe(orderData.deliveryDate);
 }
 
+export function getDeliveryScheduleDocumentKeys(communityName) {
+  const raw = String(communityName || '').trim();
+  if (!raw) return [];
+  const resolved = String(resolveCommunityName(raw) || raw).trim();
+  return [...new Set([resolved, raw].filter(Boolean))];
+}
+
 export function getOrderCommunity(orderData = {}) {
   const raw = orderData.fulfillment?.community
     || orderData.community

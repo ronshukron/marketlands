@@ -5,6 +5,7 @@ jest.mock('../services/pickupSpotsService', () => ({
 import {
   generateAvailableDeliveryDates,
   generateSharedAvailableDeliveryDates,
+  getDeliveryScheduleDocumentKeys,
   isDeliveryDateOrderable,
   isOrderDeliveryDateFallback,
 } from './deliveryScheduleUtils';
@@ -137,5 +138,10 @@ describe('delivery schedule utilities', () => {
 
     expect(dates.length).toBeGreaterThan(0);
     expect(dates.every((dateKey) => new Date(`${dateKey}T00:00:00`).getDay() === 4)).toBe(true);
+  });
+
+  test('schedule document keys keep the resolved name first and skip blanks', () => {
+    expect(getDeliveryScheduleDocumentKeys('  Community X  ')).toEqual(['Community X']);
+    expect(getDeliveryScheduleDocumentKeys('')).toEqual([]);
   });
 });

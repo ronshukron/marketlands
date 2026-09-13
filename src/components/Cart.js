@@ -228,6 +228,16 @@ const Cart = ({ isOpen, onClose }) => {
                         {!isBasketAdjustment && isUnitItem && '/ק"ג'}
                         {!isBasketAdjustment && isPackageItem && '/מארז'}
                       </p>
+                      {item.communityWeeklyPromotionApplied && (
+                        <p className="text-[10px] font-semibold text-blue-700 mt-0.5">
+                          מחיר קהילתי שבועי
+                          {Number(item.basePrice) > Number(item.effectivePrice) && (
+                            <span className="text-gray-400 font-normal mr-1 line-through">
+                              ₪{Number(item.basePrice).toFixed(2)}
+                            </span>
+                          )}
+                        </p>
+                      )}
                       {item.groupPromotionApplied && (
                         <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
                           {item.groupPromotionLabel || 'מבצע משותף הופעל'}
@@ -238,7 +248,7 @@ const Cart = ({ isOpen, onClose }) => {
                           )}
                         </p>
                       )}
-                      {!item.groupPromotionApplied && item.quantityDiscountApplied && (
+                      {!item.communityWeeklyPromotionApplied && !item.groupPromotionApplied && item.quantityDiscountApplied && (
                         <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
                           הנחת כמות הופעלה
                           {Number(item.basePrice) > Number(item.effectivePrice) && (

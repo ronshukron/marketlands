@@ -11,6 +11,10 @@ import {
   normalizeOrderMinimums,
   normalizeProductPromotions,
 } from '../utils/pricing';
+import {
+  isCommunityWeeklyPricingMismatch,
+  validateAppliedCommunityWeeklyPricing,
+} from './communityWeeklyPromotionService';
 
 export const getBusinessProductPromotions = async (businessId) => {
   if (!businessId) return [];
@@ -72,8 +76,24 @@ export const refreshCartCommercialTerms = async ({ items = [], orderIds = [] } =
       : [];
   });
 
+  let pricedItems = applyCartPricing(attachLivePromotionsToItems(items, promotionsByBusinessId));
+  try {
+    await validateAppliedCommunityWeeklyPricing(pricedItems);
+  } catch (error) {
+    if (isCommunityWeeklyPricingMismatch(error)) throw error;
+    pricedItems = applyCartPricing(pricedItems.map((item) => (
+      item?.communityWeeklyPromotionApplied === true
+        ? {
+          ...item,
+          communityWeeklyPromotionUnlocked: false,
+          communityWeeklyPromotionApplied: false,
+        }
+        : item
+    )));
+  }
+
   return {
-    items: applyCartPricing(attachLivePromotionsToItems(items, promotionsByBusinessId)),
+    items: pricedItems,
     orderMinimums,
     promotionsByBusinessId,
   };

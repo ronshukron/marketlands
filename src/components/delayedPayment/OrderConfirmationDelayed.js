@@ -24,6 +24,8 @@ import {
     groupPricedItemsByOrder,
 } from '../../utils/pricing';
 import { refreshCartCommercialTerms } from '../../services/productPromotionService';
+import { describeCommunityWeeklyCheckoutRefreshError } from '../../services/communityWeeklyPromotionService';
+import { buildCommunityWeeklyPromotionOrderAttribution } from '../../utils/communityWeeklyPromotionUrl';
 import {
     generateSharedAvailableDeliveryDates,
     getWeekKey,
@@ -178,6 +180,7 @@ const OrderConfirmationDelayed = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems, applyCommercialRefresh, orderInfoMap } = useCart();
+    const promotionOrderAttribution = buildCommunityWeeklyPromotionOrderAttribution(localStorage);
     
     const [loading, setLoading] = useState(false);
     const [userName, setUserName] = useState(() => {
@@ -831,6 +834,16 @@ const OrderConfirmationDelayed = () => {
                 ...refreshed.orderMinimums,
             });
         } catch (refreshError) {
+            const weeklyError = describeCommunityWeeklyCheckoutRefreshError(refreshError);
+            if (weeklyError) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: weeklyError.title,
+                    text: weeklyError.text,
+                    confirmButtonText: 'הבנתי',
+                });
+                return;
+            }
             console.error('Error refreshing checkout terms:', refreshError);
         }
 
@@ -930,6 +943,9 @@ const OrderConfirmationDelayed = () => {
             businessIds: businessIds,
             ...(introductionBasketsForOrder.length > 0 ? { introductionBaskets: introductionBasketsForOrder } : {}),
             createdAt: new Date().toISOString(),
+            ...(promotionOrderAttribution ? {
+                communityWeeklyPromotionAttribution: promotionOrderAttribution
+            } : {}),
             ...(cartHasAlwaysOnGrocery ? {
                 fulfillment: {
                     community: selectedPickupSpot,
@@ -1108,6 +1124,16 @@ const OrderConfirmationDelayed = () => {
                     { ...orderInfoMap, ...refreshed.orderMinimums },
                 );
             } catch (refreshError) {
+                const weeklyError = describeCommunityWeeklyCheckoutRefreshError(refreshError);
+                if (weeklyError) {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: weeklyError.title,
+                        text: weeklyError.text,
+                        confirmButtonText: 'הבנתי',
+                    });
+                    return;
+                }
                 console.error('Error refreshing checkout terms:', refreshError);
             }
 
@@ -1214,6 +1240,9 @@ const OrderConfirmationDelayed = () => {
                 businessIds: businessIds,
                 ...(introductionBasketsForOrder.length > 0 ? { introductionBaskets: introductionBasketsForOrder } : {}),
                 createdAt: new Date().toISOString(),
+                ...(promotionOrderAttribution ? {
+                    communityWeeklyPromotionAttribution: promotionOrderAttribution
+                } : {}),
                 ...(cartHasAlwaysOnGrocery ? {
                     fulfillment: {
                         community: selectedPickupSpot,
@@ -1496,7 +1525,10 @@ const OrderConfirmationDelayed = () => {
                     setShowAccountModal(false);
                     proceedToCheckout(null);
                 }}
-                onCancel={() => setShowAccountModal(false)}
+                onCancel={() => {
+                    setCreateAccount(false);
+                    setShowAccountModal(false);
+                }}
             />
             <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="bg-purple-700 text-white px-6 py-4">

@@ -8,8 +8,6 @@ import {
   addItemToDelayedOrderV7,
   fetchAvailableDeliveryWeeksV7,
   fetchProductDetailsV7,
-  handleSuspendedPaymentV7,
-  prepareCommunityDiscountForSettlementV7,
   removeDelayedOrderLineV7,
   searchProductsV7,
   setPackedCartonCountV7,
@@ -17,12 +15,10 @@ import {
   updateDelayedOrderLineV7,
 } from './apiV7';
 import {
-  buildStationAuditV7,
   buildSessionIdV7,
   bulkSetDraftWeightsV7,
   claimOrderV7,
   clearDraftLineWeightV7,
-  clearOrderDraftV7,
   clearPresenceV7,
   getOrCreateStationIdV7,
   isClaimStaleV7,
@@ -50,6 +46,21 @@ import {
   weekKeyToRangeLabel,
 } from './v7/orderDraftUtils';
 import {
+  buildCompletedOrderStatePatch,
+  settleAndChargeOrderV7,
+} from './v7/chargeOrderV7';
+import {
+  BATCH_CHARGE_SKIP_REASONS,
+  buildBatchDiscountSnapshot,
+  classifyBatchChargeOrder,
+  collectMultiCommunityBatchChargePlan,
+  defaultBatchChargeCommunities,
+  getOrderCommunityName,
+  getOrderDisplayName,
+  partitionReadyByExclusion,
+} from './v7/batchCommunityChargeV7';
+import BatchChargeControlModal from './v7/BatchChargeControlModal';
+import {
   applyOpToDraft,
   applyOpsToDrafts,
   buildBaseSnapshotForOp,
@@ -64,7 +75,14 @@ import {
   writeDraftStore,
   writeStaticScopeData,
 } from './v7/offlineSyncV7';
-import { readCommunityOrder, readCommunityColorOverrides, saveCommunityColorOverride, saveCommunityOrder } from './v7/localStorageSafeV7';
+import {
+  readCommunityOrder,
+  readCommunityColorOverrides,
+  readBatchChargeExcludedOrderIds,
+  saveCommunityColorOverride,
+  saveCommunityOrder,
+  saveBatchChargeExcludedOrderIds,
+} from './v7/localStorageSafeV7';
 import {
   computeCommunityOrderNumbers,
   readShowCommunityNumbering,
@@ -81,6 +99,7 @@ import CustomerOrderDeliveryTransferControl from '../../admin/CustomerOrderDeliv
 import { getCustomerKey, getCustomerProfiles } from '../../../services/customerProfileService';
 import { classifyCustomer, loadCustomerHistoryStats } from '../../../services/customerHistoryService';
 import {
+  getDisplayDiscountInfo,
   subscribeDisplayDiscountInfo,
 } from '../../../services/communityDiscountService';
 import { crateLabelAfterPrint, normalizeCrateLabel } from '../../../utils/crateLabelCounter';
@@ -94,21 +113,41 @@ const LANG_STORAGE_KEY = 'deliveryV7::lang';
 const COMMUNITY_ORDER_KEY = 'deliveryV7::communityOrder';
 const LAST_SETUP_KEY = 'deliveryV7::lastSetup';
 
+function isBrowserOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 function isLikelyNetworkErrorV7(error) {
   const message = String(error?.message || '');
+  const code = String(error?.code || '');
   return (
-    (typeof navigator !== 'undefined' && !navigator.onLine)
-    || error?.code === 'unavailable'
-    || error?.code === 'deadline-exceeded'
+    isBrowserOffline()
+    || code === 'unavailable'
+    || code === 'deadline-exceeded'
+    || code === 'ERR_NETWORK'
+    || code === 'ECONNABORTED'
+    || code === 'ERR_CANCELED'
     || message.includes('client is offline')
     || message.includes('Failed to fetch')
+    || message.includes('Network Error')
+    || /timeout of \d+ms exceeded/i.test(message)
     // Firestore 10.11.1 can throw this internal assertion while a transaction is interrupted offline.
     || message.includes('INTERNAL ASSERTION FAILED: Unexpected state')
   );
 }
 
-function isBrowserOffline() {
-  return typeof navigator !== 'undefined' && navigator.onLine === false;
+function getActionErrorDetail(error) {
+  const data = error?.response?.data;
+  if (typeof data === 'string' && data.trim()) return data.trim();
+  if (data && typeof data === 'object') {
+    const nested = data.error || data.message || data.details;
+    if (typeof nested === 'string' && nested.trim()) return nested.trim();
+    if (nested && typeof nested === 'object') {
+      const nestedMessage = nested.message || nested.error;
+      if (typeof nestedMessage === 'string' && nestedMessage.trim()) return nestedMessage.trim();
+    }
+  }
+  return String(error?.message || '').trim();
 }
 
 function readLastSetupV7() {
@@ -281,6 +320,44 @@ const TR = {
     printerBrowserHint: 'הדפסת מדבקות זמינה באפליקציית שולחן העבודה',
     printOk: (n) => `מודפס קרטון ${n}#`,
     packedCartonSyncFailed: 'המדבקה הודפסה, אבל מספר הקרטונים לא נשמר ללקוח. בדקו אינטרנט.',
+    batchChargeCommunity: 'חיוב קבוצתי',
+    batchChargeCommunityHint: 'בחרו קהילות והזמנות. הנחה תתווסף אם היא זמינה. כישלון משאיר את ההזמנה ב"נשקל".',
+    batchChargeModalTitle: 'חיוב קבוצתי',
+    batchChargeModalHint: 'קהילות, הזמנות להחריג, ואז לחיצה אחת לכולן',
+    batchChargePickCommunities: 'קהילות לחיוב',
+    batchChargeExcludeThis: 'הסר מחיוב אוטומטי',
+    batchChargeIncludeThis: 'החזר לחיוב אוטומטי',
+    batchChargeExcludedBadge: 'לא בחיוב אוטומטי',
+    batchChargeSkippedSection: 'דולגו',
+    batchChargeCompletedCount: (n) => `כבר חויבו: ${n}`,
+    batchChargeRun: (n) => `חייב ${n} הזמנות`,
+    batchChargeNoReadySelected: 'אין הזמנות מסומנות לחיוב.',
+    batchChargeDiscountNone: 'בלי הנחה',
+    batchChargeDiscountPct: (p) => `הנחה ${p}%`,
+    batchChargePreviewCharge: 'לחיוב',
+    batchChargePreviewDiscount: 'הנחה',
+    batchChargeSelectAllOrders: 'סמן הכל לחיוב',
+    batchChargeClearOrders: 'הסר הכל מהחיוב',
+    batchChargeNoDiscount: 'אין הנחת קהילה זמינה — החיוב ימשיך במחיר מלא.',
+    batchChargeNoReady: (community, skipped, done) => `אין הזמנות מוכנות לחיוב בקהילה "${community}". דולגו: ${skipped}. כבר חויבו: ${done}.`,
+    batchChargeConfirm: (community, percent, ready, skipped, done, total, discount) => (
+      `לחייב ${ready} הזמנות בקהילה "${community}" עם הנחת קהילה ${percent}%?\n\n`
+      + `לחיוב: ₪${total}\nהנחה: ₪${discount}\nדולגו (לא מוכנות): ${skipped}\nכבר חויבו: ${done}\n\n`
+      + 'הזמנות שנכשלות יישארו במצב "נשקל" ואפשר לחייב אותן שוב. הזמנות שהצליחו לא יחויבו פעמיים.'
+    ),
+    batchChargeProgress: (current, total, name) => `מחייב ${current}/${total}: ${name}`,
+    batchChargeStop: 'עצור את השאר',
+    batchChargeSummary: (charged, failed, skipped, done) => (
+      `חויבו בהצלחה: ${charged}\nנכשלו (נשארו נשקלו): ${failed}\nדולגו: ${skipped}\nכבר היו מחויבות: ${done}`
+    ),
+    batchChargeFailedBadge: 'חיוב נכשל',
+    batchChargeSkipNotWeighed: 'טרם נשקל במלואן',
+    batchChargeSkipNoItems: 'אין פריטים לחיוב',
+    batchChargeSkipClaimed: 'פתוח בתחנה אחרת',
+    batchChargeSkipConflict: 'קונפליקט סנכרון',
+    batchChargeSkipPending: 'ממתין לסנכרון',
+    batchChargeSkipOffline: 'אין אינטרנט — לא נוסה',
+    batchChargeSkipStopped: 'נעצר לפני חיוב',
     printerError: (code, detail) => {
       const base = {
         no_printer: 'המדפסת לא נמצאה. בדקו USB ו-Editor Lite.',
@@ -292,6 +369,7 @@ const TR = {
         editor_lite: 'כבו את Editor Lite (הנורית הירוקה)',
         wrong_media: 'הגליל במדפסת לא תואם',
         timeout: 'המדפסת לא ענתה בזמן',
+        communication_error: 'שגיאת תקשורת עם המדפסת. נסו שוב, ואם זה חוזר כבו והדליקו את המדפסת.',
         print_failed: 'ההדפסה נכשלה',
         no_electron: 'הדפסה זמינה רק באפליקציית שולחן העבודה',
       }[code] || 'ההדפסה נכשלה';
@@ -449,6 +527,44 @@ const TR = {
     printerBrowserHint: 'พิมพ์ฉลากได้เฉพาะแอปเดสก์ท็อป',
     printOk: (n) => `พิมพ์แล้ว กล่อง ${n}#`,
     packedCartonSyncFailed: 'พิมพ์ฉลากแล้ว แต่ยังบันทึกจำนวนกล่องให้ลูกค้าไม่ได้ ตรวจเน็ต',
+    batchChargeCommunity: 'เรียกเก็บแบบกลุ่ม',
+    batchChargeCommunityHint: 'เลือกชุมชนและออเดอร์ ส่วนลดจะใส่ให้ถ้ามี ถ้าล้มเหลวออเดอร์ยังเป็น "ชั่งแล้ว"',
+    batchChargeModalTitle: 'เรียกเก็บแบบกลุ่ม',
+    batchChargeModalHint: 'เลือกชุมชน ตัดออเดอร์ที่ไม่ต้องการ แล้วกดครั้งเดียวทั้งหมด',
+    batchChargePickCommunities: 'ชุมชนที่จะเรียกเก็บ',
+    batchChargeExcludeThis: 'ไม่เรียกเก็บอัตโนมัติ',
+    batchChargeIncludeThis: 'ใส่กลับเข้าเรียกเก็บอัตโนมัติ',
+    batchChargeExcludedBadge: 'ไม่เรียกเก็บอัตโนมัติ',
+    batchChargeSkippedSection: 'ข้าม',
+    batchChargeCompletedCount: (n) => `เรียกเก็บแล้ว: ${n}`,
+    batchChargeRun: (n) => `เรียกเก็บ ${n} ออเดอร์`,
+    batchChargeNoReadySelected: 'ไม่มีออเดอร์ที่เลือกไว้ให้เรียกเก็บ',
+    batchChargeDiscountNone: 'ไม่มีส่วนลด',
+    batchChargeDiscountPct: (p) => `ส่วนลด ${p}%`,
+    batchChargePreviewCharge: 'ยอดเรียกเก็บ',
+    batchChargePreviewDiscount: 'ส่วนลด',
+    batchChargeSelectAllOrders: 'เลือกทั้งหมดให้เรียกเก็บ',
+    batchChargeClearOrders: 'เอาออกทั้งหมดจากการเรียกเก็บ',
+    batchChargeNoDiscount: 'ยังไม่มีส่วนลดชุมชน — จะเรียกเก็บราคาเต็ม',
+    batchChargeNoReady: (community, skipped, done) => `ไม่มีออเดอร์พร้อมเรียกเก็บในชุมชน "${community}" ข้าม: ${skipped} เรียกเก็บแล้ว: ${done}`,
+    batchChargeConfirm: (community, percent, ready, skipped, done, total, discount) => (
+      `เรียกเก็บ ${ready} ออเดอร์ในชุมชน "${community}" พร้อมส่วนลดชุมชน ${percent}%?\n\n`
+      + `ยอดเรียกเก็บ: ₪${total}\nส่วนลด: ₪${discount}\nข้าม (ยังไม่พร้อม): ${skipped}\nเรียกเก็บแล้ว: ${done}\n\n`
+      + 'ออเดอร์ที่ล้มเหลวจะยังเป็นสถานะ "ชั่งแล้ว" และเรียกเก็บใหม่ได้ ออเดอร์ที่สำเร็จจะไม่ถูกเรียกเก็บซ้ำ'
+    ),
+    batchChargeProgress: (current, total, name) => `กำลังเรียกเก็บ ${current}/${total}: ${name}`,
+    batchChargeStop: 'หยุดที่เหลือ',
+    batchChargeSummary: (charged, failed, skipped, done) => (
+      `เรียกเก็บสำเร็จ: ${charged}\nล้มเหลว (ยังชั่งแล้ว): ${failed}\nข้าม: ${skipped}\nเรียกเก็บไว้แล้ว: ${done}`
+    ),
+    batchChargeFailedBadge: 'เรียกเก็บไม่สำเร็จ',
+    batchChargeSkipNotWeighed: 'ยังชั่งไม่ครบ',
+    batchChargeSkipNoItems: 'ไม่มีรายการให้เรียกเก็บ',
+    batchChargeSkipClaimed: 'เปิดอยู่ที่สถานีอื่น',
+    batchChargeSkipConflict: 'มีความขัดแย้งในการซิงก์',
+    batchChargeSkipPending: 'รอซิงก์',
+    batchChargeSkipOffline: 'ไม่มีเน็ต — ยังไม่ได้ลอง',
+    batchChargeSkipStopped: 'หยุดก่อนเรียกเก็บ',
     printerError: (code, detail) => {
       const base = {
         no_printer: 'ไม่พบเครื่องพิมพ์ ตรวจ USB และ Editor Lite',
@@ -460,6 +576,7 @@ const TR = {
         editor_lite: 'ปิด Editor Lite (ไฟเขียว)',
         wrong_media: 'ม้วนไม่ตรงกับงานพิมพ์',
         timeout: 'เครื่องพิมพ์ไม่ตอบ',
+        communication_error: 'การสื่อสารกับเครื่องพิมพ์ผิดพลาด ลองอีกครั้ง ถ้ายังไม่พิมพ์ ให้ปิดแล้วเปิดเครื่องพิมพ์',
         print_failed: 'พิมพ์ไม่สำเร็จ',
         no_electron: 'พิมพ์ได้เฉพาะแอปเดสก์ท็อป',
       }[code] || 'พิมพ์ไม่สำเร็จ';
@@ -970,6 +1087,14 @@ export default function DeliveryManagementV7() {
   const [showCommunityNumbering, setShowCommunityNumbering] = useState(() => readShowCommunityNumbering());
   const [communityDiscountInfo, setCommunityDiscountInfo] = useState(null);
   const [manualDiscountOrders, setManualDiscountOrders] = useState({});
+  const [batchChargeProgress, setBatchChargeProgress] = useState(null);
+  const [batchFailedByOrderId, setBatchFailedByOrderId] = useState({});
+  const [batchChargeModalOpen, setBatchChargeModalOpen] = useState(false);
+  const [batchChargeModalCommunities, setBatchChargeModalCommunities] = useState(() => new Set());
+  const [batchChargeExcludedOrderIds, setBatchChargeExcludedOrderIds] = useState(() => new Set());
+  const [batchChargeDiscountByCommunity, setBatchChargeDiscountByCommunity] = useState({});
+  const [batchChargeDiscountLoading, setBatchChargeDiscountLoading] = useState(false);
+  const batchChargeAbortRef = useRef(false);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const showToast = useCallback((msg, dur = 2500) => {
@@ -1047,6 +1172,39 @@ export default function DeliveryManagementV7() {
     startDate: selectedSpecificStartDate,
     endDate: selectedSpecificEndDate,
   }), [selectedWeek, selectedCommunities, selectedSpecificStartDate, selectedSpecificEndDate]);
+  useEffect(() => {
+    setBatchChargeExcludedOrderIds(new Set(readBatchChargeExcludedOrderIds(selectedWeek)));
+  }, [selectedWeek]);
+  const updateBatchChargeExcluded = useCallback((mutator) => {
+    setBatchChargeExcludedOrderIds((prev) => {
+      const next = mutator(prev);
+      saveBatchChargeExcludedOrderIds(selectedWeek, next, currentScopeKey ? [currentScopeKey] : []);
+      return next;
+    });
+  }, [currentScopeKey, selectedWeek]);
+  const toggleBatchChargeExcluded = useCallback((orderId) => {
+    if (!orderId) return;
+    updateBatchChargeExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }, [updateBatchChargeExcluded]);
+  const includeReadyOrderIds = useCallback((orderIds) => {
+    updateBatchChargeExcluded((prev) => {
+      const next = new Set(prev);
+      (orderIds || []).forEach((id) => next.delete(id));
+      return next;
+    });
+  }, [updateBatchChargeExcluded]);
+  const excludeReadyOrderIds = useCallback((orderIds) => {
+    updateBatchChargeExcluded((prev) => {
+      const next = new Set(prev);
+      (orderIds || []).forEach((id) => next.add(id));
+      return next;
+    });
+  }, [updateBatchChargeExcluded]);
   const deliveryDayOptions = useMemo(
     () => buildDeliveryDayOptions(tempSelectedWeek, lang),
     [tempSelectedWeek, lang],
@@ -1797,10 +1955,21 @@ export default function DeliveryManagementV7() {
   const canComplete = activeItems.length > 0 && nextIdx === -1;
   const selectedOrderStatus = getEffectiveOrderStatus(selectedOrder, selectedOrderSaved);
   const selectedOrderCompleted = selectedOrderStatus === 'completed';
-  const completeDisabled = !isOnline || syncingOffline || !canComplete || selectedOrderCompleted || claimedByOther;
+  const completeDisabled = !isOnline || syncingOffline || !canComplete || selectedOrderCompleted || claimedByOther || !!batchChargeProgress;
   const selectedOrderConflicts = useMemo(() => (
     selectedOrder ? syncConflicts.filter((conflict) => conflict.orderId === selectedOrder.id) : []
   ), [selectedOrder, syncConflicts]);
+  const chargeLiveRef = useRef({});
+  chargeLiveRef.current = {
+    orders,
+    drafts: effectiveDraftsByOrder,
+    productDetails,
+    claims: claimsByOrder,
+    pendingOps,
+    syncConflicts,
+    session,
+    isOnline,
+  };
 
   const persistConflictResolution = useCallback((nextConflicts, orderId, alignedDraft) => {
     const nextRemote = { ...remoteDraftsByOrder, [orderId]: alignedDraft };
@@ -1911,6 +2080,44 @@ export default function DeliveryManagementV7() {
     });
     return all;
   }, [orders, communityOrder]);
+
+  const batchChargeModalCommunityList = useMemo(
+    () => orderCommunities.filter((name) => batchChargeModalCommunities.has(name)),
+    [orderCommunities, batchChargeModalCommunities],
+  );
+
+  useEffect(() => {
+    if (!batchChargeModalOpen || !selectedWeek) return undefined;
+    const names = batchChargeModalCommunityList;
+    if (names.length === 0) {
+      setBatchChargeDiscountLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setBatchChargeDiscountLoading(true);
+    Promise.all(names.map(async (name) => {
+      try {
+        const info = await getDisplayDiscountInfo(name, selectedWeek);
+        return [name, info];
+      } catch (error) {
+        console.error(error);
+        return [name, null];
+      }
+    })).then((rows) => {
+      if (cancelled) return;
+      setBatchChargeDiscountByCommunity((prev) => {
+        const next = { ...prev };
+        rows.forEach(([name, info]) => {
+          next[name] = info;
+        });
+        return next;
+      });
+      setBatchChargeDiscountLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [batchChargeModalCommunityList, batchChargeModalOpen, selectedWeek]);
 
   const orderCountByCommunity = useMemo(() => {
     const counts = {};
@@ -2231,8 +2438,8 @@ export default function DeliveryManagementV7() {
     return { requestedTotal, actualTotal, requestedSum, actualSum };
   }, [items, weightsByLineId, removedLineIds]);
 
-  const buildCommunityDiscountSnapshot = useCallback((mode) => {
-    if (!communityDiscountInfo || communityDiscountInfo.discountPercent <= 0 || !selectedOrder) return null;
+  const buildCommunityDiscountSnapshot = useCallback((mode, order = selectedOrder) => {
+    if (!communityDiscountInfo || communityDiscountInfo.discountPercent <= 0 || !order) return null;
     return {
       percent: communityDiscountInfo.discountPercent,
       tierIndex: communityDiscountInfo.tierIndex,
@@ -2241,7 +2448,7 @@ export default function DeliveryManagementV7() {
       cohortTotal: communityDiscountInfo.weeklyTotal,
       cohortOrderCount: communityDiscountInfo.orderCount,
       deliveryWeekKey: selectedWeek,
-      community: selectedOrder.pickupSpot || selectedOrder.customerDetails?.pickupSpot || '',
+      community: order.pickupSpot || order.customerDetails?.pickupSpot || '',
       mode,
       appliedAtIso: new Date().toISOString(),
     };
@@ -2713,8 +2920,15 @@ export default function DeliveryManagementV7() {
       await biAlert({ heText: TR.he.offlineEditOnlineOnly, thText: TR.th.offlineEditOnlineOnly, title: 'warning' });
       return;
     }
-    const nextPrice = Number(editPriceValue);
-    if (!Number.isFinite(nextPrice) || nextPrice < 0) return;
+    const nextPrice = Number(String(editPriceValue || '').trim().replace(',', '.'));
+    if (!Number.isFinite(nextPrice) || nextPrice < 0) {
+      await biAlert({
+        heText: 'מחיר לא תקין.',
+        thText: 'ราคาไม่ถูกต้อง',
+        title: 'warning',
+      });
+      return;
+    }
     setSavingActionKey(`price:${item.lineId}`);
     try {
       await updateDelayedOrderLineV7({
@@ -2803,6 +3017,145 @@ export default function DeliveryManagementV7() {
     }
   }, [selectedOrder, claimedByOther, session, biConfirm, biAlert, isOnline, isAdmin, lang]);
 
+  const getOrderChargeContext = useCallback((order) => {
+    const live = chargeLiveRef.current || {};
+    const mergedItems = mergeProductDetailsIntoItems(order?.items || [], live.productDetails || {});
+    const persistedDraft = mergeOrderDraftWithPersistedCompletion(
+      order,
+      (live.drafts || {})[order?.id] || {},
+    );
+    return {
+      items: mergedItems,
+      draft: sanitizeDraftForItems(persistedDraft, mergedItems),
+    };
+  }, []);
+
+  const applySuccessfulChargeToState = useCallback((orderId, { packedCartonCount, completedWeighing }) => {
+    setOrders((prev) => prev.map((order) => (
+      order.id === orderId
+        ? buildCompletedOrderStatePatch(order, { packedCartonCount, completedWeighing })
+        : order
+    )));
+    setRemoteDraftsByOrder((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
+    setLocalDraftsByOrder((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
+    setManualDiscountOrders((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
+    setBatchFailedByOrderId((prev) => {
+      if (!prev[orderId]) return prev;
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
+  }, []);
+
+  const revertChargeDraftToWeighed = useCallback(async (orderId, draft) => {
+    const weighedDraft = { ...(draft || {}), status: 'weighed' };
+    try {
+      await saveOrderDraftV7({
+        weekKey: selectedWeek,
+        orderId,
+        draftPatch: { status: 'weighed' },
+        session,
+      });
+    } catch (draftErr) {
+      console.error('Failed to revert draft status:', draftErr);
+    }
+    setRemoteDraftsByOrder((prev) => ({ ...prev, [orderId]: weighedDraft }));
+    setLocalDraftsByOrder((prev) => ({ ...prev, [orderId]: weighedDraft }));
+  }, [selectedWeek, session]);
+
+  const markOrderSettling = useCallback((orderId, draft) => {
+    const settlingDraft = { ...(draft || {}), status: 'settling' };
+    setRemoteDraftsByOrder((prev) => ({ ...prev, [orderId]: settlingDraft }));
+    setLocalDraftsByOrder((prev) => ({ ...prev, [orderId]: settlingDraft }));
+    return settlingDraft;
+  }, []);
+
+  const skipReasonLabel = useCallback((reason, pack) => ({
+    [BATCH_CHARGE_SKIP_REASONS.notWeighed]: pack.batchChargeSkipNotWeighed,
+    [BATCH_CHARGE_SKIP_REASONS.noItems]: pack.batchChargeSkipNoItems,
+    [BATCH_CHARGE_SKIP_REASONS.claimedElsewhere]: pack.batchChargeSkipClaimed,
+    [BATCH_CHARGE_SKIP_REASONS.conflict]: pack.batchChargeSkipConflict,
+    [BATCH_CHARGE_SKIP_REASONS.pendingSync]: pack.batchChargeSkipPending,
+    [BATCH_CHARGE_SKIP_REASONS.offline]: pack.batchChargeSkipOffline,
+    [BATCH_CHARGE_SKIP_REASONS.stopped]: pack.batchChargeSkipStopped,
+  }[reason] || reason), []);
+
+  const batchChargeLivePlan = useMemo(() => collectMultiCommunityBatchChargePlan({
+    orders,
+    communityNames: batchChargeModalCommunityList,
+    sessionId: session.sessionId,
+    getContext: getOrderChargeContext,
+    getClaim: (orderId) => claimsByOrder[orderId] || null,
+    getConflictCount: (orderId) => syncConflicts.filter((conflict) => conflict.orderId === orderId).length,
+    hasPendingOpsForOrder: (orderId) => pendingOps.some((op) => op.orderId === orderId),
+    isClaimStale: isClaimStaleV7,
+    isSettled: (order, draft) => (
+      isOrderSettledForSync(order)
+      || getEffectiveOrderStatus(order, draft) === 'completed'
+    ),
+  }), [
+    batchChargeModalCommunityList,
+    claimsByOrder,
+    effectiveDraftsByOrder,
+    getOrderChargeContext,
+    orders,
+    pendingOps,
+    session.sessionId,
+    syncConflicts,
+  ]);
+
+  const batchChargeIncludedReady = useMemo(
+    () => partitionReadyByExclusion(batchChargeLivePlan.ready, batchChargeExcludedOrderIds).included,
+    [batchChargeExcludedOrderIds, batchChargeLivePlan.ready],
+  );
+  const batchChargeExcludedReady = useMemo(
+    () => partitionReadyByExclusion(batchChargeLivePlan.ready, batchChargeExcludedOrderIds).heldOut,
+    [batchChargeExcludedOrderIds, batchChargeLivePlan.ready],
+  );
+  const batchChargeOrderPreviews = useMemo(() => {
+    const map = {};
+    batchChargeLivePlan.ready.forEach((entry) => {
+      const community = getOrderCommunityName(entry.order);
+      const snapshot = buildBatchDiscountSnapshot(
+        batchChargeDiscountByCommunity[community],
+        entry.order,
+        selectedWeek,
+      );
+      const payload = buildSettlementPayload({
+        selectedOrder: entry.order,
+        items: entry.items,
+        draft: entry.draft,
+        communityDiscount: snapshot,
+      });
+      map[entry.order.id] = {
+        finalSum: payload.finalSum,
+        discount: payload.communityDiscount?.amount || 0,
+      };
+    });
+    return map;
+  }, [batchChargeDiscountByCommunity, batchChargeLivePlan.ready, selectedWeek]);
+  const batchChargePreviewTotals = useMemo(() => (
+    batchChargeIncludedReady.reduce((acc, entry) => {
+      const preview = batchChargeOrderPreviews[entry.order.id];
+      return {
+        total: acc.total + (Number(preview?.finalSum) || 0),
+        discount: acc.discount + (Number(preview?.discount) || 0),
+      };
+    }, { total: 0, discount: 0 })
+  ), [batchChargeIncludedReady, batchChargeOrderPreviews]);
+
   const completeOrder = async () => {
     if (!selectedOrder) return;
     if (!isOnline) {
@@ -2856,150 +3209,252 @@ export default function DeliveryManagementV7() {
     if (!ok) return;
 
     setLoading(true);
+    const settlingDraft = markOrderSettling(selectedOrder.id, selectedOrderSaved);
     try {
-      await saveOrderDraftV7({
-        weekKey: selectedWeek,
-        orderId: selectedOrder.id,
-        draftPatch: { status: 'settling' },
-        session,
-      });
-      const settlingDraft = {
-        ...selectedOrderSaved,
-        status: 'settling',
-      };
-      setRemoteDraftsByOrder((prev) => ({ ...prev, [selectedOrder.id]: settlingDraft }));
-      setLocalDraftsByOrder((prev) => ({ ...prev, [selectedOrder.id]: settlingDraft }));
-      const completedAtIso = nowIso();
-      const weighingAudit = {
-        ...buildStationAuditV7(session, completedAtIso),
-        finalizedAtIso: completedAtIso,
-        source: 'delivery-v7',
-      };
-      let payload = buildSettlementPayload({
-        selectedOrder,
+      const result = await settleAndChargeOrderV7({
+        order: selectedOrder,
         items,
         draft: settlingDraft,
-        weighingAudit,
+        session,
+        weekKey: selectedWeek,
         communityDiscount: appliedSettlementDiscount,
       });
-      if (payload.communityDiscount) {
-        const preparationResult = await prepareCommunityDiscountForSettlementV7({
-          orderId: selectedOrder.id,
-          communityDiscount: payload.communityDiscount,
-          removedLineIds: payload.removedLineIds,
-          session,
-        });
-        payload = buildSettlementPayload({
-          selectedOrder,
-          items: preparationResult.preparedItems || items,
-          draft: settlingDraft,
-          weighingAudit,
-          communityDiscount: appliedSettlementDiscount,
-        });
-      }
-      await handleSuspendedPaymentV7(payload);
-      const packedCartonCount = Math.max(
-        0,
-        Math.floor(Number(selectedOrder.packedCartonCount) || 0),
-        Math.floor(Number(selectedOrder.rawData?.packedCartonCount) || 0),
-      );
-      if (packedCartonCount > 0) {
-        try {
-          await setPackedCartonCountV7({
-            orderId: selectedOrder.id,
-            printedIndex: packedCartonCount,
-          });
-        } catch (e) {
-          if (!isLikelyNetworkErrorV7(e)) console.error(e);
-        }
-      }
-      const completedWeighing = {
-        weightsByLineId: payload.weightsByLineId || {},
-        removedLineIds: payload.removedLineIds || {},
-        finalInvoiceLines: payload.finalInvoiceLines || [],
-        finalSum: payload.finalSum,
-        completedAtIso,
-        ...(payload.communityDiscount ? { communityDiscount: payload.communityDiscount } : {}),
-        weighingAudit: payload.weighingAudit || weighingAudit,
-      };
-      setOrders((prev) => prev.map((order) => (
-        order.id === selectedOrder.id
-          ? {
-            ...order,
-            status: 'completed',
-            ...(packedCartonCount > 0 ? { packedCartonCount } : {}),
-            delayedMeta: {
-              ...(order.delayedMeta || {}),
-              paymentStatus: 'completed',
-              delayedOrderStatus: 'completed',
-            },
-            rawData: {
-              ...(order.rawData || {}),
-              paymentStatus: 'completed',
-              delayedOrderStatus: 'completed',
-              ...(packedCartonCount > 0 ? { packedCartonCount } : {}),
-              weighing: {
-                ...((order.rawData || {}).weighing || {}),
-                ...completedWeighing,
-              },
-            },
-          }
-          : order
-      )));
-      await clearOrderDraftV7({ weekKey: selectedWeek, orderId: selectedOrder.id });
-      setRemoteDraftsByOrder((prev) => {
-        const next = { ...prev };
-        delete next[selectedOrder.id];
-        return next;
-      });
-      setLocalDraftsByOrder((prev) => {
-        const next = { ...prev };
-        delete next[selectedOrder.id];
-        return next;
-      });
-      setManualDiscountOrders((prev) => {
-        const next = { ...prev };
-        delete next[selectedOrder.id];
-        return next;
-      });
+      applySuccessfulChargeToState(selectedOrder.id, result);
       if (selectedClaim?.sessionId === session.sessionId) {
-        await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
+        try {
+          await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
+        } catch (releaseErr) {
+          console.error(releaseErr);
+        }
       }
     } catch (e) {
       console.error(e);
-      try {
-        await saveOrderDraftV7({
-          weekKey: selectedWeek,
-          orderId: selectedOrder.id,
-          draftPatch: { status: 'weighed' },
-          session,
-        });
-        const weighedDraft = {
-          ...selectedOrderSaved,
-          status: 'weighed',
-        };
-        setRemoteDraftsByOrder((prev) => ({ ...prev, [selectedOrder.id]: weighedDraft }));
-        setLocalDraftsByOrder((prev) => ({ ...prev, [selectedOrder.id]: weighedDraft }));
-      } catch (draftErr) {
-        console.error('Failed to revert draft status:', draftErr);
-      }
-      const isNetworkError = (typeof navigator !== 'undefined' && !navigator.onLine) || !e?.response;
-      if (isNetworkError) {
+      await revertChargeDraftToWeighed(selectedOrder.id, selectedOrderSaved);
+      const detail = getActionErrorDetail(e);
+      const detailSuffix = detail ? `\n${detail}` : '';
+      if (isBrowserOffline()) {
         await biAlert({
           heText: 'לא ניתן לחייב כרגע — אין חיבור לאינטרנט.\nההזמנה נשארה במצב "נשקל" — נסה שוב כשהאינטרנט יחזור.',
           thText: 'ไม่สามารถเรียกเก็บเงินได้ — ไม่มีอินเทอร์เน็ต\nคำสั่งซื้อยังอยู่ในสถานะ "ชั่งแล้ว" — ลองอีกครั้งเมื่อมีเน็ต',
           title: 'error',
         });
+      } else if (isLikelyNetworkErrorV7(e)) {
+        await biAlert({
+          heText: `לא ניתן לחייב כרגע — בעיית תקשורת מול השרת.\nההזמנה נשארה במצב "נשקל" — נסה שוב.${detailSuffix}`,
+          thText: `ไม่สามารถเรียกเก็บเงินได้ — มีปัญหาเชื่อมต่อกับเซิร์ฟเวอร์\nคำสั่งซื้อยังอยู่ในสถานะ "ชั่งแล้ว" — ลองอีกครั้ง${detailSuffix}`,
+          title: 'error',
+        });
       } else {
         await biAlert({
-          heText: 'שגיאה בחיוב. ההזמנה נשארה במצב "נשקל" — אפשר לנסות שוב.',
-          thText: 'เกิดข้อผิดพลาดในการเรียกเก็บเงิน — ลองอีกครั้ง',
+          heText: `שגיאה בחיוב. ההזמנה נשארה במצב "נשקל" — אפשר לנסות שוב.${detailSuffix}`,
+          thText: `เกิดข้อผิดพลาดในการเรียกเก็บเงิน — ลองอีกครั้ง${detailSuffix}`,
           title: 'error',
         });
       }
     } finally {
       setLoading(false);
     }
+  };
+
+  const openBatchChargeModal = () => {
+    if (!isAdmin || batchChargeProgress) return;
+    const names = defaultBatchChargeCommunities(selectedCommunities, orderCommunities);
+    setBatchChargeModalCommunities(new Set(names));
+    setBatchChargeModalOpen(true);
+  };
+
+  const toggleBatchChargeModalCommunity = (community) => {
+    setBatchChargeModalCommunities((prev) => {
+      const next = new Set(prev);
+      if (next.has(community)) next.delete(community);
+      else next.add(community);
+      return next;
+    });
+  };
+
+  const runBatchChargeForEntries = async (entries, discountByCommunity, plan) => {
+    if (!isAdmin || batchChargeProgress || !Array.isArray(entries) || entries.length === 0) return;
+    batchChargeAbortRef.current = false;
+    const charged = [];
+    const failed = [];
+    const extraSkipped = [];
+    setBatchChargeProgress({
+      current: 1,
+      total: entries.length,
+      name: getOrderDisplayName(entries[0].order),
+      charged: 0,
+      failed: 0,
+    });
+
+    const discountMap = { ...(discountByCommunity || {}) };
+    const missingCommunities = [...new Set(entries.map((entry) => getOrderCommunityName(entry.order)).filter(Boolean))]
+      .filter((name) => discountMap[name] === undefined);
+    if (missingCommunities.length > 0) {
+      const fetched = await Promise.all(missingCommunities.map(async (name) => {
+        try {
+          return [name, await getDisplayDiscountInfo(name, selectedWeek)];
+        } catch (error) {
+          console.error(error);
+          return [name, null];
+        }
+      }));
+      fetched.forEach(([name, info]) => {
+        discountMap[name] = info;
+      });
+    }
+
+    for (let index = 0; index < entries.length; index += 1) {
+      const planned = entries[index];
+      const displayName = getOrderDisplayName(planned.order);
+      setBatchChargeProgress({
+        current: index + 1,
+        total: entries.length,
+        name: displayName,
+        charged: charged.length,
+        failed: failed.length,
+      });
+
+      if (batchChargeAbortRef.current) {
+        entries.slice(index).forEach((entry) => {
+          extraSkipped.push({
+            order: entry.order,
+            reason: BATCH_CHARGE_SKIP_REASONS.stopped,
+          });
+        });
+        break;
+      }
+      if (isBrowserOffline()) {
+        entries.slice(index).forEach((entry) => {
+          extraSkipped.push({
+            order: entry.order,
+            reason: BATCH_CHARGE_SKIP_REASONS.offline,
+          });
+        });
+        break;
+      }
+
+      const latestLive = chargeLiveRef.current || {};
+      const latestOrder = (latestLive.orders || []).find((entry) => entry.id === planned.order.id) || planned.order;
+      const latestContext = getOrderChargeContext(latestOrder);
+      const latestClassification = classifyBatchChargeOrder({
+        order: latestOrder,
+        draft: latestContext.draft,
+        items: latestContext.items,
+        claim: (latestLive.claims || {})[latestOrder.id] || null,
+        sessionId: session.sessionId,
+        conflictCount: (latestLive.syncConflicts || [])
+          .filter((conflict) => conflict.orderId === latestOrder.id).length,
+        hasPendingOps: (latestLive.pendingOps || [])
+          .some((op) => op.orderId === latestOrder.id),
+        isClaimStale: isClaimStaleV7,
+        isSettled: isOrderSettledForSync(latestOrder)
+          || getEffectiveOrderStatus(latestOrder, latestContext.draft) === 'completed',
+      });
+      if (latestClassification.status === 'already_completed') {
+        continue;
+      }
+      if (latestClassification.status !== 'ready') {
+        extraSkipped.push({
+          order: latestOrder,
+          reason: latestClassification.reason || BATCH_CHARGE_SKIP_REASONS.notWeighed,
+        });
+        continue;
+      }
+
+      const communityDiscount = buildBatchDiscountSnapshot(
+        discountMap[getOrderCommunityName(latestOrder)],
+        latestOrder,
+        selectedWeek,
+      );
+      const settlingDraft = markOrderSettling(latestOrder.id, latestContext.draft);
+      try {
+        const result = await settleAndChargeOrderV7({
+          order: latestOrder,
+          items: latestContext.items,
+          draft: settlingDraft,
+          session,
+          weekKey: selectedWeek,
+          communityDiscount,
+        });
+        applySuccessfulChargeToState(latestOrder.id, result);
+        includeReadyOrderIds([latestOrder.id]);
+        const latestClaim = (chargeLiveRef.current?.claims || {})[latestOrder.id];
+        if (latestClaim?.sessionId === session.sessionId) {
+          try {
+            await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: latestOrder.id, session });
+          } catch (releaseErr) {
+            console.error(releaseErr);
+          }
+        }
+        charged.push({ order: latestOrder, finalSum: result.payload?.finalSum });
+      } catch (error) {
+        console.error(error);
+        await revertChargeDraftToWeighed(latestOrder.id, latestContext.draft);
+        const detail = getActionErrorDetail(error);
+        failed.push({ order: latestOrder, detail });
+        setBatchFailedByOrderId((prev) => ({
+          ...prev,
+          [latestOrder.id]: detail || TR.he.batchChargeFailedBadge,
+        }));
+      }
+    }
+
+    setBatchChargeProgress(null);
+    const failedNames = failed
+      .map((entry) => getOrderDisplayName(entry.order))
+      .filter(Boolean)
+      .join(', ');
+    const failedSuffixHe = failedNames ? `\n${failedNames}` : '';
+    const skippedCount = (plan?.skipped?.length || 0) + extraSkipped.length;
+    await biAlert({
+      heText: `${TR.he.batchChargeSummary(charged.length, failed.length, skippedCount, plan?.alreadyCompleted?.length || 0)}${failedSuffixHe}`,
+      thText: `${TR.th.batchChargeSummary(charged.length, failed.length, skippedCount, plan?.alreadyCompleted?.length || 0)}${failedSuffixHe}`,
+      title: failed.length > 0 ? 'warning' : 'info',
+    });
+  };
+
+  const confirmBatchChargeFromModal = async () => {
+    if (!isAdmin || batchChargeProgress) return;
+    if (!isOnline) {
+      await biAlert({ heText: TR.he.offlineChargeBlocked, thText: TR.th.offlineChargeBlocked, title: 'error' });
+      return;
+    }
+    if (pendingOps.length > 0) {
+      const syncResult = await syncOfflineOpsNow({ quiet: false });
+      if (syncResult.pending > 0 || syncResult.conflicts > 0) {
+        await biAlert({ heText: TR.he.syncBlockedByPending, thText: TR.th.syncBlockedByPending, title: 'warning' });
+        return;
+      }
+    }
+
+    const live = chargeLiveRef.current || {};
+    const plan = collectMultiCommunityBatchChargePlan({
+      orders: live.orders || orders,
+      communityNames: batchChargeModalCommunityList,
+      sessionId: session.sessionId,
+      getContext: getOrderChargeContext,
+      getClaim: (orderId) => (live.claims || claimsByOrder)[orderId] || null,
+      getConflictCount: (orderId) => (live.syncConflicts || syncConflicts)
+        .filter((conflict) => conflict.orderId === orderId).length,
+      hasPendingOpsForOrder: (orderId) => (live.pendingOps || pendingOps)
+        .some((op) => op.orderId === orderId),
+      isClaimStale: isClaimStaleV7,
+      isSettled: (order, draft) => (
+        isOrderSettledForSync(order)
+        || getEffectiveOrderStatus(order, draft) === 'completed'
+      ),
+    });
+    const { included } = partitionReadyByExclusion(plan.ready, batchChargeExcludedOrderIds);
+    if (included.length === 0) {
+      await biAlert({
+        heText: TR.he.batchChargeNoReadySelected,
+        thText: TR.th.batchChargeNoReadySelected,
+        title: 'info',
+      });
+      return;
+    }
+    setBatchChargeModalOpen(false);
+    await runBatchChargeForEntries(included, batchChargeDiscountByCommunity, plan);
   };
 
   const toggleCommunity = (community) => {
@@ -3193,6 +3648,25 @@ export default function DeliveryManagementV7() {
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-gray-900 text-white px-6 py-3 rounded-xl shadow-2xl text-sm font-bold animate-bounce">
           {toast}
+        </div>
+      )}
+      {batchChargeProgress && (
+        <div className="sticky top-0 z-[90] bg-emerald-900 text-white px-4 py-3 shadow" role="status" aria-live="polite">
+          <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-bold">
+              {t.batchChargeProgress(batchChargeProgress.current, batchChargeProgress.total, batchChargeProgress.name)}
+              <span className="opacity-90 font-semibold">
+                {' '}· {t.stCompleted}: {batchChargeProgress.charged} · {t.batchChargeFailedBadge}: {batchChargeProgress.failed}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => { batchChargeAbortRef.current = true; }}
+              className="min-h-[44px] px-4 py-2 rounded-lg bg-white text-emerald-900 font-bold hover:bg-emerald-50"
+            >
+              {t.batchChargeStop}
+            </button>
+          </div>
         </div>
       )}
 
@@ -3415,7 +3889,8 @@ export default function DeliveryManagementV7() {
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="lg:w-[340px] flex-shrink-0">
             <div className="bg-white rounded-xl shadow-sm overflow-hidden sticky top-4">
-              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+              <div className="px-4 py-3 border-b bg-gray-50">
+                <div className="flex items-center justify-between">
                 <span className="font-bold text-gray-900">{t.orders}</span>
                 <div className="flex items-center gap-2">
                   {(() => {
@@ -3439,6 +3914,17 @@ export default function DeliveryManagementV7() {
                     );
                   })()}
                 </div>
+                </div>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={openBatchChargeModal}
+                    disabled={!!batchChargeProgress}
+                    className="mt-2 w-full min-h-[44px] px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {t.batchChargeCommunity}
+                  </button>
+                )}
               </div>
 
               {orderCommunities.length > 0 && (
@@ -3628,6 +4114,16 @@ export default function DeliveryManagementV7() {
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           {statusBadge(effectiveStatus)}
+                          {batchFailedByOrderId[o.id] && !isDone && (
+                            <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-2 py-0.5">
+                              {t.batchChargeFailedBadge}
+                            </span>
+                          )}
+                          {batchChargeExcludedOrderIds.has(o.id) && !isDone && (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 rounded-full px-2 py-0.5">
+                              {t.batchChargeExcludedBadge}
+                            </span>
+                          )}
                           <span className={`text-[11px] ${isDone ? 'text-green-500' : 'text-gray-400'}`}>{oItems} {t.items}</span>
                         </div>
                       </div>
@@ -3734,6 +4230,7 @@ export default function DeliveryManagementV7() {
                       </div>
                       <div className="ml-2">{statusBadge(selectedOrderStatus)}</div>
                     </div>
+                    <div className="flex flex-col gap-2 shrink-0">
                     <button
                       onClick={completeOrder}
                       disabled={completeDisabled}
@@ -3745,6 +4242,32 @@ export default function DeliveryManagementV7() {
                     >
                       {t.completeBtn}
                     </button>
+                    {isAdmin && !selectedOrderCompleted && (
+                      <button
+                        type="button"
+                        onClick={() => toggleBatchChargeExcluded(selectedOrder.id)}
+                        className={`min-h-[44px] px-4 py-2 font-bold rounded-lg text-sm border ${
+                          batchChargeExcludedOrderIds.has(selectedOrder.id)
+                            ? 'bg-amber-100 border-amber-300 text-amber-900'
+                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {batchChargeExcludedOrderIds.has(selectedOrder.id)
+                          ? t.batchChargeIncludeThis
+                          : t.batchChargeExcludeThis}
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={openBatchChargeModal}
+                        disabled={!!batchChargeProgress}
+                        className="min-h-[44px] px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {t.batchChargeCommunity}
+                      </button>
+                    )}
+                    </div>
                   </div>
 
                   {hasPrinterSupport ? (
@@ -3847,6 +4370,21 @@ export default function DeliveryManagementV7() {
                             ? `${t.communityDiscountAuto} (${communityDiscountInfo.discountPercent}%)`
                             : (manualDiscountSelected ? t.removeCommunityDiscount : t.applyCommunityDiscount)}
                         </button>
+                        {isAdmin && (
+                          <div className="w-full mt-1 pt-2 border-t border-gray-200">
+                            <button
+                              type="button"
+                              onClick={openBatchChargeModal}
+                              disabled={!!batchChargeProgress}
+                              className="min-h-[44px] px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-sm shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {t.batchChargeCommunity}
+                            </button>
+                            <p className="mt-1 text-[11px] text-gray-500 leading-snug">
+                              {t.batchChargeCommunityHint}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3854,6 +4392,12 @@ export default function DeliveryManagementV7() {
                   {claimedByOther && (
                     <div className="mt-3 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-bold">
                       {t.busyElsewhere}
+                    </div>
+                  )}
+                  {batchFailedByOrderId[selectedOrder.id] && !selectedOrderCompleted && (
+                    <div className="mt-3 px-3 py-2 rounded-lg bg-red-50 text-red-800 text-sm font-bold">
+                      {t.batchChargeFailedBadge}
+                      {batchFailedByOrderId[selectedOrder.id] ? `: ${batchFailedByOrderId[selectedOrder.id]}` : ''}
                     </div>
                   )}
 
@@ -4777,6 +5321,44 @@ export default function DeliveryManagementV7() {
           </div>
         </div>
       )}
+
+      <BatchChargeControlModal
+        open={batchChargeModalOpen}
+        t={t}
+        isRTL={isRTL}
+        communities={orderCommunities}
+        selectedCommunityNames={batchChargeModalCommunityList}
+        onToggleCommunity={toggleBatchChargeModalCommunity}
+        onSelectAllCommunities={() => setBatchChargeModalCommunities(new Set(orderCommunities))}
+        onClearCommunities={() => setBatchChargeModalCommunities(new Set())}
+        plans={batchChargeLivePlan.plans}
+        excludedOrderIds={batchChargeExcludedOrderIds}
+        onToggleOrderIncluded={toggleBatchChargeExcluded}
+        onIncludeAllReady={() => includeReadyOrderIds(batchChargeLivePlan.ready.map((entry) => entry.order.id))}
+        onExcludeAllReady={() => excludeReadyOrderIds(batchChargeLivePlan.ready.map((entry) => entry.order.id))}
+        onIncludeCommunityReady={(communityName) => {
+          const plan = batchChargeLivePlan.plans.find((entry) => entry.communityName === communityName);
+          includeReadyOrderIds((plan?.ready || []).map((entry) => entry.order.id));
+        }}
+        onExcludeCommunityReady={(communityName) => {
+          const plan = batchChargeLivePlan.plans.find((entry) => entry.communityName === communityName);
+          excludeReadyOrderIds((plan?.ready || []).map((entry) => entry.order.id));
+        }}
+        discountByCommunity={batchChargeDiscountByCommunity}
+        discountLoading={batchChargeDiscountLoading}
+        orderPreviews={batchChargeOrderPreviews}
+        skipReasonLabel={(reason) => skipReasonLabel(reason, t)}
+        getCommunityColor={getEffectiveCommunityColor}
+        readyCount={batchChargeIncludedReady.length}
+        excludedReadyCount={batchChargeExcludedReady.length}
+        skippedCount={batchChargeLivePlan.skipped.length}
+        completedCount={batchChargeLivePlan.alreadyCompleted.length}
+        previewTotal={batchChargePreviewTotals.total}
+        previewDiscount={batchChargePreviewTotals.discount}
+        confirmDisabled={!isOnline || !!batchChargeProgress}
+        onConfirm={confirmBatchChargeFromModal}
+        onClose={() => setBatchChargeModalOpen(false)}
+      />
 
       <BilingualDialog
         open={!!dialog}

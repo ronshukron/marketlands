@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
 const PickupSpotContext = createContext();
 
@@ -39,14 +39,14 @@ export const PickupSpotProvider = ({ children }) => {
     }
   }, [selectedPickupSpot, hasLoadedFromStorage]);
 
-  const updatePickupSpot = (pickupSpot) => {
+  const updatePickupSpot = useCallback((pickupSpot) => {
     setSelectedPickupSpot(pickupSpot);
-  };
+  }, []);
 
-  const clearPickupSpot = () => {
+  const clearPickupSpot = useCallback(() => {
     setSelectedPickupSpot('');
     localStorage.removeItem('selectedPickupSpot');
-  };
+  }, []);
 
   const value = {
     selectedPickupSpot,

@@ -89,6 +89,7 @@ function encodeRasterJob({ width, height, data, twoColor = false }) {
     Buffer.alloc(INVALIDATE_BYTES, 0),
     Buffer.from([0x1B, 0x69, 0x61, 0x01]),
     Buffer.from([0x1B, 0x40]),
+    Buffer.from([0x1B, 0x69, 0x21, 0x00]),
     printInfoCommand(blackRows.length),
     Buffer.from([0x1B, 0x69, 0x4D, 0x40]),
     Buffer.from([0x1B, 0x69, 0x41, 0x01]),
@@ -110,30 +111,41 @@ function encodeRasterJob({ width, height, data, twoColor = false }) {
   return Buffer.concat(parts);
 }
 
+function emptyStatus(extra = {}) {
+  return {
+    ready: false,
+    mediaLoaded: false,
+    mediaWidthMm: 0,
+    twoColor: false,
+    editorLite: false,
+    errors: ['status_short'],
+    error: 'status_short',
+    statusType: null,
+    phaseType: null,
+    ...extra,
+  };
+}
+
 function parseStatus(bytes) {
   const raw = toByteArray(bytes);
-  if (raw.length < 32) {
-    return {
-      ready: false,
-      mediaLoaded: false,
-      mediaWidthMm: 0,
-      twoColor: false,
-      editorLite: false,
-      errors: ['status_short'],
-      error: 'status_short',
-    };
+  if (raw.length < 32 || raw[0] !== 0x80 || raw[1] !== 0x20) {
+    return emptyStatus();
   }
   const error1 = raw[8];
   const error2 = raw[9];
   const mediaWidthMm = raw[10];
   const mediaType = raw[11];
   const statusType = raw[18];
+  const phaseType = raw[19];
   const errors = [];
   if (error1 & 0x01) errors.push('no_media');
   if (error1 & 0x02) errors.push('media_end');
   if (error1 & 0x04) errors.push('cutter_jam');
   if (error1 & 0x10) errors.push('busy');
+  if (error1 & 0x20) errors.push('turned_off');
   if (error2 & 0x01) errors.push('wrong_media');
+  if (error2 & 0x02) errors.push('buffer_full');
+  if (error2 & 0x04) errors.push('communication_error');
   if (error2 & 0x10) errors.push('cover_open');
   if (error2 & 0x40) errors.push('media_end');
   if (error2 & 0x80) errors.push('system_error');
@@ -144,6 +156,7 @@ function parseStatus(bytes) {
     mediaWidthMm,
     mediaType,
     statusType,
+    phaseType,
     twoColor,
     editorLite: false,
     errors,
@@ -151,9 +164,30 @@ function parseStatus(bytes) {
   };
 }
 
+const SOFT_STATUS_ERRORS = new Set(['busy', 'status_short']);
+
+function interpretPrintProgress(status) {
+  if (!status) return { action: 'wait' };
+  if ((status.errors || []).includes('status_short')) return { action: 'wait' };
+  const type = status.statusType;
+  if (type === 0x02) {
+    return { action: 'error', code: status.error || 'print_failed' };
+  }
+  if (type === 0x04) {
+    return { action: 'error', code: 'turned_off' };
+  }
+  if (type === 0x01) {
+    return { action: 'ok' };
+  }
+  const fatals = (status.errors || []).filter((code) => !SOFT_STATUS_ERRORS.has(code));
+  if (fatals.length) return { action: 'error', code: fatals[0] };
+  return { action: 'wait' };
+}
+
 module.exports = {
   PRINT_PINS,
   encodeRasterJob,
   parseStatus,
+  interpretPrintProgress,
   STATUS_REQUEST: Buffer.from([0x1B, 0x69, 0x53]),
 };

@@ -4,9 +4,12 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  query,
   setDoc,
+  where,
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { resolveCommunityName } from './pickupSpotsService';
 import { getWeekKey } from '../utils/deliveryScheduleUtils';
 
 const DISCOUNT_CONFIG_PATH = 'settings/communityDiscount';
@@ -65,7 +68,7 @@ export const isCommunityDiscountAvailable = (communityName, rawConfig = {}) => {
   const config = normalizeDiscountConfig(rawConfig);
   if (config.enabled !== true) return false;
   if (config.availabilityMode !== 'selected') return true;
-  return Boolean(communityName && config.pilotCommunities.includes(communityName));
+  return config.pilotCommunities.some((pilot) => communitiesMatchForDiscount(pilot, communityName));
 };
 
 // ──────────────────────────────────────────────
@@ -74,6 +77,7 @@ export const isCommunityDiscountAvailable = (communityName, rawConfig = {}) => {
 // ──────────────────────────────────────────────
 let _ordersCache = null;
 let _ordersCacheTimestamp = 0;
+let _weekOrdersCache = null;
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
 /**
@@ -102,6 +106,35 @@ const fetchAllOrders = async () => {
 export const invalidateOrdersCache = () => {
   _ordersCache = null;
   _ordersCacheTimestamp = 0;
+  _weekOrdersCache = null;
+};
+
+const mapDelayedOrderDocs = (docs = []) => docs.map((entry) => ({
+  id: entry.id,
+  source: DELAYED_ORDERS_COLLECTION,
+  ...entry.data(),
+}));
+
+const fetchOrdersForDeliveryWeek = async (deliveryWeekKey) => {
+  if (
+    _weekOrdersCache
+    && _weekOrdersCache.deliveryWeekKey === deliveryWeekKey
+    && (Date.now() - _weekOrdersCache.timestamp) < CACHE_TTL_MS
+  ) {
+    return _weekOrdersCache.orders;
+  }
+
+  const snapshot = await getDocs(query(
+    collection(db, DELAYED_ORDERS_COLLECTION),
+    where('deliveryWeekKey', '==', deliveryWeekKey),
+  ));
+  const orders = mapDelayedOrderDocs(snapshot.docs);
+  _weekOrdersCache = {
+    deliveryWeekKey,
+    orders,
+    timestamp: Date.now(),
+  };
+  return orders;
 };
 
 // ──────────────────────────────────────────────
@@ -142,6 +175,22 @@ const getOrderCommunity = (order = {}) => (
   || order.pickupSpot
   || ''
 );
+
+const normalizeCommunityName = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return String(resolveCommunityName(raw) || raw).trim();
+  } catch {
+    return raw;
+  }
+};
+
+export const communitiesMatchForDiscount = (left, right) => {
+  const a = normalizeCommunityName(left);
+  const b = normalizeCommunityName(right);
+  return Boolean(a && b && a === b);
+};
 
 const getOrderDeliveryWeekKey = (order = {}) => (
   order.deliveryWeekKey
@@ -225,7 +274,7 @@ export const getCommunityOrdersForDeliveryWeek = (
   deliveryWeekKey,
 ) => allOrders.filter((order) => (
   isEligibleCommunityDiscountOrder(order)
-  && getOrderCommunity(order) === communityName
+  && communitiesMatchForDiscount(getOrderCommunity(order), communityName)
   && getOrderDeliveryWeekKey(order) === deliveryWeekKey
 ));
 
@@ -397,7 +446,7 @@ export const getCommunityMemberCount = async (communityName) => {
   const userIds = new Set();
 
   allOrders.forEach((o) => {
-    if (!isEligibleCommunityDiscountOrder(o) || getOrderCommunity(o) !== communityName) return;
+    if (!isEligibleCommunityDiscountOrder(o) || !communitiesMatchForDiscount(getOrderCommunity(o), communityName)) return;
     if (o.userId) userIds.add(o.userId);
     else if (o.customerDetails?.phone) userIds.add(o.customerDetails.phone);
   });
@@ -517,9 +566,15 @@ export const getDisplayDiscountInfo = async (
   deliveryWeekKey = getOffsetWeekKey(0),
 ) => calculateCommunityDiscount(communityName, deliveryWeekKey);
 
+const isPermissionDenied = (error) => (
+  error?.code === 'permission-denied'
+  || /insufficient permissions/i.test(String(error?.message || ''))
+);
+
 export const subscribeDisplayDiscountInfo = ({
   communityName,
   deliveryWeekKey = getOffsetWeekKey(0),
+  listenToProgress = true,
   onValue,
   onError,
 }) => {
@@ -527,6 +582,8 @@ export const subscribeDisplayDiscountInfo = ({
 
   let config = null;
   let progress = { total: 0, orderCount: 0 };
+  let useLiveOrders = false;
+  let cancelled = false;
   const emit = () => {
     if (!config) return;
     onValue?.(calculateCommunityDiscountFromOrders({
@@ -545,9 +602,17 @@ export const subscribeDisplayDiscountInfo = ({
     },
     (error) => onError?.(error),
   );
+  if (!listenToProgress) {
+    return () => {
+      cancelled = true;
+      unsubscribeConfig();
+    };
+  }
+
   const unsubscribeProgress = onSnapshot(
     doc(db, PROGRESS_COLLECTION, getCommunityDiscountProgressDocId(communityName, deliveryWeekKey)),
     (snapshot) => {
+      if (useLiveOrders) return;
       const data = snapshot.exists() ? snapshot.data() : {};
       progress = {
         total: Number(data.total) || 0,
@@ -556,13 +621,37 @@ export const subscribeDisplayDiscountInfo = ({
       emit();
     },
     (error) => {
-      console.warn('Community discount progress is using config only:', error?.message || error);
+      if (useLiveOrders) return;
       progress = { total: 0, orderCount: 0 };
       emit();
+      if (!isPermissionDenied(error)) {
+        console.warn('Community discount progress is using config only:', error?.message || error);
+      }
     },
   );
 
+  void fetchOrdersForDeliveryWeek(deliveryWeekKey)
+    .then((orders) => {
+      if (cancelled) return;
+      const cohort = aggregateCommunityDeliveryWeek({
+        orders,
+        communityName,
+        deliveryWeekKey,
+      });
+      useLiveOrders = true;
+      progress = {
+        total: cohort.total,
+        orderCount: cohort.orderCount,
+      };
+      emit();
+    })
+    .catch((error) => {
+      if (cancelled || isPermissionDenied(error)) return;
+      console.warn('Community discount is using stored progress:', error?.message || error);
+    });
+
   return () => {
+    cancelled = true;
     unsubscribeConfig();
     unsubscribeProgress();
   };

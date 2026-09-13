@@ -246,6 +246,56 @@ describe('V7 order draft baseline contracts', () => {
     expect(result.weighingAudit.communityDiscount).toEqual(result.communityDiscount);
   });
 
+  test('keeps a weekly-priced normal invoice line final while discounting another normal line', () => {
+    const weeklyPromotionId = 'weekly-promotion-1';
+    const result = buildSettlementPayload({
+      selectedOrder: { id: 'order-7' },
+      items: [
+        {
+          lineId: 'order-7::weekly::business::::s0',
+          productId: 'weekly',
+          productName: 'Weekly',
+          requestedQuantity: 1,
+          pricePerUnit: 10,
+          measurementType: 'package',
+          communityWeeklyPromotionApplied: true,
+          communityWeeklyPromotionId: weeklyPromotionId,
+        },
+        {
+          lineId: 'order-7::normal::business::::s0',
+          productId: 'normal',
+          productName: 'Normal',
+          requestedQuantity: 1,
+          pricePerUnit: 20,
+          measurementType: 'package',
+        },
+      ],
+      communityDiscount: { percent: 10 },
+    });
+
+    expect(result.finalInvoiceLines[0]).toMatchObject({
+      pricePerUnit: 10,
+      linePrice: 10,
+      communityWeeklyPromotionApplied: true,
+      communityWeeklyPromotionId: weeklyPromotionId,
+    });
+    expect(result.finalInvoiceLines[0].communityDiscountPercent).toBeUndefined();
+    expect(result.finalInvoiceLines[1]).toMatchObject({
+      preDiscountPricePerUnit: 20,
+      pricePerUnit: 18,
+      preDiscountLinePrice: 20,
+      communityDiscountShare: 2,
+      communityDiscountPercent: 10,
+      linePrice: 18,
+    });
+    expect(result.communityDiscount).toMatchObject({
+      preDiscountTotal: 30,
+      amount: 2,
+      finalTotal: 28,
+    });
+    expect(result.finalSum).toBe(28);
+  });
+
   test('discounts unit prices before line rounding and leaves zero discounts unchanged', () => {
     const items = [0, 1, 2].map((index) => ({
       lineId: `order-7::p${index}::business::::s0`,
@@ -455,7 +505,16 @@ describe('V7 order draft baseline contracts', () => {
     });
     const second = buildCommunityDiscountOrderPatch({
       orderId: 'order-7',
-      orderData: { ...orderData, orderBreakdown: first.orderBreakdown, grandTotal: first.grandTotal },
+      orderData: {
+        ...orderData,
+        orderBreakdown: first.orderBreakdown,
+        grandTotal: first.grandTotal,
+        communityDiscountOriginalGrandTotal: orderData.grandTotal,
+        communityDiscountPreparation: {
+          status: 'prepared',
+          estimatedDiscountAmount: first.estimatedDiscountAmount,
+        },
+      },
       communityDiscount,
       fingerprint,
     });
@@ -475,6 +534,66 @@ describe('V7 order draft baseline contracts', () => {
     expect(excluded.price).toBe(100);
     expect(first.grandTotal).toBe(123.5);
     expect(second.orderBreakdown).toEqual(first.orderBreakdown);
+    expect(second.originalGrandTotal).toBe(125);
+    expect(second.grandTotal).toBe(123.5);
+  });
+
+  test('leaves weekly-priced order lines and their audit fields unchanged in the discount patch', () => {
+    const weeklyLine = {
+      productId: 'weekly',
+      productName: 'Weekly',
+      lineSeed: 's0',
+      quantity: 1,
+      price: 10,
+      effectivePrice: 10,
+      estimatedLineTotal: 10,
+      communityWeeklyPromotionApplied: true,
+      communityWeeklyPromotionId: 'weekly-promotion-1',
+      communityWeeklyPromotionCommunityCode: 'community-a',
+      communityWeeklyPromotionWeekKey: '2026-08-23',
+    };
+    const normalLine = {
+      productId: 'normal',
+      productName: 'Normal',
+      lineSeed: 's1',
+      quantity: 1,
+      price: 20,
+      effectivePrice: 20,
+      estimatedLineTotal: 20,
+    };
+    const communityDiscount = {
+      percent: 10,
+      deliveryWeekKey: '2026-08-23',
+      community: 'community-a',
+    };
+    const fingerprint = buildCommunityDiscountFingerprint({
+      orderId: 'order-7',
+      communityDiscount,
+    });
+    const patch = buildCommunityDiscountOrderPatch({
+      orderId: 'order-7',
+      orderData: {
+        grandTotal: 30,
+        orderBreakdown: {
+          business: { businessId: 'business', items: [weeklyLine, normalLine] },
+        },
+      },
+      communityDiscount,
+      fingerprint,
+    });
+    const [weekly, normal] = patch.orderBreakdown.business.items;
+
+    expect(weekly).toMatchObject(weeklyLine);
+    expect(weekly.communityDiscountPercent).toBeUndefined();
+    expect(normal).toMatchObject({
+      price: 18,
+      effectivePrice: 18,
+      estimatedLineTotal: 18,
+      communityDiscountPercent: 10,
+      communityDiscountFingerprint: fingerprint,
+    });
+    expect(patch.estimatedDiscountAmount).toBe(2);
+    expect(patch.grandTotal).toBe(28);
   });
 
   test('scales a basket and its adjustment while leaving shipping, buffer, and removed lines unchanged', () => {

@@ -1,0 +1,223 @@
+// PROTOTYPE ONLY.
+// Merge these helpers and match blocks inside:
+//   match /databases/{database}/documents { ... }
+// Rename helpers if the existing rules already define the same names.
+//
+// Assumed public-safe data:
+// - communityWeeklyPromotions/{promotionId}: title (string), weekKey (string),
+//   status (draft|scheduled|active|archived), startsAt/endsAt (timestamp),
+//   targetCommunities/targetCommunityCodes/productSnapshots (list), shareConfig
+//   (map), schemaVersion (int), pricingVersion (string), and server audit fields.
+// - communityWeeklyPromotionUnlocks/{unlockId}: promotionId/communityCode
+//   (string), unlocked (bool), confirmedAt/updatedAt (timestamp),
+//   schemaVersion (int), pricingVersion (string), and optional public aggregates.
+// No document readable by the public may contain a token, token hash, UID, email,
+// phone number, address, IP address, or private note. Unlock confirmation is
+// intentionally trust-based: a browser may confirm sharing for its community.
+
+function cwpIsAdmin() {
+  // Custom claims are issued only by a trusted server. Adapt the claim name to
+  // the existing project's canonical admin claim before deployment.
+  return request.auth != null
+    && (request.auth.token.admin == true || request.auth.token.role == 'admin');
+}
+
+function cwpValidPromotionStatus(status) {
+  return status in ['draft', 'scheduled', 'active', 'archived'];
+}
+
+function cwpValidPromotionSchema(data) {
+  // Defense-in-depth specification. Browser writes remain denied below; the
+  // Admin SDK endpoint must enforce this complete schema on create and update.
+  return data.keys().hasAll([
+      'title',
+      'weekKey',
+      'status',
+      'startsAt',
+      'endsAt',
+      'targetCommunities',
+      'targetCommunityCodes',
+      'productSnapshots',
+      'shareConfig',
+      'schemaVersion',
+      'pricingVersion',
+      'createdAt',
+      'updatedAt'
+    ])
+    && data.keys().hasOnly([
+      'title',
+      'weekKey',
+      'status',
+      'startsAt',
+      'endsAt',
+      'targetCommunities',
+      'targetCommunityCodes',
+      'productSnapshots',
+      'shareConfig',
+      'schemaVersion',
+      'pricingVersion',
+      'createdAt',
+      'updatedAt',
+      'publishedAt',
+      'archivedAt',
+      'duplicatedFromPromotionId'
+    ])
+    && data.title is string
+    && data.title.size() > 0
+    && data.title.size() <= 200
+    && data.weekKey is string
+    && data.weekKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    && cwpValidPromotionStatus(data.status)
+    && data.startsAt is timestamp
+    && data.endsAt is timestamp
+    && data.startsAt < data.endsAt
+    && data.targetCommunities is list
+    && data.targetCommunities.size() > 0
+    && data.targetCommunities.size() <= 100
+    && data.targetCommunityCodes is list
+    && data.targetCommunityCodes.size() > 0
+    && data.targetCommunityCodes.size() <= 100
+    && data.productSnapshots is list
+    && data.productSnapshots.size() > 0
+    && data.productSnapshots.size() <= 250
+    && data.shareConfig is map
+    && data.shareConfig.keys().hasOnly(['enabled', 'headline', 'message'])
+    && data.shareConfig.enabled is bool
+    && data.shareConfig.headline is string
+    && data.shareConfig.headline.size() <= 240
+    && data.shareConfig.message is string
+    && data.shareConfig.message.size() <= 2000
+    && data.schemaVersion is int
+    && data.schemaVersion >= 1
+    && data.schemaVersion <= 100
+    && data.pricingVersion is string
+    && data.pricingVersion.size() > 0
+    && data.pricingVersion.size() <= 100
+    && data.createdAt is timestamp
+    && data.updatedAt is timestamp;
+}
+
+function cwpValidStatusTransition(before, after) {
+  return (before == 'draft'
+      && after in ['draft', 'scheduled', 'active', 'archived'])
+    || (before == 'scheduled'
+      && after in ['draft', 'scheduled', 'active', 'archived'])
+    || (before == 'active' && after in ['active', 'archived'])
+    || (before == 'archived' && after == 'archived');
+}
+
+function cwpIsPublicActivePromotion(data) {
+  return cwpValidPromotionSchema(data)
+    && data.status == 'active'
+    && data.startsAt <= request.time
+    && data.endsAt > request.time;
+}
+
+function cwpPromotionPath(promotionId) {
+  return /databases/$(database)/documents/communityWeeklyPromotions/$(promotionId);
+}
+
+function cwpHasActiveTargetPromotion(promotionId, communityCode) {
+  return exists(cwpPromotionPath(promotionId))
+    && cwpIsPublicActivePromotion(get(cwpPromotionPath(promotionId)).data)
+    && get(cwpPromotionPath(promotionId)).data.targetCommunityCodes.hasAny([communityCode]);
+}
+
+function cwpValidPublicUnlock(data) {
+  return data.keys().hasAll([
+      'promotionId',
+      'communityCode',
+      'unlocked',
+      'confirmedAt',
+      'pricingVersion',
+      'schemaVersion',
+      'updatedAt'
+    ])
+    && data.keys().hasOnly([
+      'promotionId',
+      'communityCode',
+      'unlocked',
+      'confirmedAt',
+      'pricingVersion',
+      'schemaVersion',
+      'updatedAt',
+      'unlockedAt',
+      'threshold',
+      'confirmedCount'
+    ])
+    && data.promotionId is string
+    && data.promotionId.size() > 0
+    && data.promotionId.size() <= 200
+    && data.communityCode is string
+    && data.communityCode.size() > 0
+    && data.communityCode.size() <= 120
+    && data.unlocked is bool
+    && data.confirmedAt is timestamp
+    && data.pricingVersion is string
+    && data.pricingVersion.size() > 0
+    && data.pricingVersion.size() <= 100
+    && data.schemaVersion is int
+    && data.schemaVersion >= 1
+    && data.schemaVersion <= 100
+    && data.updatedAt is timestamp;
+}
+
+function cwpValidTrustedUnlockConfirmation(data) {
+  let promotion = get(cwpPromotionPath(data.promotionId)).data;
+  return cwpValidPublicUnlock(data)
+    && data.unlocked == true
+    && data.confirmedAt == request.time
+    && data.updatedAt == request.time
+    && data.get('unlockedAt', request.time) == request.time
+    && cwpHasActiveTargetPromotion(data.promotionId, data.communityCode)
+    && data.pricingVersion == promotion.pricingVersion
+    && data.schemaVersion == promotion.schemaVersion;
+}
+
+match /communityWeeklyPromotions/{promotionId} {
+  // Public queries must constrain status, startsAt, endsAt, targetCommunityCodes,
+  // order, and limit exactly as documented. Rules are not filters.
+  allow get: if cwpIsAdmin() || cwpIsPublicActivePromotion(resource.data);
+  allow list: if cwpIsAdmin()
+    || (request.query.limit != null
+      && request.query.limit <= 10
+      && cwpIsPublicActivePromotion(resource.data));
+
+  allow create, update: if cwpIsAdmin();
+  allow delete: if false;
+}
+
+match /communityWeeklyPromotionUnlocks/{unlockId} {
+  // GET only prevents collection scraping. The function must create the exact
+  // encodeURIComponent(promotionId) + "__" + encodeURIComponent(communityCode)
+  // ID because Security Rules cannot reproduce encodeURIComponent reliably.
+  allow get: if cwpIsAdmin()
+    || (cwpValidPublicUnlock(resource.data)
+      && cwpHasActiveTargetPromotion(
+        resource.data.promotionId,
+        resource.data.communityCode
+      ));
+  // Public list stays denied. Admins may list unlocks to count community opens.
+  allow list: if cwpIsAdmin();
+  allow delete: if false;
+  allow create: if cwpValidTrustedUnlockConfirmation(request.resource.data);
+  allow update: if cwpValidTrustedUnlockConfirmation(request.resource.data)
+    && request.resource.data.promotionId == resource.data.promotionId
+    && request.resource.data.communityCode == resource.data.communityCode;
+}
+
+match /communityWeeklyPromotionStats/{promotionId} {
+  allow get, list: if cwpIsAdmin();
+  allow create, update, delete: if false;
+}
+
+match /communityWeeklyPromotionShareTokens/{tokenHash} {
+  allow read, write: if false;
+}
+
+match /communityWeeklyPromotionEvents/{eventId} {
+  allow read, write: if false;
+}
+
+// Include equivalent default-deny matches for any server-only idempotency,
+// rate-limit, audit, or token-abuse collections introduced by the backend.

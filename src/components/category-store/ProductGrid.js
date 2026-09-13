@@ -1,7 +1,10 @@
 import React from 'react';
 import ProductCard from './ProductCard';
+import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
 
 const ProductGrid = ({ products, calculateTimeRemaining, selectedCommunity }) => {
+  const { decorateProduct } = useCommunityWeeklyPromotion();
+
   if (products.length === 0) {
     return (
       <div className="text-center py-12 bg-white rounded-xl shadow-sm">
@@ -19,7 +22,7 @@ const ProductGrid = ({ products, calculateTimeRemaining, selectedCommunity }) =>
       {products.map((product) => (
         <ProductCard 
           key={product.uid} 
-          product={product}
+          product={decorateProduct(product)}
           calculateTimeRemaining={calculateTimeRemaining}
           selectedCommunity={selectedCommunity}
         />

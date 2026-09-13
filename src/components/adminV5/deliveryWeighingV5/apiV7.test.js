@@ -18,12 +18,15 @@ jest.mock('../../../utils/functionsClient', () => ({
   functionsEndpoint: jest.fn((name) => `https://example.test/${name}`),
 }));
 
-import { runTransaction } from 'firebase/firestore';
+import { getDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import {
   buildCommunityDiscountFingerprint,
   buildSettlementPayload,
 } from './v7/orderDraftUtils';
-import { prepareCommunityDiscountForSettlementV7 } from './apiV7';
+import {
+  prepareCommunityDiscountForSettlementV7,
+  updateDelayedOrderLineV7,
+} from './apiV7';
 
 const orderId = 'order-7';
 const communityDiscount = {
@@ -91,11 +94,13 @@ describe('prepareCommunityDiscountForSettlementV7', () => {
     expect(transaction.update).toHaveBeenCalledTimes(1);
     expect(transaction.update.mock.calls[0][1]).toMatchObject({
       grandTotal: 90,
+      communityDiscountOriginalGrandTotal: 100,
       communityDiscount: expect.objectContaining({ percent: 10 }),
       communityDiscountPreparation: expect.objectContaining({
         status: 'prepared',
         fingerprint: result.fingerprint,
         preparedBySessionId: session.sessionId,
+        estimatedDiscountAmount: 10,
       }),
       adminEditAction: 'prepare_community_discount',
     });
@@ -200,20 +205,72 @@ describe('prepareCommunityDiscountForSettlementV7', () => {
     expect(settlement.finalSum).toBe(27);
   });
 
-  test('blocks a conflicting prepared discount', async () => {
-    mockTransaction(buildOrderData({
-      communityDiscountPreparation: {
-        status: 'prepared',
-        fingerprint: 'different',
-        snapshot: { percent: 5 },
+  test('re-prepares from original prices when removed lines change after a failed charge', async () => {
+    const twoLineOrder = buildOrderData({
+      grandTotal: 120,
+      orderBreakdown: {
+        business: {
+          businessId: 'business',
+          items: [
+            {
+              productId: 'product',
+              productName: 'Product',
+              lineSeed: 's0',
+              quantity: 2,
+              estimatedChargeQuantity: 2,
+              estimatedLineTotal: 100,
+              price: 50,
+              effectivePrice: 50,
+            },
+            {
+              productId: 'extra',
+              productName: 'Extra',
+              lineSeed: 's1',
+              quantity: 1,
+              estimatedChargeQuantity: 1,
+              estimatedLineTotal: 20,
+              price: 20,
+              effectivePrice: 20,
+            },
+          ],
+        },
       },
-    }));
-
-    await expect(prepareCommunityDiscountForSettlementV7({
+    });
+    const firstTransaction = mockTransaction(twoLineOrder);
+    const first = await prepareCommunityDiscountForSettlementV7({
       orderId,
       communityDiscount,
       session,
-    })).rejects.toThrow('different community discount');
+    });
+    const firstWrite = firstTransaction.update.mock.calls[0][1];
+    const preparedOrder = {
+      ...twoLineOrder,
+      ...firstWrite,
+    };
+    const extraLineId = firstWrite.orderBreakdown.business.items[1].lineId;
+    const retryTransaction = mockTransaction(preparedOrder);
+
+    const retry = await prepareCommunityDiscountForSettlementV7({
+      orderId,
+      communityDiscount,
+      removedLineIds: { [extraLineId]: true },
+      session,
+    });
+
+    expect(retry.skipped).toBe(false);
+    expect(retry.fingerprint).not.toBe(first.fingerprint);
+    expect(retryTransaction.update).toHaveBeenCalledTimes(1);
+    const retryWrite = retryTransaction.update.mock.calls[0][1];
+    expect(retryWrite.communityDiscountOriginalGrandTotal).toBe(120);
+    expect(retryWrite.grandTotal).toBe(110);
+    expect(retryWrite.orderBreakdown.business.items[0]).toMatchObject({
+      communityDiscountOriginalPrice: 50,
+      price: 45,
+    });
+    expect(retryWrite.orderBreakdown.business.items[1]).toMatchObject({
+      communityDiscountOriginalPrice: 20,
+      price: 20,
+    });
   });
 
   test('blocks preparation when the order is not held for weighing', async () => {
@@ -269,5 +326,70 @@ describe('prepareCommunityDiscountForSettlementV7', () => {
       communityDiscount,
       session,
     })).rejects.toThrow('permission-denied');
+  });
+});
+
+describe('updateDelayedOrderLineV7', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('updates the original unit price when a prepared community discount is already on the order', async () => {
+    const lineId = `${orderId}::product::business::::s0`;
+    getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({
+        paymentStatus: 'held',
+        delayedOrderStatus: 'pending_weighing',
+        grandTotal: 90,
+        communityDiscountOriginalGrandTotal: 100,
+        communityDiscount: { percent: 10 },
+        communityDiscountPreparation: {
+          status: 'prepared',
+          fingerprint: 'locked',
+          estimatedDiscountAmount: 10,
+        },
+        orderBreakdown: {
+          business: {
+            businessId: 'business',
+            items: [{
+              productId: 'product',
+              productName: 'Product',
+              lineSeed: 's0',
+              quantity: 2,
+              estimatedChargeQuantity: 2,
+              estimatedLineTotal: 90,
+              price: 45,
+              effectivePrice: 45,
+              communityDiscountOriginalPrice: 50,
+              communityDiscountOriginalEffectivePrice: 50,
+              communityDiscountOriginalEstimatedLineTotal: 100,
+              communityDiscountPercent: 10,
+            }],
+          },
+        },
+      }),
+    });
+
+    const result = await updateDelayedOrderLineV7({
+      orderId,
+      lineId,
+      changes: { price: 60 },
+      session,
+    });
+
+    expect(result).toMatchObject({ ok: true, orderId });
+    expect(updateDoc).toHaveBeenCalledTimes(1);
+    const writtenLine = updateDoc.mock.calls[0][1].orderBreakdown.business.items[0];
+    expect(writtenLine).toMatchObject({
+      communityDiscountOriginalPrice: 60,
+      communityDiscountOriginalEffectivePrice: 60,
+      communityDiscountOriginalEstimatedLineTotal: 120,
+      price: 54,
+      effectivePrice: 54,
+      estimatedLineTotal: 108,
+    });
+    expect(updateDoc.mock.calls[0][1].communityDiscountOriginalGrandTotal).toBe(120);
+    expect(updateDoc.mock.calls[0][1].grandTotal).toBe(108);
   });
 });

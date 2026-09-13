@@ -130,13 +130,16 @@ import CopyProductsAdmin from './components/admin/CopyProductsAdmin';
 import BlogIndex from './components/blog/BlogIndex';
 import BlogPost from './components/blog/BlogPost';
 import BlogAdmin from './components/admin/BlogAdmin';
+import CommunityWeeklyPromotionsAdmin from './components/admin/communityWeeklyPromotions/CommunityWeeklyPromotionsAdmin';
+import { CommunityWeeklyPromotionProvider } from './contexts/CommunityWeeklyPromotionContext';
 
 const App = () => {
   return (
     <AuthProvider>
-      <CartProvider>
-        <MarketplaceCartProvider>
-        <PickupSpotProvider>
+      <PickupSpotProvider>
+        <CommunityWeeklyPromotionProvider>
+          <CartProvider>
+            <MarketplaceCartProvider>
           <SaleModeProvider>
             <Router>
             <ScrollToTop />
@@ -248,6 +251,7 @@ const App = () => {
                   <Route path="/admin/communities" element={<CommunityAdmin />} />
                   <Route path="/admin/introduction-baskets" element={<IntroductionBasketAdmin />} />
                   <Route path="/admin/referral-config" element={<ReferralConfigAdmin />} />
+                  <Route path="/admin/community-weekly-promotions" element={<CommunityWeeklyPromotionsAdmin />} />
                   <Route path="/admin/pwa-install" element={<AdminPwaInstall />} />
                   {/* Community Hub */}
                   <Route path="/community" element={<CommunityHub />} />
@@ -293,10 +297,11 @@ const App = () => {
             </div>
           </Router>
         </SaleModeProvider>
-        </PickupSpotProvider>
-        </MarketplaceCartProvider>
-    </CartProvider>
-  </AuthProvider>
+            </MarketplaceCartProvider>
+          </CartProvider>
+        </CommunityWeeklyPromotionProvider>
+      </PickupSpotProvider>
+    </AuthProvider>
 );
 };
 

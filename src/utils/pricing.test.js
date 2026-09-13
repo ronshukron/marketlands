@@ -1,19 +1,251 @@
 import {
   applyCartPricing,
   applyQuantityPricing,
+  attachCommunityWeeklyPromotionFields,
   attachGroupPromotionFields,
   buildDefaultGroupPromotionLabel,
   buildDefaultQuantityDiscountLabel,
   buildPricingSnapshot,
   evaluateOrderMinimum,
   formatOrderMinimumFailure,
+  getItemCommunityWeeklyPromotion,
   getEstimatedLineTotal,
   getEffectiveUnitPrice,
   getEligibleMinimumItemCount,
   getQuantityDiscountLabel,
+  hasEligibleCommunityWeeklyPromotion,
+  isLineEligibleForCommunityWeeklyPromotion,
+  normalizeCommunityWeeklyPromotion,
   validateGroupPromotion,
   validateQuantityDiscount,
 } from './pricing';
+
+const weeklyPromotion = {
+  id: 'community-a__2026-08-23__tomato',
+  price: 4,
+  communityCode: 'community-a',
+  weekKey: '2026-08-23',
+  status: 'active',
+  unlocked: true,
+  productId: 'tomato',
+  orderId: 'o1',
+  startsAt: '2026-08-20T00:00:00.000Z',
+  endsAt: '2026-08-30T00:00:00.000Z',
+  schemaVersion: 1,
+  pricingVersion: 'weekly-v1',
+};
+
+const attachWeekly = (item, overrides = {}) => attachCommunityWeeklyPromotionFields(
+  item,
+  { ...weeklyPromotion, ...overrides },
+);
+
+describe('final-exclusive community weekly pricing', () => {
+  test('an eligible unlocked price overrides quantity pricing', () => {
+    const [priced] = applyCartPricing([attachWeekly({
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      measurementType: 'kg',
+      price: 10,
+      quantity: 5,
+      quantityDiscountThreshold: 2,
+      quantityDiscountPrice: 7,
+    }, { startsAt: null, endsAt: null })]);
+
+    expect(priced).toMatchObject({
+      basePrice: 10,
+      effectivePrice: 4,
+      price: 4,
+      quantityDiscountApplied: false,
+      groupPromotionApplied: false,
+      communityWeeklyPromotionApplied: true,
+    });
+  });
+
+  test('a locked promotion falls back to existing quantity pricing', () => {
+    const [priced] = applyCartPricing([attachWeekly({
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      price: 10,
+      quantity: 2,
+      quantityDiscountThreshold: 2,
+      quantityDiscountPrice: 7,
+    }, { unlocked: false, startsAt: null, endsAt: null })]);
+
+    expect(priced.effectivePrice).toBe(7);
+    expect(priced.quantityDiscountApplied).toBe(true);
+    expect(priced.communityWeeklyPromotionApplied).toBe(false);
+  });
+
+  test('weekly-exclusive lines neither receive nor trigger a group promotion', () => {
+    const group = {
+      id: 'produce-pair',
+      active: true,
+      productIds: ['tomato', 'cucumber'],
+      threshold: 2,
+      pricingBasis: 'package',
+      discountedPrice: 3,
+    };
+    const tomato = attachWeekly(attachGroupPromotionFields({
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      measurementType: 'package',
+      price: 10,
+      quantity: 1,
+    }, group), { startsAt: null, endsAt: null });
+    const cucumber = attachGroupPromotionFields({
+      id: 'cucumber',
+      orderId: 'o1',
+      measurementType: 'package',
+      price: 8,
+      quantity: 1,
+    }, group);
+    const priced = applyCartPricing([tomato, cucumber]);
+
+    expect(priced[0]).toMatchObject({
+      effectivePrice: 4,
+      communityWeeklyPromotionApplied: true,
+      groupPromotionApplied: false,
+    });
+    expect(priced[1]).toMatchObject({
+      effectivePrice: 8,
+      groupPromotionApplied: false,
+    });
+  });
+
+  test('rejects expired and community, week, product, or order mismatches', () => {
+    const line = attachWeekly({
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      price: 10,
+    });
+    const promo = getItemCommunityWeeklyPromotion(line);
+
+    expect(isLineEligibleForCommunityWeeklyPromotion(
+      line,
+      promo,
+      { now: '2026-08-25T00:00:00.000Z' },
+    )).toBe(true);
+    expect(isLineEligibleForCommunityWeeklyPromotion(
+      line,
+      promo,
+      { now: '2026-09-01T00:00:00.000Z' },
+    )).toBe(false);
+    expect(isLineEligibleForCommunityWeeklyPromotion(
+      { ...line, communityCode: 'community-b' },
+      promo,
+      { now: '2026-08-25T00:00:00.000Z' },
+    )).toBe(false);
+    expect(isLineEligibleForCommunityWeeklyPromotion(
+      { ...line, deliveryWeekKey: '2026-08-30' },
+      promo,
+      { now: '2026-08-25T00:00:00.000Z' },
+    )).toBe(false);
+    expect(isLineEligibleForCommunityWeeklyPromotion(
+      { ...line, id: 'cucumber' },
+      promo,
+      { now: '2026-08-25T00:00:00.000Z' },
+    )).toBe(false);
+    expect(isLineEligibleForCommunityWeeklyPromotion(
+      { ...line, orderId: 'o2' },
+      promo,
+      { now: '2026-08-25T00:00:00.000Z' },
+    )).toBe(false);
+  });
+
+  test.each([
+    ['kg', 3, undefined, 12],
+    ['unit', 3, 2, 24],
+    ['package', 3, undefined, 12],
+  ])('prices %s lines using their existing chargeable quantity', (
+    measurementType,
+    quantity,
+    averageWeightKg,
+    total,
+  ) => {
+    const [priced] = applyCartPricing([attachWeekly({
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      measurementType,
+      averageWeightKg,
+      quantity,
+      price: 10,
+    }, { startsAt: null, endsAt: null })]);
+    expect(getEstimatedLineTotal(priced)).toBe(total);
+  });
+
+  test.each(['isShipping', 'isBasketAdjustment', 'isBasketComponent'])(
+    'does not apply to lines marked %s',
+    (excludedField) => {
+      const [priced] = applyCartPricing([attachWeekly({
+        id: 'tomato',
+        orderId: 'o1',
+        communityCode: 'community-a',
+        deliveryWeekKey: '2026-08-23',
+        quantity: 1,
+        price: 10,
+        [excludedField]: true,
+      }, { startsAt: null, endsAt: null })]);
+      expect(priced.effectivePrice).toBe(10);
+      expect(priced.communityWeeklyPromotionApplied).toBe(false);
+    },
+  );
+
+  test('normalizes ergonomic promotion input and restores flattened snapshots', () => {
+    expect(normalizeCommunityWeeklyPromotion(weeklyPromotion)).toMatchObject({
+      id: weeklyPromotion.id,
+      price: 4,
+      communityCode: 'community-a',
+      unlocked: true,
+    });
+
+    const [live] = applyCartPricing([attachWeekly({
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      quantity: 1,
+      price: 10,
+    }, { startsAt: null, endsAt: null })]);
+    const snapshot = buildPricingSnapshot(live);
+    expect(snapshot).toMatchObject({
+      communityWeeklyPromotionId: weeklyPromotion.id,
+      communityWeeklyPromotionPrice: 4,
+      communityWeeklyPromotionApplied: true,
+      communityWeeklyPromotionCommunityCode: 'community-a',
+      communityWeeklyPromotionWeekKey: '2026-08-23',
+      communityWeeklyPromotionUnlocked: true,
+      communityWeeklyPromotionSchemaVersion: 1,
+      communityWeeklyPromotionPricingVersion: 'weekly-v1',
+    });
+
+    const flattened = {
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      quantity: 1,
+      price: 4,
+      ...snapshot,
+    };
+    expect(hasEligibleCommunityWeeklyPromotion(flattened)).toBe(true);
+    expect(applyCartPricing([flattened])[0]).toMatchObject({
+      basePrice: 10,
+      effectivePrice: 4,
+      communityWeeklyPromotionApplied: true,
+    });
+  });
+});
 
 describe('legacy quantity pricing', () => {
   const product = {

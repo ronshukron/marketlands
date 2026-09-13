@@ -1,0 +1,40 @@
+// PROTOTYPE ONLY.
+// Merge these helpers and match blocks inside:
+//   match /databases/{database}/documents { ... }
+// Rename helpers if the existing rules already define the same names.
+//
+// Customer-facing community discount progress on the store and community hub
+// reads `communityDiscountProgress/{community}__{weekKey}`. Regular signed-in
+// shoppers must be able to GET that exact document. Guests do not need it.
+// Writes stay server/admin only.
+
+function communityDiscountIsAuthenticated() {
+  return request.auth != null;
+}
+
+function communityDiscountIsAdmin() {
+  return communityDiscountIsAuthenticated() && (
+    request.auth.uid == 'rfHOLhNoJOW8ByNypCtm3hlSNKs2'
+    || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+  );
+}
+
+function communityDiscountPublicProgressSchema(data) {
+  return data.keys().hasAll(['total', 'orderCount'])
+    && data.total is number
+    && data.total >= 0
+    && data.orderCount is int
+    && data.orderCount >= 0;
+}
+
+match /communityDiscountProgress/{progressId} {
+  allow get: if communityDiscountIsAuthenticated()
+    && communityDiscountPublicProgressSchema(resource.data);
+  allow list: if false;
+  allow create, update, delete: if false;
+}
+
+match /settings/communityDiscount {
+  allow get: if true;
+  allow list, create, update, delete: if communityDiscountIsAdmin();
+}

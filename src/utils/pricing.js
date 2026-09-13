@@ -119,7 +119,7 @@ export const buildPricingSnapshot = (item = {}) => {
   const pricedItem = alreadyPriced
     ? item
     : (applyCartPricing([item])[0] || applyQuantityPricing(item, item.quantity));
-  return {
+  const snapshot = {
     basePrice: pricedItem.basePrice ?? getBaseUnitPrice(pricedItem),
     effectivePrice: pricedItem.effectivePrice,
     threshold: pricedItem.quantityDiscountThreshold,
@@ -133,6 +133,14 @@ export const buildPricingSnapshot = (item = {}) => {
     groupPromotionPricingBasis: pricedItem.groupPromotionPricingBasis ?? null,
     groupPromotionApplied: Boolean(pricedItem.groupPromotionApplied),
   };
+  if (hasValue(pricedItem.communityWeeklyPromotionId)) {
+    COMMUNITY_WEEKLY_PROMOTION_FIELDS.forEach((field) => {
+      snapshot[field] = field === 'communityWeeklyPromotionApplied'
+        ? Boolean(pricedItem[field])
+        : (pricedItem[field] ?? null);
+    });
+  }
+  return snapshot;
 };
 
 export const getAverageWeightKg = (item) => {
@@ -156,6 +164,244 @@ export const getEstimatedLineTotal = (item) => {
   const price = getEffectiveUnitPrice(item);
   const chargeQty = getEstimatedChargeableQuantity(item);
   return roundTo2(chargeQty * price);
+};
+
+export const COMMUNITY_WEEKLY_PROMOTION_FIELDS = [
+  'communityWeeklyPromotionId',
+  'communityWeeklyPromotionPrice',
+  'communityWeeklyPromotionApplied',
+  'communityWeeklyPromotionCommunityCode',
+  'communityWeeklyPromotionWeekKey',
+  'communityWeeklyPromotionStartsAt',
+  'communityWeeklyPromotionEndsAt',
+  'communityWeeklyPromotionStatus',
+  'communityWeeklyPromotionUnlocked',
+  'communityWeeklyPromotionSchemaVersion',
+  'communityWeeklyPromotionPricingVersion',
+];
+
+const getComparableTime = (value) => {
+  if (!hasValue(value)) return null;
+  if (typeof value?.toDate === 'function') return value.toDate().getTime();
+  if (Number.isFinite(Number(value?.seconds))) {
+    return (Number(value.seconds) * 1000) + Math.floor((Number(value.nanoseconds) || 0) / 1000000);
+  }
+  if (Number.isFinite(Number(value))) {
+    const numeric = Number(value);
+    return numeric < 100000000000 ? numeric * 1000 : numeric;
+  }
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getLineProductId = (item = {}) => String(item.id || item.productId || '').trim();
+const getLineCommunityCode = (item = {}) => String(
+  item.communityCode
+  || item.community?.code
+  || item.communityWeeklyPromotionCommunityCode
+  || '',
+).trim();
+const getLineWeekKey = (item = {}) => String(
+  item.deliveryWeekKey
+  || item.weekKey
+  || item.fulfillment?.deliveryWeekKey
+  || item.communityWeeklyPromotionWeekKey
+  || '',
+).trim();
+
+export const normalizeCommunityWeeklyPromotion = (promotion = {}) => {
+  const source = promotion || {};
+  const flattened = hasValue(source.communityWeeklyPromotionId);
+  const id = String(
+    source.communityWeeklyPromotionId
+    ?? source.id
+    ?? source.promotionId
+    ?? '',
+  ).trim();
+  const price = Number(
+    source.communityWeeklyPromotionPrice
+    ?? source.discountedPrice
+    ?? source.promotionPrice
+    ?? (flattened ? undefined : source.price),
+  );
+  const communityCode = String(
+    source.communityWeeklyPromotionCommunityCode
+    ?? source.communityCode
+    ?? '',
+  ).trim();
+  const weekKey = String(
+    source.communityWeeklyPromotionWeekKey
+    ?? source.weekKey
+    ?? source.deliveryWeekKey
+    ?? '',
+  ).trim();
+  const status = String(
+    source.communityWeeklyPromotionStatus
+    ?? source.status
+    ?? (source.active === false ? 'inactive' : 'active'),
+  ).trim().toLowerCase();
+
+  if (
+    !id
+    || !Number.isFinite(price)
+    || price < 0
+    || !communityCode
+    || !weekKey
+  ) {
+    return null;
+  }
+
+  const productIds = uniqueStrings(
+    source.productIds
+    || source.communityWeeklyPromotionProductIds
+    || [],
+  );
+  const productId = String(
+    source.communityWeeklyPromotionProductId
+    ?? source.targetProductId
+    ?? source.productId
+    ?? '',
+  ).trim();
+
+  return {
+    id,
+    price,
+    communityCode,
+    weekKey,
+    startsAt: source.communityWeeklyPromotionStartsAt ?? source.startsAt ?? null,
+    endsAt: source.communityWeeklyPromotionEndsAt ?? source.endsAt ?? null,
+    status,
+    unlocked: (
+      source.communityWeeklyPromotionUnlocked
+      ?? source.unlocked
+      ?? false
+    ) === true,
+    schemaVersion: (
+      source.communityWeeklyPromotionSchemaVersion
+      ?? source.schemaVersion
+      ?? null
+    ),
+    pricingVersion: (
+      source.communityWeeklyPromotionPricingVersion
+      ?? source.pricingVersion
+      ?? null
+    ),
+    productId,
+    productIds,
+    orderId: String(
+      source.communityWeeklyPromotionOrderId
+      ?? source.targetOrderId
+      ?? source.orderId
+      ?? '',
+    ).trim(),
+  };
+};
+
+export const clearCommunityWeeklyPromotionFields = (item = {}) => ({
+  ...item,
+  communityWeeklyPromotionId: null,
+  communityWeeklyPromotionPrice: null,
+  communityWeeklyPromotionApplied: false,
+  communityWeeklyPromotionCommunityCode: null,
+  communityWeeklyPromotionWeekKey: null,
+  communityWeeklyPromotionStartsAt: null,
+  communityWeeklyPromotionEndsAt: null,
+  communityWeeklyPromotionStatus: null,
+  communityWeeklyPromotionUnlocked: false,
+  communityWeeklyPromotionSchemaVersion: null,
+  communityWeeklyPromotionPricingVersion: null,
+  communityWeeklyPromotionProductId: null,
+  communityWeeklyPromotionProductIds: null,
+  communityWeeklyPromotionOrderId: null,
+});
+
+export const attachCommunityWeeklyPromotionFields = (item = {}, promotion) => {
+  const normalized = normalizeCommunityWeeklyPromotion(promotion);
+  if (!normalized) return clearCommunityWeeklyPromotionFields(item);
+
+  return {
+    ...item,
+    communityWeeklyPromotionId: normalized.id,
+    communityWeeklyPromotionPrice: normalized.price,
+    communityWeeklyPromotionApplied: false,
+    communityWeeklyPromotionCommunityCode: normalized.communityCode,
+    communityWeeklyPromotionWeekKey: normalized.weekKey,
+    communityWeeklyPromotionStartsAt: normalized.startsAt,
+    communityWeeklyPromotionEndsAt: normalized.endsAt,
+    communityWeeklyPromotionStatus: normalized.status,
+    communityWeeklyPromotionUnlocked: normalized.unlocked,
+    communityWeeklyPromotionSchemaVersion: normalized.schemaVersion,
+    communityWeeklyPromotionPricingVersion: normalized.pricingVersion,
+    communityWeeklyPromotionProductId: (
+      normalized.productId
+      || (normalized.productIds.length === 1 ? normalized.productIds[0] : null)
+      || getLineProductId(item)
+      || null
+    ),
+    communityWeeklyPromotionProductIds: normalized.productIds.length
+      ? normalized.productIds
+      : null,
+    communityWeeklyPromotionOrderId: normalized.orderId || item.orderId || null,
+  };
+};
+
+export const getItemCommunityWeeklyPromotion = (item = {}) => (
+  normalizeCommunityWeeklyPromotion(item)
+);
+
+export const hasCommunityWeeklyPromotionFields = (item = {}) => Boolean(
+  getItemCommunityWeeklyPromotion(item),
+);
+
+export const isExcludedFromCommunityWeeklyPromotion = (item) => (
+  Boolean(item?.isShipping || item?.isBasketAdjustment || item?.isBasketComponent)
+);
+
+export const isLineEligibleForCommunityWeeklyPromotion = (
+  item,
+  promotion = getItemCommunityWeeklyPromotion(item),
+  context = {},
+) => {
+  if (!item || isExcludedFromCommunityWeeklyPromotion(item)) return false;
+  const promo = normalizeCommunityWeeklyPromotion(promotion);
+  if (!promo || promo.status !== 'active') return false;
+
+  const now = getComparableTime(context.now ?? Date.now());
+  const startsAt = getComparableTime(promo.startsAt);
+  const endsAt = getComparableTime(promo.endsAt);
+  if (
+    (startsAt !== null && (now === null || now < startsAt))
+    || (endsAt !== null && (now === null || now >= endsAt))
+  ) {
+    return false;
+  }
+
+  const productId = String(context.productId || getLineProductId(item)).trim();
+  const communityCode = String(
+    context.communityCode || getLineCommunityCode(item),
+  ).trim();
+  const weekKey = String(context.weekKey || getLineWeekKey(item)).trim();
+  const orderId = String(context.orderId || item.orderId || '').trim();
+  const eligibleProductIds = promo.productIds.length
+    ? promo.productIds
+    : (promo.productId ? [promo.productId] : []);
+
+  return Boolean(
+    productId
+    && communityCode === promo.communityCode
+    && weekKey === promo.weekKey
+    && (!eligibleProductIds.length || eligibleProductIds.includes(productId))
+    && (!promo.orderId || (orderId && orderId === promo.orderId))
+  );
+};
+
+export const hasEligibleCommunityWeeklyPromotion = (item, context = {}) => {
+  const promo = getItemCommunityWeeklyPromotion(item);
+  return Boolean(
+    promo
+    && promo.unlocked
+    && isLineEligibleForCommunityWeeklyPromotion(item, promo, context)
+  );
 };
 
 export const GROUP_PROMOTION_PRICING_BASES = ['package', 'unit'];
@@ -367,13 +613,14 @@ export const validateGroupPromotion = ({
   return '';
 };
 
-// Community settlement discounts later operate on these already-adjusted
-// order prices, so group promotions and community percent compose in sequence.
+// Weekly community prices are final and exclusive. Existing group/quantity
+// pricing remains the fallback; settlement must skip weekly-priced lines.
 export const applyCartPricing = (items = []) => {
   const list = Array.isArray(items) ? items : [];
   const groupedQuantities = {};
 
   list.forEach((item) => {
+    if (hasEligibleCommunityWeeklyPromotion(item)) return;
     const promo = getItemGroupPromotion(item);
     if (!isLineEligibleForGroupPromotion(item, promo)) return;
     const key = `${item.orderId || ''}|${promo.id}`;
@@ -381,6 +628,26 @@ export const applyCartPricing = (items = []) => {
   });
 
   return list.map((item) => {
+    const weeklyPromotion = getItemCommunityWeeklyPromotion(item);
+    const weeklyPromotionApplies = Boolean(
+      weeklyPromotion
+      && weeklyPromotion.unlocked
+      && isLineEligibleForCommunityWeeklyPromotion(item, weeklyPromotion)
+    );
+    if (weeklyPromotionApplies) {
+      const basePrice = getBaseUnitPrice(item);
+      return {
+        ...item,
+        quantity: Number(item.quantity) || 0,
+        basePrice,
+        effectivePrice: weeklyPromotion.price,
+        price: weeklyPromotion.price,
+        quantityDiscountApplied: false,
+        groupPromotionApplied: false,
+        communityWeeklyPromotionApplied: true,
+      };
+    }
+
     const promo = getItemGroupPromotion(item);
     const key = `${item.orderId || ''}|${promo?.id || ''}`;
     const groupQuantity = groupedQuantities[key] || 0;
@@ -407,6 +674,7 @@ export const applyCartPricing = (items = []) => {
         groupPromotionPricingBasis: promo.pricingBasis,
         groupPromotionProductIds: promo.productIds,
         groupPromotionBundleTotalPrice: promo.bundleTotalPrice,
+        communityWeeklyPromotionApplied: false,
       };
     }
 
@@ -421,6 +689,7 @@ export const applyCartPricing = (items = []) => {
       groupPromotionPricingBasis: promo?.pricingBasis ?? item.groupPromotionPricingBasis ?? null,
       groupPromotionProductIds: promo?.productIds ?? item.groupPromotionProductIds ?? null,
       groupPromotionBundleTotalPrice: promo?.bundleTotalPrice ?? item.groupPromotionBundleTotalPrice ?? null,
+      communityWeeklyPromotionApplied: false,
     };
   });
 };

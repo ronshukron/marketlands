@@ -1,5 +1,5 @@
 const EventEmitter = require('events');
-const { encodeRasterJob, parseStatus, STATUS_REQUEST } = require('./ql800Raster');
+const { encodeRasterJob, parseStatus, interpretPrintProgress, STATUS_REQUEST } = require('./ql800Raster');
 
 const QL800_VID = 0x04f9;
 const QL800_PID = 0x209b;
@@ -117,6 +117,13 @@ class PrinterService extends EventEmitter {
     this.outEndpoint = null;
     this.inEndpoint = null;
     this.usb = null;
+    this.opQueue = Promise.resolve();
+  }
+
+  runExclusive(work) {
+    const run = this.opQueue.then(work, work);
+    this.opQueue = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   loadUsb() {
@@ -266,18 +273,62 @@ class PrinterService extends EventEmitter {
     }
   }
 
-  async readStatus() {
-    await this.ensureOpen();
+  async drainIn(maxReads = 8) {
+    if (!this.inEndpoint) return;
+    const previous = this.inEndpoint.timeout;
+    this.inEndpoint.timeout = 80;
+    try {
+      for (let i = 0; i < maxReads; i += 1) {
+        try {
+          const raw = await transferIn(this.inEndpoint, 32);
+          if (!raw || raw.length === 0) break;
+          log('drained leftover status', raw.length, Buffer.from(raw).toString('hex'));
+        } catch {
+          break;
+        }
+      }
+    } finally {
+      this.inEndpoint.timeout = previous;
+    }
+  }
+
+  logStatus(parsed, raw) {
+    log('status', {
+      ...parsed,
+      rawHex: raw && raw.length ? Buffer.from(raw).toString('hex') : '',
+    });
+  }
+
+  async requestStatus() {
     await transferOut(this.outEndpoint, STATUS_REQUEST);
     const raw = await transferIn(this.inEndpoint, 32);
     const parsed = parseStatus(raw);
-    log('status', parsed);
+    this.logStatus(parsed, raw);
+    return parsed;
+  }
+
+  async readStatus() {
+    await this.ensureOpen();
+    let parsed = await this.requestStatus();
+    if (parsed.errors.includes('status_short')) {
+      log('status_short, draining and retrying');
+      await this.drainIn();
+      parsed = await this.requestStatus();
+    }
     return parsed;
   }
 
   async getStatus() {
+    return this.runExclusive(() => this.getStatusLocked());
+  }
+
+  async getStatusLocked() {
     try {
-      const status = await this.readStatus();
+      let status = await this.readStatus();
+      if (status.errors.includes('status_short')) {
+        await this.close();
+        status = await this.readStatus();
+      }
       return {
         connected: true,
         mediaLoaded: status.mediaLoaded,
@@ -309,29 +360,46 @@ class PrinterService extends EventEmitter {
   }
 
   async waitForPrintComplete() {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      try {
-        const status = await this.readStatus();
-        const fatals = fatalPrintErrors(status);
-        if (fatals.length) return { ok: false, code: fatals[0], status };
-        if (status.errors.includes('busy') || status.statusType === 0x06) {
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          continue;
+    const deadline = Date.now() + 20000;
+    const previous = this.inEndpoint.timeout;
+    let sawPhaseChange = false;
+    try {
+      while (Date.now() < deadline) {
+        this.inEndpoint.timeout = Math.min(2000, Math.max(100, deadline - Date.now()));
+        try {
+          const raw = await transferIn(this.inEndpoint, 32);
+          const status = parseStatus(raw);
+          this.logStatus(status, raw);
+          if (status.statusType === 0x06) sawPhaseChange = true;
+          const progress = interpretPrintProgress(status);
+          if (progress.action === 'ok') return { ok: true, status };
+          if (progress.action === 'error') {
+            return { ok: false, code: progress.code || 'print_failed', status };
+          }
+        } catch (error) {
+          log('wait status', errorText(error));
         }
-        return { ok: true, status };
-      } catch (error) {
-        log('wait status', errorText(error));
       }
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (sawPhaseChange) {
+        log('print completed status not received, phase change was seen');
+        return { ok: true, status: { errors: [] } };
+      }
+      return { ok: false, code: 'timeout', status: { errors: ['timeout'] } };
+    } finally {
+      if (this.inEndpoint) this.inEndpoint.timeout = previous;
     }
-    return { ok: true, status: { errors: [] } };
   }
 
-  async print({ width, height, data }) {
+  async print(payload) {
+    return this.runExclusive(() => this.printLocked(payload || {}));
+  }
+
+  async printLocked({ width, height, data }) {
     try {
       const pixels = coerceImageData(data);
       log('print start', { width, height, bytes: pixels.length });
       await this.ensureOpen();
+      await this.drainIn();
       let status;
       try {
         status = await this.readStatus();
@@ -355,14 +423,17 @@ class PrinterService extends EventEmitter {
           twoColor,
         });
         log('sending raster bytes', job.length, 'twoColor', twoColor);
+        await this.drainIn();
         await transferOutChunked(this.outEndpoint, job);
         return this.waitForPrintComplete();
       };
 
-      let finished = await send(true);
+      const useTwoColor = !!status.twoColor;
+      log('media twoColor', useTwoColor, 'mediaType', status.mediaType);
+      let finished = await send(useTwoColor);
       if (!finished.ok && finished.code === 'wrong_media') {
-        log('two-color roll not loaded, retry black-only');
-        finished = await send(false);
+        log('wrong media for color mode, retry', !useTwoColor);
+        finished = await send(!useTwoColor);
       }
       if (!finished.ok) {
         return {
@@ -375,7 +446,6 @@ class PrinterService extends EventEmitter {
       return { ok: true };
     } catch (error) {
       log('print threw', error);
-      await this.close();
       const mapped = mapUsbError(error);
       this.emitError(mapped);
       return {
@@ -384,6 +454,8 @@ class PrinterService extends EventEmitter {
         error: mapped.code,
         message: mapped.error,
       };
+    } finally {
+      await this.close();
     }
   }
 }

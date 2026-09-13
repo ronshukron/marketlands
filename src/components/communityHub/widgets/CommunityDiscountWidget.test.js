@@ -59,6 +59,7 @@ describe('CommunityDiscountWidget compact store variant', () => {
     expect(subscribeDisplayDiscountInfo).toHaveBeenCalledWith(expect.objectContaining({
       communityName: 'ניצנים',
       deliveryWeekKey: '2026-08-16',
+      listenToProgress: true,
     }));
   });
 
@@ -104,5 +105,8 @@ describe('CommunityDiscountWidget compact store variant', () => {
     expect(await screen.findByText('יש להתחבר כדי לצפות')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'התחברות' })).toHaveAttribute('href', '/login');
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(subscribeDisplayDiscountInfo).toHaveBeenCalledWith(expect.objectContaining({
+      listenToProgress: false,
+    }));
   });
 });

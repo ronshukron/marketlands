@@ -4,15 +4,30 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import "bootstrap/dist/css/bootstrap.min.css"
-import { getPickupSpotsSync, resolveCommunityName } from './services/pickupSpotsService';
+import { getPickupSpotsSync, resolveCommunityByCode, resolveCommunityName } from './services/pickupSpotsService';
 import { persistReferralCodeFromUrl } from './services/referralService';
+import {
+  parseCommunityWeeklyPromotionUrl,
+  storeCommunityWeeklyPromotionAttribution,
+} from './utils/communityWeeklyPromotionUrl';
 
 // Pre-render: parse URL for community/pickup spot and referral code
 (function syncUrlParams() {
   try {
     persistReferralCodeFromUrl();
     const params = new URLSearchParams(window.location.search);
-    const raw = params.get('community') || params.get('pickupSpot') || params.get('spot');
+    const promotionAttribution = parseCommunityWeeklyPromotionUrl(window.location.href);
+    if (promotionAttribution.promo && promotionAttribution.community) {
+      storeCommunityWeeklyPromotionAttribution(
+        window.localStorage,
+        promotionAttribution,
+      );
+    }
+    const attributedCommunity = resolveCommunityByCode(promotionAttribution.community);
+    const raw = attributedCommunity
+      || params.get('community')
+      || params.get('pickupSpot')
+      || params.get('spot');
     if (!raw) return;
     const decoded = decodeURIComponent(raw).replace(/\+/g, ' ').trim();
     const resolved = resolveCommunityName(decoded) || decoded;

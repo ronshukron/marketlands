@@ -268,6 +268,8 @@ export function buildSettlementPayload({
         linePrice,
         measurementType,
         weighSource,
+        communityWeeklyPromotionApplied: item?.communityWeeklyPromotionApplied === true,
+        communityWeeklyPromotionId: item?.communityWeeklyPromotionId || null,
         ...(lineAudit && typeof lineAudit === 'object' ? { audit: lineAudit } : {}),
       };
     });
@@ -301,7 +303,7 @@ export function buildSettlementPayload({
   const shouldApplyCommunityDiscount = discountPercent > 0 && preDiscountTotal > 0;
   const discountFactor = 1 - (discountPercent / 100);
   const finalInvoiceLines = undiscountedInvoiceLines.map((line) => {
-    if (!shouldApplyCommunityDiscount) return line;
+    if (!shouldApplyCommunityDiscount || line.communityWeeklyPromotionApplied === true) return line;
     const preDiscountPricePerUnit = safeNumber(line.pricePerUnit, 0);
     const discountedPricePerUnit = roundTo(preDiscountPricePerUnit * discountFactor, 6);
     const discountedLinePrice = roundTo(
@@ -381,6 +383,41 @@ function getExcludedLineIdSet(orderData = {}) {
   );
 }
 
+function restoreCommunityDiscountOriginals(item) {
+  if (item?.communityDiscountOriginalPrice == null && item?.communityDiscountOriginalBasketPrice == null) {
+    return item;
+  }
+  return {
+    ...item,
+    price: safeNumber(item.communityDiscountOriginalPrice ?? item.price, 0),
+    effectivePrice: safeNumber(
+      item.communityDiscountOriginalEffectivePrice ?? item.communityDiscountOriginalPrice ?? item.effectivePrice,
+      safeNumber(item.price, 0),
+    ),
+    estimatedLineTotal: roundTo(safeNumber(
+      item.communityDiscountOriginalEstimatedLineTotal ?? item.estimatedLineTotal,
+      0,
+    ), 2),
+    ...(item.communityDiscountOriginalBasketPrice != null
+      ? { basketPrice: roundTo(safeNumber(item.communityDiscountOriginalBasketPrice, 0), 2) }
+      : {}),
+  };
+}
+
+export function resolveCommunityDiscountOriginalGrandTotal(orderData = {}) {
+  if (orderData.communityDiscountOriginalGrandTotal != null) {
+    return roundTo(safeNumber(orderData.communityDiscountOriginalGrandTotal, 0), 2);
+  }
+  if (orderData.communityDiscountPreparation?.status === 'prepared') {
+    return roundTo(
+      safeNumber(orderData.grandTotal, 0)
+        + safeNumber(orderData.communityDiscountPreparation.estimatedDiscountAmount, 0),
+      2,
+    );
+  }
+  return roundTo(safeNumber(orderData.grandTotal, 0), 2);
+}
+
 export function buildCommunityDiscountFingerprint({
   orderId,
   communityDiscount = {},
@@ -457,11 +494,14 @@ export function buildCommunityDiscountOrderPatch({
       const isNormalApplicable = (
         !item?.basketInstanceId
         && !item?.isShipping
+        && item?.communityWeeklyPromotionApplied !== true
         && item?.catalogNumber !== BUFFER_LINE_CATALOG_NUMBER
         && !excludedLineIds.has(item?.lineId)
         && !removed.has(item?.lineId)
       );
-      if (!isNormalApplicable && !isActiveBasketLine) return item;
+      if (!isNormalApplicable && !isActiveBasketLine) {
+        return restoreCommunityDiscountOriginals(item);
+      }
 
       const originalPrice = safeNumber(
         item.communityDiscountOriginalPrice ?? item.price,
@@ -517,14 +557,14 @@ export function buildCommunityDiscountOrderPatch({
   });
 
   const orderBreakdown = recomputeBreakdownTotals(nextBreakdown);
+  const estimatedDiscount = roundTo(estimatedDiscountAmount, 2);
+  const originalGrandTotal = resolveCommunityDiscountOriginalGrandTotal(orderData);
   return {
     orderBreakdown,
     items: flattenOrderBreakdown(orderBreakdown),
-    estimatedDiscountAmount: roundTo(estimatedDiscountAmount, 2),
-    grandTotal: Math.max(
-      0,
-      roundTo(safeNumber(orderData.grandTotal, 0) - estimatedDiscountAmount, 2),
-    ),
+    estimatedDiscountAmount: estimatedDiscount,
+    originalGrandTotal,
+    grandTotal: Math.max(0, roundTo(originalGrandTotal - estimatedDiscount, 2)),
   };
 }
 
