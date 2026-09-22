@@ -1,0 +1,13 @@
+// Paste into Firebase Console → Firestore → Rules
+// The store reads this single slim document instead of the whole communities
+// collection. Writes stay server/admin only (Cloud Function rebuild/sync).
+//
+// After deploying functions, call POST rebuildCommunitiesCatalog once with an
+// admin Firebase ID token. That writes this document and strips userIds from
+// community docs so the homepage no longer downloads membership lists.
+
+    match /settings/communitiesCatalog {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+

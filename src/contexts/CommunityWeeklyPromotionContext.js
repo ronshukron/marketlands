@@ -147,8 +147,11 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
 
   useEffect(() => {
     if (!hasLoadedFromStorage) return undefined;
-    refresh();
+    const timer = setTimeout(() => {
+      refresh();
+    }, 0);
     return () => {
+      clearTimeout(timer);
       requestIdRef.current += 1;
     };
   }, [hasLoadedFromStorage, refresh]);

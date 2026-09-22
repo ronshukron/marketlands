@@ -19,7 +19,11 @@ const getStatusLabel = (order) => {
   const ps = order.paymentStatus || '';
   if (ds === 'abandoned' || ps === 'abandoned') return 'ננטש';
   if (ds === 'created_in_fe' && ps === 'pending_payment') return 'נוצר - לא שולם';
-  if (ps === 'pending_payment') return 'ממתין לאישור תשלום';
+  if (
+    ps === 'pending_payment'
+    || ps === 'awaiting_customer_authorization'
+    || ds === 'awaiting_customer_authorization'
+  ) return 'ממתין לאישור תשלום';
   return `${ds || '?'} / ${ps || '?'}`;
 };
 

@@ -7,8 +7,10 @@ import { useAuth } from '../contexts/authContext';
 const ADMIN_UIDS = ['YOUR_USER_ID_HERE']; // Replace with your actual UID
 
 const PrivateRoute = ({ children }) => {
-  const { currentUser } = useAuth();
-  
+  const { currentUser, loading } = useAuth();
+
+  if (loading) return null;
+
   // Check if user is logged in and is an admin
   const isAuthorized = currentUser && ADMIN_UIDS.includes(currentUser.uid);
   

@@ -488,9 +488,10 @@ describe('community delayed-order discount calculation', () => {
     });
     const onValue = jest.fn();
 
-    subscribeDisplayDiscountInfo({
+    const unsubscribe = subscribeDisplayDiscountInfo({
       communityName: 'אור הנר',
       deliveryWeekKey: '2026-08-09',
+      preferLiveOrders: true,
       onValue,
     });
 
@@ -515,6 +516,17 @@ describe('community delayed-order discount calculation', () => {
         orderCount: 1,
       }));
     });
+    unsubscribe();
+  });
+
+  test('does not scan delayed orders on the store progress widget', () => {
+    onSnapshot.mockImplementation(() => jest.fn());
+    subscribeDisplayDiscountInfo({
+      communityName: 'אור הנר',
+      deliveryWeekKey: '2026-08-09',
+      onValue: jest.fn(),
+    });
+    expect(getDocs).not.toHaveBeenCalled();
   });
 
   test('treats a missing progress document as zero weekly total', () => {

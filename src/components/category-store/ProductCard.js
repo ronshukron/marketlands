@@ -3,7 +3,6 @@ import Slider from "react-slick";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import Swal from 'sweetalert2';
-import { useCart } from '../../contexts/CartContext';
 import {
   attachCommunityWeeklyPromotionFields,
   attachGroupPromotionFields,
@@ -14,7 +13,6 @@ import {
   getQuantityDiscountLabel,
   normalizeQuantityDiscount,
 } from '../../utils/pricing';
-import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
 import { isNewProduct } from '../../utils/productFreshness';
 
 const CATEGORY_CARD_IMAGE_LIMIT = 1;
@@ -91,7 +89,14 @@ const InCartBadge = ({ quantityLabel, compact = false }) => (
   </div>
 );
 
-const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => {
+const ProductCard = ({
+  product,
+  calculateTimeRemaining,
+  selectedCommunity,
+  quantityInCart,
+  addItem,
+  openUnlockModal,
+}) => {
   const measurementType = product.measurementType || 'kg';
   const unitSize = product.unitSize || 1;
   const averageWeightKg = Number(product.averageWeightKg) > 0 ? Number(product.averageWeightKg) : 1;
@@ -112,8 +117,6 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
   const [selectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
   );
-  const { addItem, cartItems } = useCart();
-  const { openUnlockModal } = useCommunityWeeklyPromotion();
   const selectedUnitPrice = weeklyPromotionApplied
     ? weeklyPromotion.price
     : getEffectiveUnitPrice(product, quantity);
@@ -123,12 +126,6 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
     && quantityDiscount
     && quantity >= quantityDiscount.quantityDiscountThreshold,
   );
-
-  const quantityInCart = useMemo(() => {
-    return cartItems
-      .filter(item => item.id === product.id)
-      .reduce((sum, item) => sum + item.quantity, 0);
-  }, [cartItems, product.id]);
 
   const cardImages = useMemo(
     () => (Array.isArray(product.images) ? product.images.filter(Boolean).slice(0, CATEGORY_CARD_IMAGE_LIMIT) : []),
@@ -588,4 +585,4 @@ const ProductCard = ({ product, calculateTimeRemaining, selectedCommunity }) => 
   );
 };
 
-export default ProductCard;
+export default React.memo(ProductCard);

@@ -126,6 +126,80 @@ export function saveCommunityOrder(storageKey, order, keepScopeKeys = []) {
   return safeSetLocalStorage(storageKey, JSON.stringify(sanitized), { keepScopeKeys });
 }
 
+const COMMUNITY_ORDER_BY_SCOPE_KEY = 'deliveryV7::communityOrderByScope';
+const MAX_COMMUNITY_ORDER_SCOPES = 5;
+
+function readCommunityOrderByScopeStore() {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(COMMUNITY_ORDER_BY_SCOPE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function pruneCommunityOrderByScopeStore(store, keepScopeKey) {
+  const next = { ...(store || {}) };
+  const keys = Object.keys(next);
+  if (keys.length <= MAX_COMMUNITY_ORDER_SCOPES) return next;
+
+  const ranked = keys
+    .map((key, index) => ({
+      key,
+      updatedAt: String(next[key]?.updatedAt || ''),
+      index,
+    }))
+    .sort((a, b) => {
+      const byTime = b.updatedAt.localeCompare(a.updatedAt);
+      if (byTime !== 0) return byTime;
+      return b.index - a.index;
+    });
+
+  const keep = new Set();
+  if (keepScopeKey) keep.add(keepScopeKey);
+  ranked.forEach((entry) => {
+    if (keep.size < MAX_COMMUNITY_ORDER_SCOPES) keep.add(entry.key);
+  });
+
+  keys.forEach((key) => {
+    if (!keep.has(key)) delete next[key];
+  });
+  return next;
+}
+
+export function readCommunityOrderForScope(scopeKey) {
+  if (!scopeKey) return [];
+  const store = readCommunityOrderByScopeStore();
+  const entry = store[scopeKey];
+  if (Array.isArray(entry)) return sanitizeCommunityOrder(entry);
+  return sanitizeCommunityOrder(entry?.order);
+}
+
+export function saveCommunityOrderForScope(scopeKey, order) {
+  if (!scopeKey) return false;
+  const store = readCommunityOrderByScopeStore();
+  store[scopeKey] = {
+    order: sanitizeCommunityOrder(order),
+    updatedAt: new Date().toISOString(),
+  };
+  const pruned = pruneCommunityOrderByScopeStore(store, scopeKey);
+  return safeSetLocalStorage(COMMUNITY_ORDER_BY_SCOPE_KEY, JSON.stringify(pruned), {
+    keepScopeKeys: [scopeKey],
+  });
+}
+
+export function clearCommunityOrderForScope(scopeKey) {
+  if (!scopeKey) return false;
+  const store = readCommunityOrderByScopeStore();
+  if (!store[scopeKey]) return true;
+  const next = { ...store };
+  delete next[scopeKey];
+  return safeSetLocalStorage(COMMUNITY_ORDER_BY_SCOPE_KEY, JSON.stringify(next), {
+    keepScopeKeys: Object.keys(next).slice(0, MAX_COMMUNITY_ORDER_SCOPES),
+  });
+}
+
 const COMMUNITY_COLORS_KEY = 'deliveryV7::communityColors';
 
 export function readCommunityColorOverrides() {

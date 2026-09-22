@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { doCreateUserWithEmailAndPassword, doSignInWithGoogle } from '../../firebase/auth';
-import { collection, query, where, getDocs, updateDoc, arrayUnion, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 import { searchCommunities } from '../../services/communityService';
 import LoadingSpinner from '../LoadingSpinner';
@@ -113,22 +113,6 @@ const UserRegister = () => {
     return !snap.empty ? snap.docs[0] : null;
   };
 
-  // Add the new user's uid to the community doc (background).
-  const addUserToCommunityInBackground = async (communityName) => {
-    try {
-      const auth = getAuth();
-      const uid = auth.currentUser?.uid;
-      if (!uid) return;
-      const q = query(collection(db, 'communities'), where('name', '==', communityName.trim()));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        await Promise.all(snap.docs.map((d) => updateDoc(d.ref, { userIds: arrayUnion(uid) })));
-      }
-    } catch (err) {
-      console.error('Failed to add user to community (background):', err);
-    }
-  };
-
   // Validation functions
   const validateEmail = (value) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -233,9 +217,6 @@ const UserRegister = () => {
 
       // Navigate immediately for better UX
       navigate('/');
-
-      // Background task: add user to the community's member list
-      addUserToCommunityInBackground(communityName);
     } catch (error) {
       console.error('Registration failed:', error);
       setError(error.message || 'אירעה שגיאה בעת ההרשמה');
@@ -295,7 +276,6 @@ const UserRegister = () => {
       }
 
       navigate('/');
-      addUserToCommunityInBackground(communityName);
     } catch (error) {
       console.error('Failed to save community for Google user:', error);
       setError(error.message || 'אירעה שגיאה בעת שמירת הקהילה');

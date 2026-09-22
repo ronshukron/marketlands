@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Swal from 'sweetalert2';
-import { useCart } from '../../contexts/CartContext';
+import { useCartActions } from '../../contexts/CartContext';
 import { searchProducts as searchProductsByTerm } from '../../utils/productSearchUtils';
 import { collection, query, getDocs, doc, getDoc, where } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
@@ -32,7 +32,7 @@ import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromo
 import { usePickupSpot } from '../../contexts/PickupSpotContext';
 
 const PRODUCT_QUERY_CHUNK_SIZE = 10;
-const PRODUCT_QUERY_CONCURRENCY = 6;
+const PRODUCT_QUERY_CONCURRENCY = 3;
 const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'משתלה', 'אחר'];
 const hebrewPickupSpotCollator = new Intl.Collator('he');
 
@@ -65,20 +65,23 @@ const buildCandidateOrderQueries = (adjustedCurrentTime) => {
 };
 
 const fetchCandidateOrderDocs = async (adjustedCurrentTime) => {
-  try {
-    const snapshots = await Promise.all(
-      buildCandidateOrderQueries(adjustedCurrentTime).map((orderQuery) => getDocs(orderQuery))
-    );
-    const docsById = new Map();
-    snapshots.forEach((snapshot) => {
-      snapshot.docs.forEach((orderDoc) => docsById.set(orderDoc.id, orderDoc));
-    });
-    return Array.from(docsById.values());
-  } catch (error) {
-    console.warn('Optimized order queries failed; falling back to full Orders scan:', error);
-    const ordersSnapshot = await getDocs(query(collection(db, 'Orders')));
-    return ordersSnapshot.docs;
+  const snapshots = await Promise.allSettled(
+    buildCandidateOrderQueries(adjustedCurrentTime).map((orderQuery) => getDocs(orderQuery))
+  );
+  const docsById = new Map();
+  let anySucceeded = false;
+  snapshots.forEach((result) => {
+    if (result.status !== 'fulfilled') {
+      console.warn('Optimized order query failed:', result.reason);
+      return;
+    }
+    anySucceeded = true;
+    result.value.docs.forEach((orderDoc) => docsById.set(orderDoc.id, orderDoc));
+  });
+  if (!anySucceeded) {
+    throw snapshots[0]?.reason || new Error('Failed to load orders');
   }
+  return Array.from(docsById.values());
 };
 
 const calculateCategoryCounts = (products) => {
@@ -128,8 +131,8 @@ const buildCartItemFromProduct = (product) => {
 };
 
 const CategoryStore = () => {
-  const { addItem } = useCart();
-  const { pickupSpots } = usePickupSpots();
+  const { addItem } = useCartActions();
+  const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const { updatePickupSpot } = usePickupSpot();
   const { activePromotion, unlocked, openUnlockModal } = useCommunityWeeklyPromotion();
   const [products, setProducts] = useState([]);
@@ -410,8 +413,6 @@ const CategoryStore = () => {
 
     setLoading(true);
     setLoadError('');
-    setProducts([]);
-    setCategoryCounts({});
 
     try {
       const currentTime = new Date();
@@ -556,10 +557,25 @@ const CategoryStore = () => {
         return a.sortIndex - b.sortIndex;
       });
 
-      const publishProducts = () => {
+      let publishTimer = null;
+      let hasPublishedFirstBatch = false;
+      const commitProducts = () => {
+        publishTimer = null;
+        if (!isCurrentRequest()) return;
         const sortedProducts = [...allProducts].sort(sortCategoryStoreProducts);
         setProducts(sortedProducts);
         setCategoryCounts(calculateCategoryCounts(sortedProducts));
+      };
+      const publishProducts = ({ force = false } = {}) => {
+        if (force || !hasPublishedFirstBatch) {
+          hasPublishedFirstBatch = true;
+          if (publishTimer) clearTimeout(publishTimer);
+          commitProducts();
+          return;
+        }
+        if (!publishTimer) {
+          publishTimer = setTimeout(commitProducts, 500);
+        }
       };
 
       let nextJobIndex = 0;
@@ -648,7 +664,7 @@ const CategoryStore = () => {
       await Promise.all(Array.from({ length: workerCount }, () => runProductWorker()));
 
       if (isCurrentRequest()) {
-        publishProducts();
+        publishProducts({ force: true });
       }
       
     } catch (error) {
@@ -668,7 +684,10 @@ const CategoryStore = () => {
   }, []);
 
   useEffect(() => {
-    fetchCategorizedProducts();
+    const timer = setTimeout(() => {
+      fetchCategorizedProducts();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchCategorizedProducts]);
 
   // Calculate time remaining for a product, optionally for a specific pickup spot
@@ -1104,7 +1123,11 @@ const CategoryStore = () => {
                     );
                   })}
                   {filteredPickupSpots.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-gray-500 text-center">לא נמצאו תוצאות</div>
+                    <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                      {pickupSpots.length === 0
+                        ? (communitiesLoaded ? 'לא נמצאו קהילות' : 'טוען קהילות...')
+                        : 'לא נמצאו תוצאות'}
+                    </div>
                   )}
                 </div>
               </div>

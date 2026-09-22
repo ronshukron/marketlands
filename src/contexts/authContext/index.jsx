@@ -63,8 +63,9 @@ export function AuthProvider({ children }) {
         (provider) => provider.providerId === "google.com"
       );
       setIsGoogleUser(isGoogle);
-  
-      // Fetch user role from Firestore
+      setLoading(false);
+
+      // Fetch user role from Firestore after the store is already visible.
       try {
         let resolvedRole = 'user';
 
@@ -128,13 +129,14 @@ export function AuthProvider({ children }) {
     isGoogleUser,
     currentUser,
     userRole,
+    loading,
     signOut,
     setCurrentUser
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 }

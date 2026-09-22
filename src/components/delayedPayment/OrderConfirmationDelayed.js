@@ -10,7 +10,8 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
 import { useCart } from '../../contexts/CartContext';
 import usePickupSpots from '../../hooks/usePickupSpots';
-import { createDelayedPaymentCheckout, DELAYED_PAYMENT_GATEWAYS } from '../../services/delayedPaymentGatewayService';
+import { createDelayedPaymentCheckout } from '../../services/delayedPaymentGatewayService';
+import { buildGrowSuccessUrl, storeDelayedCustomerOrderId } from '../../utils/growReturnParams';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
 import { getReusableCartonConfig, isDelayedPaymentSpot } from '../../services/paymentConfigService';
@@ -1002,7 +1003,7 @@ const OrderConfirmationDelayed = () => {
                 userName,
                 userPhone,
                 userEmail,
-                successUrl: `${window.location.origin}/payment-success/`,
+                successUrl: buildGrowSuccessUrl(window.location.origin, customerOrderId),
                 cancelUrl: `${window.location.origin}/payment-cancel/`,
                 description: `תשלום מושהה (J5) עבור תוצרת חקלאית`,
                 customerOrderId,
@@ -1054,7 +1055,9 @@ const OrderConfirmationDelayed = () => {
             }
 
             console.log('paymentData', paymentData);
-    
+
+            storeDelayedCustomerOrderId(customerOrderId);
+
             const checkoutResult = await createDelayedPaymentCheckout(paymentData);
             const url = checkoutResult?.url;
 

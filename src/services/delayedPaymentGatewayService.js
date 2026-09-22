@@ -2,6 +2,7 @@ import axios from 'axios';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { functionsEndpoint } from '../utils/functionsClient';
+import { parseDelayedPaymentConfirmPayload } from '../utils/delayedPaymentConfirm';
 
 const CONFIG_DOC_PATH = 'settings/paymentConfig';
 const GATEWAY_OVERRIDE_KEY = 'delayedPaymentGatewayOverride';
@@ -70,6 +71,40 @@ export const getDelayedPaymentGateway = async () => {
   }
 
   return DEFAULT_GATEWAY;
+};
+
+export const confirmDelayedPayment = async ({ customerOrderId } = {}) => {
+  if (!customerOrderId) return { ok: false, skipped: true };
+  const endpoint = functionsEndpoint('confirmDelayedPayment');
+  try {
+    const { data } = await axios.post(
+      endpoint,
+      { customerOrderId },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000,
+      },
+    );
+    return {
+      ...parseDelayedPaymentConfirmPayload(data),
+      missingEndpoint: false,
+      status: 200,
+      raw: data,
+    };
+  } catch (error) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    if (status === 404) {
+      return { ok: false, missingEndpoint: true, status: 404, raw: null };
+    }
+    return {
+      ok: false,
+      missingEndpoint: false,
+      error: data?.error || error?.message || String(error),
+      status: status || null,
+      raw: data || null,
+    };
+  }
 };
 
 export const createDelayedPaymentCheckout = async (payload) => {

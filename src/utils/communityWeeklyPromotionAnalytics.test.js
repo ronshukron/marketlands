@@ -5,6 +5,7 @@ import {
 
 const promotion = {
   id: 'promo-1',
+  weekKey: '2026-09-13',
   targetCommunities: [
     { code: 'north', name: 'ניצנים' },
     { code: 'south', name: 'אור הנר' },
@@ -16,14 +17,50 @@ const promotion = {
   ],
 };
 
+const promoLine = (overrides = {}) => ({
+  productId: 'tomato',
+  productName: 'עגבניות',
+  quantity: 2,
+  estimatedLineTotal: 18,
+  communityWeeklyPromotionApplied: true,
+  communityWeeklyPromotionId: 'promo-1',
+  communityWeeklyPromotionCommunityCode: 'north',
+  communityWeeklyPromotionWeekKey: '2026-09-13',
+  ...overrides,
+});
+
+const delayedOrder = (overrides = {}) => ({
+  id: 'order-1',
+  userId: 'user-1',
+  paymentStatus: 'held',
+  delayedOrderStatus: 'pending_weighing',
+  source: 'customerOrdersDelayed',
+  community: 'ניצנים',
+  deliveryDate: '2026-09-16',
+  customerDetails: { phone: '0501111111', name: 'לקוח 1' },
+  orderBreakdown: {
+    biz: {
+      businessId: 'biz',
+      businessName: 'המשק',
+      items: [promoLine()],
+    },
+  },
+  ...overrides,
+});
+
 describe('community weekly promotion analytics', () => {
-  test('ignores abandoned and cancelled delayed orders', () => {
+  test('counts only delivery-summary payment states', () => {
     expect(isCountableWeeklyPromotionOrder({ delayedOrderStatus: 'abandoned' })).toBe(false);
     expect(isCountableWeeklyPromotionOrder({ paymentStatus: 'cancelled' })).toBe(false);
     expect(isCountableWeeklyPromotionOrder({
       paymentStatus: 'held',
       delayedOrderStatus: 'created_in_fe',
+    })).toBe(false);
+    expect(isCountableWeeklyPromotionOrder({
+      paymentStatus: 'held',
+      delayedOrderStatus: 'pending_weighing',
     })).toBe(true);
+    expect(isCountableWeeklyPromotionOrder({ paymentStatus: 'completed' })).toBe(true);
   });
 
   test('counts community unlocks and promotional order lines', () => {
@@ -34,48 +71,28 @@ describe('community weekly promotion analytics', () => {
         { communityCode: 'south', unlocked: false },
       ],
       orders: [
-        {
-          id: 'order-1',
-          userId: 'user-1',
-          delayedOrderStatus: 'created_in_fe',
-          orderBreakdown: {
-            biz: {
-              items: [{
-                productId: 'tomato',
-                productName: 'עגבניות',
-                quantity: 2,
-                estimatedLineTotal: 18,
-                communityWeeklyPromotionApplied: true,
-                communityWeeklyPromotionId: 'promo-1',
-                communityWeeklyPromotionCommunityCode: 'north',
-              }],
-            },
-          },
-        },
-        {
+        delayedOrder(),
+        delayedOrder({
           id: 'order-2',
           userId: 'user-1',
           delayedOrderStatus: 'abandoned',
-          items: [{
-            productId: 'tomato',
-            quantity: 9,
-            estimatedLineTotal: 81,
-            communityWeeklyPromotionApplied: true,
-            communityWeeklyPromotionId: 'promo-1',
-            communityWeeklyPromotionCommunityCode: 'north',
-          }],
-        },
-        {
+          items: [promoLine({ quantity: 9, estimatedLineTotal: 81 })],
+          orderBreakdown: undefined,
+        }),
+        delayedOrder({
           id: 'order-3',
           userId: 'user-2',
-          items: [{
+          paymentStatus: 'completed',
+          delayedOrderStatus: undefined,
+          source: 'customerOrders',
+          items: [promoLine({
             productId: 'cucumber',
             quantity: 1,
-            price: 7,
+            estimatedLineTotal: 7,
             communityWeeklyPromotionApplied: false,
-            communityWeeklyPromotionId: 'promo-1',
-          }],
-        },
+          })],
+          orderBreakdown: undefined,
+        }),
       ],
     });
 
@@ -108,6 +125,7 @@ describe('community weekly promotion analytics', () => {
         productId: 'tomato',
         productName: 'עגבניות',
         orders: 1,
+        customers: 1,
         units: 2,
         revenue: 18,
       }),
@@ -118,18 +136,12 @@ describe('community weekly promotion analytics', () => {
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,
       unlocks: [{ communityCode: 'north', unlocked: true }],
-      orders: [{
+      orders: [delayedOrder({
         id: 'order-other',
         userId: 'user-9',
-        items: [{
-          productId: 'tomato',
-          quantity: 3,
-          estimatedLineTotal: 27,
-          communityWeeklyPromotionApplied: true,
-          communityWeeklyPromotionId: 'promo-other',
-          communityWeeklyPromotionCommunityCode: 'north',
-        }],
-      }],
+        items: [promoLine({ communityWeeklyPromotionId: 'promo-other', quantity: 3, estimatedLineTotal: 27 })],
+        orderBreakdown: undefined,
+      })],
     });
 
     expect(stats.orders).toBe(0);
@@ -141,24 +153,9 @@ describe('community weekly promotion analytics', () => {
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,
       unlocks: [{ communityCode: 'north', unlocked: true }],
-      orders: [{
+      orders: [delayedOrder({
         id: 'order-weighed',
         userId: 'user-3',
-        delayedOrderStatus: 'pending_weighing',
-        orderBreakdown: {
-          biz: {
-            items: [{
-              lineId: 'line-tomato',
-              productId: 'tomato',
-              productName: 'עגבניות',
-              quantity: 2,
-              estimatedLineTotal: 18,
-              communityWeeklyPromotionApplied: true,
-              communityWeeklyPromotionId: 'promo-1',
-              communityWeeklyPromotionCommunityCode: 'north',
-            }],
-          },
-        },
         weighing: {
           finalInvoiceLines: [{
             lineId: 'line-tomato',
@@ -170,7 +167,7 @@ describe('community weekly promotion analytics', () => {
             communityWeeklyPromotionId: 'promo-1',
           }],
         },
-      }],
+      })],
     });
 
     expect(stats.revenue).toBe(18);
@@ -178,14 +175,13 @@ describe('community weekly promotion analytics', () => {
     expect(stats.communities[0].revenue).toBe(18);
   });
 
-  test('counts unlocked-community promo products from checkout lines even without the applied flag', () => {
+  test('does not count unlocked-community products that did not use the weekly price', () => {
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,
       unlocks: [{ communityCode: 'north', unlocked: true }],
-      orders: [{
+      orders: [delayedOrder({
         id: 'order-no-flag',
         userId: 'user-7',
-        community: 'ניצנים',
         orderBreakdown: {
           biz: {
             items: [{
@@ -197,100 +193,130 @@ describe('community weekly promotion analytics', () => {
             }],
           },
         },
-      }],
+      })],
     });
 
     expect(stats).toMatchObject({
-      orders: 1,
-      revenue: 18,
-      customers: 1,
+      orders: 0,
+      customers: 0,
+      revenue: 0,
     });
+    expect(stats.products).toEqual([]);
+  });
+
+  test('ignores grape lines the customer removed', () => {
+    const stats = buildCommunityWeeklyPromotionAnalytics({
+      promotion,
+      unlocks: [{ communityCode: 'north', unlocked: true }],
+      orders: [delayedOrder({
+        id: 'order-removed',
+        userId: 'user-8',
+        customerExcludedLineIds: { 'line-tomato': true },
+        orderBreakdown: {
+          biz: {
+            items: [promoLine({ lineId: 'line-tomato' })],
+          },
+        },
+      })],
+    });
+
+    expect(stats.orders).toBe(0);
+    expect(stats.customers).toBe(0);
   });
 
   test('counts a unit item with the chargeable kg total, not pieces times per-kg price', () => {
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,
       unlocks: [{ communityCode: 'north', unlocked: true }],
-      orders: [{
+      orders: [delayedOrder({
         id: 'order-unit',
         userId: 'user-4',
         orderBreakdown: {
           biz: {
-            items: [{
-              productId: 'tomato',
+            items: [promoLine({
               quantity: 3,
+              estimatedLineTotal: undefined,
               measurementType: 'unit',
               averageWeightKg: 0.2,
               effectivePrice: 10,
               price: 10,
-              communityWeeklyPromotionApplied: true,
-              communityWeeklyPromotionId: 'promo-1',
-              communityWeeklyPromotionCommunityCode: 'north',
-            }],
+            })],
           },
         },
-      }],
+      })],
     });
 
     expect(stats.revenue).toBe(6);
   });
 
   test('counts a duplicate delayed and regular order only once', () => {
-    const order = {
-      id: 'order-dup',
-      userId: 'user-5',
-      delayedOrderStatus: 'created_in_fe',
-      orderBreakdown: {
-        biz: {
-          items: [{
-            productId: 'tomato',
-            quantity: 1,
-            estimatedLineTotal: 9,
-            communityWeeklyPromotionApplied: true,
-            communityWeeklyPromotionId: 'promo-1',
-            communityWeeklyPromotionCommunityCode: 'north',
-          }],
-        },
-      },
+    const delayed = delayedOrder({
+      id: 'order-dup-delayed',
+      source: 'customerOrdersDelayed',
+    });
+    const regular = {
+      ...delayed,
+      id: 'order-dup-regular',
+      source: 'customerOrders',
+      paymentStatus: 'completed',
+      delayedOrderStatus: undefined,
     };
 
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,
       unlocks: [{ communityCode: 'north', unlocked: true }],
-      orders: [order, { ...order, source: 'customerOrders' }],
+      orders: [delayed, regular],
     });
 
     expect(stats.orders).toBe(1);
-    expect(stats.revenue).toBe(9);
+    expect(stats.customers).toBe(1);
+    expect(stats.products[0]).toMatchObject({ orders: 1, customers: 1 });
+    expect(stats.revenue).toBe(18);
   });
 
   test('attributes revenue to the target community when the order only has a community name', () => {
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,
       unlocks: [{ communityCode: 'north', unlocked: true }],
-      orders: [{
+      orders: [delayedOrder({
         id: 'order-named',
         userId: 'user-6',
         community: 'ניצנים',
         orderBreakdown: {
           biz: {
-            items: [{
-              productId: 'tomato',
-              quantity: 1,
-              estimatedLineTotal: 9,
-              communityWeeklyPromotionApplied: true,
-              communityWeeklyPromotionId: 'promo-1',
-            }],
+            items: [promoLine({ communityWeeklyPromotionCommunityCode: undefined })],
           },
         },
-      }],
+      })],
     });
 
     expect(stats.communities[0]).toMatchObject({
       communityCode: 'north',
       communityName: 'ניצנים',
-      revenue: 9,
+      revenue: 18,
       orders: 1,
     });
+  });
+
+  test('does not count an applied line from another week when the promotion id is missing', () => {
+    const stats = buildCommunityWeeklyPromotionAnalytics({
+      promotion,
+      unlocks: [{ communityCode: 'north', unlocked: true }],
+      orders: [delayedOrder({
+        id: 'order-old-week',
+        userId: 'user-10',
+        deliveryDate: '2026-09-02',
+        orderBreakdown: {
+          biz: {
+            items: [promoLine({
+              communityWeeklyPromotionId: undefined,
+              communityWeeklyPromotionWeekKey: '2026-08-30',
+            })],
+          },
+        },
+      })],
+    });
+
+    expect(stats.orders).toBe(0);
   });
 });

@@ -44,7 +44,8 @@
     "eject": "react-scripts eject",
     "dist": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "shortcut:v7": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1"
   },
   "eslintConfig": {
     "extends": [

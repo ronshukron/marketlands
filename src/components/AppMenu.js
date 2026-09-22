@@ -1,13 +1,21 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { useLocation } from 'react-router-dom';
 import { isMarketplacePath } from '../utils/marketplaceRoutes';
 import Menu from './Menu';
-import MarketplaceMenu from './marketplace/MarketplaceMenu';
+
+const MarketplaceMenu = lazy(() => import('./marketplace/MarketplaceMenu'));
 
 /** Renders the site menu or the dedicated marketplace menu based on the current URL. */
 const AppMenu = () => {
   const { pathname } = useLocation();
-  return isMarketplacePath(pathname) ? <MarketplaceMenu /> : <Menu />;
+  if (isMarketplacePath(pathname)) {
+    return (
+      <Suspense fallback={null}>
+        <MarketplaceMenu />
+      </Suspense>
+    );
+  }
+  return <Menu />;
 };
 
 export default AppMenu;

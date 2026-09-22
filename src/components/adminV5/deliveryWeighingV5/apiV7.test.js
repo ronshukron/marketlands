@@ -15,16 +15,21 @@ jest.mock('firebase/firestore', () => ({
 }));
 jest.mock('../../../firebase/firebase', () => ({ db: {} }));
 jest.mock('../../../utils/functionsClient', () => ({
+  __esModule: true,
   functionsEndpoint: jest.fn((name) => `https://example.test/${name}`),
 }));
 
 import { getDoc, runTransaction, updateDoc } from 'firebase/firestore';
+import axios from 'axios';
+import { getAuth } from 'firebase/auth';
+import { functionsEndpoint } from '../../../utils/functionsClient';
 import {
   buildCommunityDiscountFingerprint,
   buildSettlementPayload,
 } from './v7/orderDraftUtils';
 import {
   prepareCommunityDiscountForSettlementV7,
+  recoverDelayedPaymentFromGrowV7,
   updateDelayedOrderLineV7,
 } from './apiV7';
 
@@ -391,5 +396,55 @@ describe('updateDelayedOrderLineV7', () => {
     });
     expect(updateDoc.mock.calls[0][1].communityDiscountOriginalGrandTotal).toBe(120);
     expect(updateDoc.mock.calls[0][1].grandTotal).toBe(108);
+  });
+});
+
+describe('recoverDelayedPaymentFromGrowV7', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    functionsEndpoint.mockImplementation((name) => `https://example.test/${name}`);
+  });
+
+  test('sends Bearer token and returns parsed state without process ids', async () => {
+    getAuth.mockReturnValue({
+      currentUser: {
+        getIdToken: jest.fn().mockResolvedValue('admin-token'),
+      },
+    });
+    axios.post.mockResolvedValue({
+      data: {
+        ok: true,
+        state: 'held',
+        recovered: true,
+        customerOrderId: 'ord-1',
+        paymentStatus: 'held',
+        delayedOrderStatus: 'pending_weighing',
+      },
+    });
+
+    const result = await recoverDelayedPaymentFromGrowV7({
+      customerOrderId: 'ord-1',
+      processId: 'should-not-send',
+      processToken: 'should-not-send',
+    });
+
+    expect(axios.post).toHaveBeenCalledWith(
+      'https://example.test/recoverDelayedPaymentFromGrow',
+      { customerOrderId: 'ord-1' },
+      expect.objectContaining({
+        headers: {
+          Authorization: 'Bearer admin-token',
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      state: 'held',
+      recovered: true,
+      customerOrderId: 'ord-1',
+      status: 200,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/processId|processToken|transactionToken/);
   });
 });

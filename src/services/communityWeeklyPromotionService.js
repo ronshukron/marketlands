@@ -406,7 +406,10 @@ export const getActivePromotionForCommunity = async (
   }
 
   try {
-    return pick(await listPromotions({ maxResults: 250 }));
+    return pick(await listPromotions({
+      status: COMMUNITY_WEEKLY_PROMOTION_STATUSES.ACTIVE,
+      maxResults: 25,
+    }));
   } catch {
     return null;
   }

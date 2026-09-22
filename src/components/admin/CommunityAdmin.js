@@ -11,10 +11,20 @@ import {
   cleanupDuplicateCommunities,
   deleteCommunity,
   getDeterministicCommunityColor,
+  loadPickupSpots,
   migrateNitzanimNames,
   saveCommunity,
+  saveCommunityOrdering,
   seedCommunitiesFromStatic,
 } from '../../services/pickupSpotsService';
+import {
+  assignCommunityDeliveryGroup,
+  buildCommunityOrderingEntries,
+  buildDeliveryBlocks,
+  moveCommunityInGroup,
+  moveDeliveryBlock,
+  renameDeliveryGroup,
+} from '../../utils/communityDeliveryOrder';
 import {
   buildAutoDeliveryNoteFromSchedule,
   buildCommunityBroadcastMessage,
@@ -48,6 +58,7 @@ const emptyForm = {
   whatsappGroupLink: '',
   storeLink: '',
   broadcastDeliveryNote: '',
+  deliveryGroup: '',
 };
 
 const copyText = async (text) => {
@@ -74,6 +85,14 @@ const CommunityAdmin = () => {
   const [deliverySchedules, setDeliverySchedules] = useState({});
   const [busy, setBusy] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
+  const [orderDraft, setOrderDraft] = useState([]);
+  const [orderDirty, setOrderDirty] = useState(false);
+
+  useEffect(() => {
+    loadPickupSpots({ force: true, allowCollectionFallback: true }).catch((error) => {
+      console.error('Failed to load communities for admin:', error);
+    });
+  }, []);
 
   useEffect(() => {
     cleanupDuplicateCommunities().catch((error) => {
@@ -100,6 +119,14 @@ const CommunityAdmin = () => {
   }, []);
 
   useEffect(() => {
+    if (orderDirty || !loaded) return;
+    setOrderDraft(pickupSpots.map((name) => ({
+      name,
+      deliveryGroup: pickupSpotsData[name]?.deliveryGroup || '',
+    })));
+  }, [loaded, pickupSpots, pickupSpotsData, orderDirty]);
+
+  useEffect(() => {
     if (!editingName) return;
     const data = pickupSpotsData[editingName];
     if (!data) return;
@@ -115,6 +142,7 @@ const CommunityAdmin = () => {
       whatsappGroupLink: data.whatsappGroupLink || '',
       storeLink: data.storeLink || '',
       broadcastDeliveryNote: data.broadcastDeliveryNote || '',
+      deliveryGroup: data.deliveryGroup || '',
     });
     setPreviewCommunity(editingName);
   }, [editingName, pickupSpotsData]);
@@ -287,6 +315,70 @@ const CommunityAdmin = () => {
     }));
   };
 
+  const existingDeliveryGroups = useMemo(
+    () => [...new Set(orderDraft.map((community) => community.deliveryGroup).filter(Boolean))],
+    [orderDraft],
+  );
+  const orderBlocks = useMemo(() => buildDeliveryBlocks(orderDraft), [orderDraft]);
+
+  const markOrderDirty = (next) => {
+    setOrderDraft(next);
+    setOrderDirty(true);
+  };
+
+  const handleMoveCommunity = (name, direction) => {
+    markOrderDirty(moveCommunityInGroup(orderDraft, name, direction));
+  };
+
+  const handleMoveBlock = (blockIndex, direction) => {
+    markOrderDirty(moveDeliveryBlock(orderDraft, blockIndex, direction));
+  };
+
+  const handleAssignGroup = (name, group) => {
+    markOrderDirty(assignCommunityDeliveryGroup(orderDraft, name, group));
+  };
+
+  const handleCreateGroup = async (name) => {
+    const result = await Swal.fire({
+      title: 'שם קבוצת משלוח',
+      input: 'text',
+      inputPlaceholder: 'למשל: משלוח צפון',
+      showCancelButton: true,
+      confirmButtonText: 'צור',
+      cancelButtonText: 'ביטול',
+    });
+    const group = String(result.value || '').trim();
+    if (!result.isConfirmed || !group) return;
+    handleAssignGroup(name, group);
+  };
+
+  const handleRenameGroup = async (group) => {
+    const result = await Swal.fire({
+      title: 'שנה שם קבוצה',
+      input: 'text',
+      inputValue: group,
+      showCancelButton: true,
+      confirmButtonText: 'שמור',
+      cancelButtonText: 'ביטול',
+    });
+    const nextName = String(result.value || '').trim();
+    if (!result.isConfirmed || !nextName) return;
+    markOrderDirty(renameDeliveryGroup(orderDraft, group, nextName));
+  };
+
+  const handleSaveOrdering = async () => {
+    setBusy(true);
+    try {
+      await saveCommunityOrdering(buildCommunityOrderingEntries(orderDraft));
+      setOrderDirty(false);
+      Swal.fire('נשמר', 'סדר ברירת המחדל וקבוצות המשלוח נשמרו', 'success');
+    } catch (error) {
+      Swal.fire('שגיאה', error.message || 'שמירת הסדר נכשלה', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-6" dir="rtl">
       <h1 className="text-3xl font-bold mb-2">ניהול יישובים / נקודות איסוף</h1>
@@ -372,6 +464,144 @@ const CommunityAdmin = () => {
           />
           <p className="text-xs text-gray-500 mt-1">ברירת המחדל לכל קהילה נקבעת אוטומטית לפי יום המשלוח בשבוע הנוכחי/הקרוב מלוח המשלוחים.</p>
         </label>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-5 mb-6 space-y-4 border-t-4 border-indigo-600">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">סדר ברירת מחדל ל-V7 / קבוצות משלוח</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              זה הסדר שהעובד רואה כשפותחים את V7. אפשר לקבץ יישובים לאותו משלוח. העובד עדיין יכול לשנות סדר מקומית ליום הנוכחי.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveOrdering}
+            disabled={busy || !orderDirty}
+            className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+          >
+            שמור סדר
+          </button>
+        </div>
+
+        <div className="space-y-3 max-h-[36rem] overflow-y-auto">
+          {orderBlocks.map((block, blockIndex) => (
+            <div
+              key={block.group || block.communities.map((community) => community.name).join('|')}
+              className={`rounded-lg border ${block.group ? 'border-indigo-200 bg-indigo-50/60' : 'border-gray-200 bg-gray-50'}`}
+            >
+              {block.group ? (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-indigo-100">
+                  <div className="font-bold text-indigo-900 truncate">🚚 {block.group}</div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleMoveBlock(blockIndex, -1)}
+                      disabled={blockIndex === 0}
+                      className="w-7 h-7 rounded bg-white border text-gray-600 disabled:opacity-30"
+                      title="הזז קבוצה למעלה"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveBlock(blockIndex, 1)}
+                      disabled={blockIndex === orderBlocks.length - 1}
+                      className="w-7 h-7 rounded bg-white border text-gray-600 disabled:opacity-30"
+                      title="הזז קבוצה למטה"
+                    >
+                      ▼
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRenameGroup(block.group)}
+                      className="px-2 py-1 text-xs bg-white border rounded text-indigo-700"
+                    >
+                      שנה שם
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div className="divide-y">
+                {block.communities.map((community, communityIndex) => (
+                  <div key={community.name} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                    <div className="flex items-center gap-1">
+                      {block.group ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveCommunity(community.name, -1)}
+                            disabled={communityIndex === 0}
+                            className="w-7 h-7 rounded bg-white border text-gray-600 disabled:opacity-30"
+                            title="הזז בתוך הקבוצה"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveCommunity(community.name, 1)}
+                            disabled={communityIndex === block.communities.length - 1}
+                            className="w-7 h-7 rounded bg-white border text-gray-600 disabled:opacity-30"
+                            title="הזז בתוך הקבוצה"
+                          >
+                            ▼
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveBlock(blockIndex, -1)}
+                            disabled={blockIndex === 0}
+                            className="w-7 h-7 rounded bg-white border text-gray-600 disabled:opacity-30"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveBlock(blockIndex, 1)}
+                            disabled={blockIndex === orderBlocks.length - 1}
+                            className="w-7 h-7 rounded bg-white border text-gray-600 disabled:opacity-30"
+                          >
+                            ▼
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <span
+                      className="w-4 h-4 rounded-full shrink-0"
+                      style={{ backgroundColor: pickupSpotsData[community.name]?.color || getDeterministicCommunityColor(community.name) }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">{community.name}</div>
+                      <div className="text-xs text-gray-500">{pickupSpotsData[community.name]?.region || 'אחר'}</div>
+                    </div>
+                    <select
+                      value={community.deliveryGroup || ''}
+                      onChange={(event) => {
+                        if (event.target.value === '__new__') {
+                          handleCreateGroup(community.name);
+                          return;
+                        }
+                        handleAssignGroup(community.name, event.target.value);
+                      }}
+                      className="border rounded px-2 py-1 text-sm bg-white min-w-[10rem]"
+                    >
+                      <option value="">ללא קבוצה</option>
+                      {existingDeliveryGroups.map((group) => (
+                        <option key={group} value={group}>{group}</option>
+                      ))}
+                      <option value="__new__">+ קבוצה חדשה</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {orderDraft.length === 0 && (
+            <div className="text-sm text-gray-500">אין יישובים פעילים להצגה.</div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">

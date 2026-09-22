@@ -109,6 +109,42 @@ describe('settleAndChargeOrderV7', () => {
     expect(deps.clearOrderDraft).not.toHaveBeenCalled();
   });
 
+  test('409 missing_grow_hold does not mark the order completed', async () => {
+    const missingHoldError = Object.assign(new Error('Request failed with status code 409'), {
+      response: {
+        status: 409,
+        data: {
+          status: 0,
+          err: {
+            message: 'חסר אישור Grow להזמנה זו',
+            code: 'missing_grow_hold',
+            state: 'abandoned',
+          },
+          error: {
+            code: 'missing_grow_hold',
+            message: 'חסר אישור Grow להזמנה זו',
+            state: 'abandoned',
+          },
+        },
+      },
+    });
+    const deps = buildDeps({
+      handleSuspendedPayment: jest.fn().mockRejectedValue(missingHoldError),
+    });
+
+    await expect(settleAndChargeOrderV7({
+      order,
+      items,
+      draft,
+      session,
+      weekKey: '2026-08-09',
+      ...deps,
+    })).rejects.toBe(missingHoldError);
+
+    expect(deps.clearOrderDraft).not.toHaveBeenCalled();
+    expect(deps.handleSuspendedPayment).toHaveBeenCalledTimes(1);
+  });
+
   test('still returns success if clearing the draft fails after payment', async () => {
     const deps = buildDeps({
       clearOrderDraft: jest.fn().mockRejectedValue(new Error('draft clear failed')),

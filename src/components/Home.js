@@ -1,29 +1,14 @@
-// src/components/Home.js
-
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../contexts/authContext';
-import { usePickupSpot } from '../contexts/PickupSpotContext';
-import { pickupSpots } from '../data/pickupSpots';
+import React, { useEffect, Suspense, lazy } from 'react';
 import './Home.css';
-import OngoingOrders from './OngoingOrders';
 import CategoryStore from './category-store/CategoryStore';
-import MarketplaceHome from './marketplace/MarketplaceHome';
 import ModeToggle from './shared/ModeToggle';
 import { useSaleMode } from '../contexts/SaleModeContext';
+import heroImage from '../images/Field.jpg';
 
-// Replace these images with your own and ensure they are imported correctly
-import logo from '../images/Field.jpg'; // Use your actual logo image
-import heroImage from '../images/Field.jpg'; // Use your actual hero image
-import featureImage1 from '../images/orchardhillsrollingoverhorizon.jpg';
-import featureImage2 from '../images/rolledhaybalesonfarmland.jpg';
-import featureImage3 from '../images/sunlightdropedbelowhorizonbehindmountains.jpg';
-import featureImage4 from '../images/freshlybaledfield.jpg';
+const MarketplaceHome = lazy(() => import('./marketplace/MarketplaceHome'));
 
 const Home = () => {
-  const { userLoggedIn } = useAuth();
   const { saleMode, setSaleMode } = useSaleMode();
-  console.log("User logged in status:", userLoggedIn); // Debug log
 
   // Always reset to 'weekly' mode when Home component mounts
   useEffect(() => {
@@ -52,23 +37,6 @@ const Home = () => {
             <div className="mt-6 flex flex-col items-center gap-4">
               <ModeToggle />
             </div>
-            {/* Improved buttons */}
-            {/* {!userLoggedIn && (
-              <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
-                <Link
-                  to="/login"
-                  className="bg-white text-blue-700 hover:bg-blue-50 px-8 py-3 rounded-lg font-medium shadow-md transition-all duration-200 transform hover:scale-105"
-                >
-                  התחברות
-                </Link>
-                <Link
-                  to="/user-register"
-                  className="bg-transparent text-white hover:bg-blue-600 border-2 border-white px-8 py-3 rounded-lg font-medium shadow-md transition-all duration-200 transform hover:scale-105"
-                >
-                  הרשמה
-                </Link>
-              </div>
-            )} */}
           </div>
         </div>
         
@@ -88,19 +56,12 @@ const Home = () => {
         </div>
       </div>
 
-      {/* Ongoing Orders Section with improved styling */}
       <div className="bg-gray-50 py-8" id="store-section">
         <div className="w-full px-2 sm:px-4">
-          <div className="mb-8 text-center">
-            {/* <h2 className="text-2xl md:text-3xl font-bold text-gray-900">
-              דפי מכירה פעילים
-            </h2>
-            <p className="mt-2 text-gray-600">
-              בחרו מתוך מגוון דפי המכירה הפעילים כעת
-            </p> */}
-          </div>
           {saleMode === 'business' ? (
-            <MarketplaceHome hideMainStore />
+            <Suspense fallback={<div className="p-8 text-center text-gray-500" dir="rtl">טוען...</div>}>
+              <MarketplaceHome hideMainStore />
+            </Suspense>
           ) : (
             <CategoryStore />
           )}
@@ -109,40 +70,5 @@ const Home = () => {
     </div>
   );
 };
-
-// Features data
-const features = [
-  {
-    title: 'דפי רכישה',
-    description: 'צרו דפי מכירה מרשימים עם תמונות, תיאורים ומחירים. מותאם למובייל ונוח לשימוש.',
-    image: featureImage1
-  },
-  {
-    title: 'ניהול הזמנות',
-    description: 'עקבו אחר הזמנות בזמן אמת, נהלו מלאי וקבלו סטטיסטיקות מפורטות על המכירות שלכם.',
-    image: featureImage2
-  },
-  {
-    title: 'תשלומים מאובטחים',
-    description: 'קבלו תשלומים באמצעות כרטיסי אשראי, ביט ופייבוקס בצורה מאובטחת ופשוטה.',
-    image: featureImage4
-  }
-];
-
-// How it works steps
-const steps = [
-  {
-    title: 'הרשמה פשוטה',
-    description: 'הירשמו למערכת בקלות ופתחו את החנות שלכם תוך דקות.'
-  },
-  {
-    title: 'העלאת מוצרים',
-    description: 'הוסיפו את המוצרים שלכם עם תמונות ותיאורים.'
-  },
-  {
-    title: 'התחילו למכור',
-    description: 'שתפו את דף המכירה שלכם והתחילו לקבל הזמנות.'
-  }
-];
 
 export default Home;

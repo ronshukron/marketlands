@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
+import React, { createContext, useState, useContext, useMemo, useEffect, useCallback } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
@@ -12,10 +12,20 @@ import CommunityWeeklyPromotionContext from './CommunityWeeklyPromotionContext';
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
 const CartContext = createContext();
+const CartActionsContext = createContext();
 
 // Custom hook to easily access the CartContext values in consuming components.
 // It simplifies the usage from `useContext(CartContext)` to just `useCart()`.
 export const useCart = () => useContext(CartContext);
+export const useCartActions = () => useContext(CartActionsContext);
+
+const getCartLineKey = (item = {}) => [
+  item.orderId || '',
+  item.id || '',
+  item.selectedOption || 'default',
+  item.basketInstanceId || '',
+  item.isBasketAdjustment ? 'basket-adjustment' : 'item',
+].join('|');
 
 // CartProvider component wraps parts of the application that need access to cart state.
 // It manages the cart's state and provides it down the component tree via CartContext.
@@ -173,14 +183,6 @@ export const CartProvider = ({ children }) => {
     }
   }, [orderInfoMap, hasLoadedFromStorage]);
 
-  const getCartLineKey = (item = {}) => [
-    item.orderId || '',
-    item.id || '',
-    item.selectedOption || 'default',
-    item.basketInstanceId || '',
-    item.isBasketAdjustment ? 'basket-adjustment' : 'item',
-  ].join('|');
-
   /**
    * Adds an item to the cart.
    * Ensures each added item instance is unique using a generated uid.
@@ -191,7 +193,7 @@ export const CartProvider = ({ children }) => {
    * @param {number} minimumOrderAmount - The minimum amount required for the order.
    * @param {number} [minimumOrderItemCount=0] - Minimum eligible unit/package count.
    */
-  const addItem = (item, orderId, businessId, minimumOrderAmount, minimumOrderItemCount = 0) => {
+  const addItem = useCallback((item, orderId, businessId, minimumOrderAmount, minimumOrderItemCount = 0) => {
     setCartItems(prevItems => {
       const incomingKey = getCartLineKey({ ...item, orderId });
       // Check if item already exists in cart
@@ -239,7 +241,7 @@ export const CartProvider = ({ children }) => {
       // Return the updated list of cart items.
       return applyCartPricing([...prevItems, newItemWithDetails]);
     });
-  };
+  }, []);
 
   /**
    * Removes an item from the cart based on its unique identifier (uid).
@@ -490,8 +492,13 @@ export const CartProvider = ({ children }) => {
     mergeCart,
     applyCommercialRefresh,
   };
+  const actionsValue = useMemo(() => ({ addItem }), [addItem]);
 
   // Render the CartContext.Provider, passing the 'value' object down
   // to all descendant components wrapped by CartProvider.
-  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
+  return (
+    <CartActionsContext.Provider value={actionsValue}>
+      <CartContext.Provider value={value}>{children}</CartContext.Provider>
+    </CartActionsContext.Provider>
+  );
 }; 

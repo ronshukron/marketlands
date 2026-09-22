@@ -548,11 +548,31 @@ export const calculateCommunityDiscount = async (
   communityName,
   deliveryWeekKey = getOffsetWeekKey(0),
 ) => {
-  const [config, orders] = await Promise.all([getDiscountConfig(), fetchAllOrders()]);
+  const config = await getDiscountConfig();
+  let progress = { total: 0, orderCount: 0 };
+  try {
+    const snap = await getDoc(doc(
+      db,
+      PROGRESS_COLLECTION,
+      getCommunityDiscountProgressDocId(communityName, deliveryWeekKey),
+    ));
+    if (snap.exists()) {
+      const data = snap.data() || {};
+      progress = {
+        total: Number(data.total) || 0,
+        orderCount: Number(data.orderCount) || 0,
+      };
+    }
+  } catch (error) {
+    if (!isPermissionDenied(error)) {
+      console.warn('Community discount is using config only:', error?.message || error);
+    }
+  }
   return calculateCommunityDiscountFromOrders({
     communityName,
     deliveryWeekKey,
-    orders,
+    weeklyTotal: progress.total,
+    orderCount: progress.orderCount,
     config,
   });
 };
@@ -575,6 +595,7 @@ export const subscribeDisplayDiscountInfo = ({
   communityName,
   deliveryWeekKey = getOffsetWeekKey(0),
   listenToProgress = true,
+  preferLiveOrders = false,
   onValue,
   onError,
 }) => {
@@ -630,25 +651,27 @@ export const subscribeDisplayDiscountInfo = ({
     },
   );
 
-  void fetchOrdersForDeliveryWeek(deliveryWeekKey)
-    .then((orders) => {
-      if (cancelled) return;
-      const cohort = aggregateCommunityDeliveryWeek({
-        orders,
-        communityName,
-        deliveryWeekKey,
+  if (preferLiveOrders) {
+    void fetchOrdersForDeliveryWeek(deliveryWeekKey)
+      .then((orders) => {
+        if (cancelled) return;
+        const cohort = aggregateCommunityDeliveryWeek({
+          orders,
+          communityName,
+          deliveryWeekKey,
+        });
+        useLiveOrders = true;
+        progress = {
+          total: cohort.total,
+          orderCount: cohort.orderCount,
+        };
+        emit();
+      })
+      .catch((error) => {
+        if (cancelled || isPermissionDenied(error)) return;
+        console.warn('Community discount is using stored progress:', error?.message || error);
       });
-      useLiveOrders = true;
-      progress = {
-        total: cohort.total,
-        orderCount: cohort.orderCount,
-      };
-      emit();
-    })
-    .catch((error) => {
-      if (cancelled || isPermissionDenied(error)) return;
-      console.warn('Community discount is using stored progress:', error?.message || error);
-    });
+  }
 
   return () => {
     cancelled = true;

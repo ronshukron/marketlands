@@ -137,7 +137,7 @@ const CommunityWeeklyPromotionAnalytics = ({ promotion = null, promotions = [], 
             {promotion ? `ניתוח: ${promotion.title || 'מבצע שבועי'}` : 'ניתוח מבצעים שבועיים'}
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            פתיחות קהילה מהשיתוף, והזמנות שבהן הופעל המחיר השבועי.
+            פתיחות קהילה מהשיתוף, והזמנות פעילות שבהן הופעל המחיר השבועי — אותן הזמנות שנכנסות לסיכום המשלוחים.
           </p>
         </div>
         {onBack && (
@@ -169,9 +169,9 @@ const CommunityWeeklyPromotionAnalytics = ({ promotion = null, promotions = [], 
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Metric label="פתיחות קהילה" value={formatNumber(stats.unlocks)} hint={unlockHint} />
-            <Metric label="הזמנות" value={formatNumber(stats.orders)} hint="הזמנות עם מוצר במחיר השבועי" />
+            <Metric label="הזמנות" value={formatNumber(stats.orders)} hint="הזמנות פעילות עם מחיר שבועי, בלי כפילויות" />
             <Metric label="הכנסות" value={formatCurrency(stats.revenue)} hint="סכום הערכת ההזמנה לפני שקילה" />
-            <Metric label="לקוחות" value={formatNumber(stats.customers)} />
+            <Metric label="לקוחות" value={formatNumber(stats.customers)} hint="אנשים שונים שהזמינו במחיר השבועי" />
           </div>
 
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
@@ -194,6 +194,7 @@ const CommunityWeeklyPromotionAnalytics = ({ promotion = null, promotions = [], 
                       <th className="px-4 py-3 text-right font-semibold">עסק</th>
                       <th className="px-4 py-3 text-right font-semibold">יחידות</th>
                       <th className="px-4 py-3 text-right font-semibold">הזמנות</th>
+                      <th className="px-4 py-3 text-right font-semibold">לקוחות</th>
                       <th className="px-4 py-3 text-right font-semibold">הכנסות</th>
                     </tr>
                   </thead>
@@ -208,6 +209,7 @@ const CommunityWeeklyPromotionAnalytics = ({ promotion = null, promotions = [], 
                         </td>
                         <td className="px-4 py-3 text-gray-700" dir="ltr">{formatNumber(product.units ?? product.quantity)}</td>
                         <td className="px-4 py-3 text-gray-700" dir="ltr">{formatNumber(product.orders ?? product.orderCount)}</td>
+                        <td className="px-4 py-3 text-gray-700" dir="ltr">{formatNumber(product.customers ?? product.customerCount)}</td>
                         <td className="px-4 py-3 text-gray-700" dir="ltr">{formatCurrency(product.revenue ?? product.salesTotal)}</td>
                       </tr>
                     ))}

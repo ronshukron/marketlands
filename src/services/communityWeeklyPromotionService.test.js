@@ -323,7 +323,8 @@ describe('community weekly promotion service', () => {
         id: 'order-1',
         data: () => ({
           userId: 'user-1',
-          delayedOrderStatus: 'created_in_fe',
+          paymentStatus: 'held',
+          delayedOrderStatus: 'pending_weighing',
           items: [{
             productId: 'product-1',
             productName: 'Tomatoes',

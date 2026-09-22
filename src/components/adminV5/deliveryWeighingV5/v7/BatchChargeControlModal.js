@@ -31,6 +31,7 @@ export default function BatchChargeControlModal({
   confirmDisabled = false,
   onConfirm,
   onClose,
+  getOpenRefundsForOrder,
 }) {
   const [confirmCountdown, setConfirmCountdown] = React.useState(0);
   const selectedKey = selectedCommunityNames.slice().sort().join('|');
@@ -59,6 +60,9 @@ export default function BatchChargeControlModal({
     ? excludedOrderIds
     : new Set([...(excludedOrderIds || [])].map(String));
   const confirmLocked = confirmCountdown > 0 || confirmDisabled || readyCount <= 0;
+  const refundOrderCount = plans.reduce((count, plan) => (
+    count + (plan.ready || []).filter((entry) => (getOpenRefundsForOrder?.(entry.order) || []).length > 0).length
+  ), 0);
   const confirmSeconds = Math.ceil(confirmCountdown / 1000);
 
   return (
@@ -147,6 +151,11 @@ export default function BatchChargeControlModal({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {refundOrderCount > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900">
+              ⚠ {t.refundChargeWarning} ({refundOrderCount}) — {t.refundChargeCheckAdmin}
+            </div>
+          )}
           {plans.length === 0 && (
             <div className="text-sm text-gray-500 text-center py-8">{t.batchChargePickCommunities}</div>
           )}
@@ -187,6 +196,7 @@ export default function BatchChargeControlModal({
                     const orderId = entry.order.id;
                     const included = !excludedSet.has(orderId);
                     const preview = orderPreviews[orderId];
+                    const refunds = getOpenRefundsForOrder?.(entry.order) || [];
                     return (
                       <label
                         key={orderId}
@@ -209,6 +219,11 @@ export default function BatchChargeControlModal({
                                 : t.stWeighed)
                               : t.batchChargeExcludedBadge}
                           </div>
+                          {refunds.length > 0 && (
+                            <div className="mt-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-0.5 inline-block">
+                              ⚠ {t.refundChargeWarning} ({refunds.length})
+                            </div>
+                          )}
                         </div>
                       </label>
                     );

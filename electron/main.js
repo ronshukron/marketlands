@@ -12,6 +12,34 @@ let printerService = null;
 // Determine if we're in development mode
 const isDev = !app.isPackaged;
 
+function getRouteFromArgv(argv = []) {
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = String(argv[i] || '');
+    if (arg === '--route' && argv[i + 1]) {
+      const value = String(argv[i + 1]);
+      return expandStartRoute(value.startsWith('/') ? value : null);
+    }
+    if (arg.startsWith('--route=')) {
+      const value = arg.slice('--route='.length);
+      return expandStartRoute(value.startsWith('/') ? value : null);
+    }
+  }
+  return null;
+}
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function expandStartRoute(route) {
+  if (!route || !route.startsWith('/')) return route;
+  if (!route.includes('autoload=today') || /[?&]date=/.test(route)) return route;
+  return `${route}${route.includes('?') ? '&' : '?'}date=${localDateKey()}`;
+}
+
 function createWindow() {
   // Create the browser window
   mainWindow = new BrowserWindow({
@@ -28,15 +56,23 @@ function createWindow() {
     show: false, // Don't show until ready
   });
 
+  const startRoute = getRouteFromArgv(process.argv);
+
   // Load the app
   if (isDev) {
     // In development, load from React dev server
-    mainWindow.loadURL('http://localhost:3000');
-    // Open DevTools in development
-    mainWindow.webContents.openDevTools();
+    mainWindow.loadURL(`http://localhost:3000${startRoute || ''}`);
+    if (!startRoute) {
+      mainWindow.webContents.openDevTools();
+    }
   } else {
     // In production, load from built files
     mainWindow.loadFile(path.join(__dirname, '../build/index.html'));
+    if (startRoute) {
+      mainWindow.webContents.once('did-finish-load', () => {
+        navigateTo(startRoute);
+      });
+    }
   }
 
   // Show window when ready to avoid visual flash
@@ -67,11 +103,12 @@ function createWindow() {
 // Helper function to navigate to a route
 function navigateTo(route) {
   if (mainWindow) {
+    const resolved = expandStartRoute(route);
     if (isDev) {
-      mainWindow.loadURL(`http://localhost:3000${route}`);
+      mainWindow.loadURL(`http://localhost:3000${resolved}`);
     } else {
       // For production, we need to handle client-side routing
-      mainWindow.webContents.executeJavaScript(`window.location.hash = ''; window.history.pushState({}, '', '${route}'); window.dispatchEvent(new PopStateEvent('popstate'));`);
+      mainWindow.webContents.executeJavaScript(`window.location.hash = ''; window.history.pushState({}, '', '${resolved}'); window.dispatchEvent(new PopStateEvent('popstate'));`);
     }
   }
 }
@@ -102,6 +139,11 @@ function setupMenu() {
           label: 'Delivery V7 (Stations) / ניהול משלוחים V7',
           accelerator: 'CmdOrCtrl+Shift+V',
           click: () => navigateTo('/admin/delivery-v7')
+        },
+        {
+          label: 'Delivery V7 — Today / วันนี้',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => navigateTo('/admin/delivery-v7?autoload=today')
         },
         {
           label: 'Delivery V6 (Weighing) / จัดการจัดส่ง V6',
@@ -458,19 +500,34 @@ function setupPrinterIPC() {
   });
 }
 
-// App lifecycle events
-app.whenReady().then(() => {
-  setupScaleIPC();
-  setupPrinterIPC();
-  createWindow();
-
-  app.on('activate', () => {
-    // On macOS, re-create window when dock icon is clicked
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    const route = getRouteFromArgv(commandLine);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      if (route) navigateTo(route);
     }
   });
-});
+
+  // App lifecycle events
+  app.whenReady().then(() => {
+    setupScaleIPC();
+    setupPrinterIPC();
+    createWindow();
+
+    app.on('activate', () => {
+      // On macOS, re-create window when dock icon is clicked
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   // On Windows, quit the app when all windows are closed

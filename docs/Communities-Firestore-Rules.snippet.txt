@@ -8,7 +8,9 @@
       // Community picker, checkout, registration
       allow read: if true;
 
-      // User registration may create communities and append userIds
+      // Authenticated users may create/update public community fields.
+      // Do not store membership arrays such as userIds on these documents —
+      // the homepage used to download them with every community list load.
       allow create, update: if isAuthenticated();
 
       // Community admin page — remove obsolete communities

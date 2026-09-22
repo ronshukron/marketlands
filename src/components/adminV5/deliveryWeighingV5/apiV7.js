@@ -32,6 +32,7 @@ import {
 } from './v7/orderDraftUtils';
 import { filterCustomerActiveLines } from '../../../utils/customerOrderUtils';
 import { isCommunityDiscountAvailable } from '../../../services/communityDiscountService';
+import { parseDelayedPaymentConfirmPayload } from '../../../utils/delayedPaymentConfirm';
 
 async function getIdTokenIfAvailable() {
   try {
@@ -749,6 +750,37 @@ export async function handleSuspendedPaymentV7({
     },
   );
   return data;
+}
+
+export async function recoverDelayedPaymentFromGrowV7({ customerOrderId } = {}) {
+  if (!customerOrderId) return { ok: false, skipped: true };
+  const token = await getIdTokenIfAvailable();
+  const url = functionsEndpoint('recoverDelayedPaymentFromGrow');
+  try {
+    const { data } = await axios.post(
+      url,
+      { customerOrderId },
+      {
+        headers: getMutationHeaders(token),
+        timeout: 30000,
+      },
+    );
+    return {
+      ...parseDelayedPaymentConfirmPayload(data),
+      status: 200,
+      raw: data,
+    };
+  } catch (error) {
+    const status = error?.response?.status || null;
+    const data = error?.response?.data;
+    return {
+      ...parseDelayedPaymentConfirmPayload(data),
+      ok: false,
+      status,
+      error: data?.error || { message: error?.message || String(error) },
+      raw: data || null,
+    };
+  }
 }
 
 export async function setPackedCartonCountV7({ orderId, printedIndex }) {

@@ -1,9 +1,18 @@
 import { getEstimatedLineTotal } from './pricing';
+import { isCustomerLineExcluded } from './customerOrderUtils';
+import { getOrderCommunity, getOrderDeliveryDate, getOrderDeliveryWeekKey } from './deliveryScheduleUtils';
+import {
+  getDuplicateOrderKey,
+  shouldIncludeOrderInDeliverySummary,
+} from './weeklyDeliveryOrderSummaryUtils';
 
 const CANCELLED_STATUSES = new Set([
   'abandoned',
   'cancelled',
   'cancelled_by_admin',
+  'failed',
+  'declined',
+  'expired',
 ]);
 const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
 const BUFFER_CATALOG_NUMBER = '999003';
@@ -40,12 +49,52 @@ export const flattenWeeklyPromotionOrderItems = (order = {}) => {
   return Array.isArray(order.items) ? order.items : [];
 };
 
+export const resolveWeeklyPromotionOrderSource = (order = {}) => {
+  if (order.source === 'customerOrdersDelayed' || order.source === 'customerOrders') {
+    return order.source;
+  }
+  if (order.isDelayedOrder === true || order.delayedOrder === true) {
+    return 'customerOrdersDelayed';
+  }
+  if (clean(order.delayedOrderStatus || order.delayedMeta?.delayedOrderStatus)) {
+    return 'customerOrdersDelayed';
+  }
+  return 'customerOrders';
+};
+
 export const isCountableWeeklyPromotionOrder = (order = {}) => {
   const paymentStatus = clean(order.paymentStatus || order.delayedMeta?.paymentStatus).toLowerCase();
   const delayedStatus = clean(
     order.delayedOrderStatus || order.delayedMeta?.delayedOrderStatus,
   ).toLowerCase();
-  return !CANCELLED_STATUSES.has(paymentStatus) && !CANCELLED_STATUSES.has(delayedStatus);
+  if (CANCELLED_STATUSES.has(paymentStatus) || CANCELLED_STATUSES.has(delayedStatus)) {
+    return false;
+  }
+  return shouldIncludeOrderInDeliverySummary(order, resolveWeeklyPromotionOrderSource(order));
+};
+
+const normalizeAnalyticsOrder = (order = {}) => ({
+  ...order,
+  community: getOrderCommunity(order),
+  deliveryDate: getOrderDeliveryDate(order) || order.deliveryDate,
+});
+
+const preferDelayedDuplicate = (current, next) => {
+  const currentDelayed = resolveWeeklyPromotionOrderSource(current) === 'customerOrdersDelayed';
+  const nextDelayed = resolveWeeklyPromotionOrderSource(next) === 'customerOrdersDelayed';
+  if (nextDelayed && !currentDelayed) return next;
+  return current;
+};
+
+export const dedupeWeeklyPromotionOrders = (orders = []) => {
+  const groups = new Map();
+  (Array.isArray(orders) ? orders : []).forEach((order) => {
+    const normalized = normalizeAnalyticsOrder(order);
+    const key = getDuplicateOrderKey(normalized);
+    const current = groups.get(key);
+    groups.set(key, current ? preferDelayedDuplicate(current, normalized) : normalized);
+  });
+  return [...groups.values()];
 };
 
 export const promotionTargetCommunities = (promotion = {}) => {
@@ -127,7 +176,7 @@ export const isAppliedWeeklyPromotionLine = (item = {}, promotionId, productIds 
   const linePromotionId = clean(item.communityWeeklyPromotionId);
   if (linePromotionId) return linePromotionId === promotionId;
   const productId = clean(item.productId || item.id);
-  return productIds.size === 0 || productIds.has(productId);
+  return Boolean(productId) && (productIds.size === 0 || productIds.has(productId));
 };
 
 const lineProductId = (item = {}) => clean(item.productId || item.id);
@@ -166,6 +215,7 @@ const emptyProductRow = ({ productId, productName, businessName }) => ({
   orders: 0,
   revenue: 0,
   orderIds: new Set(),
+  customerIds: new Set(),
 });
 
 export const emptyCommunityWeeklyPromotionAnalytics = () => ({
@@ -239,29 +289,22 @@ export const buildCommunityWeeklyPromotionAnalytics = ({
 
   const customerIds = new Set();
   const countedOrders = new Set();
-  const lineCommunityKey = (item, order) => resolveCommunityKey(
-    communityRows,
-    clean(item.communityWeeklyPromotionCommunityCode)
-    || clean(order.communityWeeklyPromotionAttribution?.communityCode)
-    || orderCommunityName(order),
-  );
+  const promotionWeekKey = clean(promotion.weekKey);
+  const lineMatchesPromotionWeek = (item, order) => {
+    if (!promotionWeekKey) return true;
+    const lineWeek = clean(item.communityWeeklyPromotionWeekKey);
+    if (lineWeek) return lineWeek === promotionWeekKey;
+    return getOrderDeliveryWeekKey(order) === promotionWeekKey;
+  };
   const isCountablePromoLine = (item, order) => {
+    if (isCustomerLineExcluded(order, item) || isShippingOrBufferLine(item)) return false;
+    if (!isAppliedWeeklyPromotionLine(item, promotionId, snapshotProductIds)) return false;
     const linePromotionId = clean(item.communityWeeklyPromotionId);
-    if (linePromotionId && linePromotionId !== promotionId) return false;
-    if (isAppliedWeeklyPromotionLine(item, promotionId, snapshotProductIds)) return true;
-    const productId = lineProductId(item);
-    if (!productId || !snapshotProductIds.has(productId) || isShippingOrBufferLine(item)) return false;
-    const communityKey = lineCommunityKey(item, order);
-    return Boolean(
-      communityKey
-      && (
-        unlockedCodes.has(communityKey)
-        || clean(order.communityWeeklyPromotionAttribution?.promotionId) === promotionId
-      )
-    );
+    if (linePromotionId) return linePromotionId === promotionId;
+    return lineMatchesPromotionWeek(item, order);
   };
 
-  (Array.isArray(orders) ? orders : []).forEach((order) => {
+  dedupeWeeklyPromotionOrders(orders).forEach((order) => {
     if (!isCountableWeeklyPromotionOrder(order)) return;
     const orderId = clean(order.id) || `${orderCustomerId(order)}-${countedOrders.size}`;
     if (countedOrders.has(orderId)) return;
@@ -297,6 +340,7 @@ export const buildCommunityWeeklyPromotionAnalytics = ({
         product.units += units;
         product.revenue += revenue;
         product.orderIds.add(orderId);
+        product.customerIds.add(customerId);
         productRows.set(productId, product);
       }
     });
@@ -336,6 +380,8 @@ export const buildCommunityWeeklyPromotionAnalytics = ({
       units: product.units,
       orders: product.orderIds.size,
       orderCount: product.orderIds.size,
+      customers: product.customerIds.size,
+      customerCount: product.customerIds.size,
       revenue: roundMoney(product.revenue),
     }))
     .filter((product) => product.units > 0 || product.orders > 0)

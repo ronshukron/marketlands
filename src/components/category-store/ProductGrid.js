@@ -1,9 +1,22 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import ProductCard from './ProductCard';
 import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
+import { useCart } from '../../contexts/CartContext';
 
 const ProductGrid = ({ products, calculateTimeRemaining, selectedCommunity }) => {
-  const { decorateProduct } = useCommunityWeeklyPromotion();
+  const { decorateProduct, openUnlockModal } = useCommunityWeeklyPromotion();
+  const { addItem, cartItems } = useCart();
+  const decoratedProducts = useMemo(
+    () => products.map(decorateProduct),
+    [decorateProduct, products],
+  );
+  const quantitiesByProduct = useMemo(() => {
+    const quantities = new Map();
+    cartItems.forEach((item) => {
+      quantities.set(item.id, (quantities.get(item.id) || 0) + Number(item.quantity || 0));
+    });
+    return quantities;
+  }, [cartItems]);
 
   if (products.length === 0) {
     return (
@@ -19,12 +32,15 @@ const ProductGrid = ({ products, calculateTimeRemaining, selectedCommunity }) =>
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      {products.map((product) => (
+      {decoratedProducts.map((product) => (
         <ProductCard 
           key={product.uid} 
-          product={decorateProduct(product)}
+          product={product}
           calculateTimeRemaining={calculateTimeRemaining}
           selectedCommunity={selectedCommunity}
+          quantityInCart={quantitiesByProduct.get(product.id) || 0}
+          addItem={addItem}
+          openUnlockModal={openUnlockModal}
         />
       ))}
     </div>

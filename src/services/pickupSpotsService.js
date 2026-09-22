@@ -16,6 +16,9 @@ import {
   resolveMarketplaceCommunityName,
   setMarketplaceCommunityIdentity,
 } from '../utils/marketplaceCommunityIdentity';
+import { compareCommunitiesForDelivery } from '../utils/communityDeliveryOrder';
+
+export { compareCommunitiesForDelivery } from '../utils/communityDeliveryOrder';
 
 const COMMUNITY_COLORS = [
   '#4F46E5', '#059669', '#D97706', '#DC2626', '#7C3AED',
@@ -24,6 +27,9 @@ const COMMUNITY_COLORS = [
 ];
 
 const LEGACY_NITZANIM_ALIASES = ['ניצנים ה', 'ניצנים ג'];
+const CATALOG_DOC_PATH = 'settings/communitiesCatalog';
+const CATALOG_STORAGE_KEY = 'bb:communitiesCatalog:v1';
+const CATALOG_FETCH_TIMEOUT_MS = 8000;
 
 let cache = {
   spots: [],
@@ -32,7 +38,10 @@ let cache = {
   colorByName: {},
   aliasMap: {},
   loaded: false,
+  source: null,
 };
+let staticCache = null;
+let catalogLoadPromise = null;
 
 const listeners = new Set();
 
@@ -68,14 +77,72 @@ function buildFromStatic() {
     colorByName,
     aliasMap,
     loaded: true,
+    source: 'static',
   };
 }
 
-function normalizeCommunityDoc(docSnap) {
-  const data = docSnap.data() || {};
-  const name = data.name || docSnap.id;
+function getStaticSnapshot() {
+  if (!staticCache) staticCache = buildFromStatic();
+  return staticCache;
+}
+
+function withTimeout(promise, ms = CATALOG_FETCH_TIMEOUT_MS) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('communities catalog timeout')), ms);
+    }),
+  ]);
+}
+
+function persistCatalogToStorage(snapshot) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      spots: snapshot.pickupSpots,
+      spotsData: snapshot.pickupSpotsData,
+      spotsByRegion: snapshot.pickupSpotsByRegion,
+      colorByName: snapshot.colorByName,
+      aliasMap: snapshot.aliasMap,
+    }));
+  } catch (error) {
+    console.warn('Failed to cache communities locally:', error);
+  }
+}
+
+function hydrateFromLocalStorage() {
+  if (cache.loaded || typeof localStorage === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem(CATALOG_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.spots) || parsed.spots.length === 0) return false;
+    cache = {
+      spots: parsed.spots,
+      spotsData: parsed.spotsData || {},
+      spotsByRegion: parsed.spotsByRegion || {},
+      colorByName: parsed.colorByName || {},
+      aliasMap: parsed.aliasMap || {},
+      loaded: true,
+      source: 'local',
+    };
+    notifyListeners();
+    return true;
+  } catch (error) {
+    console.warn('Failed to read cached communities:', error);
+    return false;
+  }
+}
+
+function normalizeCommunityRecord(input) {
+  const isDocSnap = input && typeof input.data === 'function';
+  const data = isDocSnap ? (input.data() || {}) : (input || {});
+  const id = isDocSnap ? input.id : (data.id || data.name || '');
+  const name = data.name || id;
   return {
-    id: docSnap.id,
+    id,
     name,
     region: data.region || 'אחר',
     options: Array.isArray(data.options) ? data.options : ['pickup'],
@@ -87,8 +154,13 @@ function normalizeCommunityDoc(docSnap) {
     whatsappGroupLink: data.whatsappGroupLink || '',
     storeLink: data.storeLink || '',
     broadcastDeliveryNote: data.broadcastDeliveryNote || '',
+    deliveryGroup: String(data.deliveryGroup || '').trim(),
     updatedAt: data.updatedAt || '',
   };
+}
+
+function normalizeCommunityDoc(docSnap) {
+  return normalizeCommunityRecord(docSnap);
 }
 
 function shouldPreferCommunityDoc(candidate, existing) {
@@ -124,13 +196,18 @@ function buildEmptyFirestoreCache() {
     colorByName: {},
     aliasMap: {},
     loaded: true,
+    source: 'empty',
   };
 }
 
-function applyCommunities(docs) {
-  const communities = dedupeCommunityDocs(docs)
-    .filter((c) => c.active)
-    .sort((a, b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name, 'he'));
+function applyCommunityRecords(records, source = 'catalog') {
+  const communities = dedupeCommunityDocs(
+    (Array.isArray(records) ? records : []).map((record) => ({
+      id: record.id || record.name,
+      data: () => record,
+    })),
+  ).filter((c) => c.active);
+  communities.sort(compareCommunitiesForDelivery(communities));
 
   if (communities.length === 0) {
     cache = buildEmptyFirestoreCache();
@@ -150,6 +227,10 @@ function applyCommunities(docs) {
       deliveryFee: community.deliveryFee,
       region: community.region,
       color: community.color,
+      sortOrder: community.sortOrder,
+      deliveryGroup: community.deliveryGroup || '',
+      active: community.active !== false,
+      aliases: community.aliases,
       whatsappGroupLink: community.whatsappGroupLink,
       storeLink: community.storeLink,
       broadcastDeliveryNote: community.broadcastDeliveryNote,
@@ -169,8 +250,16 @@ function applyCommunities(docs) {
     colorByName,
     aliasMap,
     loaded: true,
+    source,
   };
   notifyListeners();
+}
+
+function applyCommunities(docs, source = 'collection') {
+  applyCommunityRecords(
+    (Array.isArray(docs) ? docs : []).map((docSnap) => normalizeCommunityDoc(docSnap)),
+    source,
+  );
 }
 
 function notifyListeners() {
@@ -178,7 +267,11 @@ function notifyListeners() {
     communities: cache.spots,
     aliases: cache.aliasMap,
   });
-  listeners.forEach((listener) => listener(getSnapshot()));
+  const snapshot = getSnapshot();
+  if (cache.loaded && cache.spots.length > 0 && cache.source !== 'static') {
+    persistCatalogToStorage(snapshot);
+  }
+  listeners.forEach((listener) => listener(snapshot));
 }
 
 function getSnapshot() {
@@ -193,53 +286,107 @@ function getSnapshot() {
     colorByName: { ...cache.colorByName },
     aliasMap: { ...cache.aliasMap },
     loaded: cache.loaded,
+    source: cache.source,
   };
 }
 
 let unsubscribeFirestore = null;
 
-export async function loadPickupSpots() {
-  try {
-    const snap = await getDocs(collection(db, 'communities'));
-    if (snap.empty) {
-      cache = buildEmptyFirestoreCache();
-      notifyListeners();
-      return getSnapshot();
-    }
-    applyCommunities(snap.docs);
-    return getSnapshot();
-  } catch (error) {
-    console.error('Failed to load communities from Firestore:', error);
-    cache = buildFromStatic();
+async function loadCommunitiesFromCatalog() {
+  const snap = await withTimeout(getDoc(doc(db, CATALOG_DOC_PATH)));
+  const records = snap.exists() ? snap.data()?.communities : null;
+  if (!Array.isArray(records) || records.length === 0) return false;
+  applyCommunityRecords(records, 'catalog');
+  return true;
+}
+
+async function loadCommunitiesFromCollection() {
+  const snap = await withTimeout(getDocs(collection(db, 'communities')));
+  if (snap.empty) {
+    cache = buildEmptyFirestoreCache();
     notifyListeners();
+    return true;
+  }
+  applyCommunities(snap.docs, 'collection');
+  return true;
+}
+
+function getStaticPreviewSnapshot() {
+  const staticSnapshot = getStaticSnapshot();
+  setMarketplaceCommunityIdentity({
+    communities: staticSnapshot.spots,
+    aliases: staticSnapshot.aliasMap,
+  });
+  return {
+    pickupSpots: [...staticSnapshot.spots],
+    pickupSpotsData: { ...staticSnapshot.spotsData },
+    pickupSpotsByRegion: { ...staticSnapshot.spotsByRegion },
+    colorByName: { ...staticSnapshot.colorByName },
+    aliasMap: { ...staticSnapshot.aliasMap },
+    loaded: false,
+    source: 'static',
+  };
+}
+
+export async function loadPickupSpots(options = {}) {
+  const force = options.force === true;
+  const allowCollectionFallback = options.allowCollectionFallback === true;
+  if (cache.loaded && cache.source === 'catalog' && !force) {
     return getSnapshot();
   }
+  if (catalogLoadPromise && !force) return catalogLoadPromise;
+
+  catalogLoadPromise = (async () => {
+    try {
+      if (await loadCommunitiesFromCatalog()) return getSnapshot();
+    } catch (error) {
+      console.warn('Failed to load slim communities catalog:', error?.message || error);
+    }
+
+    if (cache.loaded && cache.spots.length > 0 && cache.source !== 'static') {
+      return getSnapshot();
+    }
+
+    // Public store must not download the communities collection. Those docs can
+    // include huge membership arrays and freeze first load. Admin pages may opt in.
+    if (allowCollectionFallback) {
+      try {
+        await loadCommunitiesFromCollection();
+        return getSnapshot();
+      } catch (error) {
+        console.error('Failed to load communities from Firestore:', error);
+      }
+    }
+
+    return cache.loaded ? getSnapshot() : getStaticPreviewSnapshot();
+  })().finally(() => {
+    catalogLoadPromise = null;
+  });
+
+  return catalogLoadPromise;
 }
 
 export function subscribePickupSpots(callback) {
   listeners.add(callback);
+  callback(getPickupSpotsSync());
   if (!unsubscribeFirestore) {
     unsubscribeFirestore = onSnapshot(
-      collection(db, 'communities'),
+      doc(db, CATALOG_DOC_PATH),
       (snap) => {
-        if (snap.empty) {
-          cache = buildEmptyFirestoreCache();
-          notifyListeners();
+        const records = snap.exists() ? snap.data()?.communities : null;
+        if (Array.isArray(records) && records.length > 0) {
+          applyCommunityRecords(records, 'catalog');
           return;
         }
-        applyCommunities(snap.docs);
+        console.warn('Communities catalog missing; keeping local/static list for the store');
       },
       (error) => {
-        console.error('Communities subscription error:', error);
-        cache = buildFromStatic();
-        notifyListeners();
+        console.error('Communities catalog subscription error:', error);
       }
     );
   }
-  if (!cache.loaded) {
-    loadPickupSpots().then(() => callback(getSnapshot()));
-  } else {
-    callback(getSnapshot());
+  if (!cache.loaded || cache.source !== 'catalog') {
+    loadPickupSpots().then((snapshot) => callback(snapshot));
   }
   return () => {
     listeners.delete(callback);
@@ -251,24 +398,32 @@ export function subscribePickupSpots(callback) {
 }
 
 export function getPickupSpotsSync() {
-  if (!cache.loaded) {
-    return {
-      pickupSpots: [],
-      pickupSpotsData: {},
-      pickupSpotsByRegion: {},
-      colorByName: {},
-      loaded: false,
-    };
-  }
+  hydrateFromLocalStorage();
+  if (!cache.loaded) return getStaticPreviewSnapshot();
   return getSnapshot();
+}
+
+export function invalidatePickupSpotsCache() {
+  cache = { ...buildEmptyFirestoreCache(), loaded: false, source: null };
+  catalogLoadPromise = null;
+  if (unsubscribeFirestore) {
+    unsubscribeFirestore();
+    unsubscribeFirestore = null;
+  }
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.removeItem(CATALOG_STORAGE_KEY);
+    } catch {}
+  }
 }
 
 export function resolveCommunityName(raw) {
   if (!raw) return raw;
-  if (!cache.loaded) cache = buildFromStatic();
+  hydrateFromLocalStorage();
+  const source = cache.loaded ? cache : getStaticSnapshot();
   setMarketplaceCommunityIdentity({
-    communities: cache.spots,
-    aliases: cache.aliasMap,
+    communities: source.spots,
+    aliases: source.aliasMap,
   });
   return resolveMarketplaceCommunityName(raw);
 }
@@ -281,16 +436,17 @@ export function getCommunityCode(name) {
 
 export function resolveCommunityByCode(code) {
   if (!code) return '';
-  if (!cache.loaded) cache = buildFromStatic();
+  hydrateFromLocalStorage();
+  const source = cache.loaded ? cache : getStaticSnapshot();
   const normalizedCode = String(code).trim().toLowerCase();
-  const matches = cache.spots.filter((name) => getCommunityCode(name) === normalizedCode);
+  const matches = source.spots.filter((name) => getCommunityCode(name) === normalizedCode);
   return matches.length === 1 ? matches[0] : '';
 }
 
 export function getCommunityColor(name) {
   const resolved = resolveCommunityName(name);
-  if (!cache.loaded) cache = buildFromStatic();
-  return cache.colorByName[resolved] || getDeterministicCommunityColor(resolved);
+  const source = cache.loaded ? cache : getStaticSnapshot();
+  return source.colorByName[resolved] || getDeterministicCommunityColor(resolved);
 }
 
 export async function seedCommunitiesFromStatic() {
@@ -315,6 +471,26 @@ export async function seedCommunitiesFromStatic() {
     }, { merge: true });
   });
   await batch.commit();
+}
+
+function currentCommunityRecords() {
+  return cache.spots.map((name) => ({
+    id: name,
+    ...(cache.spotsData[name] || { name }),
+  }));
+}
+
+function mergeCommunityRecord(record) {
+  const next = currentCommunityRecords().filter((item) => item.name !== record.name);
+  next.push(record);
+  applyCommunityRecords(next, cache.source || 'local');
+}
+
+function removeCommunityRecord(name) {
+  applyCommunityRecords(
+    currentCommunityRecords().filter((item) => item.name !== name),
+    cache.source || 'local',
+  );
 }
 
 async function deleteDuplicateCommunityDocs(name) {
@@ -376,6 +552,7 @@ export async function saveCommunity(community) {
     whatsappGroupLink: String(community.whatsappGroupLink || '').trim(),
     storeLink: String(community.storeLink || '').trim(),
     broadcastDeliveryNote: String(community.broadcastDeliveryNote || '').trim(),
+    deliveryGroup: String(community.deliveryGroup || '').trim(),
     updatedAt: new Date().toISOString(),
   }, { merge: true });
   await deleteDuplicateCommunityDocs(name);
@@ -386,6 +563,22 @@ export async function saveCommunity(community) {
   if (isNew || (Array.isArray(knownCommunities) && !knownCommunities.includes(name))) {
     await addNewCommunityToPaymentConfig(name);
   }
+  mergeCommunityRecord({
+    id: name,
+    name,
+    region: community.region || 'אחר',
+    options: community.options || ['pickup'],
+    deliveryFee: Number(community.deliveryFee) || 0,
+    color: community.color || getDeterministicCommunityColor(name),
+    sortOrder: Number(community.sortOrder) || 0,
+    active: community.active !== false,
+    aliases: Array.isArray(community.aliases) ? community.aliases : [],
+    whatsappGroupLink: String(community.whatsappGroupLink || '').trim(),
+    storeLink: String(community.storeLink || '').trim(),
+    broadcastDeliveryNote: String(community.broadcastDeliveryNote || '').trim(),
+    deliveryGroup: String(community.deliveryGroup || '').trim(),
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 async function collectCommunityDeleteRefs(name) {
@@ -416,6 +609,31 @@ async function collectCommunityDeleteRefs(name) {
   return refs;
 }
 
+export async function saveCommunityOrdering(entries) {
+  const list = (Array.isArray(entries) ? entries : [])
+    .map((entry) => ({
+      name: String(entry?.name || '').trim(),
+      sortOrder: Number(entry?.sortOrder) || 0,
+      deliveryGroup: String(entry?.deliveryGroup || '').trim(),
+    }))
+    .filter((entry) => entry.name);
+  if (list.length === 0) return;
+
+  const updatedAt = new Date().toISOString();
+  const chunkSize = 400;
+  for (let offset = 0; offset < list.length; offset += chunkSize) {
+    const batch = writeBatch(db);
+    list.slice(offset, offset + chunkSize).forEach((entry) => {
+      batch.set(doc(db, 'communities', entry.name), {
+        sortOrder: entry.sortOrder,
+        deliveryGroup: entry.deliveryGroup,
+        updatedAt,
+      }, { merge: true });
+    });
+    await batch.commit();
+  }
+}
+
 export async function deleteCommunity(name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('שם יישוב חובה');
@@ -431,6 +649,7 @@ export async function deleteCommunity(name) {
 
   const { removeCommunityFromPaymentConfig } = await import('./paymentConfigService');
   await removeCommunityFromPaymentConfig(trimmed);
+  removeCommunityRecord(trimmed);
 }
 
 export async function migrateNitzanimNames() {
@@ -504,5 +723,6 @@ export async function migrateNitzanimNames() {
   return updated;
 }
 
-// Populated from Firestore via subscribePickupSpots / loadPickupSpots
-cache = { ...buildEmptyFirestoreCache(), loaded: false };
+// Populated from Firestore catalog via subscribePickupSpots / loadPickupSpots
+cache = { ...buildEmptyFirestoreCache(), loaded: false, source: null };
+hydrateFromLocalStorage();

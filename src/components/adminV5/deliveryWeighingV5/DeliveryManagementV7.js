@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../../firebase/firebase';
 import { useAuth } from '../../../contexts/authContext';
 import LoadingSpinner from '../../LoadingSpinner';
-import { getCommunityColor, getPickupSpotsSync, subscribePickupSpots } from '../../../services/pickupSpotsService';
+import { getCommunityColor, getPickupSpotsSync, resolveCommunityName, subscribePickupSpots } from '../../../services/pickupSpotsService';
 import {
   addItemToDelayedOrderV7,
   fetchAvailableDeliveryWeeksV7,
@@ -14,6 +15,10 @@ import {
   subscribeDelayedOrdersForWeekV7,
   updateDelayedOrderLineV7,
 } from './apiV7';
+import {
+  formatBatchChargeFailureLine,
+  interpretHandleSuspendedPaymentError,
+} from './v7/actionErrorV7';
 import {
   buildSessionIdV7,
   bulkSetDraftWeightsV7,
@@ -61,6 +66,12 @@ import {
 } from './v7/batchCommunityChargeV7';
 import BatchChargeControlModal from './v7/BatchChargeControlModal';
 import {
+  buildChargeRefundDialogText,
+  fetchOpenRefundsForChargeV7,
+  findOpenRefundsForCustomer,
+  getOrderRefundCustomer,
+} from './v7/chargeRefundAlertV7';
+import {
   applyOpToDraft,
   applyOpsToDrafts,
   buildBaseSnapshotForOp,
@@ -76,13 +87,15 @@ import {
   writeStaticScopeData,
 } from './v7/offlineSyncV7';
 import {
-  readCommunityOrder,
   readCommunityColorOverrides,
   readBatchChargeExcludedOrderIds,
+  readCommunityOrderForScope,
   saveCommunityColorOverride,
-  saveCommunityOrder,
+  saveCommunityOrderForScope,
   saveBatchChargeExcludedOrderIds,
+  clearCommunityOrderForScope,
 } from './v7/localStorageSafeV7';
+import { parseAutoloadSetupFromSearch, readAutoloadSetupFromLocation } from './v7/autoloadSetupV7';
 import {
   computeCommunityOrderNumbers,
   readShowCommunityNumbering,
@@ -110,7 +123,6 @@ const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
 const WEIGHT_ON_THRESHOLD = 0.020;
 const WEIGHT_OFF_THRESHOLD = 0.010;
 const LANG_STORAGE_KEY = 'deliveryV7::lang';
-const COMMUNITY_ORDER_KEY = 'deliveryV7::communityOrder';
 const LAST_SETUP_KEY = 'deliveryV7::lastSetup';
 
 function isBrowserOffline() {
@@ -134,20 +146,6 @@ function isLikelyNetworkErrorV7(error) {
     // Firestore 10.11.1 can throw this internal assertion while a transaction is interrupted offline.
     || message.includes('INTERNAL ASSERTION FAILED: Unexpected state')
   );
-}
-
-function getActionErrorDetail(error) {
-  const data = error?.response?.data;
-  if (typeof data === 'string' && data.trim()) return data.trim();
-  if (data && typeof data === 'object') {
-    const nested = data.error || data.message || data.details;
-    if (typeof nested === 'string' && nested.trim()) return nested.trim();
-    if (nested && typeof nested === 'object') {
-      const nestedMessage = nested.message || nested.error;
-      if (typeof nestedMessage === 'string' && nestedMessage.trim()) return nestedMessage.trim();
-    }
-  }
-  return String(error?.message || '').trim();
 }
 
 function readLastSetupV7() {
@@ -190,6 +188,9 @@ const TR = {
     clearDates: 'נקה תאריכים',
     weekLabel: 'שבוע נבחר:',
     commLabel: 'קהילות:',
+    deliveryGroup: 'קבוצת משלוח',
+    resetOrder: 'סדר ברירת מחדל',
+    todayAutoLoaded: 'נטען אוטומטית להיום',
     orders: 'הזמנות',
     total: 'סה"כ',
     noOrders: 'אין הזמנות להצגה.',
@@ -358,6 +359,10 @@ const TR = {
     batchChargeSkipPending: 'ממתין לסנכרון',
     batchChargeSkipOffline: 'אין אינטרנט — לא נוסה',
     batchChargeSkipStopped: 'נעצר לפני חיוב',
+    refundChargeWarning: 'בקשות זיכוי פתוחות',
+    refundChargeCheckAdmin: 'בדקו ב-/admin/refunds לפני החיוב',
+    refundThisOrder: 'הזמנה זו',
+    refundOtherOrder: 'הזמנה אחרת',
     printerError: (code, detail) => {
       const base = {
         no_printer: 'המדפסת לא נמצאה. בדקו USB ו-Editor Lite.',
@@ -397,6 +402,9 @@ const TR = {
     clearDates: 'ล้างวันที่',
     weekLabel: 'สัปดาห์:',
     commLabel: 'ชุมชน:',
+    deliveryGroup: 'กลุ่มจัดส่ง',
+    resetOrder: 'รีเซ็ตลำดับ',
+    todayAutoLoaded: 'โหลดวันนี้โดยอัตโนมัติ',
     orders: 'คำสั่งซื้อ',
     total: 'รวม',
     noOrders: 'ไม่มีคำสั่งซื้อ',
@@ -565,6 +573,10 @@ const TR = {
     batchChargeSkipPending: 'รอซิงก์',
     batchChargeSkipOffline: 'ไม่มีเน็ต — ยังไม่ได้ลอง',
     batchChargeSkipStopped: 'หยุดก่อนเรียกเก็บ',
+    refundChargeWarning: 'มีคำขอคืนเงินที่ยังเปิดอยู่',
+    refundChargeCheckAdmin: 'ตรวจสอบใน /admin/refunds ก่อนเรียกเก็บเงิน',
+    refundThisOrder: 'ออเดอร์นี้',
+    refundOtherOrder: 'ออเดอร์อื่น',
     printerError: (code, detail) => {
       const base = {
         no_printer: 'ไม่พบเครื่องพิมพ์ ตรวจ USB และ Editor Lite',
@@ -640,7 +652,7 @@ function BilingualDialog({ open, title, heText, thText, type, confirmButtonDelay
         onClick={onCancel}
       >
         <div
-          className={`w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden ring-1 ${palette.ring}`}
+          className={`w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden ring-1 ${palette.ring}`}
           style={{ animation: 'dialogSlideUp 0.25s ease-out' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -649,9 +661,9 @@ function BilingualDialog({ open, title, heText, thText, type, confirmButtonDelay
               {icon}
             </div>
           </div>
-          <div className={`px-6 pb-4 pt-2 ${palette.bg}`}>
+          <div className={`px-6 pb-4 pt-2 max-h-[60vh] overflow-y-auto ${palette.bg}`}>
             <div dir="rtl" className="text-center mb-2">
-              <p className="text-[15px] font-bold text-gray-900 leading-relaxed">{heText}</p>
+              <p className="text-[15px] font-bold text-gray-900 leading-relaxed whitespace-pre-line">{heText}</p>
             </div>
             <div className="flex items-center gap-2 my-2">
               <div className="flex-1 border-t border-gray-200" />
@@ -659,7 +671,7 @@ function BilingualDialog({ open, title, heText, thText, type, confirmButtonDelay
               <div className="flex-1 border-t border-gray-200" />
             </div>
             <div dir="ltr" className="text-center">
-              <p className="text-[14px] font-semibold text-gray-600 leading-relaxed">{thText}</p>
+              <p className="text-[14px] font-semibold text-gray-600 leading-relaxed whitespace-pre-line">{thText}</p>
             </div>
           </div>
           <div className="px-5 pb-5 pt-1 flex gap-3 bg-white">
@@ -998,14 +1010,16 @@ function mergeOrderDraftWithPersistedCompletion(order, draft = {}) {
 
 export default function DeliveryManagementV7() {
   const { currentUser, userRole } = useAuth();
+  const location = useLocation();
 
   const [lang, setLang] = useState(() => localStorage.getItem(LANG_STORAGE_KEY) || 'he');
   const [expandedAdvancedLineId, setExpandedAdvancedLineId] = useState(null);
-  const [pickupSpotsList, setPickupSpotsList] = useState(() => getPickupSpotsSync().pickupSpots);
+  const [pickupSpotsSnap, setPickupSpotsSnap] = useState(() => getPickupSpotsSync());
+  const pickupSpotsList = pickupSpotsSnap.pickupSpots;
   const t = TR[lang] || TR.he;
   const tRef = useRef(t);
   const isRTL = lang === 'he';
-  useEffect(() => subscribePickupSpots((snap) => setPickupSpotsList(snap.pickupSpots)), []);
+  useEffect(() => subscribePickupSpots(setPickupSpotsSnap), []);
 
   const toggleLang = () => {
     const next = lang === 'he' ? 'th' : 'he';
@@ -1024,7 +1038,14 @@ export default function DeliveryManagementV7() {
     userName: getDisplayName(currentUser),
     sessionId: buildSessionIdV7({ userId: currentUser?.uid, stationId }),
   }), [currentUser, stationId]);
-  const initialSetup = useMemo(() => readLastSetupV7(), []);
+  const initialSetup = useMemo(() => {
+    const autoload = readAutoloadSetupFromLocation();
+    if (autoload) {
+      writeLastSetupV7(autoload);
+      return autoload;
+    }
+    return readLastSetupV7();
+  }, []);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1081,7 +1102,7 @@ export default function DeliveryManagementV7() {
   const autoWeighActiveRef = useRef(false);
   const [communityFilter, setCommunityFilter] = useState('__all__');
   const [showCompleted, setShowCompleted] = useState(false);
-  const [communityOrder, setCommunityOrder] = useState(() => readCommunityOrder(COMMUNITY_ORDER_KEY));
+  const [communityOrderOverride, setCommunityOrderOverride] = useState([]);
   const [communityColorOverrides, setCommunityColorOverrides] = useState(() => readCommunityColorOverrides());
   const [pendingCommunityColors, setPendingCommunityColors] = useState({});
   const [showCommunityNumbering, setShowCommunityNumbering] = useState(() => readShowCommunityNumbering());
@@ -1095,6 +1116,7 @@ export default function DeliveryManagementV7() {
   const [batchChargeDiscountByCommunity, setBatchChargeDiscountByCommunity] = useState({});
   const [batchChargeDiscountLoading, setBatchChargeDiscountLoading] = useState(false);
   const batchChargeAbortRef = useRef(false);
+  const [openRefunds, setOpenRefunds] = useState([]);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const showToast = useCallback((msg, dur = 2500) => {
@@ -1118,10 +1140,10 @@ export default function DeliveryManagementV7() {
 
   const [dialog, setDialog] = useState(null);
   const dialogResolveRef = useRef(null);
-  const showDialog = useCallback(({ heText, thText, title = 'info', type = 'alert' }) => {
+  const showDialog = useCallback(({ heText, thText, title = 'info', type = 'alert', confirmButtonDelay = 0 }) => {
     return new Promise((resolve) => {
       dialogResolveRef.current = resolve;
-      setDialog({ heText, thText, title, type });
+      setDialog({ heText, thText, title, type, confirmButtonDelay });
     });
   }, []);
   const closeDialog = useCallback((result) => {
@@ -1175,6 +1197,9 @@ export default function DeliveryManagementV7() {
   useEffect(() => {
     setBatchChargeExcludedOrderIds(new Set(readBatchChargeExcludedOrderIds(selectedWeek)));
   }, [selectedWeek]);
+  useEffect(() => {
+    setCommunityOrderOverride(readCommunityOrderForScope(currentScopeKey));
+  }, [currentScopeKey]);
   const updateBatchChargeExcluded = useCallback((mutator) => {
     setBatchChargeExcludedOrderIds((prev) => {
       const next = mutator(prev);
@@ -1232,6 +1257,20 @@ export default function DeliveryManagementV7() {
   const [missingModalIncludeCompleted, setMissingModalIncludeCompleted] = useState(false);
 
   const isAdmin = !!currentUser && (userRole === 'admin' || ADMIN_UIDS.includes(currentUser.uid));
+
+  useEffect(() => {
+    if (!isAdmin || !isOnline) return undefined;
+    let cancelled = false;
+    fetchOpenRefundsForChargeV7()
+      .then((refunds) => {
+        if (!cancelled) setOpenRefunds(refunds);
+      })
+      .catch((error) => {
+        console.error(error);
+        if (!cancelled) setOpenRefunds([]);
+      });
+    return () => { cancelled = true; };
+  }, [isAdmin, isOnline, selectedWeek]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -1886,6 +1925,13 @@ export default function DeliveryManagementV7() {
   }, []);
 
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) || null, [orders, selectedOrderId]);
+  const getOpenRefundsForOrder = useCallback((order) => (
+    findOpenRefundsForCustomer(openRefunds, getOrderRefundCustomer(order))
+  ), [openRefunds]);
+  const selectedOrderRefunds = useMemo(
+    () => getOpenRefundsForOrder(selectedOrder),
+    [getOpenRefundsForOrder, selectedOrder],
+  );
   const selectedOrderCommunity = selectedOrder?.pickupSpot || selectedOrder?.customerDetails?.pickupSpot || '';
   useEffect(() => {
     if (!selectedOrderCommunity || !selectedWeek) {
@@ -2063,6 +2109,22 @@ export default function DeliveryManagementV7() {
     syncConflicts,
   ]);
 
+  const defaultRankByName = useMemo(() => {
+    const map = {};
+    (pickupSpotsSnap.pickupSpots || []).forEach((name, index) => {
+      map[name] = index;
+    });
+    return map;
+  }, [pickupSpotsSnap.pickupSpots]);
+
+  const resolveDeliveryGroup = useCallback((communityName) => {
+    if (!communityName) return '';
+    const resolved = resolveCommunityName(communityName) || communityName;
+    return pickupSpotsSnap.pickupSpotsData?.[resolved]?.deliveryGroup
+      || pickupSpotsSnap.pickupSpotsData?.[communityName]?.deliveryGroup
+      || '';
+  }, [pickupSpotsSnap.pickupSpotsData]);
+
   const orderCommunities = useMemo(() => {
     const set = new Set();
     orders.forEach((o) => {
@@ -2070,16 +2132,24 @@ export default function DeliveryManagementV7() {
       if (c) set.add(c);
     });
     const all = Array.from(set);
-    const orderMap = {};
-    communityOrder.forEach((c, i) => { orderMap[c] = i; });
+    const overrideMap = {};
+    communityOrderOverride.forEach((c, i) => { overrideMap[c] = i; });
+    const hasOverride = communityOrderOverride.length > 0;
     all.sort((a, b) => {
-      const ia = orderMap[a] ?? 9999;
-      const ib = orderMap[b] ?? 9999;
-      if (ia !== ib) return ia - ib;
+      if (hasOverride) {
+        const ia = overrideMap[a] ?? 9999;
+        const ib = overrideMap[b] ?? 9999;
+        if (ia !== ib) return ia - ib;
+      }
+      const resolvedA = resolveCommunityName(a) || a;
+      const resolvedB = resolveCommunityName(b) || b;
+      const ra = defaultRankByName[resolvedA] ?? defaultRankByName[a] ?? 9999;
+      const rb = defaultRankByName[resolvedB] ?? defaultRankByName[b] ?? 9999;
+      if (ra !== rb) return ra - rb;
       return a.localeCompare(b);
     });
     return all;
-  }, [orders, communityOrder]);
+  }, [orders, communityOrderOverride, defaultRankByName]);
 
   const batchChargeModalCommunityList = useMemo(
     () => orderCommunities.filter((name) => batchChargeModalCommunities.has(name)),
@@ -2128,6 +2198,18 @@ export default function DeliveryManagementV7() {
     return counts;
   }, [orders]);
 
+  const pendingCountByCommunity = useMemo(() => {
+    const counts = {};
+    orders.forEach((o) => {
+      const c = o?.customerDetails?.pickupSpot || o?.pickupSpot;
+      if (!c) return;
+      if (getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]) !== 'completed') {
+        counts[c] = (counts[c] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [orders, effectiveDraftsByOrder]);
+
   const orderStatusCounts = useMemo(() => {
     let pending = 0;
     let done = 0;
@@ -2138,28 +2220,23 @@ export default function DeliveryManagementV7() {
     return { pending, done };
   }, [orders, effectiveDraftsByOrder]);
 
-  useEffect(() => {
-    if (orderCommunities.length === 0) return;
-    const saved = communityOrder.filter((c) => orderCommunities.includes(c));
-    const newOnes = orderCommunities.filter((c) => !saved.includes(c));
-    const merged = [...saved, ...newOnes];
-    if (JSON.stringify(merged) !== JSON.stringify(communityOrder)) {
-      setCommunityOrder(merged);
-      saveCommunityOrder(COMMUNITY_ORDER_KEY, merged, currentScopeKey ? [currentScopeKey] : []);
-    }
-  }, [orderCommunities, communityOrder, currentScopeKey]);
-
   const moveCommunity = useCallback((community, direction) => {
-    setCommunityOrder((prev) => {
-      const arr = [...prev];
+    setCommunityOrderOverride((prev) => {
+      const base = prev.length > 0 ? prev : orderCommunities;
+      const arr = [...base];
       const idx = arr.indexOf(community);
       if (idx < 0) return arr;
       const newIdx = idx + direction;
       if (newIdx < 0 || newIdx >= arr.length) return arr;
       [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
-      saveCommunityOrder(COMMUNITY_ORDER_KEY, arr, currentScopeKey ? [currentScopeKey] : []);
+      saveCommunityOrderForScope(currentScopeKey, arr);
       return arr;
     });
+  }, [currentScopeKey, orderCommunities]);
+
+  const resetCommunityOrder = useCallback(() => {
+    clearCommunityOrderForScope(currentScopeKey);
+    setCommunityOrderOverride([]);
   }, [currentScopeKey]);
 
   const getEffectiveCommunityColor = useCallback((communityName) => {
@@ -3201,10 +3278,19 @@ export default function DeliveryManagementV7() {
     const discountConfirmationTh = appliedSettlementDiscount
       ? `\nส่วนลดชุมชน ${settlementDiscount.percent}%: ₪${confirmationPreview.communityDiscount.amount.toFixed(2)}\nยอดเรียกเก็บ: ₪${confirmationPreview.finalSum.toFixed(2)}`
       : '';
+    const refundConfirmationHe = buildChargeRefundDialogText(selectedOrderRefunds, {
+      currentOrderId: selectedOrder.id,
+      lang: 'he',
+    });
+    const refundConfirmationTh = buildChargeRefundDialogText(selectedOrderRefunds, {
+      currentOrderId: selectedOrder.id,
+      lang: 'th',
+    });
     const ok = await biConfirm({
-      heText: `לסמן כהושלם ולחייב את הלקוח?${discountConfirmationHe}`,
-      thText: `ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?${discountConfirmationTh}`,
-      title: 'info',
+      heText: `לסמן כהושלם ולחייב את הלקוח?${discountConfirmationHe}${refundConfirmationHe}`,
+      thText: `ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?${discountConfirmationTh}${refundConfirmationTh}`,
+      title: selectedOrderRefunds.length > 0 ? 'warning' : 'info',
+      confirmButtonDelay: selectedOrderRefunds.length > 0 ? 2000 : 0,
     });
     if (!ok) return;
 
@@ -3230,8 +3316,15 @@ export default function DeliveryManagementV7() {
     } catch (e) {
       console.error(e);
       await revertChargeDraftToWeighed(selectedOrder.id, selectedOrderSaved);
-      const detail = getActionErrorDetail(e);
+      const interpreted = interpretHandleSuspendedPaymentError(e);
+      const detail = interpreted.message;
       const detailSuffix = detail ? `\n${detail}` : '';
+      if (interpreted.missingGrowHold) {
+        setBatchFailedByOrderId((prev) => ({
+          ...prev,
+          [selectedOrder.id]: detail || TR.he.batchChargeFailedBadge,
+        }));
+      }
       if (isBrowserOffline()) {
         await biAlert({
           heText: 'לא ניתן לחייב כרגע — אין חיבור לאינטרנט.\nההזמנה נשארה במצב "נשקל" — נסה שוב כשהאינטרנט יחזור.',
@@ -3390,21 +3483,25 @@ export default function DeliveryManagementV7() {
       } catch (error) {
         console.error(error);
         await revertChargeDraftToWeighed(latestOrder.id, latestContext.draft);
-        const detail = getActionErrorDetail(error);
+        const interpreted = interpretHandleSuspendedPaymentError(error);
+        const detail = interpreted.message;
         failed.push({ order: latestOrder, detail });
         setBatchFailedByOrderId((prev) => ({
           ...prev,
           [latestOrder.id]: detail || TR.he.batchChargeFailedBadge,
         }));
+        if (interpreted.missingGrowHold) {
+          continue;
+        }
       }
     }
 
     setBatchChargeProgress(null);
-    const failedNames = failed
-      .map((entry) => getOrderDisplayName(entry.order))
+    const failedLines = failed
+      .map((entry) => formatBatchChargeFailureLine(getOrderDisplayName(entry.order), entry.detail))
       .filter(Boolean)
-      .join(', ');
-    const failedSuffixHe = failedNames ? `\n${failedNames}` : '';
+      .join('\n');
+    const failedSuffixHe = failedLines ? `\n${failedLines}` : '';
     const skippedCount = (plan?.skipped?.length || 0) + extraSkipped.length;
     await biAlert({
       heText: `${TR.he.batchChargeSummary(charged.length, failed.length, skippedCount, plan?.alreadyCompleted?.length || 0)}${failedSuffixHe}`,
@@ -3453,6 +3550,24 @@ export default function DeliveryManagementV7() {
       });
       return;
     }
+    const refundAlertsHe = [];
+    const refundAlertsTh = [];
+    included.forEach((entry) => {
+      const list = getOpenRefundsForOrder(entry.order);
+      if (list.length === 0) return;
+      const name = entry.order.customerDetails?.name || entry.order.id;
+      refundAlertsHe.push(`${name}${buildChargeRefundDialogText(list, { currentOrderId: entry.order.id, lang: 'he' })}`);
+      refundAlertsTh.push(`${name}${buildChargeRefundDialogText(list, { currentOrderId: entry.order.id, lang: 'th' })}`);
+    });
+    if (refundAlertsHe.length > 0) {
+      const okRefunds = await biConfirm({
+        heText: `${TR.he.refundChargeWarning}\n\n${refundAlertsHe.join('\n')}`,
+        thText: `${TR.th.refundChargeWarning}\n\n${refundAlertsTh.join('\n')}`,
+        title: 'warning',
+        confirmButtonDelay: 2000,
+      });
+      if (!okRefunds) return;
+    }
     setBatchChargeModalOpen(false);
     await runBatchChargeForEntries(included, batchChargeDiscountByCommunity, plan);
   };
@@ -3485,6 +3600,18 @@ export default function DeliveryManagementV7() {
     setSelectedSpecificStartDate(startDate);
     setSelectedSpecificEndDate(endDate);
   };
+
+  useEffect(() => {
+    const setup = parseAutoloadSetupFromSearch(location.search);
+    if (!setup) return;
+    writeLastSetupV7(setup);
+    applyDeliveryFilters({
+      weekKey: setup.weekKey,
+      communitiesSet: new Set(setup.communities),
+      startDate: setup.startDate,
+      endDate: setup.endDate,
+    });
+  }, [location.search]);
 
   const handleDeliveryTransferred = useCallback(({ newDeliveryDateKey }) => {
     setSelectedOrderId(null);
@@ -3880,6 +4007,9 @@ export default function DeliveryManagementV7() {
               {(selectedSpecificStartDate || selectedSpecificEndDate) && (
                 <> — <span className="font-bold">{selectedSpecificStartDate || selectedSpecificEndDate}</span> → <span className="font-bold">{selectedSpecificEndDate || selectedSpecificStartDate}</span></>
               )}
+              {new URLSearchParams(location.search).get('autoload') === 'today' && (
+                <> — <span className="font-bold text-emerald-700">{t.todayAutoLoaded}</span></>
+              )}
             </div>
           )}
         </div>
@@ -3941,6 +4071,15 @@ export default function DeliveryManagementV7() {
                     >
                       מספר לפי קהילה {showCommunityNumbering ? 'פעיל' : 'כבוי'}
                     </button>
+                    {communityOrderOverride.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={resetCommunityOrder}
+                        className="px-3 py-1 rounded-full text-xs font-bold transition-colors border bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                      >
+                        ↺ {t.resetOrder}
+                      </button>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-1 items-center">
                     <button
@@ -3951,72 +4090,98 @@ export default function DeliveryManagementV7() {
                     >
                       All ({orders.length})
                     </button>
-                    {orderCommunities.map((c, ci) => {
-                      const count = orderCountByCommunity[c] || 0;
-                      const isFirst = ci === 0;
-                      const isLast = ci === orderCommunities.length - 1;
-                      return (
-                        <div key={c} className="flex items-center gap-0.5">
-                          {!isFirst && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); moveCommunity(c, -1); }}
-                              className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors text-xs"
-                            >
-                              {isRTL ? '\u25B6' : '\u25C0'}
-                            </button>
-                          )}
-                          <input
-                            type="color"
-                            value={getEffectiveCommunityColor(c)}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              setPendingCommunityColors((prev) => ({ ...prev, [c]: e.target.value }));
-                            }}
-                            className="w-5 h-5 rounded border border-gray-300 cursor-pointer shrink-0 p-0"
-                            title={lang === 'th' ? 'เปลี่ยนสี' : 'שנה צבע קהילה'}
-                          />
-                          {pendingCommunityColors[c] && pendingCommunityColors[c] !== (communityColorOverrides[c] || getCommunityColor(c)) && (
-                            <>
+                    {(() => {
+                      const blocks = [];
+                      orderCommunities.forEach((c) => {
+                        const group = resolveDeliveryGroup(c);
+                        const last = blocks[blocks.length - 1];
+                        if (group && last && last.group === group) last.items.push(c);
+                        else blocks.push({ group, items: [c] });
+                      });
+                      let communityIndex = 0;
+                      return blocks.map((block) => {
+                        const startIndex = communityIndex;
+                        const pills = block.items.map((c) => {
+                          const ci = communityIndex;
+                          communityIndex += 1;
+                          const count = orderCountByCommunity[c] || 0;
+                          const isFirst = ci === 0;
+                          const isLast = ci === orderCommunities.length - 1;
+                          return (
+                            <div key={c} className="flex items-center gap-0.5">
+                              {!isFirst && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); moveCommunity(c, -1); }}
+                                  className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors text-xs"
+                                >
+                                  {isRTL ? '\u25B6' : '\u25C0'}
+                                </button>
+                              )}
+                              <input
+                                type="color"
+                                value={getEffectiveCommunityColor(c)}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  setPendingCommunityColors((prev) => ({ ...prev, [c]: e.target.value }));
+                                }}
+                                className="w-5 h-5 rounded border border-gray-300 cursor-pointer shrink-0 p-0"
+                                title={lang === 'th' ? 'เปลี่ยนสี' : 'שנה צבע קהילה'}
+                              />
+                              {pendingCommunityColors[c] && pendingCommunityColors[c] !== (communityColorOverrides[c] || getCommunityColor(c)) && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); acceptCommunityColor(c); }}
+                                    className="w-5 h-5 flex items-center justify-center text-[10px] font-black text-white bg-green-600 hover:bg-green-700 rounded"
+                                    title={lang === 'th' ? 'אשר צבע' : 'אשר צבע'}
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); cancelCommunityColor(c); }}
+                                    className="w-5 h-5 flex items-center justify-center text-[10px] font-black text-gray-600 bg-gray-100 hover:bg-gray-200 rounded"
+                                    title={lang === 'th' ? 'בטל' : 'בטל'}
+                                  >
+                                    ✕
+                                  </button>
+                                </>
+                              )}
                               <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); acceptCommunityColor(c); }}
-                                className="w-5 h-5 flex items-center justify-center text-[10px] font-black text-white bg-green-600 hover:bg-green-700 rounded"
-                                title={lang === 'th' ? 'אשר צבע' : 'אשר צבע'}
+                                onClick={() => setCommunityFilter(c)}
+                                className={`px-3 py-1 rounded-full text-xs font-bold transition-colors border-r-[6px] ${
+                                  communityFilter === c ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                }`}
+                                style={{ borderRightColor: getEffectiveCommunityColor(c) }}
                               >
-                                ✓
+                                <span className="inline-block w-4 h-4 rounded-full mr-1" style={{ backgroundColor: getEffectiveCommunityColor(c) }} />
+                                <span className="font-black mr-1 text-[10px] opacity-60">{ci + 1}.</span>{c} ({count})
                               </button>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); cancelCommunityColor(c); }}
-                                className="w-5 h-5 flex items-center justify-center text-[10px] font-black text-gray-600 bg-gray-100 hover:bg-gray-200 rounded"
-                                title={lang === 'th' ? 'בטל' : 'בטל'}
-                              >
-                                ✕
-                              </button>
-                            </>
-                          )}
-                          <button
-                            onClick={() => setCommunityFilter(c)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors border-r-[6px] ${
-                              communityFilter === c ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
-                            style={{ borderRightColor: getEffectiveCommunityColor(c) }}
+                              {!isLast && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); moveCommunity(c, 1); }}
+                                  className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors text-xs"
+                                >
+                                  {isRTL ? '\u25C0' : '\u25B6'}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        });
+                        return (
+                          <div
+                            key={block.group || block.items[0] || startIndex}
+                            className={block.group ? 'flex flex-wrap items-center gap-1 border border-slate-300 rounded-lg px-1.5 py-1 bg-slate-50' : 'flex flex-wrap items-center gap-1'}
                           >
-                            <span className="inline-block w-4 h-4 rounded-full mr-1" style={{ backgroundColor: getEffectiveCommunityColor(c) }} />
-                            <span className="font-black mr-1 text-[10px] opacity-60">{ci + 1}.</span>{c} ({count})
-                          </button>
-                          {!isLast && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); moveCommunity(c, 1); }}
-                              className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors text-xs"
-                            >
-                              {isRTL ? '\u25C0' : '\u25B6'}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
+                            {block.group && (
+                              <span className="text-[10px] font-black text-slate-700 px-1">{t.deliveryGroup}: {block.group}</span>
+                            )}
+                            {pills}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
               )}
@@ -4025,12 +4190,21 @@ export default function DeliveryManagementV7() {
                 {filteredOrders.length === 0 && (
                   <div className="p-6 text-center text-gray-400 text-sm">{t.noOrders}</div>
                 )}
-                {filteredOrders.map((o) => {
+                {filteredOrders.map((o, index) => {
                   const effectiveStatus = getEffectiveOrderStatus(o, effectiveDraftsByOrder[o.id]);
                   const isActive = o.id === selectedOrderId;
                   const cid = o?.customerDetails?.phone || o?.customerDetails?.email || null;
                   const custNum = cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-';
                   const orderCommunity = o?.customerDetails?.pickupSpot || o?.pickupSpot || '';
+                  const prevCommunity = index > 0
+                    ? (filteredOrders[index - 1]?.customerDetails?.pickupSpot || filteredOrders[index - 1]?.pickupSpot || '')
+                    : '';
+                  const showCommunityHeader = communityFilter === '__all__' && orderCommunity && orderCommunity !== prevCommunity;
+                  const communityGroup = resolveDeliveryGroup(orderCommunity);
+                  const prevGroup = resolveDeliveryGroup(prevCommunity);
+                  const showGroupDivider = showCommunityHeader && communityGroup && communityGroup !== prevGroup;
+                  const communityIndex = orderCommunities.indexOf(orderCommunity);
+                  const communityColor = getEffectiveCommunityColor(orderCommunity);
                   const communityNum = showCommunityNumbering && orderCommunity
                     ? computedCommunityOrderNumbers[orderCommunity]?.[o.id]
                     : null;
@@ -4042,8 +4216,34 @@ export default function DeliveryManagementV7() {
                   const custProfile = cid ? customerProfilesMap[cid] : null;
                   const custStats = classifyCustomer(cid ? customerHistoryMap[cid] : null);
                   return (
+                    <React.Fragment key={o.id}>
+                      {showGroupDivider && (
+                        <div className="sticky top-0 z-20 px-3 py-2 bg-slate-800 text-white text-sm font-black tracking-wide border-y-4 border-slate-950">
+                          🚚 {t.deliveryGroup}: {communityGroup}
+                        </div>
+                      )}
+                      {showCommunityHeader && (
+                        <div
+                          className="sticky z-10 px-3 py-2 text-white font-black shadow-sm"
+                          style={{
+                            backgroundColor: communityColor,
+                            top: showGroupDivider ? '2.5rem' : 0,
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate">
+                              {communityIndex >= 0 ? `${communityIndex + 1}. ` : ''}{orderCommunity}
+                            </span>
+                            <span className="text-xs font-bold bg-black/25 rounded-full px-2 py-0.5 shrink-0">
+                              {pendingCountByCommunity[orderCommunity] || 0}/{orderCountByCommunity[orderCommunity] || 0}
+                            </span>
+                          </div>
+                          {communityGroup && (
+                            <div className="text-[10px] font-bold opacity-90 mt-0.5">{t.deliveryGroup}: {communityGroup}</div>
+                          )}
+                        </div>
+                      )}
                     <button
-                      key={o.id}
                       type="button"
                       onClick={() => setSelectedOrderId(o.id)}
                       className={`w-full p-3 transition-colors relative ${isRTL ? 'text-right' : 'text-left'} ${
@@ -4054,6 +4254,10 @@ export default function DeliveryManagementV7() {
                             : 'bg-white hover:bg-gray-50'
                       }`}
                     >
+                      <div
+                        className={`absolute inset-y-0 w-1.5 ${isRTL ? 'right-0' : 'left-0'}`}
+                        style={{ backgroundColor: communityColor }}
+                      />
                       <div className="flex items-center gap-3">
                         <div className="relative flex-shrink-0">
                           <div className={`relative w-10 h-10 rounded-full font-black flex items-center justify-center text-lg ${
@@ -4115,8 +4319,11 @@ export default function DeliveryManagementV7() {
                         <div className="flex flex-col items-end gap-1">
                           {statusBadge(effectiveStatus)}
                           {batchFailedByOrderId[o.id] && !isDone && (
-                            <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-2 py-0.5">
-                              {t.batchChargeFailedBadge}
+                            <span
+                              className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-2 py-0.5 max-w-[9rem] truncate"
+                              title={batchFailedByOrderId[o.id]}
+                            >
+                              {batchFailedByOrderId[o.id]}
                             </span>
                           )}
                           {batchChargeExcludedOrderIds.has(o.id) && !isDone && (
@@ -4128,6 +4335,7 @@ export default function DeliveryManagementV7() {
                         </div>
                       </div>
                     </button>
+                    </React.Fragment>
                   );
                 })}
               </div>
@@ -4231,6 +4439,11 @@ export default function DeliveryManagementV7() {
                       <div className="ml-2">{statusBadge(selectedOrderStatus)}</div>
                     </div>
                     <div className="flex flex-col gap-2 shrink-0">
+                    {selectedOrderRefunds.length > 0 && (
+                      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+                        ⚠ {t.refundChargeWarning} ({selectedOrderRefunds.length})
+                      </div>
+                    )}
                     <button
                       onClick={completeOrder}
                       disabled={completeDisabled}
@@ -5358,6 +5571,7 @@ export default function DeliveryManagementV7() {
         confirmDisabled={!isOnline || !!batchChargeProgress}
         onConfirm={confirmBatchChargeFromModal}
         onClose={() => setBatchChargeModalOpen(false)}
+        getOpenRefundsForOrder={getOpenRefundsForOrder}
       />
 
       <BilingualDialog
