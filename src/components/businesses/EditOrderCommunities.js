@@ -1,35 +1,43 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import usePickupSpots from '../../hooks/usePickupSpots';
-import { getDeterministicCommunityColor } from '../../services/pickupSpotsService';
+import { getDeterministicCommunityColor, loadPickupSpots } from '../../services/pickupSpotsService';
+import { canEditBusinessOrder, isAdminAccount } from '../../utils/accountRoles';
 import LoadingSpinner from '../LoadingSpinner';
 
 const EditOrderCommunities = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, userRole } = useAuth();
   const { pickupSpots, pickupSpotsData } = usePickupSpots();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [order, setOrder] = useState(null);
   const [selectedPickupSpots, setSelectedPickupSpots] = useState([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    loadPickupSpots({ force: true, allowCollectionFallback: true }).catch((error) => {
+      console.error('Failed to load communities for order editing:', error);
+    });
+  }, []);
 
   useEffect(() => {
     const load = async () => {
       if (!currentUser || !orderId) return;
+      if (userRole == null && !isAdminAccount(currentUser, userRole)) return;
       setLoading(true);
       try {
         const orderSnap = await getDoc(doc(db, 'Orders', orderId));
         if (!orderSnap.exists()) throw new Error('הזמנה לא נמצאה');
         const orderData = { id: orderSnap.id, ...orderSnap.data() };
-        const ownsOrder =
-          orderData.businessId === currentUser.uid
-          || orderData.businessEmail === currentUser.email;
-        if (!ownsOrder) throw new Error('אין הרשאה לערוך הזמנה זו');
+        if (!canEditBusinessOrder(currentUser, userRole, orderData)) {
+          throw new Error('אין הרשאה לערוך הזמנה זו. התחברו לחשבון העסק ששייך לטופס, או לחשבון מנהל.');
+        }
         setOrder(orderData);
         setSelectedPickupSpots(
           Array.isArray(orderData.pickupSpots) ? [...new Set(orderData.pickupSpots)] : []
@@ -41,7 +49,15 @@ const EditOrderCommunities = () => {
       }
     };
     load();
-  }, [currentUser, orderId, navigate]);
+  }, [currentUser, userRole, orderId, navigate]);
+
+  const visiblePickupSpots = useMemo(() => {
+    const extras = selectedPickupSpots.filter((spot) => !pickupSpots.includes(spot));
+    const all = extras.length ? [...pickupSpots, ...extras] : pickupSpots;
+    const query = search.trim();
+    if (!query) return all;
+    return all.filter((spot) => spot.includes(query));
+  }, [pickupSpots, search, selectedPickupSpots]);
 
   const toggleSpot = (spot) => {
     setSelectedPickupSpots((prev) => (
@@ -70,7 +86,7 @@ const EditOrderCommunities = () => {
     }
   };
 
-  if (loading) return <LoadingSpinner />;
+  if (loading || !order) return <LoadingSpinner />;
 
   return (
     <div className="max-w-5xl mx-auto p-6" dir="rtl">
@@ -83,7 +99,7 @@ const EditOrderCommunities = () => {
       </div>
 
       <h1 className="text-2xl font-bold mb-2">עריכת יישובים בטופס הזמנה</h1>
-      <p className="text-gray-600 mb-6">{order?.orderName || order?.name || order.id}</p>
+      <p className="text-gray-600 mb-6">{order.orderName || order.name || order.id}</p>
 
       <div className="mb-4 bg-green-50 border border-green-200 rounded p-4">
         <p className="font-medium">נבחרו {selectedPickupSpots.length} יישובים</p>
@@ -106,25 +122,39 @@ const EditOrderCommunities = () => {
       </div>
 
       <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 mb-6">
-        <div className="flex justify-end gap-2 mb-3 pb-3 border-b border-gray-200">
-          <button
-            type="button"
-            onClick={() => setSelectedPickupSpots(pickupSpots.slice())}
-            className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-          >
-            בחר הכל
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedPickupSpots([])}
-            className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
-          >
-            נקה הכל
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-3 border-b border-gray-200">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="חיפוש יישוב..."
+            className="flex-1 min-w-[12rem] px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedPickupSpots(pickupSpots.slice())}
+              className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+            >
+              בחר הכל
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedPickupSpots([])}
+              className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
+            >
+              נקה הכל
+            </button>
+          </div>
         </div>
 
         <div className="max-h-96 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {pickupSpots.map((spot) => {
+          {visiblePickupSpots.length === 0 && (
+            <p className="col-span-full text-sm text-gray-500 text-center py-6">
+              לא נמצאו יישובים תואמים לחיפוש.
+            </p>
+          )}
+          {visiblePickupSpots.map((spot) => {
             const isSelected = selectedPickupSpots.includes(spot);
             return (
               <button

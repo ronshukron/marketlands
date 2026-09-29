@@ -123,7 +123,8 @@ const CommunityWeeklyPromotionUnlockModal = ({
         promotion,
       });
       if (operation === operationRef.current) await onUnlocked();
-    } catch {
+    } catch (unlockError) {
+      console.warn('Failed to confirm weekly promotion unlock', unlockError);
       if (operation === operationRef.current) {
         setError('לא הצלחנו לפתוח את המחיר כרגע. נסו שוב.');
       }
@@ -187,6 +188,9 @@ const CommunityWeeklyPromotionUnlockModal = ({
           className="mt-4 text-base leading-7 text-slate-700"
         >
           העתיקו את ההודעה, שתפו אותה בקבוצת הוואטסאפ של הקהילה וחזרו לכאן לפתיחת המחיר.
+        </p>
+        <p className="mt-2 rounded-lg bg-emerald-50 p-3 text-sm font-medium leading-6 text-emerald-900">
+          המבצע נפתח עבור כל הקהילה{resolvedCommunityName ? ` ${resolvedCommunityName}` : ''} — מספיק שאחד ישתף, וכל חברי הקהילה יקבלו את המחיר המיוחד.
         </p>
 
         {error && (

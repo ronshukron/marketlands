@@ -298,6 +298,52 @@ describe('community weekly promotion analytics', () => {
     });
   });
 
+  test('does not count a promo product that kept the regular price', () => {
+    const stats = buildCommunityWeeklyPromotionAnalytics({
+      promotion,
+      unlocks: [{ communityCode: 'north', unlocked: true }],
+      orders: [delayedOrder({
+        id: 'order-regular-price',
+        userId: 'user-11',
+        orderBreakdown: {
+          biz: {
+            items: [promoLine({
+              communityWeeklyPromotionApplied: false,
+              estimatedLineTotal: 45,
+              price: 45,
+              effectivePrice: 45,
+            })],
+          },
+        },
+      })],
+    });
+
+    expect(stats.orders).toBe(0);
+    expect(stats.revenue).toBe(0);
+  });
+
+  test('uses the weekly checkout estimate, not a later community-discount original', () => {
+    const stats = buildCommunityWeeklyPromotionAnalytics({
+      promotion,
+      unlocks: [{ communityCode: 'north', unlocked: true }],
+      orders: [delayedOrder({
+        id: 'order-discount-original',
+        userId: 'user-12',
+        orderBreakdown: {
+          biz: {
+            items: [promoLine({
+              estimatedLineTotal: 18,
+              communityDiscountOriginalEstimatedLineTotal: 45,
+              communityDiscountOriginalEffectivePrice: 22.5,
+            })],
+          },
+        },
+      })],
+    });
+
+    expect(stats.revenue).toBe(18);
+  });
+
   test('does not count an applied line from another week when the promotion id is missing', () => {
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,

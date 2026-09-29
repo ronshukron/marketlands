@@ -7,7 +7,7 @@ import {
 describe('community weekly promotion share message', () => {
   const promotion = {
     productSnapshots: [
-      { name: 'קרטון רימון 6 ק"ג', promotionPrice: 30, measurementType: 'package' },
+      { name: 'קרטון רימון 6 ק"ג', promotionPrice: 30, regularPrice: 45, measurementType: 'package' },
       { name: 'עגבניות', promotionPrice: 8.5, measurementType: 'kg' },
     ],
   };
@@ -22,10 +22,10 @@ describe('community weekly promotion share message', () => {
 
     expect(message).toBe(
       [
-        COMMUNITY_WEEKLY_PROMOTION_SHARE_TITLE,
-        '• קרטון רימון 6 ק"ג - 30₪\n• עגבניות - 8.50₪',
-        'קבוצת הוואטסאפ של אור הנר:\nhttps://chat.whatsapp.com/orhaner',
-        'להזמנה באתר (אור הנר):\nhttps://www.bastabasket.com/?c=abc123',
+        `${COMMUNITY_WEEKLY_PROMOTION_SHARE_TITLE}\nמחיר קהילתי מיוחד לאור הנר`,
+        '• *קרטון רימון 6 ק"ג - 30₪* ~45₪~\n• *עגבניות - 8.50₪*',
+        '🛒 *להזמנה באתר:*\nhttps://www.bastabasket.com/?c=abc123',
+        '👥 קבוצת הוואטסאפ של אור הנר:\nhttps://chat.whatsapp.com/orhaner',
       ].join('\n\n'),
     );
   });
@@ -38,9 +38,10 @@ describe('community weekly promotion share message', () => {
     });
 
     expect(message).toContain(COMMUNITY_WEEKLY_PROMOTION_SHARE_TITLE);
-    expect(message).toContain('• קרטון רימון 6 ק"ג - 30₪');
+    expect(message).toContain('• *קרטון רימון 6 ק"ג - 30₪* ~45₪~');
     expect(message).not.toContain('וואטסאפ');
-    expect(message).toContain('להזמנה באתר (ניצנים):');
+    expect(message).toContain('🛒 *להזמנה באתר:*');
+    expect(message).not.toContain('לוס לידר');
   });
 
   test('builds a community-specific store url from a compact community code', () => {

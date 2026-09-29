@@ -9,8 +9,8 @@ import {
   getDateRangeFromWeekKey,
   getOrderCommunity,
   getOrderDeliveryDate,
-  getRecentWeekKeys,
   getWeekKey,
+  getWeekKeysAroundToday,
   isOrderDeliveryDateFallback,
   normalizeDateRange,
   toLocalDateKey,
@@ -171,15 +171,18 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
           .forEach((dateKey) => deliveryDates.add(dateKey));
       });
 
-      const sortedWeeks = getRecentWeekKeys(16);
       const sortedDeliveryDates = Array.from(deliveryDates).sort();
+      const sortedWeeks = Array.from(new Set([
+        ...getWeekKeysAroundToday({ pastCount: 16, futureCount: 8 }),
+        ...sortedDeliveryDates.map((dateKey) => getWeekKey(dateKey)).filter(Boolean),
+      ])).sort((a, b) => b.localeCompare(a));
 
       setAvailableWeeks(sortedWeeks);
       setAvailableDeliveryDates(sortedDeliveryDates);
-      if (sortedWeeks.length > 0) {
-        setDraftSelectedWeek(sortedWeeks[0]);
-      }
       const todayKey = toLocalDateKey(new Date());
+      const nextDeliveryDate = sortedDeliveryDates.find((dateKey) => dateKey >= todayKey);
+      const defaultWeek = getWeekKey(nextDeliveryDate) || sortedWeeks[0] || '';
+      if (defaultWeek) setDraftSelectedWeek(defaultWeek);
       setOrderMessageDate(
         sortedDeliveryDates.find((dateKey) => dateKey >= todayKey)
           || sortedDeliveryDates[sortedDeliveryDates.length - 1]

@@ -25,6 +25,7 @@ import {
   isSuccessfulRegularCustomerOrder,
 } from '../utils/customerOrderUtils';
 import { getEffectiveUnitPrice } from '../utils/pricing';
+import { getDeliveryScheduleDocumentKeys } from '../utils/deliveryScheduleUtils';
 
 export function getLegacyCustomerOrderIds(userData = {}) {
   return Array.isArray(userData.orders)
@@ -98,6 +99,24 @@ export function getOrderDeliveryDateFromCustomerOrder(order = {}) {
     || order.fulfillment?.deliveryDate
     || order.customerDetails?.deliveryDate
     || '';
+}
+
+function normalizeCustomerExcludedLineIds(value) {
+  if (Array.isArray(value)) {
+    return Object.fromEntries(value.filter(Boolean).map((lineId) => [lineId, true]));
+  }
+  if (!value || typeof value !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([, excluded]) => excluded === true),
+  );
+}
+
+async function readCommunityDeliverySchedule(pickupSpot, read) {
+  for (const key of getDeliveryScheduleDocumentKeys(pickupSpot)) {
+    const scheduleSnap = await read(doc(db, 'deliverySchedules', key));
+    if (scheduleSnap.exists()) return scheduleSnap.data();
+  }
+  return null;
 }
 
 export function getOrderPickupSpot(order = {}) {
@@ -221,11 +240,9 @@ export async function toggleCustomerLineExclusion({
 
     const deliveryDate = getOrderDeliveryDateFromCustomerOrder(data);
     const pickupSpot = getOrderPickupSpot(data);
-    let deliverySchedule = null;
-    if (deliveryDate && pickupSpot) {
-      const scheduleSnap = await transaction.get(doc(db, 'deliverySchedules', pickupSpot));
-      deliverySchedule = scheduleSnap.exists() ? scheduleSnap.data() : null;
-    }
+    const deliverySchedule = pickupSpot
+      ? await readCommunityDeliverySchedule(pickupSpot, (ref) => transaction.get(ref))
+      : null;
 
     if (!isCustomerBusinessLineEditable({
       customerOrder: data,
@@ -238,7 +255,7 @@ export async function toggleCustomerLineExclusion({
       throw new Error('זמן העריכה של פריט זה הסתיים');
     }
 
-    const customerExcludedLineIds = { ...(data.customerExcludedLineIds || {}) };
+    const customerExcludedLineIds = normalizeCustomerExcludedLineIds(data.customerExcludedLineIds);
     if (exclude) {
       customerExcludedLineIds[lineId] = true;
     } else {

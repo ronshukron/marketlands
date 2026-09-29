@@ -37,6 +37,8 @@ const EditProduct = () => {
     showInAllCategory: false,
     isOrganic: false,
     isRecommended: false,
+    isKosher: false,
+    isKosherMehadrin: false,
     options: [],
     tags: [],
     stockAmount: 0,
@@ -110,6 +112,8 @@ const EditProduct = () => {
             showInAllCategory: Boolean(data.showInAllCategory),
             isOrganic: Boolean(data.isOrganic),
             isRecommended: Boolean(data.isRecommended),
+            isKosher: Boolean(data.isKosher),
+            isKosherMehadrin: Boolean(data.isKosherMehadrin),
             options: data.options || [],
             tags: data.tags || [],
             stockAmount: data.stockAmount || 0,
@@ -313,6 +317,8 @@ const handleSubmit = async (e) => {
       isSample: isSample || parseFloat(price) === 0,
       isOrganic: Boolean(formData.isOrganic),
       isRecommended: Boolean(formData.isRecommended),
+      isKosher: Boolean(formData.isKosher),
+      isKosherMehadrin: Boolean(formData.isKosherMehadrin),
       quantityDiscountThreshold: quantityDiscount?.quantityDiscountThreshold ?? null,
       quantityDiscountPrice: quantityDiscount?.quantityDiscountPrice ?? null,
       quantityDiscountLabel: quantityDiscount
@@ -474,6 +480,24 @@ const handleSubmit = async (e) => {
                   className="h-5 w-5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
                 />
                 <span className="text-sm text-gray-700">מומלץ</span>
+              </label>
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={formData.isKosher}
+                  onChange={(e) => setFormData({ ...formData, isKosher: e.target.checked })}
+                  className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">כשר</span>
+              </label>
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={formData.isKosherMehadrin}
+                  onChange={(e) => setFormData({ ...formData, isKosherMehadrin: e.target.checked })}
+                  className="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-sm text-gray-700">כשר מהדרין</span>
               </label>
             </div>
           </fieldset>

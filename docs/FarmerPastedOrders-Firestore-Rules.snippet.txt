@@ -1,0 +1,66 @@
+// Merge inside:
+//   match /databases/{database}/documents { ... }
+// Reuse existing isAuthenticated() / isBusinessOwner() if they already exist.
+//
+// Farmer-pasted packing orders live in farmerPastedOrders/{orderId}.
+// Only the owning business account (request.auth.uid === businessId) may
+// read or write their own documents.
+
+function isValidFarmerPastedOrder(data) {
+  return data.keys().hasAll([
+      'businessId',
+      'orderNumber',
+      'buyerName',
+      'status',
+      'rawText',
+      'lines',
+      'createdAt'
+    ])
+    && data.businessId is string
+    && data.businessId.size() > 0
+    && data.businessId.size() <= 128
+    && data.orderNumber is string
+    && data.orderNumber.size() > 0
+    && data.orderNumber.size() <= 80
+    && data.buyerName is string
+    && data.buyerName.size() > 0
+    && data.buyerName.size() <= 120
+    && (data.status == 'open' || data.status == 'done')
+    && data.rawText is string
+    && data.rawText.size() <= 20000
+    && data.lines is list
+    && data.lines.size() > 0
+    && data.lines.size() <= 200
+    && data.createdAt is timestamp;
+}
+
+match /farmerPastedOrders/{orderId} {
+  allow create: if isAuthenticated()
+    && isBusinessOwner(request.resource.data.businessId)
+    && isValidFarmerPastedOrder(request.resource.data)
+    && request.resource.data.status == 'open'
+    && request.resource.data.createdAt == request.time;
+
+  allow read: if isAuthenticated()
+    && isBusinessOwner(resource.data.businessId);
+
+  allow update: if isAuthenticated()
+    && isBusinessOwner(resource.data.businessId)
+    && isBusinessOwner(request.resource.data.businessId)
+    && request.resource.data.businessId == resource.data.businessId
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'lines'])
+    && request.resource.data.status in ['open', 'done'];
+
+  allow delete: if isAuthenticated()
+    && isBusinessOwner(resource.data.businessId);
+}
+
+match /farmerProductAliases/{businessId} {
+  allow read: if isBusinessOwner(businessId);
+  allow create, update: if isBusinessOwner(businessId)
+    && request.resource.data.keys().hasOnly(['aliases'])
+    && request.resource.data.aliases is map
+    && request.resource.data.aliases.size() > 0
+    && request.resource.data.aliases.size() <= 500;
+  allow delete: if isBusinessOwner(businessId);
+}

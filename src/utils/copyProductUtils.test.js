@@ -41,6 +41,8 @@ describe('buildCopiedProductPayload', () => {
     isSample: false,
     isOrganic: true,
     isRecommended: true,
+    isKosher: true,
+    isKosherMehadrin: true,
     tags: ['קיץ'],
     quantityDiscountThreshold: 10,
     quantityDiscountPrice: 10,
@@ -68,6 +70,8 @@ describe('buildCopiedProductPayload', () => {
     expect(payload.showInAllCategory).toBe(false);
     expect(payload.isOrganic).toBe(true);
     expect(payload.isRecommended).toBe(true);
+    expect(payload.isKosher).toBe(true);
+    expect(payload.isKosherMehadrin).toBe(true);
     expect(payload.tags).toEqual(['קיץ']);
     expect(payload.quantityDiscountThreshold).toBe(10);
     expect(payload.quantityDiscountPrice).toBe(10);

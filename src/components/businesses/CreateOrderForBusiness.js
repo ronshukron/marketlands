@@ -8,7 +8,9 @@ import Swal from 'sweetalert2';
 import './CreateOrderForBusiness.css';
 import communityToRegion from '../../utils/communityToRegion';
 import usePickupSpots from '../../hooks/usePickupSpots';
+import { loadPickupSpots } from '../../services/pickupSpotsService';
 import LoadingSpinner from '../LoadingSpinner';
+import { isOrderFormCreationDisabled } from '../../utils/accountRoles';
 
 // Add this custom style to the component for better radio and checkbox appearance
 const customInputStyle = `
@@ -74,6 +76,30 @@ const CreateOrderForBusiness = () => {
       navigate('/business-products');
     }
   }, [selectedProducts, navigate]);
+
+  useEffect(() => {
+    loadPickupSpots({ force: true, allowCollectionFallback: true }).catch((error) => {
+      console.error('Failed to load communities for order creation:', error);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser?.uid) return undefined;
+    let cancelled = false;
+    (async () => {
+      const snap = await getDoc(doc(db, 'businesses', currentUser.uid));
+      if (cancelled || !snap.exists() || !isOrderFormCreationDisabled(snap.data())) return;
+      await Swal.fire({
+        icon: 'info',
+        title: 'יצירת מודעות חסומה',
+        text: 'לא ניתן ליצור מודעת מכירה לחשבון זה.',
+      });
+      if (!cancelled) navigate('/Business-Products', { replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.uid, navigate]);
 
   const handleScheduleChange = (index, field, value) => {
     setSchedule((prevSchedule) => {
@@ -143,6 +169,18 @@ const CreateOrderForBusiness = () => {
   };
 
   const handleCreateOrder = async () => {
+    if (currentUser?.uid) {
+      const gateSnap = await getDoc(doc(db, 'businesses', currentUser.uid));
+      if (gateSnap.exists() && isOrderFormCreationDisabled(gateSnap.data())) {
+        Swal.fire({
+          icon: 'info',
+          title: 'יצירת מודעות חסומה',
+          text: 'לא ניתן ליצור מודעת מכירה לחשבון זה.',
+        });
+        navigate('/Business-Products', { replace: true });
+        return;
+      }
+    }
     if (loading) return;
 
     // Validate dates first for classic limited-time orders only.

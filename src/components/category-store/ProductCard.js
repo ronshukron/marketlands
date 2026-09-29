@@ -56,6 +56,11 @@ const ProductImageBadges = ({ product, compact = false }) => {
   if (product.isRecommended) {
     badges.push({ key: 'recommended', label: 'מומלץ', className: 'bg-amber-100 text-amber-800' });
   }
+  if (product.isKosherMehadrin) {
+    badges.push({ key: 'kosherMehadrin', label: 'כשר מהדרין', className: 'bg-indigo-100 text-indigo-800' });
+  } else if (product.isKosher) {
+    badges.push({ key: 'kosher', label: 'כשר', className: 'bg-blue-100 text-blue-800' });
+  }
   if (product.hasFarmerBadge) {
     badges.push({ key: 'farmer', label: '🌾 חקלאי', className: 'bg-orange-100 text-orange-900' });
   }

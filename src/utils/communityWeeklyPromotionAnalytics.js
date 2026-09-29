@@ -125,8 +125,6 @@ export const toCheckoutEstimateItem = (item = {}, promotionPrice = null) => {
   const quantity = number(item.requestedQuantity ?? item.quantity);
   const price = number(
     item.communityWeeklyPromotionPrice
-    ?? item.communityDiscountOriginalEffectivePrice
-    ?? item.communityDiscountOriginalPrice
     ?? promotionPrice
     ?? item.effectivePrice
     ?? item.price
@@ -143,11 +141,9 @@ export const toCheckoutEstimateItem = (item = {}, promotionPrice = null) => {
 };
 
 export const weeklyPromotionLineRevenue = (item = {}, promotionPrice = null) => {
-  const checkout = toCheckoutEstimateItem(item, promotionPrice);
-  const original = number(item.communityDiscountOriginalEstimatedLineTotal);
-  if (original > 0) return original;
   const estimated = number(item.estimatedLineTotal);
   if (estimated > 0) return estimated;
+  const checkout = toCheckoutEstimateItem(item, promotionPrice);
   return roundMoney(getEstimatedLineTotal(checkout));
 };
 

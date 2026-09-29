@@ -44,6 +44,8 @@ const AddProduct = () => {
   const [showInAllCategory, setShowInAllCategory] = useState(false);
   const [isOrganic, setIsOrganic] = useState(false);
   const [isRecommended, setIsRecommended] = useState(false);
+  const [isKosher, setIsKosher] = useState(false);
+  const [isKosherMehadrin, setIsKosherMehadrin] = useState(false);
 
   // Predefined unit size options (in kg)
   const UNIT_SIZE_OPTIONS = [
@@ -248,6 +250,8 @@ const AddProduct = () => {
         isSample: isSample || parseFloat(price) === 0,
         isOrganic,
         isRecommended,
+        isKosher,
+        isKosherMehadrin,
       };
       const quantityDiscount = normalizeQuantityDiscount(
         quantityDiscountThreshold,
@@ -441,6 +445,24 @@ const AddProduct = () => {
                   className="h-5 w-5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
                 />
                 <span className="text-sm text-gray-700">מומלץ</span>
+              </label>
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={isKosher}
+                  onChange={(e) => setIsKosher(e.target.checked)}
+                  className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">כשר</span>
+              </label>
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={isKosherMehadrin}
+                  onChange={(e) => setIsKosherMehadrin(e.target.checked)}
+                  className="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-sm text-gray-700">כשר מהדרין</span>
               </label>
             </div>
           </fieldset>

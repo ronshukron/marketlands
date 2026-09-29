@@ -11,9 +11,12 @@ jest.mock('firebase/firestore', () => ({
   writeBatch: jest.fn(),
 }));
 
-jest.mock('../firebase/firebase', () => ({ db: { name: 'test-db' } }));
+jest.mock('../firebase/firebase', () => ({
+  db: { name: 'test-db' },
+  auth: { currentUser: { uid: 'rfHOLhNoJOW8ByNypCtm3hlSNKs2' } },
+}));
 
-import { doc, getDoc, getDocs, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, getDocs, onSnapshot, setDoc } from 'firebase/firestore';
 import {
   getPickupSpotsSync,
   invalidatePickupSpotsCache,
@@ -89,6 +92,113 @@ describe('pickup spots catalog loading', () => {
     expect(snapshot.loaded).toBe(false);
     expect(snapshot.pickupSpots.length).toBeGreaterThan(0);
     expect(snapshot.pickupSpots).toEqual(expect.arrayContaining(['אור הנר', 'ניצנים']));
+  });
+
+  test('loads communities missing from the catalog when collection fallback is requested', async () => {
+    const newCommunity = { ...catalogCommunity, id: 'יישוב חדש', name: 'יישוב חדש' };
+    getDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        { id: catalogCommunity.name, data: () => catalogCommunity },
+        { id: newCommunity.name, data: () => newCommunity },
+      ],
+    });
+
+    const snapshot = await loadPickupSpots({ force: true, allowCollectionFallback: true });
+
+    expect(getDocs).toHaveBeenCalled();
+    expect(snapshot.pickupSpots).toEqual(expect.arrayContaining(['אור הנר', 'יישוב חדש']));
+    expect(snapshot.source).toBe('collection');
+    expect(setDoc).toHaveBeenCalled();
+    expect(doc).toHaveBeenCalledWith(expect.anything(), 'settings/communitiesCatalog');
+  });
+
+  test('does not publish the catalog for non-admin sessions', async () => {
+    const { auth } = jest.requireMock('../firebase/firebase');
+    const previousUser = auth.currentUser;
+    auth.currentUser = { uid: 'business-owner' };
+    getDocs.mockResolvedValue({
+      empty: false,
+      docs: [{ id: catalogCommunity.name, data: () => catalogCommunity }],
+    });
+
+    try {
+      await loadPickupSpots({ force: true, allowCollectionFallback: true });
+      expect(setDoc).not.toHaveBeenCalled();
+    } finally {
+      auth.currentUser = previousUser;
+    }
+  });
+
+  test('does not let a slower catalog load overwrite collection fallback', async () => {
+    const newCommunity = { ...catalogCommunity, id: 'יישוב חדש', name: 'יישוב חדש' };
+    let releaseCatalog;
+    getDoc.mockImplementation(() => new Promise((resolve) => {
+      releaseCatalog = () => resolve({
+        exists: () => true,
+        data: () => ({
+          communities: [catalogCommunity],
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    }));
+    getDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        { id: catalogCommunity.name, data: () => catalogCommunity },
+        { id: newCommunity.name, data: () => newCommunity },
+      ],
+    });
+
+    const catalogPromise = loadPickupSpots({ force: true });
+    await loadPickupSpots({ force: true, allowCollectionFallback: true });
+    releaseCatalog();
+    await catalogPromise;
+
+    expect(getPickupSpotsSync().pickupSpots).toEqual(expect.arrayContaining(['אור הנר', 'יישוב חדש']));
+  });
+
+  test('keeps collection communities when a stale catalog snapshot arrives', async () => {
+    const newCommunity = { ...catalogCommunity, id: 'יישוב חדש', name: 'יישוב חדש' };
+    getDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        { id: catalogCommunity.name, data: () => catalogCommunity },
+        { id: newCommunity.name, data: () => newCommunity },
+      ],
+    });
+
+    await loadPickupSpots({ force: true, allowCollectionFallback: true });
+    const unsubscribe = subscribePickupSpots(jest.fn());
+    await loadPickupSpots();
+
+    expect(getPickupSpotsSync().pickupSpots).toEqual(expect.arrayContaining(['אור הנר', 'יישוב חדש']));
+    unsubscribe();
+  });
+
+  test('keeps collection communities when a newer catalog snapshot is missing them', async () => {
+    const newCommunity = { ...catalogCommunity, id: 'יישוב חדש', name: 'יישוב חדש' };
+    getDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        { id: catalogCommunity.name, data: () => catalogCommunity },
+        { id: newCommunity.name, data: () => newCommunity },
+      ],
+    });
+
+    await loadPickupSpots({ force: true, allowCollectionFallback: true });
+    const unsubscribe = subscribePickupSpots(jest.fn());
+    const catalogHandler = onSnapshot.mock.calls.find((call) => typeof call[1] === 'function')?.[1];
+    catalogHandler?.({
+      exists: () => true,
+      data: () => ({
+        communities: [catalogCommunity],
+        updatedAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    });
+    unsubscribe();
+
+    expect(getPickupSpotsSync().pickupSpots).toEqual(expect.arrayContaining(['אור הנר', 'יישוב חדש']));
   });
 
   test('does not download the communities collection when the catalog is missing', async () => {

@@ -55,7 +55,7 @@ describe('CommunityWeeklyPromotionUnlockModal', () => {
 
     const shareText = screen.getByLabelText('ההודעה לשיתוף').value;
     expect(shareText).toContain(COMMUNITY_WEEKLY_PROMOTION_SHARE_TITLE);
-    expect(shareText).toContain('• קרטון רימון 6 ק"ג - 30₪');
+    expect(shareText).toContain('• *קרטון רימון 6 ק"ג - 30₪*');
     expect(shareText).toContain('https://chat.whatsapp.com/orhaner');
     expect(shareText).toContain('c=abc123');
     expect(screen.queryByRole('button', { name: 'שיתפתי — פתיחת ההנחה' })).not.toBeInTheDocument();

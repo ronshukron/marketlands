@@ -8,6 +8,7 @@ import Swal from 'sweetalert2';
 import './BusinessProducts.css';
 import { fetchMeshekDahanItems, getPreviousSnapshot, saveSnapshot, diffItems } from '../../services/meshekDahanService';
 import { buildProductImagePrompt } from '../../utils/productImagePrompt';
+import { isOrderFormCreationDisabled } from '../../utils/accountRoles';
 
 // Import Slider and CSS
 import Slider from "react-slick";
@@ -22,6 +23,7 @@ const BusinessProducts = () => {
   const [loading, setLoading] = useState(true);
   const [selectedProducts, setSelectedProducts] = useState([]); // Track selected products
   const [isIndependent, setIsIndependent] = useState(false);
+  const [orderFormsDisabled, setOrderFormsDisabled] = useState(false);
   const [loadingPreviousOrder, setLoadingPreviousOrder] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -372,6 +374,7 @@ const BusinessProducts = () => {
         if (snap.exists()) {
           const data = snap.data();
           setIsIndependent(data.isIndependent === true || data.IsIndependent === true);
+          setOrderFormsDisabled(isOrderFormCreationDisabled(data));
         }
       } catch (e) {
         console.error('Error fetching isIndependent:', e);
@@ -532,6 +535,14 @@ const BusinessProducts = () => {
     };
 
   const handleCreateOrder = () => {
+    if (orderFormsDisabled) {
+      Swal.fire({
+        icon: 'info',
+        title: 'יצירת מודעות חסומה',
+        text: 'לא ניתן ליצור מודעת מכירה לחשבון זה.',
+      });
+      return;
+    }
     if (selectedProducts.length === 0) {
       Swal.fire({
         icon: 'error',
@@ -607,18 +618,22 @@ const BusinessProducts = () => {
           >
             + הוסף מוצר
           </button>
+          {!orderFormsDisabled && (
           <button
             onClick={() => navigate('/business-promotions')}
             className="w-40 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
           >
             מבצעים משותפים
           </button>
+          )}
           <button
             onClick={() => navigate('/bulk-edit-products')}
             className="w-40 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
           >
             עריכה מרובה
           </button>
+          {!orderFormsDisabled && (
+          <>
           <button
             onClick={() => navigate('/bulk-replace-product-images')}
             disabled={products.length === 0}
@@ -667,8 +682,10 @@ const BusinessProducts = () => {
               </button>
             </>
           )}
+          </>
+          )}
         </div>
-        {!isIndependent && (
+        {!orderFormsDisabled && !isIndependent && (
           <div className="mt-2 text-sm text-gray-600">
             {supplierCheckedAt
               ? `בדיקה אחרונה: ${new Date(supplierCheckedAt).toLocaleString('he-IL')}`
@@ -801,7 +818,11 @@ const BusinessProducts = () => {
         </div>
       </div>
 
-      {/* Integrated guidance section - always visible */}
+      {orderFormsDisabled ? (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-4 mb-6 text-sm">
+          יצירת מודעות מכירה חסומה לחשבון זה.
+        </div>
+      ) : (
       <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-lg shadow-sm">
         <div className="flex">
           <div className="flex-shrink-0 mr-3">
@@ -836,9 +857,10 @@ const BusinessProducts = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Status section - shows depending on selection state */}
-      {selectedProducts.length > 0 && (
+      {!orderFormsDisabled && selectedProducts.length > 0 && (
         <div className="bg-green-50 border-l-4 border-green-400 p-4 mb-6 rounded-lg">
           <div className="flex">
             <div className="flex-shrink-0 mr-3">
@@ -983,6 +1005,7 @@ const BusinessProducts = () => {
                   {/* Actions - More Compact */}
                   <div className="mt-2 flex flex-col gap-2">
                     {(() => {
+                      if (orderFormsDisabled) return null;
                       const selectable = isProductSelectable(product);
                       const isSelected = selectedProducts.includes(product.id);
                       const baseEnabled = `${isSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`;
@@ -1021,6 +1044,7 @@ const BusinessProducts = () => {
           )}
 
           {/* Floating Create Order Button - Smaller */}
+          {!orderFormsDisabled && (
           <div className="fixed bottom-4 left-0 right-0 flex justify-center z-20">
             <button
               onClick={handleCreateOrder}
@@ -1049,6 +1073,7 @@ const BusinessProducts = () => {
               )}
             </button>
           </div>
+          )}
         </>
       )}
     </div>

@@ -53,6 +53,25 @@ describe('customer business-line cutoff', () => {
     })).toBe(false);
   });
 
+  test('keeps a classic line editable until its business ending time', () => {
+    expect(isCustomerBusinessLineEditable({
+      customerOrder: editableCustomerOrder,
+      businessOrderData: {
+        orderType: 'one_time',
+        endingTimeByPickupSpot: {
+          CommunityA: '2026-07-20T12:00:00.000Z',
+        },
+      },
+      deliveryDate: '2026-07-15',
+      deliverySchedule: {
+        active: true,
+        defaultCutoff: { hoursBeforeDelivery: 24 },
+      },
+      pickupSpot: 'CommunityA',
+      now: new Date('2026-07-20T11:00:00.000Z'),
+    })).toBe(true);
+  });
+
   test('uses the existing delivery cutoff for always-on lines', () => {
     const deliverySchedule = {
       active: true,

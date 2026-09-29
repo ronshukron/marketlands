@@ -45,17 +45,29 @@ export function getWeekKey(date) {
 }
 
 /** Recent Sunday week keys (newest first) without a Firestore scan — safer on mobile Safari. */
-export function getRecentWeekKeys(count = 24) {
-  const weeks = [];
-  const sunday = new Date();
-  sunday.setDate(sunday.getDate() - sunday.getDay());
+export function getRecentWeekKeys(count = 24, now = new Date()) {
+  return getWeekKeysAroundToday({ pastCount: count, futureCount: 0, now });
+}
+
+/** Sunday week keys from `pastCount` weeks ago through `futureCount` weeks ahead, newest first. */
+export function getWeekKeysAroundToday({ pastCount = 16, futureCount = 0, now = new Date() } = {}) {
+  const safePast = Math.max(0, Number(pastCount) || 0);
+  const safeFuture = Math.max(0, Number(futureCount) || 0);
+  const total = safePast + safeFuture;
+  if (total === 0) return [];
+
+  const sunday = new Date(now);
   sunday.setHours(0, 0, 0, 0);
+  sunday.setDate(sunday.getDate() - sunday.getDay());
 
-  for (let index = 0; index < count; index += 1) {
-    weeks.push(toLocalDateKey(sunday));
-    sunday.setDate(sunday.getDate() - 7);
+  const cursor = new Date(sunday);
+  cursor.setDate(cursor.getDate() + safeFuture * 7);
+
+  const weeks = [];
+  for (let index = 0; index < total; index += 1) {
+    weeks.push(toLocalDateKey(cursor));
+    cursor.setDate(cursor.getDate() - 7);
   }
-
   return weeks;
 }
 
@@ -74,12 +86,18 @@ export function normalizeDateRange(startDate, endDate) {
   if (!startDate && !endDate) return null;
   const rawStart = startDate || endDate;
   const rawEnd = endDate || startDate;
-  const start = parseDateSafe(rawStart);
-  const end = parseDateSafe(rawEnd);
-  if (!start || !end) return null;
+  const parsedStart = parseDateSafe(rawStart);
+  const parsedEnd = parseDateSafe(rawEnd);
+  if (!parsedStart || !parsedEnd) return null;
+
+  const [earlier, later] = parsedStart <= parsedEnd
+    ? [parsedStart, parsedEnd]
+    : [parsedEnd, parsedStart];
+  const start = new Date(earlier);
+  const end = new Date(later);
   start.setHours(0, 0, 0, 0);
   end.setHours(23, 59, 59, 999);
-  return start <= end ? { start, end } : { start: end, end: start };
+  return { start, end };
 }
 
 export function isAlwaysOnGroceryOrder(orderData = {}) {

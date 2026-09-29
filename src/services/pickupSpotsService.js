@@ -10,7 +10,8 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { db } from '../firebase/firebase';
+import { auth, db } from '../firebase/firebase';
+import { isAdminAccount } from '../utils/accountRoles';
 import { pickupSpotsData as staticPickupSpotsData, pickupSpotsByRegion as staticPickupSpotsByRegion } from '../data/pickupSpots';
 import {
   resolveMarketplaceCommunityName,
@@ -42,6 +43,8 @@ let cache = {
 };
 let staticCache = null;
 let catalogLoadPromise = null;
+let authoritativeAt = 0;
+let catalogMirror = null;
 
 const listeners = new Set();
 
@@ -163,6 +166,98 @@ function normalizeCommunityDoc(docSnap) {
   return normalizeCommunityRecord(docSnap);
 }
 
+function toCatalogRecord(community) {
+  const record = normalizeCommunityRecord(community);
+  if (!record.name) return null;
+  return {
+    id: record.name,
+    name: record.name,
+    region: record.region,
+    options: record.options,
+    deliveryFee: record.deliveryFee,
+    color: record.color,
+    sortOrder: record.sortOrder,
+    active: record.active !== false,
+    aliases: record.aliases,
+    whatsappGroupLink: record.whatsappGroupLink || '',
+    storeLink: record.storeLink || '',
+    broadcastDeliveryNote: record.broadcastDeliveryNote || '',
+    deliveryGroup: record.deliveryGroup || '',
+    updatedAt: record.updatedAt || '',
+  };
+}
+
+function rememberCatalogRecords(records, replaceMirror) {
+  const incoming = (Array.isArray(records) ? records : [])
+    .map((record) => toCatalogRecord(record))
+    .filter(Boolean);
+  if (incoming.length === 0) return;
+  if (replaceMirror || !catalogMirror) {
+    catalogMirror = incoming;
+    return;
+  }
+  const byName = new Map(catalogMirror.map((record) => [record.name, record]));
+  incoming.forEach((record) => {
+    byName.set(record.name, { ...byName.get(record.name), ...record, name: record.name });
+  });
+  catalogMirror = [...byName.values()];
+}
+
+function markCommunitiesAuthoritative() {
+  authoritativeAt = Math.max(authoritativeAt, Date.now());
+}
+
+function catalogSnapshotIsStale(catalogUpdatedAt) {
+  if (!authoritativeAt) return false;
+  const catalogTime = Date.parse(catalogUpdatedAt || '') || 0;
+  return catalogTime < authoritativeAt;
+}
+
+function catalogWouldDropLoadedCommunities(records) {
+  if (!cache.loaded || cache.spots.length === 0) return false;
+  if (cache.source !== 'collection' && cache.source !== 'local') return false;
+  const incoming = new Set(
+    (Array.isArray(records) ? records : [])
+      .map((record) => record?.name || record?.id)
+      .filter(Boolean)
+  );
+  return cache.spots.some((name) => !incoming.has(name));
+}
+
+function applyCatalogRecords(records, options = {}) {
+  if (!Array.isArray(records) || records.length === 0) return false;
+  if (catalogSnapshotIsStale(options.updatedAt)) return cache.loaded && cache.spots.length > 0;
+  if (catalogWouldDropLoadedCommunities(records)) {
+    const incomingNames = new Set(records.map((record) => record?.name || record?.id).filter(Boolean));
+    const extras = currentCommunityRecords().filter((record) => !incomingNames.has(record.name));
+    applyCommunityRecords([...records, ...extras], cache.source);
+    return true;
+  }
+  applyCommunityRecords(records, 'catalog', { replaceMirror: true });
+  return true;
+}
+
+async function publishCommunitiesCatalog() {
+  // Firestore rules only let admin UIDs write settings/*; business and
+  // coordinator sessions also reach this path via collection fallback.
+  if (!isAdminAccount(auth?.currentUser)) return;
+  const list = catalogMirror && catalogMirror.length > 0
+    ? catalogMirror
+    : currentCommunityRecords().map((record) => toCatalogRecord(record)).filter(Boolean);
+  if (list.length === 0) return;
+  const updatedAtMs = Math.max(Date.now(), authoritativeAt);
+  const updatedAt = new Date(updatedAtMs).toISOString();
+  authoritativeAt = updatedAtMs;
+  try {
+    await setDoc(doc(db, CATALOG_DOC_PATH), {
+      communities: list,
+      updatedAt,
+    });
+  } catch (error) {
+    console.warn('Failed to publish communities catalog:', error?.message || error);
+  }
+}
+
 function shouldPreferCommunityDoc(candidate, existing) {
   const candidateIdMatch = candidate.id === candidate.name;
   const existingIdMatch = existing.id === existing.name;
@@ -200,7 +295,8 @@ function buildEmptyFirestoreCache() {
   };
 }
 
-function applyCommunityRecords(records, source = 'catalog') {
+function applyCommunityRecords(records, source = 'catalog', options = {}) {
+  rememberCatalogRecords(records, options.replaceMirror === true);
   const communities = dedupeCommunityDocs(
     (Array.isArray(records) ? records : []).map((record) => ({
       id: record.id || record.name,
@@ -255,13 +351,6 @@ function applyCommunityRecords(records, source = 'catalog') {
   notifyListeners();
 }
 
-function applyCommunities(docs, source = 'collection') {
-  applyCommunityRecords(
-    (Array.isArray(docs) ? docs : []).map((docSnap) => normalizeCommunityDoc(docSnap)),
-    source,
-  );
-}
-
 function notifyListeners() {
   setMarketplaceCommunityIdentity({
     communities: cache.spots,
@@ -291,23 +380,30 @@ function getSnapshot() {
 }
 
 let unsubscribeFirestore = null;
+let loadGeneration = 0;
 
-async function loadCommunitiesFromCatalog() {
+async function loadCommunitiesFromCatalog(generation) {
   const snap = await withTimeout(getDoc(doc(db, CATALOG_DOC_PATH)));
-  const records = snap.exists() ? snap.data()?.communities : null;
+  if (generation != null && generation !== loadGeneration) {
+    return cache.loaded && cache.spots.length > 0;
+  }
+  const data = snap.exists() ? snap.data() : null;
+  const records = data?.communities;
   if (!Array.isArray(records) || records.length === 0) return false;
-  applyCommunityRecords(records, 'catalog');
-  return true;
+  return applyCatalogRecords(records, { updatedAt: data?.updatedAt });
 }
 
 async function loadCommunitiesFromCollection() {
-  const snap = await withTimeout(getDocs(collection(db, 'communities')));
+  const snap = await withTimeout(getDocs(collection(db, 'communities')), 20000);
   if (snap.empty) {
     cache = buildEmptyFirestoreCache();
     notifyListeners();
     return true;
   }
-  applyCommunities(snap.docs, 'collection');
+  const records = dedupeCommunityDocs(snap.docs);
+  markCommunitiesAuthoritative();
+  applyCommunityRecords(records, 'collection', { replaceMirror: true });
+  await publishCommunitiesCatalog();
   return true;
 }
 
@@ -331,24 +427,15 @@ function getStaticPreviewSnapshot() {
 export async function loadPickupSpots(options = {}) {
   const force = options.force === true;
   const allowCollectionFallback = options.allowCollectionFallback === true;
-  if (cache.loaded && cache.source === 'catalog' && !force) {
+  if (!allowCollectionFallback && cache.loaded && cache.source === 'catalog' && !force) {
     return getSnapshot();
   }
   if (catalogLoadPromise && !force) return catalogLoadPromise;
 
+  const generation = ++loadGeneration;
   catalogLoadPromise = (async () => {
-    try {
-      if (await loadCommunitiesFromCatalog()) return getSnapshot();
-    } catch (error) {
-      console.warn('Failed to load slim communities catalog:', error?.message || error);
-    }
-
-    if (cache.loaded && cache.spots.length > 0 && cache.source !== 'static') {
-      return getSnapshot();
-    }
-
-    // Public store must not download the communities collection. Those docs can
-    // include huge membership arrays and freeze first load. Admin pages may opt in.
+    // Order pickers and admin need communities that were saved to the collection
+    // but are not yet in the slim catalog. The public store stays on the catalog.
     if (allowCollectionFallback) {
       try {
         await loadCommunitiesFromCollection();
@@ -358,9 +445,21 @@ export async function loadPickupSpots(options = {}) {
       }
     }
 
+    if (generation !== loadGeneration) return getSnapshot();
+
+    try {
+      if (await loadCommunitiesFromCatalog(generation)) return getSnapshot();
+    } catch (error) {
+      console.warn('Failed to load slim communities catalog:', error?.message || error);
+    }
+
+    if (cache.loaded && cache.spots.length > 0 && cache.source !== 'static') {
+      return getSnapshot();
+    }
+
     return cache.loaded ? getSnapshot() : getStaticPreviewSnapshot();
   })().finally(() => {
-    catalogLoadPromise = null;
+    if (generation === loadGeneration) catalogLoadPromise = null;
   });
 
   return catalogLoadPromise;
@@ -373,9 +472,10 @@ export function subscribePickupSpots(callback) {
     unsubscribeFirestore = onSnapshot(
       doc(db, CATALOG_DOC_PATH),
       (snap) => {
-        const records = snap.exists() ? snap.data()?.communities : null;
+        const data = snap.exists() ? snap.data() : null;
+        const records = data?.communities;
         if (Array.isArray(records) && records.length > 0) {
-          applyCommunityRecords(records, 'catalog');
+          applyCatalogRecords(records, { updatedAt: data?.updatedAt });
           return;
         }
         console.warn('Communities catalog missing; keeping local/static list for the store');
@@ -406,6 +506,9 @@ export function getPickupSpotsSync() {
 export function invalidatePickupSpotsCache() {
   cache = { ...buildEmptyFirestoreCache(), loaded: false, source: null };
   catalogLoadPromise = null;
+  loadGeneration += 1;
+  authoritativeAt = 0;
+  catalogMirror = null;
   if (unsubscribeFirestore) {
     unsubscribeFirestore();
     unsubscribeFirestore = null;
@@ -483,13 +586,16 @@ function currentCommunityRecords() {
 function mergeCommunityRecord(record) {
   const next = currentCommunityRecords().filter((item) => item.name !== record.name);
   next.push(record);
-  applyCommunityRecords(next, cache.source || 'local');
+  applyCommunityRecords(next, 'local');
 }
 
 function removeCommunityRecord(name) {
+  if (catalogMirror) {
+    catalogMirror = catalogMirror.filter((item) => item.name !== name);
+  }
   applyCommunityRecords(
     currentCommunityRecords().filter((item) => item.name !== name),
-    cache.source || 'local',
+    'local',
   );
 }
 
@@ -563,6 +669,7 @@ export async function saveCommunity(community) {
   if (isNew || (Array.isArray(knownCommunities) && !knownCommunities.includes(name))) {
     await addNewCommunityToPaymentConfig(name);
   }
+  markCommunitiesAuthoritative();
   mergeCommunityRecord({
     id: name,
     name,
@@ -579,6 +686,7 @@ export async function saveCommunity(community) {
     deliveryGroup: String(community.deliveryGroup || '').trim(),
     updatedAt: new Date().toISOString(),
   });
+  await publishCommunitiesCatalog();
 }
 
 async function collectCommunityDeleteRefs(name) {
@@ -632,6 +740,23 @@ export async function saveCommunityOrdering(entries) {
     });
     await batch.commit();
   }
+
+  const updatedByName = new Map(list.map((entry) => [entry.name, entry]));
+  markCommunitiesAuthoritative();
+  applyCommunityRecords(
+    currentCommunityRecords().map((record) => {
+      const entry = updatedByName.get(record.name);
+      if (!entry) return record;
+      return {
+        ...record,
+        sortOrder: entry.sortOrder,
+        deliveryGroup: entry.deliveryGroup,
+        updatedAt,
+      };
+    }),
+    'local',
+  );
+  await publishCommunitiesCatalog();
 }
 
 export async function deleteCommunity(name) {
@@ -649,7 +774,9 @@ export async function deleteCommunity(name) {
 
   const { removeCommunityFromPaymentConfig } = await import('./paymentConfigService');
   await removeCommunityFromPaymentConfig(trimmed);
+  markCommunitiesAuthoritative();
   removeCommunityRecord(trimmed);
+  await publishCommunitiesCatalog();
 }
 
 export async function migrateNitzanimNames() {

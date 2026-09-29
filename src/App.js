@@ -76,6 +76,8 @@ const DeliveryManagementV45 = lazy(() => import('./components/admin/DeliveryMana
 const DeliveryManagementV5 = lazy(() => import('./components/adminV5/deliveryWeighingV5/DeliveryManagementV5'));
 const DeliveryManagementV6 = lazy(() => import('./components/adminV5/deliveryWeighingV5/DeliveryManagementV6'));
 const DeliveryManagementV7 = lazy(() => import('./components/adminV5/deliveryWeighingV5/DeliveryManagementV7'));
+const DeliveryManagementV8 = lazy(() => import('./components/adminV5/deliveryWeighingV5/DeliveryManagementV8'));
+const DeliveryUiSwitch = lazy(() => import('./components/adminV5/deliveryWeighingV5/v8/DeliveryUiSwitch'));
 const CreateIndependentOrderForm = lazy(() => import('./components/independent/CreateIndependentOrderForm'));
 const IndependentOrderForm = lazy(() => import('./components/independent/IndependentOrderForm'));
 const VolunteerPickupSpot = lazy(() => import('./components/independent/VolunteerPickupSpot'));
@@ -84,6 +86,7 @@ const IndependentOrderConfirmation = lazy(() => import('./components/independent
 const MyVolunteerSpots = lazy(() => import('./components/independent/MyVolunteerSpots'));
 const IndependentBusinessDashboard = lazy(() => import('./components/independent/IndependentBusinessDashboard'));
 const IndependentOrderDetail = lazy(() => import('./components/independent/IndependentOrderDetail'));
+const FarmerOrdersPage = lazy(() => import('./components/farmerOrders/FarmerOrdersPage'));
 const OrderConfirmationDelayed = lazy(() => import('./components/delayedPayment/OrderConfirmationDelayed'));
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
 const ProductApprovals = lazy(() => import('./components/admin/ProductApprovals'));
@@ -226,7 +229,8 @@ const App = () => {
                   <Route path="/admin/delivery-v4-5" element={<DeliveryManagementV45 />} />
                   <Route path="/admin/delivery-v5" element={<DeliveryManagementV5 />} />
                   <Route path="/admin/delivery-v6" element={<DeliveryManagementV6 />} />
-                  <Route path="/admin/delivery-v7" element={<DeliveryManagementV7 />} />
+                  <Route path="/admin/delivery-v7" element={<><DeliveryManagementV7 /><DeliveryUiSwitch current="v7" /></>} />
+                  <Route path="/admin/delivery-v8" element={<><DeliveryManagementV8 /><DeliveryUiSwitch current="v8" /></>} />
                   <Route path="/admin/delivery-schedules" element={<DeliveryScheduleAdmin />} />
                   <Route path="/driver/delivery" element={<DeliveryDriverV7 />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />
@@ -238,6 +242,7 @@ const App = () => {
                   {/* Independent business routes */}
                   <Route path="/independent-orders" element={<IndependentBusinessDashboard />} />
                   <Route path="/independent-orders/:id" element={<IndependentOrderDetail />} />
+                  <Route path="/farmer-orders" element={<FarmerOrdersPage />} />
                   {/* Admin */}
                   <Route path="/admin" element={<AdminDashboard />} />
                   <Route path="/admin/blog" element={<BlogAdmin />} />

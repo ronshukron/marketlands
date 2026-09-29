@@ -68,6 +68,8 @@ export const buildCopiedProductPayload = (sourceProduct = {}, targetBusiness = {
     isSample: Boolean(sourceProduct.isSample) || price === 0,
     isOrganic: Boolean(sourceProduct.isOrganic),
     isRecommended: Boolean(sourceProduct.isRecommended),
+    isKosher: Boolean(sourceProduct.isKosher),
+    isKosherMehadrin: Boolean(sourceProduct.isKosherMehadrin),
   };
 
   if (asNumber(sourceProduct.merchantPrice, null) != null) {

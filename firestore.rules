@@ -1,0 +1,782 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUserOwned(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isBusinessOwner(businessId) {
+      return isAuthenticated() && request.auth.uid == businessId;
+    }
+    
+    // Helper function to validate order updates (works for both authenticated and guest users)
+    function isValidOrderUpdate(existingData, newData) {
+			return false;
+    }
+    
+    function isOrderCustomer(data) {
+      return isAuthenticated() && (
+        data.get('userId', '') == request.auth.uid ||
+        (
+          request.auth.token.email_verified == true &&
+          data.get('customerDetails', {}).get('email', '') ==
+            request.auth.token.email
+        )
+      );
+    }
+
+    function isOrderBusiness(data) {
+      return isAuthenticated() &&
+        request.auth.uid in data.get('businessIds', []);
+    }
+
+    function validCustomerEdit(data) {
+      let delayed = data.get('delayedOrderStatus', '') != '';
+
+      return isOrderCustomer(data)
+        && (
+          (!delayed && data.get('paymentStatus', '') in ['completed', 'paid']) ||
+          (delayed &&
+           data.get('paymentStatus', '') == 'held' &&
+           data.get('delayedOrderStatus', '') == 'pending_weighing')
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'customerExcludedLineIds',
+          'customerEditedAt',
+          'customerEditedBy'
+        ])
+        && request.resource.data.customerExcludedLineIds is map
+        && request.resource.data.customerExcludedLineIds.size() <= 500
+        && request.resource.data.customerEditedBy == request.auth.uid;
+    }
+
+    // admin function
+    function isAdmin() {
+      return isAuthenticated() && 
+        request.auth.uid in ['rfHOLhNoJOW8ByNypCtm3hlSNKs2','Q0bohhVCdmeMhgBbDknvLxbEzW53']; // Replace with your actual UID
+    }
+
+    function isValidFarmerPastedOrder(data) {
+      return data.keys().hasAll([
+          'businessId',
+          'orderNumber',
+          'buyerName',
+          'status',
+          'rawText',
+          'lines',
+          'createdAt'
+        ])
+        && data.businessId is string
+        && data.businessId.size() > 0
+        && data.businessId.size() <= 128
+        && data.orderNumber is string
+        && data.orderNumber.size() > 0
+        && data.orderNumber.size() <= 80
+        && data.buyerName is string
+        && data.buyerName.size() > 0
+        && data.buyerName.size() <= 120
+        && (data.status == 'open' || data.status == 'done')
+        && data.rawText is string
+        && data.rawText.size() <= 20000
+        && data.lines is list
+        && data.lines.size() > 0
+        && data.lines.size() <= 200
+        && data.createdAt is timestamp;
+    }
+    
+
+    
+    // Orders collection
+    match /Orders/{orderId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if
+        isAdmin() ||
+        (isAuthenticated() && (
+          resource.data.businessId == request.auth.uid ||
+          resource.data.Coordinator_Email == request.auth.email
+        )) ||
+        isValidOrderUpdate(resource.data, request.resource.data);
+      allow delete: if false;
+    }
+    
+    // Producers collection
+    match /Producers/{producerId} {
+      // Anyone can read producer details
+      allow read: if true;
+      
+      // Only admin should manage producers (implement admin role later)
+      allow write: if false;
+    }
+    
+    // Products collection
+    match /Products/{productId} {
+      // Anyone can read product details
+      allow read: if true;
+      
+      // Only the owner can create/update/delete their products.
+      // Admins may create a product owned by another business (copy-products).
+      allow create: if isAuthenticated() && request.resource.data.Owner_ID == request.auth.uid;
+      allow create: if isAdmin()
+        && request.resource.data.Owner_ID is string
+        && request.resource.data.Owner_ID.size() > 0
+        && request.resource.data.Owner_ID.size() <= 128;
+      allow create: if isAuthenticated()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        && request.resource.data.Owner_ID is string
+        && request.resource.data.Owner_ID.size() > 0
+        && request.resource.data.Owner_ID.size() <= 128;
+      allow update, delete: if isAuthenticated() && resource.data.Owner_ID == request.auth.uid;
+      
+        // Admin only: supplier-import price updates (extra allow, does not remove owner rights)
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['price'])
+        && request.resource.data.price is number
+        && request.resource.data.price > 0
+        && request.resource.data.price <= 100000;
+    }
+    
+    match /businesses/{businessId} {
+      allow read: if true;
+      allow create, update: if isBusinessOwner(businessId) || isAdmin();
+      allow delete: if false;
+    }
+    
+    // Main volunteers collection
+    match /volunteers/{volunteerId} {
+      // Anyone can read volunteer information (needed to check if volunteers exist)
+      allow read: if true;
+
+      // Anyone can create volunteer entries (community members volunteering)
+      allow create: if true;
+
+      // Only the volunteer themselves can update their own info (if authenticated)
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // No deletes allowed from client
+      allow delete: if false;
+    }
+    
+    // Independent orders
+    match /IndependentOrders/{orderId} {
+      // Your existing rules...
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.businessId == request.auth.uid;
+      allow update: if (isAuthenticated() && resource.data.businessId == request.auth.uid) ||
+			  isValidOrderUpdate(resource.data, request.resource.data);
+      allow delete: if false;
+    }    
+    
+    // IndepentCustomerOrders collection - for independent payment processing
+    match /IndepentCustomerOrders/{customerOrderId} {
+      // Public users can create independent customer orders (part of checkout flow)
+      allow create: if true;
+
+      // Allow read access for:
+      // 1. The customer who placed the order
+      // 2. Admin users
+      allow read: if
+        isAdmin() || isAuthenticated();
+
+      // Only cloud functions should update these (via server)
+      allow update, delete: if false;
+    }
+    
+    // Coordinators collection
+    match /coordinators/{coordinatorId} {
+      // Anyone can read coordinator data (to see community info)
+      allow read: if true;
+      
+      // Only the coordinator can update their own data
+      allow write: if isUserOwned(coordinatorId);
+    }
+    
+    // Payments collection - should mostly be managed by server
+    match /payments/{paymentId} {
+      // Users can read their own payments
+      allow read: if isAuthenticated() && (
+        resource.data.Email == request.auth.email ||
+        resource.data.businessId == request.auth.uid ||
+        resource.data.userEmail == request.auth.email
+      );
+      
+      // Payment creation should be handled by server
+      allow create, update, delete: if false;
+    }
+    
+    
+    match /customerOrders/{orderId} {
+      allow create: if true;
+      allow read: if isAdmin() || isOrderCustomer(resource.data)
+        || isOrderBusiness(resource.data);
+      allow update: if isAdmin() || validCustomerEdit(resource.data);
+      allow delete: if false;
+    }
+    
+    match /communityDiscountProgress/{id} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if false;
+    }
+
+    
+    match /refunds/{refundId} {
+    	allow create: if isAuthenticated();
+      
+      // Admin can do everything
+      allow read, write: if isAdmin();
+
+      // Business owners can read their own refunds
+      allow read: if isAuthenticated() && 
+        (resource.data.businessId == request.auth.uid);
+
+      // Customers can read their own refunds
+      allow read, write, update: if isAuthenticated() && (
+            resource.data.customerDetails.email == request.auth.email ||
+            resource.data.userId == request.auth.uid);
+    }
+    
+    // Delayed orders collection (J5/J4 flow)
+    match /customerOrdersDelayed/{orderId} {
+      allow create: if true;
+      allow read: if isAdmin() || isOrderCustomer(resource.data)
+        || isOrderBusiness(resource.data);
+      allow update: if isAdmin() || validCustomerEdit(resource.data);
+      allow delete: if false;
+    }
+
+    
+    match /deliveryRealtimeV7/{weekId} {
+      allow read, write: if isAdmin();
+
+      match /presence/{sessionId} {
+        allow read, write: if isAdmin();
+      }
+
+      match /claims/{orderId} {
+        allow read, write: if isAdmin();
+      }
+
+      match /drafts/{orderId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    
+    // PendingOrders collection - for payment processing
+    match /pendingOrders/{pendingOrderId} {
+      // Public users can create pending orders (part of checkout flow)
+      allow create: if true;
+      
+      // Users can read their own pending orders
+      allow read: if request.auth == null || 
+                  resource.data.Email == request.auth.email;
+      
+      // Only cloud functions should update these (via server)
+      allow update, delete: if false;
+    }
+    
+    // Allow only admin to read/write farmer costs
+    match /farmerCosts/{businessId} {
+      allow read, write: if true;
+    }
+
+    // Communities collection
+    match /communities/{communityId} {
+      // Anyone can read communities (needed for community selection/search)
+      allow read: if true;
+
+      // Authenticated users can create communities (during registration)
+      allow update, create: if isAuthenticated();
+
+      // No client-side updates or deletes (managed by admin/backend)
+      allow delete: if isAdmin();
+    }
+    
+      // Communities collection
+    match /independentScheduledTasks/{ScheduledTaskId} {
+      // Anyone can read independentScheduledTasks (needed for independentScheduledTasks selection/search)
+      allow read: if true;
+
+      // Authenticated users can create independentScheduledTasks 
+      allow update, create: if isAuthenticated();
+
+      // No client-side updates or deletes (managed by admin/backend)
+      allow delete: if false;
+    }
+    
+    match /supplierSnapshots/{businessId} {
+  		allow read, write: if request.auth != null && request.auth.uid == businessId;
+		}
+    
+    match /customerNumbers/{docId} {
+      allow read, write: if isAdmin();
+    }
+    
+    // VIP flag + Hebrew/Thai notes, keyed by (phone || email)
+    match /customerProfiles/{customerKey} {
+      allow read, write: if isAdmin();
+    }
+
+    // Delivery packing sync state (for V4 checklist)
+    match /deliverySync/{weekId} {
+      allow read, write: if isAdmin();
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Users can only access their own data
+      allow read, write: if isUserOwned(userId);
+      
+        // Saved shopping carts (weekly store cart snapshots)
+      match /savedCarts/{cartId} {
+        allow read, write: if isUserOwned(userId);
+      }
+
+    }
+    
+    // Settings collection - for app-wide configuration
+    match /settings/{settingId} {
+      // Anyone can read settings (needed for payment routing)
+      allow read: if true;
+
+      // Only admin can write settings
+      allow write: if isAdmin();
+    }
+    
+    // Community delivery schedules for always-on grocery checkout
+    match /deliverySchedules/{communityName} {
+      // Public/guest checkout needs to read available delivery dates
+      allow read: if true;
+
+      // Only admins can create/update/delete schedules
+      allow write: if isAdmin();
+    }
+    
+    match /savedCarts/{cartId} {
+      allow read: if isUserOwned(userId);
+      allow create: if isUserOwned(userId)
+        && request.resource.data.keys().hasAll(['name', 'cartItems', 'orderInfoMap'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80;
+      allow update, delete: if isUserOwned(userId);
+    }
+    
+    match /introductionBaskets/{basketId} {
+      allow read: if resource.data.active == true || isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    match /blogPosts/{slug} {
+      allow read: if resource.data.status == 'published' || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+    
+    match /compensationRecipients/{identityKey} {
+      allow read, write: if isAdmin();
+
+      match /items/{itemId} {
+        allow read: if isAdmin() || true;
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin()
+          || (resource.data.status == 'active'
+              && request.resource.data.status == 'redeemed');
+      }
+    }
+
+    function weeklyPromotionPath(id) {
+        return /databases/$(database)/documents/communityWeeklyPromotions/$(id);
+    }
+
+    function isActiveWeeklyPromotion(data) {
+        return data.status == 'active'
+            && data.startsAt <= request.time
+            && data.endsAt > request.time;
+    }
+
+    // Guests may unlock too; the doc is validated against the active promotion.
+    function validCommunityUnlock(data) {
+        return data.keys().hasAll([
+            'promotionId', 'communityCode', 'unlocked',
+            'confirmedAt', 'unlockedAt', 'updatedAt',
+            'pricingVersion', 'schemaVersion'
+            ])
+            && data.keys().hasOnly([
+            'promotionId', 'communityCode', 'unlocked',
+            'confirmedAt', 'unlockedAt', 'updatedAt',
+            'pricingVersion', 'schemaVersion'
+            ])
+            && data.promotionId is string
+            && data.communityCode is string
+            && data.unlocked == true
+            && data.confirmedAt == request.time
+            && data.unlockedAt == request.time
+            && data.updatedAt == request.time
+            && exists(weeklyPromotionPath(data.promotionId))
+            && isActiveWeeklyPromotion(
+            get(weeklyPromotionPath(data.promotionId)).data
+            )
+            && data.communityCode in get(
+            weeklyPromotionPath(data.promotionId)
+            ).data.targetCommunityCodes
+            && data.pricingVersion == get(
+            weeklyPromotionPath(data.promotionId)
+            ).data.pricingVersion
+            && data.schemaVersion == get(
+            weeklyPromotionPath(data.promotionId)
+            ).data.schemaVersion;
+    }
+
+    match /communityWeeklyPromotions/{promotionId} {
+        allow get: if isAdmin() || isActiveWeeklyPromotion(resource.data);
+        allow list: if isAdmin()
+         || (resource.data.status == 'active'
+            && request.query.limit != null
+            && request.query.limit <= 10);
+        allow create, update: if isAdmin();
+        allow delete: if false;
+    }
+
+    match /communityWeeklyPromotionUnlocks/{unlockId} {
+        allow get: if isAdmin()
+         || resource == null
+         || (
+           exists(weeklyPromotionPath(resource.data.promotionId))
+           && isActiveWeeklyPromotion(
+             get(weeklyPromotionPath(resource.data.promotionId)).data
+          )
+     );
+
+         allow create, update: if validCommunityUnlock(request.resource.data)
+          && (
+           resource == null
+         || (
+           request.resource.data.promotionId == resource.data.promotionId
+           && request.resource.data.communityCode == resource.data.communityCode
+         )
+      );
+
+      allow list: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /communityWeeklyPromotionStats/{promotionId} {
+        allow read: if isAdmin();
+        allow write: if false;
+    }
+
+    match /communityWeeklyPromotionShareTokens/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /communityWeeklyPromotionEvents/{document=**} {
+        allow read, write: if false;
+    }
+    
+        // --- Community marketplace (בסטות בשוק) ---
+
+    function isActiveMarketplaceStore() {
+      return resource.data.visible == true && resource.data.status == 'active';
+    }
+
+    function isActiveMarketplacePromotion() {
+      return resource.data.status == 'active';
+    }
+
+    function isMarketplaceBusinessOwner() {
+      return isAuthenticated() && resource.data.businessId == request.auth.uid;
+    }
+
+    function isMarketplaceBusinessOwnerOnCreate() {
+      return isAuthenticated() && request.resource.data.businessId == request.auth.uid;
+    }
+    
+    function isMarketplaceOrderCustomer() {
+      return isAuthenticated() && (
+        resource.data.customerUserId == request.auth.uid
+        || resource.data.customerEmail == request.auth.token.email
+      );
+    }
+    
+    function isMarketplaceOrderSeller() {
+      return isAuthenticated() && resource.data.businessId == request.auth.uid;
+    }
+    
+    function isMarketplaceOrderSellerUpdate() {
+      return (isMarketplaceOrderSeller() || isAdmin())
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.customerUserId == resource.data.customerUserId
+        && request.resource.data.customerEmail == resource.data.customerEmail;
+    }
+    
+    function isCompletingMarketplaceOrder() {
+      return isAuthenticated()
+        && (isMarketplaceOrderSeller() || isAdmin())
+        && resource.data.fulfillmentStatus in ['new', 'confirmed', 'ready']
+        && request.resource.data.fulfillmentStatus == 'completed'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'fulfillmentStatus',
+          'completedAt',
+          'updatedAt'
+        ])
+        && request.resource.data.completedAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+    
+    function isMarketplaceStockDecrementOnly() {
+      return isAuthenticated()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockAmount', 'updatedAt'])
+        && request.resource.data.stockAmount is number
+        && request.resource.data.stockAmount >= 0
+        && resource.data.stockAmount is number
+        && request.resource.data.stockAmount <= resource.data.stockAmount;
+    }
+
+
+    match /marketplaceStores/{businessId} {
+      allow read: if isActiveMarketplaceStore() || isBusinessOwner(businessId) || isAdmin();
+      allow create, update: if isBusinessOwner(businessId) || isAdmin();
+      allow delete: if false;
+    }
+
+    match /marketplacePromotions/{promotionId} {
+      allow read: if isActiveMarketplacePromotion()
+        || (isAuthenticated() && resource.data.businessId == request.auth.uid)
+        || isAdmin();
+      allow create: if isMarketplaceBusinessOwnerOnCreate() || isAdmin();
+      allow update: if isMarketplaceBusinessOwner() || isAdmin();
+      allow delete: if false;
+    }
+
+    match /marketplaceOrders/{orderId} {
+      allow create: if true;
+      allow read: if isAdmin()
+        || isMarketplaceOrderSeller()
+        || isMarketplaceOrderCustomer();
+      allow update: if isMarketplaceOrderSellerUpdate();
+      allow delete: if false;
+    }
+    
+    match /localbusiness/{businessId} {
+      allow read: if true;
+      allow create, update: if isBusinessOwner(businessId) || isAdmin();
+      allow delete: if false;
+    }
+
+
+    match /marketplaceSettings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    match /marketplaceWaitlist/{entryId} {
+      allow create: if true;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+    
+
+    // Future volunteer pickup (placeholder collection)
+    match /marketplacePromotionVolunteers/{volunteerId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    match /marketplaceProducts/{productId} {
+      allow read: if true;
+      allow create: if isMarketplaceBusinessOwnerOnCreate() || isAdmin();
+      allow update: if isMarketplaceBusinessOwner()
+        || isAdmin()
+        || isMarketplaceStockDecrementOnly();
+      allow delete: if isMarketplaceBusinessOwner() || isAdmin();
+    }
+
+
+    match /marketplaceUsers/{userId} {
+      allow read, create, update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+
+
+    // suppllier cost check
+    
+    match /supplierPriceImports/{importId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          'reportDate',
+          'sourceFileName',
+          'sourceFileHash',
+          'sourceFileSize',
+          'status',
+          'rowCount',
+          'createdBy',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'reportDate',
+          'sourceFileName',
+          'sourceFileHash',
+          'sourceFileSize',
+          'previousImportId',
+          'isBaseline',
+          'status',
+          'rowCount',
+          'removedCount',
+          'createdBy',
+          'createdByEmail',
+          'createdAt'
+        ])
+        && request.resource.data.reportDate is string
+        && request.resource.data.reportDate.size() == 10
+        && request.resource.data.sourceFileName is string
+        && request.resource.data.sourceFileName.size() <= 200
+        && request.resource.data.sourceFileHash is string
+        && request.resource.data.sourceFileHash.size() <= 128
+        && request.resource.data.sourceFileSize is int
+        && request.resource.data.sourceFileSize > 0
+        && request.resource.data.sourceFileSize <= 20000000
+        && request.resource.data.status == 'processing'
+        && request.resource.data.rowCount is int
+        && request.resource.data.rowCount > 0
+        && request.resource.data.rowCount <= 2000
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'matchedCount',
+          'priceUpdateCount',
+          'completedAt',
+          'errorMessage',
+          'failedAt'
+        ])
+        && request.resource.data.status in ['completed', 'failed'];
+      allow delete: if false;
+      match /items/{itemId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin()
+          && request.resource.data.keys().hasOnly([
+            'supplierCode',
+            'name',
+            'unit',
+            'unitLabel',
+            'cost',
+            'notes',
+            'page',
+            'previousCost',
+            'costDelta',
+            'changePercent',
+            'changeType'
+          ])
+          && request.resource.data.supplierCode is string
+          && request.resource.data.supplierCode.size() <= 40
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 300
+          && request.resource.data.cost is number
+          && request.resource.data.cost >= 0
+          && request.resource.data.cost <= 100000;
+        allow update, delete: if false;
+      }
+      match /reviews/{reviewId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin()
+          && request.resource.data.keys().hasOnly([
+            'supplierCode',
+            'businessId',
+            'businessName',
+            'productId',
+            'productName',
+            'confidence',
+            'score',
+            'previousPrice',
+            'previousCost',
+            'newCost',
+            'suggestedPrice',
+            'appliedPrice',
+            'baselineOnly'
+          ])
+          && request.resource.data.businessId is string
+          && request.resource.data.productId is string
+          && request.resource.data.supplierCode is string;
+        allow update, delete: if false;
+      }
+    }
+    match /supplierPriceMappings/{mappingId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'supplierCode',
+          'supplierName',
+          'businessId',
+          'businessName',
+          'productId',
+          'productName',
+          'latestCost',
+          'lastImportId',
+          'updatedBy',
+          'updatedAt'
+        ])
+        && request.resource.data.supplierCode is string
+        && request.resource.data.supplierCode.size() <= 40
+        && request.resource.data.supplierName is string
+        && request.resource.data.supplierName.size() <= 300
+        && request.resource.data.businessId is string
+        && request.resource.data.businessId.size() <= 128
+        && request.resource.data.businessName is string
+        && request.resource.data.businessName.size() <= 300
+        && request.resource.data.productId is string
+        && request.resource.data.productId.size() <= 128
+        && request.resource.data.productName is string
+        && request.resource.data.productName.size() <= 300
+        && request.resource.data.latestCost is number
+        && request.resource.data.latestCost >= 0
+        && request.resource.data.latestCost <= 100000
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if false;
+    }
+
+    match /farmerProductAliases/{businessId} {
+      allow read: if isBusinessOwner(businessId);
+      allow create, update: if isBusinessOwner(businessId)
+        && request.resource.data.keys().hasOnly(['aliases'])
+        && request.resource.data.aliases is map
+        && request.resource.data.aliases.size() > 0
+        && request.resource.data.aliases.size() <= 500;
+      allow delete: if isBusinessOwner(businessId);
+    }
+
+    match /farmerPastedOrders/{orderId} {
+      allow create: if isAuthenticated()
+        && isBusinessOwner(request.resource.data.businessId)
+        && isValidFarmerPastedOrder(request.resource.data)
+        && request.resource.data.status == 'open'
+        && request.resource.data.createdAt == request.time;
+
+      allow read: if isAuthenticated()
+        && isBusinessOwner(resource.data.businessId);
+
+      allow update: if isAuthenticated()
+        && isBusinessOwner(resource.data.businessId)
+        && isBusinessOwner(request.resource.data.businessId)
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'lines'])
+        && request.resource.data.status in ['open', 'done'];
+
+      allow delete: if isAuthenticated()
+        && isBusinessOwner(resource.data.businessId);
+    }
+    
+    // Default deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

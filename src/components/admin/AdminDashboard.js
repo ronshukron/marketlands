@@ -173,6 +173,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'ניהול משלוחים V8 (ליקוט לפי פריט)',
+    description: 'כמו V7, אבל לוקטים פריט אחד לכל הארגזים של קבוצת משלוח: הכנת ארגזים עם מדבקות, ואז פריט ← ארגז ← שקילה. אפשר לעבור בין V7 ל-V8 בכל רגע',
+    to: '/admin/delivery-v8',
+    featured: true
+  },
+  {
     title: 'משלוחים וחלוקה (חדש)',
     description: 'ממשק נוח לניהול חלוקה ומשלוחים לפי קהילות',
     to: '/admin/deliveries',

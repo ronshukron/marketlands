@@ -1,5 +1,6 @@
-import { getEndingTimeForSpot } from './orderUtils';
-import { isDeliveryDateOrderable } from './deliveryScheduleUtils';
+import { getEndingTimeForSpot, isOrderActiveNow } from './orderUtils';
+import { isAlwaysOnGroceryOrder, isDeliveryDateOrderable } from './deliveryScheduleUtils';
+import { resolveCommunityName } from '../services/pickupSpotsService';
 
 const REGULAR_SUCCESSFUL_PAYMENT_STATUSES = new Set(['completed', 'paid']);
 const COMPLETED_PAYMENT_STATUSES = new Set(['completed', 'paid', 'charged', 'settled']);
@@ -59,6 +60,21 @@ export function isCustomerOrderStatusEditable(order = {}) {
   return REGULAR_EDITABLE_PAYMENT_STATUSES.has(paymentStatus);
 }
 
+function getBusinessEndingTime(businessOrderData = {}, pickupSpot = '') {
+  const resolved = resolveCommunityName(pickupSpot) || pickupSpot;
+  const keys = [pickupSpot, resolved].filter(Boolean);
+  const bySpot = businessOrderData.endingTimeByPickupSpot || {};
+  Object.keys(bySpot).forEach((key) => {
+    if ((resolveCommunityName(key) || key) === resolved) keys.push(key);
+  });
+
+  for (const key of [...new Set(keys)]) {
+    const endingTime = getEndingTimeForSpot(businessOrderData, key);
+    if (endingTime) return endingTime;
+  }
+  return getEndingTimeForSpot(businessOrderData, '');
+}
+
 export function isCustomerBusinessLineEditable({
   customerOrder,
   businessOrderData,
@@ -69,25 +85,27 @@ export function isCustomerBusinessLineEditable({
 }) {
   if (!isCustomerOrderStatusEditable(customerOrder) || !businessOrderData) return false;
 
-  const businessEndingTime = getEndingTimeForSpot(businessOrderData, pickupSpot);
-  if (businessEndingTime && now >= businessEndingTime) return false;
-
-  if (deliveryDate) {
-    if (!deliverySchedule) return false;
-    if (!isDeliveryDateOrderable(
+  // Always-on grocery lines close with the delivery schedule. Classic lines
+  // close at the business ending time, even when the order also has a delivery date.
+  if (isAlwaysOnGroceryOrder(businessOrderData)) {
+    if (!deliveryDate || !deliverySchedule) return false;
+    return isDeliveryDateOrderable(
       deliveryDate,
       deliverySchedule,
       now,
       businessOrderData,
       pickupSpot,
-    )) {
-      return false;
-    }
+    );
   }
 
-  // Fail closed when neither the classic business deadline nor a delivery
-  // schedule establishes an edit window.
-  return Boolean(businessEndingTime || deliveryDate);
+  const businessEndingTime = getBusinessEndingTime(businessOrderData, pickupSpot);
+  if (businessEndingTime) return now < businessEndingTime;
+
+  if (businessOrderData.orderType === 'recurring' && Array.isArray(businessOrderData.schedule)) {
+    return isOrderActiveNow(businessOrderData.schedule);
+  }
+
+  return false;
 }
 
 export function isCustomerLineExcluded(order = {}, lineOrId = '') {

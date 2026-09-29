@@ -56,8 +56,6 @@ const aggregateStats = (results) => {
     const stats = normalizeStats(result);
     total.views += stats.views;
     total.uniqueVisits += stats.uniqueVisits;
-    total.unlocks += stats.unlocks;
-    total.targetCommunityCount += stats.targetCommunityCount;
     total.orders += stats.orders;
     total.units += stats.units;
     total.revenue += stats.revenue;
@@ -71,6 +69,8 @@ const aggregateStats = (results) => {
   });
   total.products = Array.from(products.values());
   total.communities = Array.from(communities.values());
+  total.unlocks = total.communities.filter((community) => community.unlocked).length;
+  total.targetCommunityCount = total.communities.length;
   return total;
 };
 
@@ -123,8 +123,12 @@ const CommunityWeeklyPromotionAnalytics = ({ promotion = null, promotions = [], 
     };
   }, [promotion?.id, promotionsToLoad]);
 
-  const conversionBase = stats.unlocks;
-  const conversion = conversionBase > 0 ? (stats.orders / conversionBase) * 100 : 0;
+  const unlockedCommunities = stats.communities.filter((community) => community.unlocked);
+  const unlockedWithOrders = unlockedCommunities.filter(
+    (community) => number(community.orders ?? community.orderCount) > 0
+  );
+  const conversionBase = unlockedCommunities.length || stats.unlocks;
+  const conversion = conversionBase > 0 ? (unlockedWithOrders.length / conversionBase) * 100 : 0;
   const unlockHint = stats.targetCommunityCount > 0
     ? `${formatNumber(stats.unlocks)} מתוך ${formatNumber(stats.targetCommunityCount)} קהילות יעד`
     : '';
@@ -175,8 +179,11 @@ const CommunityWeeklyPromotionAnalytics = ({ promotion = null, promotions = [], 
           </div>
 
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-            <p className="text-sm font-medium text-blue-800">יחס המרה מפתיחת קהילה להזמנה</p>
+            <p className="text-sm font-medium text-blue-800">קהילות שנפתחו ובהן הייתה הזמנה במחיר השבועי</p>
             <p className="mt-1 text-2xl font-bold text-blue-950" dir="ltr">{conversion.toFixed(1)}%</p>
+            <p className="mt-1 text-xs text-blue-800">
+              {formatNumber(unlockedWithOrders.length)} מתוך {formatNumber(conversionBase)} קהילות שנפתחו
+            </p>
           </div>
 
           <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">

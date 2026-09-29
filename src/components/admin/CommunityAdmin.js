@@ -469,9 +469,12 @@ const CommunityAdmin = () => {
       <div className="bg-white rounded-lg shadow p-5 mb-6 space-y-4 border-t-4 border-indigo-600">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold">סדר ברירת מחדל ל-V7 / קבוצות משלוח</h2>
+            <h2 className="text-xl font-semibold">סדר ברירת מחדל ל-V7 / V8 / קבוצות משלוח</h2>
             <p className="text-sm text-gray-600 mt-1">
-              זה הסדר שהעובד רואה כשפותחים את V7. אפשר לקבץ יישובים לאותו משלוח. העובד עדיין יכול לשנות סדר מקומית ליום הנוכחי.
+              זה הסדר שהעובד רואה כשפותחים את V7 / V8. אפשר לקבץ יישובים לאותו משלוח. העובד עדיין יכול לשנות סדר מקומית ליום הנוכחי.
+            </p>
+            <p className="text-sm text-indigo-700 mt-1">
+              ב-V8 כל קבוצת משלוח היא ברירת המחדל לליקוט לפי פריט: כל היישובים בקבוצה נלקטים יחד.
             </p>
           </div>
           <button

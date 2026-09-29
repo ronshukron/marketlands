@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp, getDoc, doc, updateDoc, getDocs, query, where, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -8,6 +8,7 @@ import Swal from 'sweetalert2';
 import { pickupSpots } from '../../data/pickupSpots';
 import communityToRegion from '../../utils/communityToRegion';
 import { regions } from '../../utils/israelRegions';
+import { isOrderFormCreationDisabled } from '../../utils/accountRoles';
 
 const CreateIndependentOrderForm = () => {
   const navigate = useNavigate();
@@ -43,7 +44,25 @@ const CreateIndependentOrderForm = () => {
   const [deadlineError, setDeadlineError] = useState('');
   
   // General WhatsApp group link - to be manually configured
-  const GENERAL_WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/KBkUDXJUw3n2v40JFxxLV1?mode=ems_copy_t'; 
+  const GENERAL_WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/KBkUDXJUw3n2v40JFxxLV1?mode=ems_copy_t';
+
+  useEffect(() => {
+    if (!currentUser?.uid) return undefined;
+    let cancelled = false;
+    (async () => {
+      const snap = await getDoc(doc(db, 'businesses', currentUser.uid));
+      if (cancelled || !snap.exists() || !isOrderFormCreationDisabled(snap.data())) return;
+      await Swal.fire({
+        icon: 'info',
+        title: 'יצירת מודעות חסומה',
+        text: 'לא ניתן ליצור מודעת מכירה לחשבון זה.',
+      });
+      if (!cancelled) navigate('/Business-Products', { replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.uid, navigate]); 
 
   const validateDates = () => {
     setDateError('');
@@ -227,6 +246,18 @@ const CreateIndependentOrderForm = () => {
   };
 
   const handleCreate = async () => {
+    if (currentUser?.uid) {
+      const gateSnap = await getDoc(doc(db, 'businesses', currentUser.uid));
+      if (gateSnap.exists() && isOrderFormCreationDisabled(gateSnap.data())) {
+        Swal.fire({
+          icon: 'info',
+          title: 'יצירת מודעות חסומה',
+          text: 'לא ניתן ליצור מודעת מכירה לחשבון זה.',
+        });
+        navigate('/Business-Products', { replace: true });
+        return;
+      }
+    }
     if (saving) return;
     setError('');
 

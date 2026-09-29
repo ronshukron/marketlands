@@ -15,6 +15,7 @@ import {
   toggleCustomerLineExclusion,
 } from '../services/customerOrderService';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import { getDeliveryScheduleDocumentKeys } from '../utils/deliveryScheduleUtils';
 import ProductFeedbackSection from './ProductFeedbackSection';
 import PackedCartonPickupBanner from './PackedCartonPickupBanner';
 
@@ -80,10 +81,15 @@ const CustomerOrderDetail = () => {
         setOrder(normalizedOrder);
 
         const pickupSpot = getOrderPickupSpot(normalizedOrder);
-        if (pickupSpot) {
-          const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', pickupSpot));
-          setDeliverySchedule(scheduleSnap.exists() ? scheduleSnap.data() : null);
+        let scheduleData = null;
+        for (const key of getDeliveryScheduleDocumentKeys(pickupSpot)) {
+          const scheduleSnap = await getDoc(doc(db, 'deliverySchedules', key));
+          if (scheduleSnap.exists()) {
+            scheduleData = scheduleSnap.data();
+            break;
+          }
         }
+        setDeliverySchedule(scheduleData);
 
         const businessKeys = Object.keys(breakdown);
         const businessEntries = await Promise.all(
@@ -147,7 +153,6 @@ const CustomerOrderDetail = () => {
 
   const isLineEditable = (line) => {
     if (!canEditOrder) return false;
-    if (!deliveryDate || !deliverySchedule) return true;
     return isLineEditableForCustomer({
       deliveryDate,
       deliverySchedule,

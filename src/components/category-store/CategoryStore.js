@@ -28,11 +28,13 @@ import {
   listActiveIntroductionBasketsForCommunity,
 } from '../../services/introductionBasketService';
 import CommunityDiscountWidget from '../communityHub/widgets/CommunityDiscountWidget';
+import CommunityWeeklyPromotionSummary from './CommunityWeeklyPromotionSummary';
 import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
 import { usePickupSpot } from '../../contexts/PickupSpotContext';
 
-const PRODUCT_QUERY_CHUNK_SIZE = 10;
-const PRODUCT_QUERY_CONCURRENCY = 3;
+// Firestore allows up to 30 values in an `in` filter.
+const PRODUCT_QUERY_CHUNK_SIZE = 30;
+const PRODUCT_QUERY_CONCURRENCY = 6;
 const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'משתלה', 'אחר'];
 const hebrewPickupSpotCollator = new Intl.Collator('he');
 
@@ -161,7 +163,7 @@ const CategoryStore = () => {
   const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
   const [introductionBaskets, setIntroductionBaskets] = useState([]);
   const [basketsLoading, setBasketsLoading] = useState(false);
-  const [, setTimeTick] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [farmerBadgeBusinessIds, setFarmerBadgeBusinessIds] = useState([]);
   const [farmerBadgeBusinessNames, setFarmerBadgeBusinessNames] = useState([]);
   const productsWithFarmerBadges = useMemo(
@@ -402,7 +404,7 @@ const CategoryStore = () => {
   }, [selectedCommunity]);
 
   useEffect(() => {
-    const timer = setInterval(() => setTimeTick((tick) => tick + 1), 60 * 1000);
+    const timer = setInterval(() => setNowMs(Date.now()), 60 * 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -611,6 +613,8 @@ const CategoryStore = () => {
                 vatType: productData.vatType ?? 3,
                 isOrganic: Boolean(productData.isOrganic),
                 isRecommended: Boolean(productData.isRecommended),
+                isKosher: Boolean(productData.isKosher),
+                isKosherMehadrin: Boolean(productData.isKosherMehadrin),
                 isSample: Boolean(productData.isSample),
                 createdAt: productData.createdAt || null,
                 // Measurement type and unit size for kg/unit items
@@ -692,9 +696,9 @@ const CategoryStore = () => {
 
   // Calculate time remaining for a product, optionally for a specific pickup spot
   // Shows time until the 1-hour buffer (when products stop showing), not the actual end time
-  const calculateTimeRemaining = (product, pickupSpot) => {
+  const calculateTimeRemaining = useCallback((product, pickupSpot) => {
     const orderType = product.orderType;
-    const now = new Date();
+    const now = new Date(Math.max(nowMs, Date.now()));
 
     if (product.orderMode === 'always_on_grocery' || product.alwaysOn || product.groceryStore || orderType === 'always_on_grocery') {
       if (!deliverySchedule || !selectedDeliveryDate) {
@@ -770,10 +774,23 @@ const CategoryStore = () => {
     } else {
       return 'סוג הזמנה לא ידוע';
     }
-  };
+  }, [deliverySchedule, nowMs, selectedDeliveryDate]);
 
   const filterProductsForCommunity = useCallback((productList) => {
     if (!selectedCommunity) return productList;
+    const bufferTime = new Date(Math.max(nowMs, Date.now()) + 60 * 60 * 1000);
+    const deliveryDateMatchByOrder = new Map();
+    const orderDeliversOnSelectedDate = (p) => {
+      const cacheKey = p.orderId || p.uid;
+      if (!deliveryDateMatchByOrder.has(cacheKey)) {
+        deliveryDateMatchByOrder.set(cacheKey, generateAvailableDeliveryDates(deliverySchedule, {
+          orderData: p.orderData || p,
+          communityName: selectedCommunity,
+        }).includes(selectedDeliveryDate));
+      }
+      return deliveryDateMatchByOrder.get(cacheKey);
+    };
+
     return productList.filter((p) => {
       if (!communityListIncludes(p.pickupSpots, selectedCommunity)) {
         return false;
@@ -781,10 +798,7 @@ const CategoryStore = () => {
 
       if (p.orderMode === 'always_on_grocery' || p.alwaysOn || p.groceryStore || p.orderType === 'always_on_grocery') {
         if (!deliverySchedule || !selectedDeliveryDate) return true;
-        return generateAvailableDeliveryDates(deliverySchedule, {
-          orderData: p.orderData || p,
-          communityName: selectedCommunity,
-        }).includes(selectedDeliveryDate);
+        return orderDeliversOnSelectedDate(p);
       }
 
       if (p.orderType === 'recurring' && p.schedule) {
@@ -804,15 +818,14 @@ const CategoryStore = () => {
         return false;
       }
 
+      // Products stop showing 1 hour before the order actually ends.
       if (endingTime) {
-        const now = new Date();
-        const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
         return endingTime > bufferTime;
       }
 
       return p.orderType !== 'one_time';
     });
-  }, [selectedCommunity, deliverySchedule, selectedDeliveryDate]);
+  }, [selectedCommunity, deliverySchedule, selectedDeliveryDate, nowMs]);
 
   const handleMultiSearch = useCallback((terms) => {
     const pool = selectedCommunity
@@ -959,76 +972,32 @@ const CategoryStore = () => {
   }, [farmerBadgeBusinessIds, farmerBadgeBusinessNames, multiSearchSections, filterProductsForCommunity]);
 
   // Determine which products to display with community filter
-  const baseProducts = isMultiSearchActive
-    ? []
-    : isSearchActive
-    ? searchResultsWithFarmerBadges
-    : selectedCategory === 'הכל'
-      ? productsWithFarmerBadges.filter((product) => {
-          const productCategory = product.category || 'אחר';
-          if (productCategory === 'משתלה') {
-            return Boolean(product.showInAllCategory);
-          }
-          return true;
-        })
-      : productsWithFarmerBadges.filter(product => {
-          const productCategory = product.category || 'אחר';
-          // Special handling for "ירוקים ופטריות" - match both "ירוקים" and "ירוקים ופטריות"
-          if (selectedCategory === 'ירוקים ופטריות') {
-            return productCategory === 'ירוקים' || productCategory === 'ירוקים ופטריות';
-          }
-          return productCategory === selectedCategory;
-        });
-  
-  // Filter by community and per-community ending time
-  // Apply 1-hour buffer: products stop showing 1 hour before they actually end
-  const displayProducts = (selectedCommunity)
-    ? baseProducts.filter(p => {
-        // Must include this pickup spot
-        if (!communityListIncludes(p.pickupSpots, selectedCommunity)) {
-          return false;
+  const baseProducts = useMemo(() => {
+    if (isMultiSearchActive) return [];
+    if (isSearchActive) return searchResultsWithFarmerBadges;
+    if (selectedCategory === 'הכל') {
+      return productsWithFarmerBadges.filter((product) => {
+        const productCategory = product.category || 'אחר';
+        if (productCategory === 'משתלה') {
+          return Boolean(product.showInAllCategory);
         }
+        return true;
+      });
+    }
+    return productsWithFarmerBadges.filter((product) => {
+      const productCategory = product.category || 'אחר';
+      // Special handling for "ירוקים ופטריות" - match both "ירוקים" and "ירוקים ופטריות"
+      if (selectedCategory === 'ירוקים ופטריות') {
+        return productCategory === 'ירוקים' || productCategory === 'ירוקים ופטריות';
+      }
+      return productCategory === selectedCategory;
+    });
+  }, [isMultiSearchActive, isSearchActive, productsWithFarmerBadges, searchResultsWithFarmerBadges, selectedCategory]);
 
-        if (p.orderMode === 'always_on_grocery' || p.alwaysOn || p.groceryStore || p.orderType === 'always_on_grocery') {
-          if (!deliverySchedule || !selectedDeliveryDate) return true;
-          return generateAvailableDeliveryDates(deliverySchedule, {
-            orderData: p.orderData || p,
-            communityName: selectedCommunity,
-          }).includes(selectedDeliveryDate);
-        }
-        
-        // For recurring orders, check schedule
-        if (p.orderType === 'recurring' && p.schedule) {
-          return isOrderActiveNow(p.schedule);
-        }
-        
-        // For one-time orders, check ending time with 1-hour buffer
-        const orderData = {
-          endingTime: p.endingTime,
-          endingTimeByPickupSpot: p.endingTimeByPickupSpot || {},
-          Ending_Time: p.endingTime
-        };
-        
-        // If per-spot ending times exist, the spot MUST have an ending time to be valid
-        const hasPerSpotTimes = p.endingTimeByPickupSpot && Object.keys(p.endingTimeByPickupSpot).length > 0;
-        const endingTime = getEndingTimeForSpot(orderData, selectedCommunity);
-        
-        if (hasPerSpotTimes && !endingTime) {
-          // Per-spot times exist but this spot doesn't have one - treat as inactive
-          return false;
-        }
-        
-        if (endingTime) {
-          // Apply 1-hour buffer: stop showing 1 hour before actual end time
-          const now = new Date();
-          const bufferTime = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
-          return endingTime > bufferTime;
-        }
-        
-        // Legacy orders without per-spot times: allow if no ending time (shouldn't happen for one_time)
-        return p.orderType !== 'one_time';
-      })
-    : baseProducts;
+  const displayProducts = useMemo(
+    () => filterProductsForCommunity(baseProducts),
+    [baseProducts, filterProductsForCommunity]
+  );
 
   const searchableProducts = useMemo(() => {
     if (!selectedCommunity) return productsWithFarmerBadges;
@@ -1189,33 +1158,11 @@ const CategoryStore = () => {
               variant="compact"
               showCommunityLink
             />
-            {activePromotion && (
-              <section
-                className="mt-2 rounded-lg border border-blue-200 bg-gradient-to-l from-blue-50 to-sky-50 px-3 py-2 shadow-sm"
-                aria-label="מבצע שבועי לקהילה"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-blue-700">מבצע שבועי</p>
-                    <h2 className="truncate text-sm font-bold text-gray-900">
-                      {activePromotion.title || 'מחיר קהילתי מיוחד'}
-                    </h2>
-                    <p className="mt-0.5 text-xs text-gray-600">
-                      {unlocked ? 'המחיר הקהילתי פתוח לקהילה זו.' : 'שתפו בקבוצת הקהילה כדי לפתוח את המחיר.'}
-                    </p>
-                  </div>
-                  {!unlocked && (
-                    <button
-                      type="button"
-                      onClick={openUnlockModal}
-                      className="min-h-11 flex-shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                    >
-                      שיתוף לפתיחה
-                    </button>
-                  )}
-                </div>
-              </section>
-            )}
+            <CommunityWeeklyPromotionSummary
+              promotion={activePromotion}
+              unlocked={unlocked}
+              onUnlock={openUnlockModal}
+            />
           </div>
         )}
 
