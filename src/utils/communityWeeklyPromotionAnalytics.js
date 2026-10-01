@@ -313,7 +313,7 @@ export const buildCommunityWeeklyPromotionAnalytics = ({
     const customerId = orderCustomerId(order) || orderId;
     customerIds.add(customerId);
 
-    let communityCode = '';
+    let stampedCommunityCode = '';
     items.forEach((item) => {
       const productId = lineProductId(item);
       const productName = clean(item.productName || item.name) || 'מוצר';
@@ -321,8 +321,8 @@ export const buildCommunityWeeklyPromotionAnalytics = ({
       const units = lineUnits(item);
       stats.units += units;
       stats.revenue += revenue;
-      if (!communityCode) {
-        communityCode = clean(item.communityWeeklyPromotionCommunityCode)
+      if (!stampedCommunityCode) {
+        stampedCommunityCode = clean(item.communityWeeklyPromotionCommunityCode)
           || clean(order.communityWeeklyPromotionAttribution?.communityCode);
       }
 
@@ -341,8 +341,11 @@ export const buildCommunityWeeklyPromotionAnalytics = ({
       }
     });
 
-    if (!communityCode) communityCode = orderCommunityName(order);
-    communityCode = resolveCommunityKey(communityRows, communityCode);
+    const placedCommunity = orderCommunityName(order);
+    const communityCode = resolveCommunityKey(
+      communityRows,
+      (placedCommunity && placedCommunity !== 'לא צוין') ? placedCommunity : stampedCommunityCode,
+    );
     if (communityCode) {
       const current = communityRows.get(communityCode) || emptyCommunityRow({
         communityCode,

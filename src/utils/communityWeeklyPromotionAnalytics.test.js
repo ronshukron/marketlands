@@ -274,6 +274,46 @@ describe('community weekly promotion analytics', () => {
     expect(stats.revenue).toBe(18);
   });
 
+  test('attributes the order to the pickup community when the promotion code is stale', () => {
+    const stats = buildCommunityWeeklyPromotionAnalytics({
+      promotion,
+      unlocks: [
+        { communityCode: 'north', unlocked: true },
+        { communityCode: 'south', unlocked: true },
+      ],
+      orders: [delayedOrder({
+        id: 'order-moved-community',
+        userId: 'user-moved',
+        community: 'אור הנר',
+        fulfillment: { community: 'אור הנר' },
+        customerDetails: { phone: '0502222222', pickupSpot: 'אור הנר' },
+        orderBreakdown: {
+          biz: {
+            items: [promoLine({
+              communityWeeklyPromotionCommunityCode: 'north',
+              estimatedLineTotal: 25,
+            })],
+          },
+        },
+      })],
+    });
+
+    expect(stats.communities).toEqual([
+      expect.objectContaining({
+        communityCode: 'south',
+        communityName: 'אור הנר',
+        orders: 1,
+        revenue: 25,
+      }),
+      expect.objectContaining({
+        communityCode: 'north',
+        communityName: 'ניצנים',
+        orders: 0,
+        revenue: 0,
+      }),
+    ]);
+  });
+
   test('attributes revenue to the target community when the order only has a community name', () => {
     const stats = buildCommunityWeeklyPromotionAnalytics({
       promotion,
