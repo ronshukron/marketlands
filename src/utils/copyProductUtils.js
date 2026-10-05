@@ -70,6 +70,7 @@ export const buildCopiedProductPayload = (sourceProduct = {}, targetBusiness = {
     isRecommended: Boolean(sourceProduct.isRecommended),
     isKosher: Boolean(sourceProduct.isKosher),
     isKosherMehadrin: Boolean(sourceProduct.isKosherMehadrin),
+    hardToPick: Boolean(sourceProduct.hardToPick),
   };
 
   if (asNumber(sourceProduct.merchantPrice, null) != null) {

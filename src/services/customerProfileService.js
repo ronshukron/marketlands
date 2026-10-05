@@ -12,7 +12,13 @@ export function getCustomerKey({ phone, email } = {}) {
   return p || e || '';
 }
 
-const EMPTY_PROFILE = { isVip: false, noteHebrew: '', noteThai: '' };
+const EMPTY_PROFILE = {
+  isVip: false,
+  noteHebrew: '',
+  noteThai: '',
+  winBackSentAt: '',
+  winBackOfferSummary: '',
+};
 
 function normalizeProfile(data) {
   if (!data) return { ...EMPTY_PROFILE };
@@ -20,6 +26,8 @@ function normalizeProfile(data) {
     isVip: data.isVip === true,
     noteHebrew: data.noteHebrew || '',
     noteThai: data.noteThai || '',
+    winBackSentAt: data.winBackSentAt || '',
+    winBackOfferSummary: data.winBackOfferSummary || '',
   };
 }
 
@@ -76,5 +84,30 @@ export async function setCustomerProfile(key, { isVip, noteHebrew, noteThai } = 
     },
     { merge: true }
   );
-  return { isVip: isVip === true, noteHebrew: noteHebrew || '', noteThai: noteThai || '' };
+  return {
+    isVip: isVip === true,
+    noteHebrew: noteHebrew || '',
+    noteThai: noteThai || '',
+  };
+}
+
+/**
+ * Record a win-back WhatsApp outreach without touching VIP or notes.
+ * Merge-only so an existing profile is not replaced.
+ */
+export async function markCustomerWinBackSent(key, { offerSummary = '', sentAt } = {}) {
+  const id = (key || '').trim();
+  if (!id) throw new Error('Missing customer key');
+  const winBackSentAt = sentAt || new Date().toISOString();
+  const winBackOfferSummary = String(offerSummary || '').trim();
+  await setDoc(
+    doc(db, COLLECTION, id),
+    {
+      winBackSentAt,
+      winBackOfferSummary,
+      updatedAt: winBackSentAt,
+    },
+    { merge: true }
+  );
+  return { winBackSentAt, winBackOfferSummary };
 }

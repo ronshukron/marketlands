@@ -275,6 +275,7 @@ export async function fetchProductDetailsV7(productIds = []) {
         measurementType: data.measurementType || 'kg',
         unitSize: safeNumber(data.unitSize, 1),
         averageWeightKg: safeNumber(data.averageWeightKg, 1),
+        hardToPick: Boolean(data.hardToPick),
       };
     } catch (error) {
       // Ignore per-product failures so one bad product does not break the whole view.
@@ -305,6 +306,7 @@ export async function searchProductsV7({ term = '', limit = 20 }) {
         measurementType: data.measurementType || 'kg',
         unitSize: safeNumber(data.unitSize, 1),
         averageWeightKg: safeNumber(data.averageWeightKg, 1),
+        hardToPick: Boolean(data.hardToPick),
       };
     })
     .filter((product) => product.independentFarmer !== true)

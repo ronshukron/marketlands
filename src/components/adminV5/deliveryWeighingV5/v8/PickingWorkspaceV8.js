@@ -458,7 +458,13 @@ function BoxesStep({
   );
 }
 
-const ORDER_CARD_CLASS = 'relative h-[320px] w-full rounded-xl border-2 overflow-hidden text-start flex flex-col';
+function formatExpectedHeadline(group, t8) {
+  const qty = Number(group?.totalExpected || 0);
+  if (group?.measurementType === 'package') return `${Math.floor(qty)} ${t8.pkgLbl}`;
+  return `${fmtKg(qty)} ${t8.kg}`;
+}
+
+const ORDER_CARD_CLASS = 'relative h-[380px] w-full rounded-2xl border overflow-hidden text-start flex flex-col bg-white';
 
 function OrderPickCard({
   entry,
@@ -469,6 +475,9 @@ function OrderPickCard({
   info,
   lock,
   onSelectEntry,
+  onPrintLabel,
+  hasPrinterSupport,
+  printBusy,
   weighProps,
 }) {
   const orderedLabel = formatPickQuantity({
@@ -476,50 +485,80 @@ function OrderPickCard({
     quantity: entry.requested,
     averageWeightKg: entry.item.averageWeightKg,
   }, t8);
+  const done = entry.status === PICK_STATUS.done;
+  const reqQty = Number(entry.requested || 0);
+  const showQtyBadge = reqQty > 1;
+  const qtyBadgeText = (entry.item.measurementType === 'package' || entry.item.measurementType === 'unit')
+    ? Math.floor(reqQty)
+    : reqQty;
   const tone = entry.status === PICK_STATUS.removed
-    ? 'border-red-200 bg-red-50 opacity-60'
+    ? 'border-red-200'
     : active
-      ? 'border-blue-500 bg-blue-50 shadow-lg ring-2 ring-blue-200'
-      : entry.status === PICK_STATUS.done
-        ? 'border-green-300 bg-green-50'
-        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow';
+      ? 'border-blue-500 shadow-md ring-1 ring-blue-200'
+      : done
+        ? 'border-green-300'
+        : 'border-gray-200 hover:border-gray-300';
 
   const header = (
-    <span className="flex items-center gap-3 p-3 shrink-0">
-      <span className={`w-12 h-12 rounded-full font-black text-lg flex items-center justify-center shrink-0 ${
-        entry.status === PICK_STATUS.done ? 'bg-green-500 text-white' : active ? 'bg-blue-600 text-white' : 'bg-yellow-500 text-white'
+    <span className="flex items-center gap-4 px-4 pt-4 pb-2 shrink-0">
+      <span className={`relative w-20 h-20 rounded-2xl font-black text-3xl flex items-center justify-center shrink-0 shadow-sm ${
+        active ? 'bg-blue-600 text-white' : 'bg-amber-400 text-gray-900'
       }`}
       >
-        {entry.status === PICK_STATUS.done ? '✓' : info.customerNumber}
+        {info.customerNumber}
+        {done && (
+          <span className="absolute -bottom-1.5 -left-1.5 w-6 h-6 rounded-full bg-green-600 text-white text-xs font-black flex items-center justify-center border-2 border-white">✓</span>
+        )}
       </span>
       <span className="min-w-0 flex-1">
-        {active && <span className="block text-[11px] font-black text-gray-500">{t8.putInBox}</span>}
-        <span className="block font-black text-gray-900 truncate">{info.name}</span>
-        <span className="block text-xs font-bold truncate" style={{ color: info.color }}>{info.community}</span>
-      </span>
-      <span className="shrink-0 text-end">
-        <span className="block text-[11px] font-bold text-amber-800">{t8.ordered}</span>
-        <span className="block font-black text-gray-900">{orderedLabel}</span>
+        {active && <span className="block text-[11px] font-bold text-gray-400">{t8.putInBox}</span>}
+        <span className="block text-xl font-black text-gray-900 truncate leading-tight">{info.name}</span>
+        <span className="block text-sm font-semibold truncate mt-0.5" style={{ color: info.color }}>{info.community}</span>
+        <span className="mt-1.5 flex items-center gap-2">
+          <span className="text-base font-black text-gray-800">{orderedLabel}</span>
+          {showQtyBadge && (
+            <span className="inline-flex items-center justify-center min-w-[2.75rem] h-8 px-2 rounded-full bg-red-600 text-white text-lg font-black leading-none">
+              x{qtyBadgeText}
+            </span>
+          )}
+        </span>
       </span>
     </span>
   );
 
+  const printButton = hasPrinterSupport ? (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onPrintLabel(entry.order);
+      }}
+      disabled={printBusy}
+      className="mx-4 mb-3 min-h-[40px] rounded-xl border border-sky-200 bg-sky-50 text-sky-800 text-sm font-black hover:bg-sky-100 disabled:opacity-50"
+    >
+      {t8.printOne}
+    </button>
+  ) : null;
+
   if (!active) {
     return (
-      <button
-        type="button"
-        onClick={() => onSelectEntry(entry.lineId)}
-        className={`${ORDER_CARD_CLASS} ${tone}`}
-      >
-        {header}
-        <span className="flex-1 flex items-center justify-center text-sm font-black text-gray-400">
-          {entry.status === PICK_STATUS.done
-            ? `✓ ${formatPickedQuantity(entry.item.measurementType, entry.actual, t8)}`
-            : entry.status === PICK_STATUS.removed
-              ? t8.missing
-              : t8.pending}
-        </span>
-      </button>
+      <div className={`${ORDER_CARD_CLASS} ${tone}`}>
+        <button
+          type="button"
+          onClick={() => onSelectEntry(entry.lineId)}
+          className="flex-1 flex flex-col text-start min-h-0"
+        >
+          {header}
+          <span className="flex-1 flex items-center justify-center text-sm font-black text-gray-400">
+            {done
+              ? `✓ ${formatPickedQuantity(entry.item.measurementType, entry.actual, t8)}`
+              : entry.status === PICK_STATUS.removed
+                ? t8.missing
+                : t8.pending}
+          </span>
+        </button>
+        {printButton}
+      </div>
     );
   }
 
@@ -538,6 +577,7 @@ function OrderPickCard({
           lock={lock}
         />
       </div>
+      {printButton}
     </div>
   );
 }
@@ -769,12 +809,24 @@ function ItemsStep({
   getOrderLock,
   cachedImg,
   weighProps,
+  onPrintLabel,
+  hasPrinterSupport,
+  isPrinting,
+  printAllProgress,
 }) {
+  const [packagesOnly, setPackagesOnly] = useState(false);
+  const [hardOnly, setHardOnly] = useState(false);
   const sortModes = [
     ['business', t8.sortByBusiness],
     ['popular', t8.sortByPopular],
     ['name', t8.sortByName],
   ];
+  const shownGroups = groups.filter((group) => {
+    if (packagesOnly && group.measurementType !== 'package') return false;
+    if (hardOnly && !group.hardToPick) return false;
+    return true;
+  });
+  const printBusy = isPrinting || !!printAllProgress;
   let prevBusiness = '';
 
   return (
@@ -811,7 +863,7 @@ function ItemsStep({
             </button>
           </div>
           <div className="divide-y max-h-[calc(100vh-280px)] overflow-y-auto">
-            {groups.map((group) => {
+            {shownGroups.map((group) => {
               const active = activeGroup?.key === group.key;
               const showFarmer = itemSortMode === 'business' && group.businessName !== prevBusiness;
               prevBusiness = group.businessName || '';
@@ -860,6 +912,27 @@ function ItemsStep({
                 </React.Fragment>
               );
             })}
+            {shownGroups.length === 0 && (
+              <div className="p-4 text-sm font-bold text-gray-500">{t8.noFilteredItems}</div>
+            )}
+          </div>
+          <div className="sticky bottom-0 border-t bg-white p-2 flex flex-col gap-2">
+            <button
+              type="button"
+              aria-pressed={packagesOnly}
+              onClick={() => setPackagesOnly((on) => !on)}
+              className={`min-h-[44px] rounded-xl px-3 text-sm font-black ${packagesOnly ? 'bg-purple-700 text-white' : 'bg-purple-50 text-purple-900 border border-purple-200'}`}
+            >
+              {t8.filterPackages}
+            </button>
+            <button
+              type="button"
+              aria-pressed={hardOnly}
+              onClick={() => setHardOnly((on) => !on)}
+              className={`min-h-[44px] rounded-xl px-3 text-sm font-black ${hardOnly ? 'bg-amber-700 text-white' : 'bg-amber-50 text-amber-950 border border-amber-200'}`}
+            >
+              {t8.filterHard}
+            </button>
           </div>
         </div>
       </div>
@@ -869,26 +942,20 @@ function ItemsStep({
           <div className="bg-white rounded-xl shadow-sm p-12 text-center text-gray-500 text-lg font-bold leading-snug">{t8.pickItem}</div>
         ) : (
           <>
-            <div className="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-3">
-              <div className="w-14 h-14 rounded-lg bg-gray-50 border overflow-hidden shrink-0">
+            <div className="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-4">
+              <div className="w-64 h-64 rounded-2xl bg-gray-50 border border-gray-200 overflow-hidden shrink-0">
                 {activeGroup.images?.[0] ? <img src={cachedImg(activeGroup.images[0])} alt="" className="w-full h-full object-contain" /> : null}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xl font-black text-gray-900 truncate">
-                  {itemName(activeGroup, lang)}
+                <div className="text-3xl font-black text-gray-900 leading-tight">
+                  {formatExpectedHeadline(activeGroup, t8)} {itemName(activeGroup, lang)}
                   {activeGroup.selectedOption ? <span className="text-amber-800"> · {activeGroup.selectedOption}</span> : null}
                 </div>
                 {itemSecondaryName(activeGroup, lang) && (
-                  <div className="text-xs font-bold text-violet-700 truncate">{itemSecondaryName(activeGroup, lang)}</div>
+                  <div className="text-sm font-bold text-violet-700 truncate">{itemSecondaryName(activeGroup, lang)}</div>
                 )}
                 <div className="text-xs text-gray-500 truncate">{activeGroup.businessName}</div>
-              </div>
-              <div className="text-end">
-                <div className="text-xs font-bold text-gray-500">{t8.totalToPick}</div>
-                <div className="text-lg font-black text-gray-900">
-                  {formatPickQuantity({ measurementType: activeGroup.measurementType, quantity: activeGroup.totalRequested, averageWeightKg: activeGroup.averageWeightKg }, t8)}
-                </div>
-                <div className="text-xs font-black text-indigo-700">{activeGroup.doneCount}/{activeGroup.activeCount}</div>
+                <div className="mt-1 text-xs font-black text-indigo-700">{activeGroup.doneCount}/{activeGroup.activeCount} · {t8.boxesCount(activeGroup.activeCount)}</div>
               </div>
               <button
                 type="button"
@@ -917,6 +984,9 @@ function ItemsStep({
                   info={getBoxInfo(entry.order)}
                   lock={getOrderLock(entry.orderId)}
                   onSelectEntry={onSelectEntry}
+                  onPrintLabel={onPrintLabel}
+                  hasPrinterSupport={hasPrinterSupport}
+                  printBusy={printBusy}
                   weighProps={weighProps}
                 />
               ))}

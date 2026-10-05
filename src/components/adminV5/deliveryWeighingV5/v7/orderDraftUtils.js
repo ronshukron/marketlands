@@ -121,6 +121,7 @@ export function mergeProductDetailsIntoItems(items = [], productDetails = {}) {
       measurementType: pd?.measurementType || item?.measurementType || 'kg',
       unitSize: safeNumber(pd?.unitSize ?? item?.unitSize, 1),
       averageWeightKg: safeNumber(pd?.averageWeightKg ?? item?.averageWeightKg, 1),
+      hardToPick: Boolean(pd?.hardToPick ?? item?.hardToPick),
       pricePerUnit: safeNumber(item?.pricePerUnit ?? item?.price, 0),
     };
   });

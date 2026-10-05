@@ -10,7 +10,12 @@ import {
   setCustomerProfile,
 } from '../../services/customerProfileService';
 import { normalizeEmail, normalizePhone } from '../../services/compensationService';
+import {
+  DEFAULT_WIN_BACK_WEEKS,
+  filterLapsedCustomers,
+} from '../../utils/customerWinBackMessage';
 import CustomerCompensationPanel from './CustomerCompensationPanel';
+import CustomerWinBackTab from './CustomerWinBackTab';
 
 const CustomerInsights = () => {
   const { currentUser } = useAuth();
@@ -32,6 +37,8 @@ const CustomerInsights = () => {
   const [editNoteTh, setEditNoteTh] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState('insights');
+  const [winBackWeeks, setWinBackWeeks] = useState(DEFAULT_WIN_BACK_WEEKS);
 
   const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
@@ -125,6 +132,8 @@ const CustomerInsights = () => {
         grandTotal: order.grandTotal,
         itemCount,
         pickupSpot: details.pickupSpot || '',
+        phone: details.phone || '',
+        name: details.name || '',
         orderBreakdown: order.orderBreakdown || {}
       };
 
@@ -168,6 +177,11 @@ const CustomerInsights = () => {
         (a.name || '').localeCompare(b.name || '')
       ),
     [customersMap]
+  );
+
+  const winBackCount = useMemo(
+    () => filterLapsedCustomers(customersList, winBackWeeks).length,
+    [customersList, winBackWeeks]
   );
 
   const searchedCustomers = useMemo(() => {
@@ -269,7 +283,10 @@ const CustomerInsights = () => {
         noteHebrew: editNoteHe,
         noteThai: editNoteTh,
       });
-      setProfilesMap((prev) => ({ ...prev, [selectedProfileKey]: saved }));
+      setProfilesMap((prev) => ({
+        ...prev,
+        [selectedProfileKey]: { ...(prev[selectedProfileKey] || {}), ...saved },
+      }));
       setProfileSaved(true);
     } catch (e) {
       console.error('Failed to save customer profile', e);
@@ -285,10 +302,54 @@ const CustomerInsights = () => {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8" dir="rtl">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">
           ניתוח לקוחות ופעילות אישית
         </h1>
 
+        <div className="flex flex-wrap gap-2 mb-6" role="tablist" aria-label="מסכי לקוחות">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'insights'}
+            onClick={() => setActiveTab('insights')}
+            className={`min-h-[44px] px-4 py-2 rounded-lg text-sm font-medium ${
+              activeTab === 'insights' ? 'bg-blue-700 text-white' : 'bg-white text-gray-700 border border-gray-200'
+            }`}
+          >
+            ניתוח לקוחות
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'winback'}
+            onClick={() => setActiveTab('winback')}
+            className={`min-h-[44px] px-4 py-2 rounded-lg text-sm font-medium ${
+              activeTab === 'winback' ? 'bg-blue-700 text-white' : 'bg-white text-gray-700 border border-gray-200'
+            }`}
+          >
+            החזרת לקוחות ({winBackCount})
+          </button>
+        </div>
+
+        {activeTab === 'winback' && (
+          <CustomerWinBackTab
+            customers={customersList}
+            profilesMap={profilesMap}
+            weeks={winBackWeeks}
+            onWeeksChange={setWinBackWeeks}
+            adminUid={currentUser?.uid || ''}
+            adminName={currentUser?.displayName || currentUser?.email || ''}
+            onWinBackRecorded={(key, patch) => {
+              setProfilesMap((prev) => ({
+                ...prev,
+                [key]: { ...(prev[key] || {}), ...patch },
+              }));
+            }}
+          />
+        )}
+
+        {activeTab === 'insights' && (
+        <>
         {/* Section 1: Customers by number of orders */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
@@ -717,6 +778,8 @@ const CustomerInsights = () => {
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
     </div>
   );

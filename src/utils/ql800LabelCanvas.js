@@ -34,6 +34,58 @@ function fillRoundRect(ctx, x, y, w, h, r) {
   ctx.fill();
 }
 
+function drawCrateSymbol(ctx, cx, cy, large) {
+  const w = large ? 78 : 40;
+  const h = large ? 58 : 30;
+  ctx.save();
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = large ? 8 : 6;
+  ctx.lineJoin = 'miter';
+  ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
+  ctx.beginPath();
+  ctx.moveTo(cx - w / 2, cy - h / 2 + h * 0.32);
+  ctx.lineTo(cx + w / 2, cy - h / 2 + h * 0.32);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRecycleSymbol(ctx, cx, cy, radius) {
+  ctx.save();
+  ctx.strokeStyle = '#000000';
+  ctx.fillStyle = '#000000';
+  ctx.lineWidth = 7;
+  ctx.lineCap = 'butt';
+  for (let i = 0; i < 3; i += 1) {
+    const start = ((i * 120) - 18) * (Math.PI / 180);
+    const end = ((i * 120) + 78) * (Math.PI / 180);
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.stroke();
+    const tipX = cx + radius * Math.cos(end);
+    const tipY = cy + radius * Math.sin(end);
+    const dir = end + Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(tipX + 16 * Math.cos(dir), tipY + 16 * Math.sin(dir));
+    ctx.lineTo(tipX + 14 * Math.cos(dir + 2.4), tipY + 14 * Math.sin(dir + 2.4));
+    ctx.lineTo(tipX + 6 * Math.cos(dir - 0.7), tipY + 6 * Math.sin(dir - 0.7));
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCrateMarks(ctx, cx, cy, { reusable = false, large = false } = {}) {
+  const boxW = large ? 78 : 40;
+  if (!reusable) {
+    drawCrateSymbol(ctx, cx, cy, large);
+    return;
+  }
+  const gap = 28;
+  const total = boxW + gap + 64;
+  drawCrateSymbol(ctx, cx - total / 2 + boxW / 2, cy, large);
+  drawRecycleSymbol(ctx, cx + total / 2 - 32, cy, 26);
+}
+
 function mirrorHorizontal(data, width, height) {
   const out = new Uint8ClampedArray(data.length);
   for (let y = 0; y < height; y += 1) {
@@ -53,6 +105,7 @@ function mirrorHorizontal(data, width, height) {
  * 62 mm QL-800 label:
  *   [order number huge]     [community]
  *   קרטון 1#
+ *   [crate size symbol, recycle symbol when reused]
  *   [name huge, white on red]
  */
 export function renderQl800Label({
@@ -60,6 +113,7 @@ export function renderQl800Label({
   name,
   community,
   crateIndex,
+  crateMark = null,
 } = {}) {
   const width = QL800_PRINT_WIDTH;
   const pad = 12;
@@ -68,10 +122,12 @@ export function renderQl800Label({
   const nameText = String(name || '-');
   const communityText = String(community || '-');
   const cartonText = cartonLabelText(crateIndex);
+  const showMarks = crateMark && typeof crateMark === 'object';
+  const typeH = showMarks ? 78 : 0;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
-  canvas.height = 560;
+  canvas.height = 560 + (showMarks ? 88 : 0);
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     throw new Error('Canvas 2D is not available');
@@ -103,6 +159,10 @@ export function renderQl800Label({
   ctx.fillStyle = '#000000';
   ctx.fillText(cartonText, width / 2, cartonY);
 
+  if (showMarks) {
+    drawCrateMarks(ctx, width / 2, topH + cartonH + typeH / 2, crateMark);
+  }
+
   ctx.textAlign = 'center';
   const nameSize = fitFontSize(ctx, nameText, nameMaxW - 20, 118, 52);
   ctx.font = `900 ${nameSize}px ${FONT_STACK}`;
@@ -110,7 +170,7 @@ export function renderQl800Label({
   const nameW = Math.min(nameMaxW, Math.max(ctx.measureText(fittedName).width + 40, width * 0.88));
   const nameH = nameSize + 40;
   const nameBoxX = pad + (nameMaxW - nameW) / 2;
-  const nameBoxY = topH + cartonH + 8;
+  const nameBoxY = topH + cartonH + typeH + 8;
   ctx.fillStyle = '#E00000';
   fillRoundRect(ctx, nameBoxX, nameBoxY, nameW, nameH, 16);
   ctx.fillStyle = '#ffffff';

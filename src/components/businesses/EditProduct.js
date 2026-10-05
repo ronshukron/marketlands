@@ -39,6 +39,7 @@ const EditProduct = () => {
     isRecommended: false,
     isKosher: false,
     isKosherMehadrin: false,
+    hardToPick: false,
     options: [],
     tags: [],
     stockAmount: 0,
@@ -114,6 +115,7 @@ const EditProduct = () => {
             isRecommended: Boolean(data.isRecommended),
             isKosher: Boolean(data.isKosher),
             isKosherMehadrin: Boolean(data.isKosherMehadrin),
+            hardToPick: Boolean(data.hardToPick),
             options: data.options || [],
             tags: data.tags || [],
             stockAmount: data.stockAmount || 0,
@@ -319,6 +321,7 @@ const handleSubmit = async (e) => {
       isRecommended: Boolean(formData.isRecommended),
       isKosher: Boolean(formData.isKosher),
       isKosherMehadrin: Boolean(formData.isKosherMehadrin),
+      hardToPick: Boolean(formData.hardToPick),
       quantityDiscountThreshold: quantityDiscount?.quantityDiscountThreshold ?? null,
       quantityDiscountPrice: quantityDiscount?.quantityDiscountPrice ?? null,
       quantityDiscountLabel: quantityDiscount
@@ -500,6 +503,19 @@ const handleSubmit = async (e) => {
                 <span className="text-sm text-gray-700">כשר מהדרין</span>
               </label>
             </div>
+          </fieldset>
+
+          <fieldset className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <legend className="px-1 text-sm font-semibold text-amber-950">ליקוט במחסן</legend>
+            <label className="mt-2 flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.hardToPick}
+                onChange={(e) => setFormData({ ...formData, hardToPick: e.target.checked })}
+                className="h-5 w-5 rounded border-gray-300 text-amber-700 focus:ring-amber-500"
+              />
+              <span className="text-sm text-gray-800">מוצר קשה לליקוט — יופיע בסינון "קשים" ב-V8</span>
+            </label>
           </fieldset>
           
           {/* After the price field */}

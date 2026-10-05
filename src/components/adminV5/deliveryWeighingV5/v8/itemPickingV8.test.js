@@ -141,6 +141,7 @@ describe('itemPickingV8', () => {
     const eggs = groups.find((group) => group.productId === 'eggs');
     expect(eggs.measurementType).toBe('package');
     expect(eggs.totalExpected).toBe(2);
+    expect(eggs.hardToPick).toBe(false);
   });
 
   test('buildItemPickGroups ignores orders without id or lines without lineId', () => {

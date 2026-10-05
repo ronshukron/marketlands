@@ -46,6 +46,7 @@ const AddProduct = () => {
   const [isRecommended, setIsRecommended] = useState(false);
   const [isKosher, setIsKosher] = useState(false);
   const [isKosherMehadrin, setIsKosherMehadrin] = useState(false);
+  const [hardToPick, setHardToPick] = useState(false);
 
   // Predefined unit size options (in kg)
   const UNIT_SIZE_OPTIONS = [
@@ -252,6 +253,7 @@ const AddProduct = () => {
         isRecommended,
         isKosher,
         isKosherMehadrin,
+        hardToPick,
       };
       const quantityDiscount = normalizeQuantityDiscount(
         quantityDiscountThreshold,
@@ -465,6 +467,19 @@ const AddProduct = () => {
                 <span className="text-sm text-gray-700">כשר מהדרין</span>
               </label>
             </div>
+          </fieldset>
+
+          <fieldset className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <legend className="px-1 text-sm font-semibold text-amber-950">ליקוט במחסן</legend>
+            <label className="mt-2 flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-2">
+              <input
+                type="checkbox"
+                checked={hardToPick}
+                onChange={(e) => setHardToPick(e.target.checked)}
+                className="h-5 w-5 rounded border-gray-300 text-amber-700 focus:ring-amber-500"
+              />
+              <span className="text-sm text-gray-800">מוצר קשה לליקוט — יופיע בסינון "קשים" ב-V8</span>
+            </label>
           </fieldset>
 
           {/* Category */}

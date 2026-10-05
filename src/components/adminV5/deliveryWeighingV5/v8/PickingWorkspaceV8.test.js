@@ -15,7 +15,7 @@ const contexts = {
   o1: {
     items: [
       { lineId: 'o1::tom', productId: 'tom', productName: 'עגבניה', requestedQuantity: 1.5, measurementType: 'kg' },
-      { lineId: 'o1::egg', productId: 'egg', productName: 'ביצים', requestedQuantity: 2, measurementType: 'package' },
+      { lineId: 'o1::egg', productId: 'egg', productName: 'ביצים', requestedQuantity: 2, measurementType: 'package', hardToPick: true },
     ],
     draft: {},
   },
@@ -298,11 +298,33 @@ describe('WeighPanel', () => {
     expect(props.weighProps.onUseOrdered).toHaveBeenCalledWith(expect.objectContaining({ lineId: 'o1::egg' }));
   });
 
-  test('picked line shows its weight and can be reset', () => {
+  test('picked line keeps the customer number and can be reset', () => {
     const { props } = openTomato({ activeLineId: 'o2::tom' });
+    expect(screen.getAllByText('42').length).toBeGreaterThan(0);
     expect(screen.getAllByText('2.050 ק"ג').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: t8.reset }));
     expect(props.weighProps.onReset).toHaveBeenCalledWith(expect.objectContaining({ lineId: 'o2::tom' }));
+  });
+
+  test('prints a crate label from the selected item and shows a red quantity badge', () => {
+    const { props } = openTomato();
+    expect(screen.getByText(/3\.500 ק"ג/)).toBeInTheDocument();
+    expect(screen.getAllByText(/עגבניה/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('x1.5').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('x2').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole('button', { name: t8.printOne })[0]);
+    expect(props.onPrintLabel).toHaveBeenCalledWith(orders[0]);
+  });
+
+  test('package and hard filters narrow the item list', () => {
+    renderWorkspace({ view: 'items' });
+    fireEvent.click(screen.getByRole('button', { name: t8.filterPackages }));
+    expect(screen.queryByRole('button', { name: /עגבניה/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /ביצים/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t8.filterPackages }));
+    fireEvent.click(screen.getByRole('button', { name: t8.filterHard }));
+    expect(screen.queryByRole('button', { name: /עגבניה/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /ביצים/ })).toBeInTheDocument();
   });
 
   test('out-of-stock and locked orders', () => {

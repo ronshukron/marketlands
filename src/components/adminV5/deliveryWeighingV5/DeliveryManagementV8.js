@@ -119,6 +119,7 @@ import {
 import { crateLabelAfterPrint, normalizeCrateLabel, normalizePackedCartonCount } from '../../../utils/crateLabelCounter';
 import { readCrateLabel, writeCrateLabel } from '../../../utils/crateLabelStorage';
 import { renderQl800Label } from '../../../utils/ql800LabelCanvas';
+import { countActiveOrderItems, crateMarkV8 } from './v8/crateTypeThaiV8';
 import {
   buildItemPickGroups,
   getExpectedPickQuantity,
@@ -4228,12 +4229,18 @@ export default function DeliveryManagementV8() {
     const current = normalizeCrateLabel(readCrateLabel(order.id) || effectiveDraftsByOrder[order.id]?.crateLabel || { index: 1 });
     const { printUses, afterPrint } = crateLabelAfterPrint(current.index);
     const info = getPickBoxInfo(order);
+    const reusable = order?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true
+      || order?.rawData?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true;
     try {
       const image = renderQl800Label({
         customerNumber: info.customerNumber,
         name: info.name,
         community: info.community,
         crateIndex: printUses.index,
+        crateMark: crateMarkV8({
+          reusable,
+          itemCount: countActiveOrderItems(order, effectiveDraftsByOrder[order.id] || {}),
+        }),
       });
       const result = await printImage(image);
       if (!result?.ok) {
