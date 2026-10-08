@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import {
   canTransferCustomerOrderDelivery,
   transferCustomerOrderDelivery,
 } from '../../services/customerOrderTransferService';
 import {
   generateAvailableDeliveryDates,
+  getOrderCommunity,
   getWeekKey,
   isOrderDeliveryDateFallback,
   toLocalDateKey,
@@ -60,9 +62,11 @@ export default function CustomerOrderDeliveryTransferControl({
   buttonClassName = 'px-3 py-1.5 bg-amber-600 text-white text-sm rounded hover:bg-amber-700 disabled:opacity-50',
   disabled = false,
 }) {
+  const { pickupSpots } = usePickupSpots();
   const [open, setOpen] = useState(false);
   const [targetDates, setTargetDates] = useState(availableDeliveryDates || []);
   const [targetDate, setTargetDate] = useState('');
+  const [targetPickupSpot, setTargetPickupSpot] = useState('');
   const [loadingDates, setLoadingDates] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [error, setError] = useState('');
@@ -76,6 +80,15 @@ export default function CustomerOrderDeliveryTransferControl({
       || orderData.deliveryDate
       || '',
     ) : '');
+  const currentPickupSpot = getOrderCommunity(orderData || {});
+
+  const pickupSpotOptions = useMemo(() => {
+    const spots = [...(pickupSpots || [])];
+    if (currentPickupSpot && currentPickupSpot !== 'לא צוין' && !spots.includes(currentPickupSpot)) {
+      spots.unshift(currentPickupSpot);
+    }
+    return spots;
+  }, [pickupSpots, currentPickupSpot]);
 
   useEffect(() => {
     if (availableDeliveryDates?.length) {
@@ -95,12 +108,15 @@ export default function CustomerOrderDeliveryTransferControl({
   useEffect(() => {
     if (!open) return;
     const todayKey = toLocalDateKey(new Date());
-    const preferred = targetDates.find((dateKey) => dateKey >= todayKey && dateKey !== currentDateKey)
-      || targetDates.find((dateKey) => dateKey !== currentDateKey)
+    const preferred = (currentDateKey && targetDates.includes(currentDateKey) && currentDateKey)
+      || targetDates.find((dateKey) => dateKey >= todayKey)
+      || targetDates[0]
+      || currentDateKey
       || '';
     setTargetDate(preferred);
+    setTargetPickupSpot(currentPickupSpot === 'לא צוין' ? '' : currentPickupSpot);
     setError('');
-  }, [open, targetDates, currentDateKey]);
+  }, [open, targetDates, currentDateKey, currentPickupSpot]);
 
   const targetDatesByWeek = useMemo(() => (
     targetDates.reduce((acc, dateKey) => {
@@ -118,13 +134,27 @@ export default function CustomerOrderDeliveryTransferControl({
       setError('יש לבחור תאריך משלוח');
       return;
     }
-    if (targetDate === currentDateKey) {
-      setError('תאריך היעד זהה לתאריך הנוכחי');
+    if (!targetPickupSpot) {
+      setError('יש לבחור נקודת איסוף');
       return;
     }
 
+    const dateChanged = targetDate !== currentDateKey;
+    const pickupChanged = targetPickupSpot !== currentPickupSpot;
+    if (!dateChanged && !pickupChanged) {
+      setError('יש לבחור תאריך משלוח או נקודת איסוף שונים');
+      return;
+    }
+
+    const changeLines = [];
+    if (dateChanged) {
+      changeLines.push(`תאריך: ${formatDateKeyLabel(currentDateKey)} ← ${formatDateKeyLabel(targetDate)}`);
+    }
+    if (pickupChanged) {
+      changeLines.push(`נקודת איסוף: ${currentPickupSpot} ← ${targetPickupSpot}`);
+    }
     const confirmed = window.confirm(
-      `להעביר את ההזמנה ${orderId} מ-${formatDateKeyLabel(currentDateKey)} ל-${formatDateKeyLabel(targetDate)}?`,
+      `להעביר את ההזמנה ${orderId}?\n${changeLines.join('\n')}`,
     );
     if (!confirmed) return;
 
@@ -135,11 +165,16 @@ export default function CustomerOrderDeliveryTransferControl({
         orderId,
         customerOrderSource: source,
         newDeliveryDateKey: targetDate,
+        newPickupSpot: targetPickupSpot,
         adminUid,
       });
       setOpen(false);
       if (typeof onTransferred === 'function') {
-        onTransferred({ orderId, newDeliveryDateKey: targetDate });
+        onTransferred({
+          orderId,
+          newDeliveryDateKey: targetDate,
+          newPickupSpot: targetPickupSpot,
+        });
       }
     } catch (err) {
       setError(err.message || 'העברת ההזמנה נכשלה');
@@ -163,7 +198,7 @@ export default function CustomerOrderDeliveryTransferControl({
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4" dir="rtl">
           <div className="w-full max-w-md rounded-xl bg-white shadow-xl">
             <div className="border-b border-gray-200 px-5 py-4">
-              <h3 className="text-lg font-bold text-gray-900">העברת תאריך משלוח</h3>
+              <h3 className="text-lg font-bold text-gray-900">העברת משלוח</h3>
               <p className="mt-1 text-sm text-gray-600">
                 {orderId}
               </p>
@@ -172,6 +207,9 @@ export default function CustomerOrderDeliveryTransferControl({
                   משלוח נוכחי: <span className="font-semibold">{formatDateKeyLabel(currentDateKey)}</span>
                 </p>
               )}
+              <p className="mt-1 text-sm text-gray-700">
+                נקודת איסוף נוכחית: <span className="font-semibold">{currentPickupSpot}</span>
+              </p>
             </div>
 
             <div className="px-5 py-4 space-y-3">
@@ -189,13 +227,14 @@ export default function CustomerOrderDeliveryTransferControl({
                   <select
                     value={targetDate}
                     onChange={(event) => setTargetDate(event.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   >
                     {Object.entries(targetDatesByWeek).map(([weekKey, dates]) => (
                       <optgroup key={weekKey} label={`שבוע ${formatWeekLabel(weekKey)}`}>
                         {dates.map((dateKey) => (
-                          <option key={dateKey} value={dateKey} disabled={dateKey === currentDateKey}>
+                          <option key={dateKey} value={dateKey}>
                             {formatDateKeyLabel(dateKey)}
+                            {dateKey === currentDateKey ? ' (נוכחי)' : ''}
                           </option>
                         ))}
                       </optgroup>
@@ -204,8 +243,24 @@ export default function CustomerOrderDeliveryTransferControl({
                 )}
               </label>
 
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-gray-700">נקודת איסוף חדשה</span>
+                <select
+                  value={targetPickupSpot}
+                  onChange={(event) => setTargetPickupSpot(event.target.value)}
+                  className="w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="">בחרו נקודת איסוף</option>
+                  {pickupSpotOptions.map((spot) => (
+                    <option key={spot} value={spot}>
+                      {spot}{spot === currentPickupSpot ? ' (נוכחי)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <p className="text-xs text-gray-500">
-                מעדכן deliveryDate, deliveryWeekKey, fulfillment ו-orderBreakdown. דוחות לפי createdAt לא משתנים.
+                אפשר לשנות תאריך, נקודת איסוף, או את שניהם. מעדכן deliveryDate, community, pickupSpot, fulfillment ו-orderBreakdown. דוחות לפי createdAt לא משתנים.
               </p>
             </div>
 
@@ -213,8 +268,8 @@ export default function CustomerOrderDeliveryTransferControl({
               <button
                 type="button"
                 onClick={handleTransfer}
-                disabled={transferring || loadingDates || !targetDate}
-                className="flex-1 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50"
+                disabled={transferring || loadingDates || !targetDate || !targetPickupSpot}
+                className="flex-1 min-h-[44px] rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50"
               >
                 {transferring ? 'מעביר...' : 'אשר העברה'}
               </button>
@@ -222,7 +277,7 @@ export default function CustomerOrderDeliveryTransferControl({
                 type="button"
                 onClick={() => setOpen(false)}
                 disabled={transferring}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                className="min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
                 ביטול
               </button>

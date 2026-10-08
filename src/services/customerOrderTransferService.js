@@ -9,6 +9,7 @@ import {
   toLocalDateKey,
 } from '../utils/deliveryScheduleUtils';
 import { fetchCustomerOrderById } from './customerOrderService';
+import { resolveCommunityName } from './pickupSpotsService';
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const CANCELLED_STATUSES = new Set(['cancelled', 'cancelled_by_admin']);
@@ -17,9 +18,15 @@ export function canTransferCustomerOrderDelivery(orderData = {}) {
   return !isOrderDeliveryDateFallback(orderData);
 }
 
-export function buildDeliveryTransferUpdate(orderData = {}, newDeliveryDateKey, adminUid = null) {
+export function resolveTransferPickupSpot(orderData = {}, newPickupSpot) {
+  const requested = String(newPickupSpot || '').trim();
+  if (!requested) return getOrderCommunity(orderData);
+  return resolveCommunityName(requested) || requested;
+}
+
+export function buildDeliveryTransferUpdate(orderData = {}, newDeliveryDateKey, adminUid = null, options = {}) {
   const weekKey = getWeekKey(newDeliveryDateKey);
-  const community = getOrderCommunity(orderData);
+  const community = resolveTransferPickupSpot(orderData, options.newPickupSpot);
   const now = new Date().toISOString();
 
   const payload = {
@@ -41,10 +48,18 @@ export function buildDeliveryTransferUpdate(orderData = {}, newDeliveryDateKey, 
   if (orderData.customerDetails) {
     payload.customerDetails = {
       ...orderData.customerDetails,
+      pickupSpot: community,
       ...(orderData.customerDetails.deliveryDate !== undefined
         ? { deliveryDate: newDeliveryDateKey }
         : {}),
     };
+  }
+
+  if (orderData.pickupSpot !== undefined) {
+    payload.pickupSpot = community;
+  }
+  if (orderData.pickupSpotName !== undefined) {
+    payload.pickupSpotName = community;
   }
 
   if (orderData.orderBreakdown) {
@@ -147,12 +162,9 @@ export async function transferCustomerOrderDelivery({
   orderId,
   customerOrderSource,
   newDeliveryDateKey,
+  newPickupSpot,
   adminUid,
 }) {
-  if (!DATE_KEY_REGEX.test(newDeliveryDateKey)) {
-    throw new Error('תאריך משלוח לא תקין');
-  }
-
   const collectionName = customerOrderSource || 'customerOrdersDelayed';
   const orderRef = doc(db, collectionName, orderId);
   const snap = await getDoc(orderRef);
@@ -163,15 +175,36 @@ export async function transferCustomerOrderDelivery({
     throw new Error('הזמנה זו אינה כוללת תאריך משלוח מפורש (הזמנה קלאסית)');
   }
 
-  const payload = buildDeliveryTransferUpdate(data, newDeliveryDateKey, adminUid);
+  const previousDeliveryDateKey = toLocalDateKey(getOrderDeliveryDate(data));
+  const dateKey = newDeliveryDateKey || previousDeliveryDateKey;
+  if (!DATE_KEY_REGEX.test(dateKey)) {
+    throw new Error('תאריך משלוח לא תקין');
+  }
+
+  const previousCommunity = getOrderCommunity(data);
+  const nextCommunity = resolveTransferPickupSpot(data, newPickupSpot);
+  const dateChanged = dateKey !== previousDeliveryDateKey;
+  const pickupChanged = nextCommunity !== previousCommunity;
+  if (pickupChanged && (!nextCommunity || nextCommunity === 'לא צוין')) {
+    throw new Error('יש לבחור נקודת איסוף');
+  }
+  if (!dateChanged && !pickupChanged) {
+    throw new Error('יש לבחור תאריך משלוח או נקודת איסוף שונים');
+  }
+
+  const payload = buildDeliveryTransferUpdate(data, dateKey, adminUid, {
+    newPickupSpot: nextCommunity,
+  });
   await updateDoc(orderRef, payload);
 
   return {
     id: orderId,
     source: collectionName,
-    previousDeliveryDateKey: toLocalDateKey(getOrderDeliveryDate(data)),
-    newDeliveryDateKey,
-    newDeliveryWeekKey: getWeekKey(newDeliveryDateKey),
+    previousDeliveryDateKey,
+    newDeliveryDateKey: dateKey,
+    newDeliveryWeekKey: getWeekKey(dateKey),
+    previousCommunity,
+    newCommunity: nextCommunity,
   };
 }
 
