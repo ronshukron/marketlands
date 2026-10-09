@@ -103,6 +103,7 @@ export function buildItemPickGroups({ orders = [], getOrderContext } = {}) {
           unitSize: Number(item.unitSize || 1) || 1,
           averageWeightKg: Number(item.averageWeightKg || 1) || 1,
           hardToPick: Boolean(item.hardToPick),
+          isOrganic: Boolean(item.isOrganic),
           entries: [],
           totalRequested: 0,
           totalExpected: 0,
@@ -114,6 +115,7 @@ export function buildItemPickGroups({ orders = [], getOrderContext } = {}) {
       }
       const group = map.get(key);
       if (item.hardToPick) group.hardToPick = true;
+      if (item.isOrganic) group.isOrganic = true;
       const status = getEntryPickStatus(item, draft);
       const requested = Number(item.requestedQuantity || 0);
       const expected = getExpectedPickQuantity(item);

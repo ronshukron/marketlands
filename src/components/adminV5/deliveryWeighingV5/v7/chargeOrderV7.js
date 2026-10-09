@@ -1,8 +1,10 @@
 import {
   handleSuspendedPaymentV7,
   prepareCommunityDiscountForSettlementV7,
+  prepareCommunityWeeklyPromotionForSettlementV7,
   setPackedCartonCountV7,
 } from '../apiV7';
+import { applyWeeklyPromotionToItems } from './weeklyPromotionSettlementV7';
 import {
   buildStationAuditV7,
   clearOrderDraftV7,
@@ -55,8 +57,10 @@ export async function settleAndChargeOrderV7({
   session,
   weekKey,
   communityDiscount = null,
+  communityWeeklyPromotion = null,
   saveOrderDraft = saveOrderDraftV7,
   prepareCommunityDiscount = prepareCommunityDiscountForSettlementV7,
+  prepareWeeklyPromotion = prepareCommunityWeeklyPromotionForSettlementV7,
   handleSuspendedPayment = handleSuspendedPaymentV7,
   setPackedCartonCount = setPackedCartonCountV7,
   clearOrderDraft = clearOrderDraftV7,
@@ -81,9 +85,28 @@ export async function settleAndChargeOrderV7({
     source: 'delivery-v7',
   };
 
+  let settlementItems = items;
+  let appliedWeeklyPromotion = null;
+  if (communityWeeklyPromotion?.lines?.length) {
+    const weeklyResult = await prepareWeeklyPromotion({
+      orderId: order.id,
+      weeklyPromotion: communityWeeklyPromotion,
+      session,
+    });
+    settlementItems = weeklyResult.preparedItems
+      || applyWeeklyPromotionToItems(items, communityWeeklyPromotion);
+    appliedWeeklyPromotion = {
+      promotionId: communityWeeklyPromotion.promotionId,
+      communityCode: communityWeeklyPromotion.communityCode || '',
+      fingerprint: weeklyResult.fingerprint || '',
+      lineIds: weeklyResult.preparation?.lineIds || communityWeeklyPromotion.lines.map((line) => line.lineId),
+      estimatedSavings: weeklyResult.preparation?.estimatedSavings ?? communityWeeklyPromotion.estimatedSavings ?? 0,
+    };
+  }
+
   let payload = buildSettlementPayload({
     selectedOrder: order,
-    items,
+    items: settlementItems,
     draft: settlingDraft,
     weighingAudit,
     communityDiscount,
@@ -98,7 +121,7 @@ export async function settleAndChargeOrderV7({
     });
     payload = buildSettlementPayload({
       selectedOrder: order,
-      items: preparationResult.preparedItems || items,
+      items: preparationResult.preparedItems || settlementItems,
       draft: settlingDraft,
       weighingAudit,
       communityDiscount: appliedDiscount,
@@ -126,6 +149,7 @@ export async function settleAndChargeOrderV7({
     finalSum: payload.finalSum,
     completedAtIso,
     ...(payload.communityDiscount ? { communityDiscount: payload.communityDiscount } : {}),
+    ...(appliedWeeklyPromotion ? { communityWeeklyPromotion: appliedWeeklyPromotion } : {}),
     weighingAudit: payload.weighingAudit || weighingAudit,
   };
 

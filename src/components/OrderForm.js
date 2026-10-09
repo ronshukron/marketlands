@@ -42,7 +42,6 @@ const OrderForm = () => {
                 }
 
             } else {
-                console.log("No such document!");
                 navigate('/error');
             }
             setLoading(false);
@@ -79,8 +78,6 @@ const OrderForm = () => {
                 quantity: 0,
                 uid: `${product.name}_${Math.random().toString(36).substr(2, 9)}` // Unique identifier for each entry
             })));
-        } else {
-            console.log("Producer document not found!");
         }
     };
 
@@ -202,7 +199,6 @@ const OrderForm = () => {
                     }
                 }
             } else {
-                console.log("Order does not exist!");
                 navigate('/error');
             }
         } catch (error) {

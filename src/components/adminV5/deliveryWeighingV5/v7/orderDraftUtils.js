@@ -122,6 +122,7 @@ export function mergeProductDetailsIntoItems(items = [], productDetails = {}) {
       unitSize: safeNumber(pd?.unitSize ?? item?.unitSize, 1),
       averageWeightKg: safeNumber(pd?.averageWeightKg ?? item?.averageWeightKg, 1),
       hardToPick: Boolean(pd?.hardToPick ?? item?.hardToPick),
+      isOrganic: Boolean(pd?.isOrganic ?? item?.isOrganic),
       pricePerUnit: safeNumber(item?.pricePerUnit ?? item?.price, 0),
     };
   });
@@ -206,6 +207,44 @@ export function getNextUnweighedIndex(items = [], weightsByLineId = {}, removedL
     if (resolveActualQuantity(item, weightsByLineId) == null) return i;
   }
   return -1;
+}
+
+export function countHandledItems(items = [], weightsByLineId = {}, removedLineIds = {}) {
+  return items.filter((item) => {
+    if (!item?.lineId) return false;
+    if (removedLineIds?.[item.lineId]) return true;
+    return resolveActualQuantity(item, weightsByLineId) != null;
+  }).length;
+}
+
+const SETTLED_ORDER_STATUSES = new Set(['settled', 'completed', 'charged']);
+
+export function deriveWeighingStatus(order, draft) {
+  if (!order) return 'pending';
+  if (order.status === 'completed') return 'completed';
+
+  const delayedStatus = String(
+    order?.delayedMeta?.delayedOrderStatus || order?.rawData?.delayedOrderStatus || '',
+  ).toLowerCase();
+  const paymentStatus = String(
+    order?.delayedMeta?.paymentStatus || order?.rawData?.paymentStatus || '',
+  ).toLowerCase();
+  if (SETTLED_ORDER_STATUSES.has(delayedStatus) || SETTLED_ORDER_STATUSES.has(paymentStatus)) {
+    return 'completed';
+  }
+
+  const draftStatus = draft?.status || '';
+  if (draftStatus === 'completed' || draftStatus === 'settling') return draftStatus;
+
+  const items = order.items || [];
+  const weightsByLineId = draft?.weightsByLineId || {};
+  const removedLineIds = draft?.removedLineIds || {};
+  if (items.length > 0 && countHandledItems(items, weightsByLineId, removedLineIds) === items.length) {
+    return 'weighed';
+  }
+
+  if (draftStatus === 'weighed') return 'weighed';
+  return draftStatus || order.status || 'pending';
 }
 
 export function buildSettlementPayload({
@@ -566,6 +605,96 @@ export function buildCommunityDiscountOrderPatch({
     estimatedDiscountAmount: estimatedDiscount,
     originalGrandTotal,
     grandTotal: Math.max(0, roundTo(originalGrandTotal - estimatedDiscount, 2)),
+  };
+}
+
+const COMMUNITY_DISCOUNT_LINE_FIELDS = [
+  'communityDiscountOriginalPrice',
+  'communityDiscountOriginalEffectivePrice',
+  'communityDiscountOriginalEstimatedLineTotal',
+  'communityDiscountPercent',
+  'communityDiscountFingerprint',
+];
+
+/**
+ * Re-prices order lines to the weekly promotion price. Weekly prices are final
+ * and exclusive, so any prepared community-discount markers are dropped from
+ * those lines (the community discount skips weekly-priced lines).
+ */
+export function buildCommunityWeeklyPromotionOrderPatch({
+  orderId,
+  orderData = {},
+  weeklyPromotion = null,
+  fingerprint = '',
+}) {
+  const lines = Array.isArray(weeklyPromotion?.lines) ? weeklyPromotion.lines : [];
+  if (!orderId || !weeklyPromotion?.promotionId || lines.length === 0 || !fingerprint) return null;
+
+  const byLineId = new Map(lines.map((line) => [line.lineId, line]));
+  const canonical = ensureLineIdsInBreakdown(orderId, orderData.orderBreakdown || {}).breakdown;
+  const appliedLineIds = [];
+  let currentEstimateSavings = 0;
+  let originalEstimateSavings = 0;
+
+  const nextBreakdown = {};
+  Object.entries(canonical).forEach(([businessOrderKey, businessOrder]) => {
+    const items = (businessOrder?.items || []).map((item) => {
+      const line = byLineId.get(item?.lineId);
+      if (!line || item?.communityWeeklyPromotionApplied === true) return item;
+      const promotionPrice = safeNumber(line.promotionPrice, NaN);
+      const originalPrice = safeNumber(item.communityDiscountOriginalPrice ?? item.price, 0);
+      if (!Number.isFinite(promotionPrice) || promotionPrice < 0 || promotionPrice >= originalPrice) return item;
+
+      const estimatedQuantity = safeNumber(item.estimatedChargeQuantity ?? item.quantity, 0);
+      const promotionEstimate = roundTo(estimatedQuantity * promotionPrice, 2);
+      const currentEstimate = safeNumber(item.estimatedLineTotal, estimatedQuantity * safeNumber(item.price, 0));
+      const originalEstimate = safeNumber(
+        item.communityDiscountOriginalEstimatedLineTotal ?? item.estimatedLineTotal,
+        estimatedQuantity * originalPrice,
+      );
+      currentEstimateSavings += currentEstimate - promotionEstimate;
+      originalEstimateSavings += originalEstimate - promotionEstimate;
+      appliedLineIds.push(item.lineId);
+
+      const stripped = { ...item };
+      COMMUNITY_DISCOUNT_LINE_FIELDS.forEach((field) => { delete stripped[field]; });
+      return {
+        ...stripped,
+        price: promotionPrice,
+        effectivePrice: promotionPrice,
+        estimatedLineTotal: promotionEstimate,
+        communityWeeklyPromotionOriginalPrice: originalPrice,
+        communityWeeklyPromotionApplied: true,
+        communityWeeklyPromotionUnlocked: true,
+        communityWeeklyPromotionRetroactive: true,
+        communityWeeklyPromotionId: weeklyPromotion.promotionId,
+        communityWeeklyPromotionPrice: promotionPrice,
+        communityWeeklyPromotionCommunityCode: weeklyPromotion.communityCode || '',
+        communityWeeklyPromotionWeekKey: weeklyPromotion.weekKey || '',
+        communityWeeklyPromotionFingerprint: fingerprint,
+      };
+    });
+    nextBreakdown[businessOrderKey] = {
+      ...(businessOrder || {}),
+      items,
+    };
+  });
+
+  if (appliedLineIds.length === 0) return null;
+  const orderBreakdown = recomputeBreakdownTotals(nextBreakdown);
+  const estimatedSavings = roundTo(currentEstimateSavings, 2);
+  return {
+    orderBreakdown,
+    items: flattenOrderBreakdown(orderBreakdown),
+    appliedLineIds,
+    estimatedSavings,
+    grandTotal: Math.max(0, roundTo(safeNumber(orderData.grandTotal, 0) - estimatedSavings, 2)),
+    ...(orderData.communityDiscountOriginalGrandTotal != null ? {
+      communityDiscountOriginalGrandTotal: Math.max(0, roundTo(
+        safeNumber(orderData.communityDiscountOriginalGrandTotal, 0) - originalEstimateSavings,
+        2,
+      )),
+    } : {}),
   };
 }
 

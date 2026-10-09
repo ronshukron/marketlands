@@ -53,7 +53,6 @@ export function useBrotherLabelPrinter() {
         height: image.height,
         data: image.data,
       });
-      console.log('[QL-800] print result', result);
       if (!result?.ok) {
         console.error('[QL-800] print failed', result);
         setError(result?.code || result?.error || 'print_failed');

@@ -184,9 +184,7 @@ const OngoingOrders = () => {
   };
 
   const filterOrdersByPickupSpot = () => {
-    if (selectedPickupSpot === "הכל") {
-    console.log("selectedPickupSpot is all")
-    } else {
+    if (selectedPickupSpot !== "הכל") {
       const filtered = [
         ...orders.filter((order) => {
           if (order.isFarmerOrder === true) {

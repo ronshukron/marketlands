@@ -26,7 +26,6 @@ export async function createSuspendedPayment({
   const endpoint = 'https://us-central1-auth-development-323c3.cloudfunctions.net/createIndependentSuspendedPayment';
   // test env
   // const endpoint = 'http://127.0.0.1:5001/auth-development-323c3/us-central1/createIndependentSuspendedPayment';
-  console.log('endpoint', endpoint); // debugging
   // Assemble product data for invoice context (backend may override)
   // The provider expects integers; backend should convert/validate
   const productData = [];
@@ -68,7 +67,6 @@ export async function createSuspendedPayment({
   const response = await axios.post(endpoint, payload, {
     headers: { 'Content-Type': 'application/json' }
   });
-  console.log('response', response); // debugging
   // Expecting { status: 1, data: { url } } or a similar contract from your backend
   return response.data;
 } 

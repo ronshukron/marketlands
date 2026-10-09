@@ -24,6 +24,7 @@ import {
 import {
   buildCommunityDiscountFingerprint,
   buildCommunityDiscountOrderPatch,
+  buildCommunityWeeklyPromotionOrderPatch,
   ensureLineIdsInBreakdown,
   flattenOrderBreakdown,
   recomputeBreakdownTotals,
@@ -33,6 +34,12 @@ import {
 import { filterCustomerActiveLines } from '../../../utils/customerOrderUtils';
 import { isCommunityDiscountAvailable } from '../../../services/communityDiscountService';
 import { parseDelayedPaymentConfirmPayload } from '../../../utils/delayedPaymentConfirm';
+import {
+  COMMUNITY_WEEKLY_PROMOTIONS_COLLECTION,
+  COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION,
+  getCommunityPromotionUnlockId,
+} from '../../../services/communityWeeklyPromotionService';
+import { buildWeeklyPromotionFingerprint, weeklyPromotionUnlockKey } from './v7/weeklyPromotionSettlementV7';
 
 async function getIdTokenIfAvailable() {
   try {
@@ -93,6 +100,9 @@ function normalizeDelayedItems(data, canonicalBreakdown) {
         ),
         basketComponentSubtotal: safeNumber(item.basketComponentSubtotal, 0),
         basketCommunity: item.basketCommunity || '',
+        businessOrderKey: item.businessOrderKey || '',
+        communityWeeklyPromotionApplied: item.communityWeeklyPromotionApplied === true,
+        communityWeeklyPromotionId: item.communityWeeklyPromotionId || null,
       });
     });
   return { rawItems, items };
@@ -276,6 +286,7 @@ export async function fetchProductDetailsV7(productIds = []) {
         unitSize: safeNumber(data.unitSize, 1),
         averageWeightKg: safeNumber(data.averageWeightKg, 1),
         hardToPick: Boolean(data.hardToPick),
+        isOrganic: Boolean(data.isOrganic),
       };
     } catch (error) {
       // Ignore per-product failures so one bad product does not break the whole view.
@@ -307,6 +318,7 @@ export async function searchProductsV7({ term = '', limit = 20 }) {
         unitSize: safeNumber(data.unitSize, 1),
         averageWeightKg: safeNumber(data.averageWeightKg, 1),
         hardToPick: Boolean(data.hardToPick),
+        isOrganic: Boolean(data.isOrganic),
       };
     })
     .filter((product) => product.independentFarmer !== true)
@@ -724,6 +736,158 @@ export async function prepareCommunityDiscountForSettlementV7({
   });
 }
 
+export async function fetchWeeklyPromotionsForWeekV7(weekKey) {
+  if (!weekKey) return [];
+  const snapshot = await getDocs(query(
+    collection(db, COMMUNITY_WEEKLY_PROMOTIONS_COLLECTION),
+    where('weekKey', '==', weekKey),
+  ));
+  return snapshot.docs
+    .map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() || {}) }))
+    .filter((promotion) => ['active', 'archived'].includes(promotion.status));
+}
+
+/** Returns { [weeklyPromotionUnlockKey]: unlockDoc } for every targeted code in `communityCodes`. */
+export async function fetchWeeklyPromotionUnlocksV7(promotions = [], communityCodes = []) {
+  const codes = new Set((communityCodes || []).filter(Boolean));
+  const pairs = [];
+  (promotions || []).forEach((promotion) => {
+    (promotion.targetCommunityCodes || []).forEach((code) => {
+      if (codes.has(code)) pairs.push([promotion.id, code]);
+    });
+  });
+  const entries = await Promise.all(pairs.map(async ([promotionId, code]) => {
+    try {
+      const snap = await getDoc(doc(
+        db,
+        COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION,
+        getCommunityPromotionUnlockId(promotionId, code),
+      ));
+      return snap.exists() ? [weeklyPromotionUnlockKey(promotionId, code), snap.data() || {}] : null;
+    } catch (error) {
+      return null;
+    }
+  }));
+  return Object.fromEntries(entries.filter(Boolean));
+}
+
+export async function prepareCommunityWeeklyPromotionForSettlementV7({
+  orderId,
+  weeklyPromotion,
+  session,
+}) {
+  if (!orderId) throw new Error('Order ID is required.');
+  if (!weeklyPromotion?.promotionId || !weeklyPromotion?.communityCode || !weeklyPromotion?.lines?.length) {
+    throw new Error('An eligible weekly promotion is required.');
+  }
+
+  const fingerprint = buildWeeklyPromotionFingerprint({ orderId, weeklyPromotion });
+  const preparedAtIso = new Date().toISOString();
+  const orderRef = doc(db, 'customerOrdersDelayed', orderId);
+  const promotionRef = doc(db, COMMUNITY_WEEKLY_PROMOTIONS_COLLECTION, weeklyPromotion.promotionId);
+  const unlockRef = doc(
+    db,
+    COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION,
+    getCommunityPromotionUnlockId(weeklyPromotion.promotionId, weeklyPromotion.communityCode),
+  );
+
+  return runTransaction(db, async (transaction) => {
+    const [orderSnap, promotionSnap, unlockSnap] = await Promise.all([
+      transaction.get(orderRef),
+      transaction.get(promotionRef),
+      transaction.get(unlockRef),
+    ]);
+    if (!orderSnap.exists()) throw new Error('Order not found.');
+    const orderData = orderSnap.data() || {};
+    const paymentStatus = String(orderData.paymentStatus || '').toLowerCase();
+    const delayedStatus = String(orderData.delayedOrderStatus || '').toLowerCase();
+    if (paymentStatus !== 'held' || delayedStatus !== 'pending_weighing') {
+      throw new Error('Order is no longer eligible for settlement preparation.');
+    }
+
+    const existingPreparation = orderData.communityWeeklyPromotionPreparation;
+    const canonicalBreakdown = () => ensureLineIdsInBreakdown(orderId, orderData.orderBreakdown || {}).breakdown;
+    if (existingPreparation?.status === 'prepared' && existingPreparation.fingerprint === fingerprint) {
+      return {
+        ok: true,
+        skipped: true,
+        fingerprint,
+        preparation: existingPreparation,
+        preparedItems: normalizeDelayedItems(orderData, canonicalBreakdown()).items,
+      };
+    }
+
+    const promotion = promotionSnap.exists() ? promotionSnap.data() || {} : null;
+    const unlock = unlockSnap.exists() ? unlockSnap.data() || {} : null;
+    if (
+      !promotion
+      || !['active', 'archived'].includes(promotion.status)
+      || !(promotion.targetCommunityCodes || []).includes(weeklyPromotion.communityCode)
+      || unlock?.unlocked !== true
+    ) {
+      throw new Error('Weekly promotion is not unlocked for this community.');
+    }
+    const snapshotPrices = new Map((promotion.productSnapshots || []).map((entry) => [
+      `${entry?.productId || entry?.id || ''}::${entry?.orderId || ''}`,
+      Number(entry?.promotionPrice),
+    ]));
+    const verifiedLines = weeklyPromotion.lines.filter((line) => {
+      const businessOrderKey = line.businessOrderKey || '';
+      const price = snapshotPrices.get(`${line.productId}::${businessOrderKey}`)
+        ?? snapshotPrices.get(`${line.productId}::`);
+      return Number.isFinite(price) && Math.abs(price - Number(line.promotionPrice)) < 0.0001;
+    });
+    if (verifiedLines.length === 0) throw new Error('Weekly promotion prices changed.');
+
+    const verifiedPromotion = { ...weeklyPromotion, lines: verifiedLines };
+    const patch = buildCommunityWeeklyPromotionOrderPatch({
+      orderId,
+      orderData,
+      weeklyPromotion: verifiedPromotion,
+      fingerprint,
+    });
+    if (!patch) throw new Error('No order lines are eligible for the weekly promotion.');
+
+    const preparation = {
+      status: 'prepared',
+      fingerprint,
+      promotionId: weeklyPromotion.promotionId,
+      communityCode: weeklyPromotion.communityCode,
+      weekKey: weeklyPromotion.weekKey || '',
+      pricingVersion: promotion.pricingVersion || weeklyPromotion.pricingVersion || '',
+      lineIds: patch.appliedLineIds,
+      estimatedSavings: patch.estimatedSavings,
+      source: 'delivery-v7',
+      preparedAtIso,
+      preparedBySessionId: session?.sessionId || '',
+      preparedByStationId: session?.stationId || '',
+      preparedByUserId: session?.userId || '',
+      preparedByName: session?.userName || '',
+    };
+    const updates = {
+      orderBreakdown: patch.orderBreakdown,
+      items: patch.items,
+      grandTotal: patch.grandTotal,
+      ...(patch.communityDiscountOriginalGrandTotal != null
+        ? { communityDiscountOriginalGrandTotal: patch.communityDiscountOriginalGrandTotal }
+        : {}),
+      communityWeeklyPromotionPreparation: preparation,
+    };
+    transaction.update(orderRef, omitUndefinedDeep({
+      ...updates,
+      ...buildAuditPatch(session, 'prepare_weekly_promotion'),
+    }));
+
+    return {
+      ok: true,
+      skipped: false,
+      fingerprint,
+      preparation,
+      preparedItems: normalizeDelayedItems({ ...orderData, ...updates }, patch.orderBreakdown).items,
+    };
+  });
+}
+
 export async function handleSuspendedPaymentV7({
   orderId,
   weightsByLineId,
@@ -785,9 +949,10 @@ export async function recoverDelayedPaymentFromGrowV7({ customerOrderId } = {}) 
   }
 }
 
-export async function setPackedCartonCountV7({ orderId, printedIndex }) {
+export async function setPackedCartonCountV7({ orderId, printedIndex, loadingOrder = null }) {
   if (!orderId) return { ok: false, packedCartonCount: 0 };
   const printed = Math.max(1, Math.floor(Number(printedIndex) || 1));
+  const loadingNumber = Math.floor(Number(loadingOrder) || 0);
   const orderRef = doc(db, 'customerOrdersDelayed', orderId);
   let packedCartonCount = printed;
   await runTransaction(db, async (transaction) => {
@@ -798,6 +963,7 @@ export async function setPackedCartonCountV7({ orderId, printedIndex }) {
     transaction.update(orderRef, {
       packedCartonCount,
       packedCartonUpdatedAtIso: new Date().toISOString(),
+      ...(loadingNumber > 0 ? { loadingOrder: loadingNumber } : {}),
     });
   });
   return { ok: true, packedCartonCount };

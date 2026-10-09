@@ -159,10 +159,54 @@ export const getEstimatedChargeableQuantity = (item) => {
   return qty;
 };
 
-export const getEstimatedLineTotal = (item) => {
+// Weight buffer: kg lines are shown/held with a few percent extra (e.g. 1 kg
+// -> 1.05 kg) while the stored order quantity, farmer order, pick target and
+// final charge stay on the base quantity.
+export const DEFAULT_WEIGHT_BUFFER_PERCENT = 5;
+export const WEIGHT_BUFFER_STEP_KG = 0.05;
+export const MAX_WEIGHT_BUFFER_PERCENT = 30;
+
+export const normalizeWeightBufferPercent = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.min(MAX_WEIGHT_BUFFER_PERCENT, Math.round(numeric * 100) / 100);
+};
+
+export const roundUpToStep = (value, step = WEIGHT_BUFFER_STEP_KG) => {
+  const numeric = Number(value) || 0;
+  if (!(step > 0)) return numeric;
+  // Round the ratio first so float noise (1.05 / 0.05 = 21.000000000000004) does not add a step.
+  const steps = Math.ceil(Math.round((numeric / step) * 1e6) / 1e6);
+  return Math.round(steps * step * 1000) / 1000;
+};
+
+export const isWeightBufferedItem = (item) => Boolean(
+  item
+  && item.measurementType === 'kg'
+  && !item.isShipping
+  && !item.isBasketComponent
+  && !item.isBasketAdjustment
+);
+
+export const getBufferedDisplayQuantity = (item, bufferPercent = 0) => {
+  const qty = Number(item?.quantity) || 0;
+  const percent = normalizeWeightBufferPercent(bufferPercent);
+  if (!percent || qty <= 0 || !isWeightBufferedItem(item)) return qty;
+  return roundUpToStep(qty * (1 + percent / 100));
+};
+
+export const getEstimatedHoldQuantity = (item, bufferPercent = 0) => (
+  isWeightBufferedItem(item)
+    ? getBufferedDisplayQuantity(item, bufferPercent)
+    : getEstimatedChargeableQuantity(item)
+);
+
+export const getEstimatedLineTotal = (item, { bufferPercent = 0 } = {}) => {
   if (!item) return 0;
   const price = getEffectiveUnitPrice(item);
-  const chargeQty = getEstimatedChargeableQuantity(item);
+  const chargeQty = normalizeWeightBufferPercent(bufferPercent) > 0
+    ? getEstimatedHoldQuantity(item, bufferPercent)
+    : getEstimatedChargeableQuantity(item);
   return roundTo2(chargeQty * price);
 };
 

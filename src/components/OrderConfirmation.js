@@ -180,7 +180,6 @@ const OrderConfirmation = () => {
                         customerOrderIds: arrayUnion(customerOrderDocId)
                     });
                     
-                    console.log(`Successfully updated order ${orderId} with customer order reference ${customerOrderDocId}`);
                 } catch (orderError) {
                     console.error(`Error updating order ${orderId}:`, orderError);
                 }
@@ -194,9 +193,7 @@ const OrderConfirmation = () => {
     };
 
     useEffect(() => {
-        console.log("currentUser", currentUser);
         const orderIds = Object.keys(itemsByOrder);
-        console.log('orderIds', orderIds);
 
         if (userLoggedIn && currentUser) {
             // Only override with currentUser data if localStorage is empty
@@ -311,7 +308,6 @@ const OrderConfirmation = () => {
     useEffect(() => {
         const checkExpiredOrders = async () => {
 
-            console.log('wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww');
             if (Object.keys(itemsByOrder).length === 0) return;
             
             const expiredItems = [];
@@ -320,7 +316,6 @@ const OrderConfirmation = () => {
             // Check each order in the cart
             for (const [orderId, orderData] of Object.entries(itemsByOrder)) {
                 const orderHasEnded = await checkIfOrderEnded(orderId);
-                console.log('orderHasEnded', orderHasEnded);
                 if (orderHasEnded) {
                     expiredOrderIds.push(orderId);
                     // Add all items from this expired order to the expired items list
@@ -549,7 +544,6 @@ const OrderConfirmation = () => {
 
         // Get all orderIds instead of just the first one
         const orderIds = Object.keys(checkoutItemsByOrder);
-        console.log('orderIds', orderIds);
 
         try {
             // Call to create Bit payment - pass all orderIds
@@ -580,7 +574,6 @@ const OrderConfirmation = () => {
                 });
             });
     
-            console.log("Sending payment data:", paymentData);
             // Prod Environment
             const paymentResponse = await axios.post('https://us-central1-auth-development-323c3.cloudfunctions.net/createBitPayment', paymentData, {
                 headers: {
@@ -628,7 +621,6 @@ const OrderConfirmation = () => {
                     }
                 }
             } else {
-                console.log("Order does not exist!");
                 navigate('/error');
             }
         } catch (error) {
@@ -642,7 +634,6 @@ const OrderConfirmation = () => {
     }
 
     // Flatten all items from all orders for display
-    console.log('itemsByOrder', itemsByOrder);
     const allCartItems = Object.values(itemsByOrder).flatMap(orderData => 
         orderData.items.map(item => ({
             ...item,
@@ -800,7 +791,6 @@ const OrderConfirmation = () => {
                 identity: { uid: checkoutUid, phone: userPhone, email: userEmail },
                 orderData: customerOrderData,
             });
-            console.log('customerOrderRef', customerOrderRef);
             
             // Now call the function that's defined at component level
             await updateOrdersWithReference(orderIds, customerOrderRef.id);
@@ -817,7 +807,6 @@ const OrderConfirmation = () => {
                         orders: arrayUnion(customerOrderRef.id)
                     }, { merge: true });
                     
-                    console.log(`Added order ${customerOrderRef.id} to user ${checkoutUid}'s orders list`);
                 } catch (error) {
                     console.error("Error updating user document with order reference:", error);
                 }
@@ -967,7 +956,6 @@ const OrderConfirmation = () => {
                     'Content-Type': 'application/json'
                 }
             });
-            console.log('response', response);
             
             // Return the response data, which should match the structure of the original function
             return response.data;

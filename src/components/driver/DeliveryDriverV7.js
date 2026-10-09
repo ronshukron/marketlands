@@ -338,6 +338,7 @@ function buildOrderView(order, productDetails, draftsByOrder, customerNumbersMap
     customerNumber: customerNumbersMap[customerId] || '',
     customerDetails: getCustomerDetails(order),
     community: getCommunity(order),
+    loadingOrder: Math.floor(Number(order?.loadingOrder ?? order?.rawData?.loadingOrder) || 0) || null,
     isHomeDelivery: isHomeDelivery(order),
     items: mergedItems,
     missingLines,
@@ -849,6 +850,11 @@ export default function DeliveryDriverV7() {
                     <div className="min-w-0">
                       <div className="font-black text-gray-900">{view.customerDetails.name || 'לקוח ללא שם'}</div>
                       <div className="text-sm text-gray-700">{view.community}</div>
+                      {view.loadingOrder && (
+                        <span className="inline-block mt-1 text-xs font-black rounded px-2 py-0.5 bg-gray-900 text-white">
+                          {view.loadingOrder}
+                        </span>
+                      )}
                       {view.customerDetails.phone && (
                         <div className="text-sm text-gray-900">{view.customerDetails.phone}</div>
                       )}
@@ -963,6 +969,11 @@ export default function DeliveryDriverV7() {
                         </div>
                         <div className="text-sm text-gray-600">{view.community}</div>
                         <div className="flex flex-wrap gap-2 mt-2">
+                          {view.loadingOrder && (
+                            <span className="text-xs font-black rounded px-2 py-0.5 bg-gray-900 text-white">
+                              {view.loadingOrder}
+                            </span>
+                          )}
                           <span className={`text-xs border rounded-full px-2 py-0.5 ${getStatusClass(view.status)}`}>
                             {getStatusLabel(view.status)}
                           </span>
@@ -1014,6 +1025,11 @@ export default function DeliveryDriverV7() {
                         {selectedOrderView.customerDetails.name || 'לקוח ללא שם'}
                       </h2>
                       <div className="text-gray-600">{selectedOrderView.community}</div>
+                      {selectedOrderView.loadingOrder && (
+                        <span className="inline-block my-1 text-sm font-black rounded px-2 py-0.5 bg-gray-900 text-white">
+                          {selectedOrderView.loadingOrder}
+                        </span>
+                      )}
                       {selectedOrderView.customerDetails.phone && (
                         <a className="text-gray-900 hover:underline" href={`tel:${selectedOrderView.customerDetails.phone}`}>
                           {selectedOrderView.customerDetails.phone}

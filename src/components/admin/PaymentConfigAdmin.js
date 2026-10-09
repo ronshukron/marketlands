@@ -8,6 +8,8 @@ import {
   setPaymentRoutingConfig,
   getReusableCartonConfig,
   setReusableCartonConfig,
+  getWeightBufferPercent,
+  setWeightBufferPercent,
 } from '../../services/paymentConfigService';
 import Swal from 'sweetalert2';
 
@@ -20,6 +22,7 @@ const PaymentConfigAdmin = () => {
   const [delayedPaymentGateway, setDelayedPaymentGateway] = useState('grow_j5_legacy');
   const [reusableCartonEnabledSpots, setReusableCartonEnabledSpots] = useState([]);
   const [reusableCartonDefaultSpots, setReusableCartonDefaultSpots] = useState([]);
+  const [weightBufferPercent, setWeightBufferPercentState] = useState(5);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -32,11 +35,13 @@ const PaymentConfigAdmin = () => {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const [delayedConfig, routingConfig, reusableCartonConfig] = await Promise.all([
+      const [delayedConfig, routingConfig, reusableCartonConfig, bufferPercent] = await Promise.all([
         getDelayedPaymentSpotsForAdmin(pickupSpots),
         getPaymentRoutingConfig(),
         getReusableCartonConfig(),
+        getWeightBufferPercent(),
       ]);
+      setWeightBufferPercentState(bufferPercent);
       setDelayedSpots(delayedConfig.delayedPaymentSpots);
       setNewDelayedCommunities(delayedConfig.newCommunities || []);
       setRegularPaymentProvider(routingConfig.regularPaymentProvider);
@@ -103,7 +108,7 @@ const PaymentConfigAdmin = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const [spotsSaved, routingSaved, reusableCartonSaved] = await Promise.all([
+      const [spotsSaved, routingSaved, reusableCartonSaved, bufferSaved] = await Promise.all([
         setDelayedPaymentSpots(delayedSpots, pickupSpots),
         setPaymentRoutingConfig({
           regularPaymentProvider,
@@ -112,10 +117,11 @@ const PaymentConfigAdmin = () => {
         setReusableCartonConfig({
           enabledSpots: reusableCartonEnabledSpots,
           defaultSelectedSpots: reusableCartonDefaultSpots
-        })
+        }),
+        setWeightBufferPercent(weightBufferPercent),
       ]);
 
-      if (spotsSaved && routingSaved && reusableCartonSaved) {
+      if (spotsSaved && routingSaved && reusableCartonSaved && bufferSaved) {
         setNewDelayedCommunities([]);
         Swal.fire({
           icon: 'success',
@@ -213,6 +219,43 @@ const PaymentConfigAdmin = () => {
                   קובע את ספק התשלום בעמוד התשלום המושהה.
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* Weight Buffer */}
+          <div className="p-6 border-t border-gray-100 bg-white">
+            <h2 className="text-lg font-semibold text-gray-800 mb-1">מרווח משקל למוצרי ק"ג (תשלום מושהה)</h2>
+            <p className="text-xs text-gray-500 mb-3">
+              הלקוח רואה ומשריין כמות מוגדלת (למשל 1 ק"ג ← 1.05 ק"ג, מעוגל למעלה ל-0.05), אבל ההזמנה מהחקלאי, הליקוט והחיוב הסופי לפי הכמות המקורית והמשקל בפועל.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {[0, 5, 7, 10].map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setWeightBufferPercentState(option)}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors ${
+                    Number(weightBufferPercent) === option
+                      ? 'bg-purple-700 text-white border-purple-700'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {option === 0 ? 'ללא' : `${option}%`}
+                </button>
+              ))}
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <span>אחר:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="30"
+                  step="0.5"
+                  value={weightBufferPercent}
+                  onChange={(e) => setWeightBufferPercentState(e.target.value)}
+                  className="w-20 px-2 py-1 border border-gray-300 rounded-lg"
+                />
+                <span>%</span>
+              </label>
             </div>
           </div>
 

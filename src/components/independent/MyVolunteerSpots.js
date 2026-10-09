@@ -71,7 +71,6 @@ const MyVolunteerSpots = () => {
       setActionLoadingId(vol.id);
       
       // Update Firestore to mark as cancelled
-      console.log('Updating volunteer to cancelled', vol.id);
       await updateDoc(doc(db, 'volunteers', vol.id), {
         cancelled: true,
         cancelledAt: new Date().toISOString()

@@ -105,15 +105,31 @@ function mirrorHorizontal(data, width, height) {
  * 62 mm QL-800 label:
  *   [order number huge]     [community]
  *   קרטון 1#
+ *   [N]  (black strip with the loading number, only when loadingOrder is set)
  *   [crate size symbol, recycle symbol when reused]
  *   [name huge, white on red]
  */
+function drawLoadingOrderStrip(ctx, x, y, w, h, loadingOrder) {
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  fillRoundRect(ctx, x, y, w, h, 14);
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  const numberText = String(loadingOrder);
+  const numberSize = fitFontSize(ctx, numberText, w - 24, h - 8, 40);
+  ctx.font = `900 ${numberSize}px ${FONT_STACK}`;
+  ctx.fillText(numberText, x + w / 2, y + h / 2 + 2);
+  ctx.restore();
+}
+
 export function renderQl800Label({
   customerNumber,
   name,
   community,
   crateIndex,
   crateMark = null,
+  loadingOrder = null,
 } = {}) {
   const width = QL800_PRINT_WIDTH;
   const pad = 12;
@@ -124,10 +140,12 @@ export function renderQl800Label({
   const cartonText = cartonLabelText(crateIndex);
   const showMarks = crateMark && typeof crateMark === 'object';
   const typeH = showMarks ? 78 : 0;
+  const showLoadingOrder = Number.isFinite(Number(loadingOrder)) && Number(loadingOrder) > 0;
+  const loadH = showLoadingOrder ? 92 : 0;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
-  canvas.height = 560 + (showMarks ? 88 : 0);
+  canvas.height = 560 + (showMarks ? 88 : 0) + loadH;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     throw new Error('Canvas 2D is not available');
@@ -159,8 +177,12 @@ export function renderQl800Label({
   ctx.fillStyle = '#000000';
   ctx.fillText(cartonText, width / 2, cartonY);
 
+  if (showLoadingOrder) {
+    drawLoadingOrderStrip(ctx, pad, topH + cartonH + 4, nameMaxW, loadH - 12, Math.floor(Number(loadingOrder)));
+  }
+
   if (showMarks) {
-    drawCrateMarks(ctx, width / 2, topH + cartonH + typeH / 2, crateMark);
+    drawCrateMarks(ctx, width / 2, topH + cartonH + loadH + typeH / 2, crateMark);
   }
 
   ctx.textAlign = 'center';
@@ -170,7 +192,7 @@ export function renderQl800Label({
   const nameW = Math.min(nameMaxW, Math.max(ctx.measureText(fittedName).width + 40, width * 0.88));
   const nameH = nameSize + 40;
   const nameBoxX = pad + (nameMaxW - nameW) / 2;
-  const nameBoxY = topH + cartonH + typeH + 8;
+  const nameBoxY = topH + cartonH + loadH + typeH + 8;
   ctx.fillStyle = '#E00000';
   fillRoundRect(ctx, nameBoxX, nameBoxY, nameW, nameH, 16);
   ctx.fillStyle = '#ffffff';

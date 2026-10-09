@@ -5,10 +5,13 @@ import { useAuth } from '../contexts/authContext';
 import { getCheckoutRoute } from '../services/paymentConfigService';
 import { saveCart } from '../services/savedCartService';
 import Swal from 'sweetalert2';
-import { evaluateOrderMinimum, formatOrderMinimumFailure, getEstimatedChargeableQuantity } from '../utils/pricing';
+import { evaluateOrderMinimum, formatOrderMinimumFailure, getBufferedDisplayQuantity, getEstimatedChargeableQuantity } from '../utils/pricing';
+import { useWeightBuffer } from '../contexts/WeightBufferContext';
 
 const Cart = ({ isOpen, onClose }) => {
-  const { cartItems, removeItem, removeBasketInstance, updateQuantity, cartTotal, totalItems, getCartSnapshot, itemsByOrder } = useCart();
+  const { cartItems, removeItem, removeBasketInstance, updateQuantity, cartTotal, cartHoldTotal, totalItems, getCartSnapshot, itemsByOrder } = useCart();
+  const { bufferPercent } = useWeightBuffer();
+  const displayTotal = bufferPercent > 0 ? cartHoldTotal : cartTotal;
   const { userLoggedIn, currentUser } = useAuth();
   const navigate = useNavigate();
   const [checkingRoute, setCheckingRoute] = useState(false);
@@ -18,7 +21,7 @@ const Cart = ({ isOpen, onClose }) => {
   // measurementType: 'kg' | 'unit' | 'package'
   const formatQuantity = (qty, measurementType) => {
     if (measurementType === 'kg') {
-      return qty % 1 === 0 ? qty.toString() : qty.toFixed(1);
+      return qty % 1 === 0 ? qty.toString() : String(Math.round(qty * 100) / 100);
     }
     return Math.round(qty).toString();
   };
@@ -287,7 +290,7 @@ const Cart = ({ isOpen, onClose }) => {
                         </svg>
                       </button>
                       <span className="text-[11px] font-medium text-gray-700 min-w-[40px] text-center">
-                        {formatQuantityWithUnit(item.quantity, measurementType)}
+                        {formatQuantityWithUnit(getBufferedDisplayQuantity(item, bufferPercent), measurementType)}
                       </span>
                       <button 
                         onClick={() => {
@@ -334,8 +337,13 @@ const Cart = ({ isOpen, onClose }) => {
           <div className="p-2 border-t border-gray-100 bg-white shadow-inner">
             <div className="flex justify-between items-center mb-2">
               <span className="text-xs font-medium text-gray-800">סה"כ לתשלום:</span>
-              <span className="text-xs font-semibold text-blue-600">₪{cartTotal.toFixed(2)}</span>
+              <span className="text-xs font-semibold text-blue-600">₪{displayTotal.toFixed(2)}</span>
             </div>
+            {bufferPercent > 0 && cartHoldTotal > cartTotal && (
+              <p className="mb-2 text-xs text-gray-500">
+                החיוב הסופי לפי המשקל בפועל.
+              </p>
+            )}
             {Object.values(itemsByOrder).map((orderData) => {
               const evaluation = evaluateOrderMinimum(orderData);
               if (evaluation.amountRequired <= 0 && evaluation.itemsRequired <= 0) return null;
@@ -369,7 +377,7 @@ const Cart = ({ isOpen, onClose }) => {
                 disabled={checkingRoute}
                 className="w-full bg-blue-600 text-white py-2.5 px-3 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
-                {checkingRoute ? 'מעבר לתשלום...' : `לתשלום (${cartTotal.toFixed(2)} ₪)`}
+                {checkingRoute ? 'מעבר לתשלום...' : `לתשלום (${displayTotal.toFixed(2)} ₪)`}
               </button>
             </div>
           </div>

@@ -73,6 +73,46 @@ describe('settleAndChargeOrderV7', () => {
     expect(result.completedWeighing.finalSum).toBe(9);
   });
 
+  test('prepares the weekly promotion before charging and keeps it out of the community discount', async () => {
+    const weeklyPromotion = {
+      promotionId: 'promo-1',
+      communityCode: 'north',
+      lines: [{ lineId: 'line-a', productId: 'a', promotionPrice: 6 }],
+      estimatedSavings: 4,
+    };
+    const promoItems = [{ ...items[0], pricePerUnit: 6, communityWeeklyPromotionApplied: true }];
+    const deps = buildDeps({
+      prepareWeeklyPromotion: jest.fn().mockResolvedValue({
+        fingerprint: 'fp',
+        preparation: { lineIds: ['line-a'], estimatedSavings: 4 },
+        preparedItems: promoItems,
+      }),
+      prepareCommunityDiscount: jest.fn().mockResolvedValue({ preparedItems: promoItems }),
+    });
+    const result = await settleAndChargeOrderV7({
+      order,
+      items,
+      draft,
+      session,
+      weekKey: '2026-08-09',
+      communityDiscount: { percent: 10 },
+      communityWeeklyPromotion: weeklyPromotion,
+      ...deps,
+    });
+
+    expect(deps.prepareWeeklyPromotion).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: 'order-7',
+      weeklyPromotion,
+    }));
+    expect(deps.prepareWeeklyPromotion.mock.invocationCallOrder[0])
+      .toBeLessThan(deps.prepareCommunityDiscount.mock.invocationCallOrder[0]);
+    expect(result.payload.finalSum).toBe(6);
+    expect(result.completedWeighing.communityWeeklyPromotion).toEqual(expect.objectContaining({
+      promotionId: 'promo-1',
+      lineIds: ['line-a'],
+    }));
+  });
+
   test('does not charge or clear the draft when discount preparation fails', async () => {
     const deps = buildDeps({
       prepareCommunityDiscount: jest.fn().mockRejectedValue(new Error('prepare failed')),

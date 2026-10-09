@@ -25,7 +25,6 @@ const ContactForm = () => {
 
         emailjs.send('service_ao0jk0r', 'template_333t6q8', formState, 'U0OVJdWDI7Q-Pl9uT')
             .then((response) => {
-                console.log('SUCCESS!', response.status, response.text);
                 setMessageSent(true);
                 setFormState({ from_name: '', from_email: '', to_name: 'ron', message: '' });
             }, (err) => {

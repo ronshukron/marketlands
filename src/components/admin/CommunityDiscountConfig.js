@@ -84,6 +84,13 @@ const CommunityDiscountConfig = () => {
     setConfig(prev => ({ ...prev, autoApplyInV7: prev.autoApplyInV7 !== true }));
   };
 
+  const handleToggleAutoApplyWeeklyPromotion = () => {
+    setConfig(prev => ({
+      ...prev,
+      autoApplyWeeklyPromotionInV7: prev.autoApplyWeeklyPromotionInV7 !== true,
+    }));
+  };
+
   const handleAvailabilityModeChange = (availabilityMode) => {
     setConfig(prev => ({ ...prev, availabilityMode }));
   };
@@ -284,6 +291,30 @@ const CommunityDiscountConfig = () => {
               <span
                 className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
                   config?.autoApplyInV7 === true ? 'translate-x-1' : 'translate-x-8'
+                }`}
+              />
+            </button>
+          </div>
+          <div className="mt-5 pt-5 border-t border-gray-100 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-semibold text-gray-800">מבצע שבועי בחיוב V7</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                כאשר מופעל, הזמנות שבוצעו לפני שהמבצע השבועי נפתח בקהילה יקבלו את מחיר המבצע אוטומטית בחיוב (בודד וקבוצתי).
+                ניתן תמיד להחיל ידנית במסך V7.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={config?.autoApplyWeeklyPromotionInV7 === true}
+              onClick={handleToggleAutoApplyWeeklyPromotion}
+              className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors ${
+                config?.autoApplyWeeklyPromotionInV7 === true ? 'bg-green-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  config?.autoApplyWeeklyPromotionInV7 === true ? 'translate-x-1' : 'translate-x-8'
                 }`}
               />
             </button>

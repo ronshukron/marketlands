@@ -6,11 +6,11 @@ const formatQuantity = (quantity) => {
     : String(Math.round(numericQuantity * 1000) / 1000);
 };
 
-export function buildGrowInvoiceItem(item = {}) {
+export function buildGrowInvoiceItem(item = {}, { descriptionQuantity } = {}) {
   const numericQuantity = Number(item.quantity);
   const validQuantity = Number.isFinite(numericQuantity) && numericQuantity > 0;
   const baseDescription = item.name || item.productName || 'Unknown Item';
-  const quantityLabel = formatQuantity(item.quantity);
+  const quantityLabel = formatQuantity(descriptionQuantity ?? item.quantity);
   const isKgItem = item.measurementType === 'kg';
 
   return {

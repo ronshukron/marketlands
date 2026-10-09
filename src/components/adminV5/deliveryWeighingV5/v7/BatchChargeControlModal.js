@@ -28,6 +28,10 @@ export default function BatchChargeControlModal({
   completedCount = 0,
   previewTotal = 0,
   previewDiscount = 0,
+  previewWeeklySavings = 0,
+  weeklyPromotionAvailable = false,
+  weeklyPromotionEnabled = false,
+  onToggleWeeklyPromotion,
   confirmDisabled = false,
   onConfirm,
   onClose,
@@ -148,6 +152,17 @@ export default function BatchChargeControlModal({
               );
             })}
           </div>
+          {weeklyPromotionAvailable && (
+            <label className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-900 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={weeklyPromotionEnabled}
+                onChange={() => onToggleWeeklyPromotion?.()}
+                className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+              />
+              <span>{t.batchApplyWeeklyPromotion}</span>
+            </label>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -218,6 +233,11 @@ export default function BatchChargeControlModal({
                                 ? `₪${formatBatchChargeIls(preview.finalSum)}`
                                 : t.stWeighed)
                               : t.batchChargeExcludedBadge}
+                            {included && preview?.weeklySavings > 0 && (
+                              <span className="ms-2 font-bold text-sky-700">
+                                {t.batchWeeklyPromotionSavings(formatBatchChargeIls(preview.weeklySavings))}
+                              </span>
+                            )}
                           </div>
                           {refunds.length > 0 && (
                             <div className="mt-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-0.5 inline-block">
@@ -253,6 +273,11 @@ export default function BatchChargeControlModal({
               {previewDiscount > 0 && (
                 <span className="inline-block px-2 font-semibold text-emerald-700">
                   {t.batchChargePreviewDiscount}: ₪{formatBatchChargeIls(previewDiscount)}
+                </span>
+              )}
+              {previewWeeklySavings > 0 && (
+                <span className="inline-block px-2 font-semibold text-sky-700">
+                  {t.batchWeeklyPromotionSavings(formatBatchChargeIls(previewWeeklySavings))}
                 </span>
               )}
             </div>

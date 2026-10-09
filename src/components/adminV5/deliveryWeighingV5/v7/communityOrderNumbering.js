@@ -65,3 +65,36 @@ export function computeCommunityOrderNumbers({
 
   return result;
 }
+
+/**
+ * One loading sequence for the whole delivery. The route visits `communities`
+ * in order and, inside a community, customers by customer number. Boxes are
+ * loaded in reverse, so 1 = loaded first = last stop. Numbers run 1, 2, 3…
+ * across every community, including across delivery groups.
+ * Returns { [orderId]: loadingNumber }.
+ */
+export function computeLoadingOrderNumbers({
+  orders = [],
+  communities = [],
+  customerNumbersMap = {},
+  getCommunity = (order) => order?.customerDetails?.pickupSpot || order?.pickupSpot || '',
+}) {
+  const communityList = communities.length > 0
+    ? communities
+    : Array.from(new Set(orders.map(getCommunity).filter(Boolean)));
+
+  const route = [];
+  communityList.forEach((community) => {
+    const communityOrders = orders
+      .filter((order) => getCommunity(order) === community)
+      .sort((a, b) => compareOrdersByCustomerNumber(a, b, customerNumbersMap));
+    route.push(...communityOrders);
+  });
+
+  const result = {};
+  route.forEach((order, index) => {
+    const orderId = order?.id || order?.order?.id;
+    if (orderId) result[orderId] = route.length - index;
+  });
+  return result;
+}

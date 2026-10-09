@@ -8,6 +8,7 @@ import {
   isAlwaysOnGroceryOrderEnabled,
 } from '../utils/deliveryScheduleUtils';
 import CommunityWeeklyPromotionContext from './CommunityWeeklyPromotionContext';
+import { useWeightBuffer } from './WeightBufferContext';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -32,6 +33,7 @@ const getCartLineKey = (item = {}) => [
 export const CartProvider = ({ children }) => {
   const weeklyPromotion = useContext(CommunityWeeklyPromotionContext);
   const decorateProduct = weeklyPromotion?.decorateProduct || ((item) => item);
+  const { bufferPercent } = useWeightBuffer();
   // State variable to store the array of items currently in the cart.
   // Each item is an object with details like id, name, price, quantity, orderId, businessId, and a unique uid.
   const [cartItems, setCartItems] = useState([]);
@@ -103,7 +105,6 @@ export const CartProvider = ({ children }) => {
             const orderData = orderSnap.data();
             if (isAlwaysOnGroceryOrder(orderData)) {
               if (!isAlwaysOnGroceryOrderEnabled(orderData)) {
-                console.log(`Order ${orderId} is disabled. Removing it from the cart.`);
                 idsToRemove.push(orderId);
               }
               continue;
@@ -123,7 +124,6 @@ export const CartProvider = ({ children }) => {
               }
               
               if (allExpired && pickupSpots.length > 0) {
-                console.log(`Order ${orderId} - all pickup spots expired. Removing from cart.`);
                 idsToRemove.push(orderId);
               }
             } else if (orderData.endingTime) {
@@ -132,7 +132,6 @@ export const CartProvider = ({ children }) => {
               
               // If the order ended before the cutoff time (more than 24 hours ago)
               if (endingTime < cutoffTime) {
-                console.log(`Order ${orderId} expired on ${endingTime}. Removing from cart.`);
                 idsToRemove.push(orderId);
               }
             }
@@ -431,6 +430,11 @@ export const CartProvider = ({ children }) => {
     return cartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0);
   }, [cartItems]); // Dependency array: recalculate only if cartItems changes
 
+  // Shown/held total: kg lines include the weight buffer for delayed-payment spots.
+  const cartHoldTotal = useMemo(() => (
+    cartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item, { bufferPercent }), 0)
+  ), [bufferPercent, cartItems]);
+
   // Calculate the total number of individual items in the cart (sum of quantities).
   // useMemo ensures this calculation is only re-run when cartItems changes.
   const totalItems = useMemo(() => {
@@ -465,11 +469,14 @@ export const CartProvider = ({ children }) => {
       grouped[orderId].total = grouped[orderId].items.reduce(
         (sum, item) => sum + getEstimatedLineTotal(item), 0 // Sum estimated line totals for items in this group
       );
+      grouped[orderId].holdTotal = grouped[orderId].items.reduce(
+        (sum, item) => sum + getEstimatedLineTotal(item, { bufferPercent }), 0
+      );
     });
 
     // Return the final object containing items grouped by orderId, along with order totals and metadata.
     return grouped;
-  }, [cartItems, orderInfoMap]); // Dependencies: recalculate if items or order info change
+  }, [bufferPercent, cartItems, orderInfoMap]); // Dependencies: recalculate if items or order info change
 
   // The value object provided to consumers of the CartContext.
   // It includes the cart state (cartItems, orderInfoMap) and the functions to modify it,
@@ -484,6 +491,7 @@ export const CartProvider = ({ children }) => {
     removeOrderFromCart, // Add this line
     removeBasketInstance,
     cartTotal,
+    cartHoldTotal,
     totalItems,
     itemsByOrder,
     orderInfoMap,

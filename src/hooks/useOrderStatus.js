@@ -51,7 +51,6 @@ const useOrderStatus = (orderId, pickupSpot) => {
 
           setOrderEnded(isEnded);
         } else {
-          console.log('Order does not exist!');
           navigate('/error');
         }
       } catch (error) {

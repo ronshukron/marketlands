@@ -30,6 +30,7 @@ const DEFAULT_TIERS = [
 const DEFAULT_CONFIG = {
   enabled: true,
   autoApplyInV7: false,
+  autoApplyWeeklyPromotionInV7: false,
   availabilityMode: 'all',
   pilotCommunities: [],
   tiers: DEFAULT_TIERS,
@@ -41,6 +42,7 @@ export const normalizeDiscountConfig = (config = {}) => ({
   ...DEFAULT_CONFIG,
   ...config,
   autoApplyInV7: config.autoApplyInV7 === true,
+  autoApplyWeeklyPromotionInV7: config.autoApplyWeeklyPromotionInV7 === true,
   availabilityMode: config.availabilityMode === 'selected' ? 'selected' : 'all',
   pilotCommunities: Array.isArray(config.pilotCommunities)
     ? [...new Set(config.pilotCommunities.filter((name) => typeof name === 'string' && name.trim()))]

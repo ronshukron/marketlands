@@ -23,8 +23,6 @@ const ProducerDetails = () => {
                     ...docSnap.data(),
                     id: docSnap.id,
                 });
-            } else {
-                console.log("No producer found!");
             }
             setLoading(false);
         };

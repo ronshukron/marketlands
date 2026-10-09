@@ -136,7 +136,6 @@ const EditProduct = () => {
             setImages(data.images);
           }
         } else {
-          console.log("No such document!");
           navigate('/dashboard');
         }
       } catch (error) {

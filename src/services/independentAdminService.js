@@ -39,7 +39,6 @@ export async function cancelCommunityPayment({ orderId, community }) {
 export async function verifyProduct({ productId }) {
   const token = await getAuth().currentUser.getIdToken();
   const url = `${CF_BASE}/verifyIndependentProduct`;
-  console.log('verifyProduct', url, { productId });
   const { data } = await axios.post(
     url, 
     { productId }, // Send productId in body
@@ -90,8 +89,7 @@ export async function cancelVolunteer({ volunteerId, orderId, businessId }) {
 export async function notifyVolunteersOfNewOrder({ businessId, orderId }) {
   // Expected backend: CF_BASE + '/notifyIndependentVolunteers'
   // Payload: { businessId, orderId }
-  // For now, just log and resolve to success
-  console.log('notifyVolunteersOfNewOrder [stub]', { businessId, orderId });
+  // For now, resolve to success
   return { status: 1, data: { enqueued: true } };
 } 
 

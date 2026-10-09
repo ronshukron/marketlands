@@ -66,6 +66,7 @@ const BulkEditProducts = () => {
             stockAmount: product.stockAmount || 0,
             merchantPrice: product.merchantPrice || '',
             category: product.category || '',
+            description: product.description || '',
             thaiName: product.thaiName || '',
             measurementType: product.measurementType || 'kg', // default to kg
             unitSize: product.unitSize != null ? String(product.unitSize) : '1', // default to 1 kg
@@ -110,6 +111,7 @@ const BulkEditProducts = () => {
         Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
         (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
         edited.category !== (product.category || '') ||
+        (edited.description || '') !== (product.description || '') ||
         edited.thaiName !== (product.thaiName || '') ||
         edited.measurementType !== (product.measurementType || 'kg') ||
         Number(edited.unitSize || 1) !== Number(product.unitSize || 1) ||
@@ -178,6 +180,7 @@ const BulkEditProducts = () => {
           Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
           (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
           edited.category !== (product.category || '') ||
+          (edited.description || '') !== (product.description || '') ||
           edited.thaiName !== (product.thaiName || '') ||
           edited.measurementType !== (product.measurementType || 'kg') ||
           Number(edited.unitSize || 1) !== Number(product.unitSize || 1) ||
@@ -223,6 +226,8 @@ const BulkEditProducts = () => {
           } else {
             updates.thaiName = '';
           }
+
+          updates.description = edited.description || '';
 
           batch.update(productRef, updates);
           changesCount++;
@@ -274,6 +279,7 @@ const BulkEditProducts = () => {
         stockAmount: product.stockAmount || 0,
         merchantPrice: product.merchantPrice || '',
         category: product.category || '',
+        description: product.description || '',
         thaiName: product.thaiName || '',
         measurementType: product.measurementType || 'kg',
         unitSize: product.unitSize != null ? String(product.unitSize) : '1',
@@ -299,7 +305,7 @@ const BulkEditProducts = () => {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">עריכה מרובה של מוצרים</h1>
-            <p className="text-gray-600 mt-1">ערוך מחיר וכמות במלאי עבור כל המוצרים שלך במקום אחד</p>
+            <p className="text-gray-600 mt-1">ערוך מחיר, תיאור וכמות במלאי עבור כל המוצרים שלך במקום אחד</p>
           </div>
           <button
             onClick={() => navigate('/Business-Products')}
@@ -360,6 +366,9 @@ const BulkEditProducts = () => {
                     שם המוצר
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    תיאור
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     מחיר (₪)
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -403,6 +412,7 @@ const BulkEditProducts = () => {
                     Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
                     (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
                     edited.category !== (product.category || '') ||
+                    (edited.description || '') !== (product.description || '') ||
                     edited.thaiName !== (product.thaiName || '') ||
                     edited.measurementType !== (product.measurementType || 'kg') ||
                     Number(edited.unitSize || 1) !== Number(product.unitSize || 1) ||
@@ -431,6 +441,15 @@ const BulkEditProducts = () => {
                             {product.options.join(', ')}
                           </div>
                         )}
+                      </td>
+                      <td className="px-4 py-4">
+                        <textarea
+                          value={edited.description || ''}
+                          onChange={(e) => handleFieldChange(product.id, 'description', e.target.value)}
+                          rows={2}
+                          placeholder="תיאור קצר"
+                          className="w-56 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-y"
+                        />
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         <input

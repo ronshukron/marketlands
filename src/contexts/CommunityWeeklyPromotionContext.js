@@ -7,11 +7,15 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase/firebase';
 import CommunityWeeklyPromotionUnlockModal from '../components/category-store/CommunityWeeklyPromotionUnlockModal';
 import { usePickupSpot } from './PickupSpotContext';
 import {
+  COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION,
   getActivePromotionForCommunity,
   getCommunityPromotionUnlock,
+  getCommunityPromotionUnlockId,
 } from '../services/communityWeeklyPromotionService';
 import { getCommunityCode } from '../services/pickupSpotsService';
 import {
@@ -155,6 +159,32 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
       requestIdRef.current += 1;
     };
   }, [hasLoadedFromStorage, refresh]);
+
+  // Live unlock: once anyone in the community opens the promotion, every open
+  // store page switches to the community price and drops the share CTA.
+  const promotionId = promotion?.id || '';
+  useEffect(() => {
+    if (!communityWeeklyPromotionsEnabled || !promotionId || !communityCode) return undefined;
+    let unlockRef;
+    try {
+      unlockRef = doc(
+        db,
+        COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION,
+        getCommunityPromotionUnlockId(promotionId, communityCode),
+      );
+    } catch (refError) {
+      return undefined;
+    }
+    return onSnapshot(
+      unlockRef,
+      (snapshot) => {
+        setUnlock(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null);
+      },
+      (snapshotError) => {
+        console.warn('Failed to listen to weekly promotion unlock', snapshotError);
+      },
+    );
+  }, [communityCode, promotionId]);
 
   const unlocked = Boolean(
     promotion

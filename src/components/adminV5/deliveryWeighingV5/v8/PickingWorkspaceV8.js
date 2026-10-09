@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PICK_STATUS } from './itemPickingV8';
 import { V8_VIEWS } from './localStorageV8';
+import useFillViewportHeight from '../../../../hooks/useFillViewportHeight';
 
 const WEIGHT_ON_THRESHOLD = 0.020;
 const WEIGHT_OFF_THRESHOLD = 0.010;
@@ -416,6 +417,11 @@ function BoxesStep({
                   <div className="font-black text-gray-900 truncate">{info.name}</div>
                   <div className="text-xs text-gray-500 truncate">{info.community} · {t8.linesCount(lines)}</div>
                   <div className="mt-1 flex flex-wrap gap-1">
+                    {info.loadingOrder ? (
+                      <span className="text-[11px] font-black rounded px-2 py-0.5 bg-gray-900 text-white">
+                        {info.loadingOrder}
+                      </span>
+                    ) : null}
                     <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${printed > 0 ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-500'}`}>
                       🏷️ {printed > 0 ? t8.printedN(printed) : t8.notPrinted}
                     </span>
@@ -513,12 +519,24 @@ function OrderPickCard({
       <span className="min-w-0 flex-1">
         {active && <span className="block text-[11px] font-bold text-gray-400">{t8.putInBox}</span>}
         <span className="block text-xl font-black text-gray-900 truncate leading-tight">{info.name}</span>
-        <span className="block text-sm font-semibold truncate mt-0.5" style={{ color: info.color }}>{info.community}</span>
+        <span className="block text-sm font-semibold truncate mt-0.5" style={{ color: info.color }}>
+          {info.community}
+          {info.loadingOrder ? (
+            <span className="ms-2 rounded bg-gray-900 px-1.5 py-0.5 text-[11px] font-black text-white">
+              {info.loadingOrder}
+            </span>
+          ) : null}
+        </span>
         <span className="mt-1.5 flex items-center gap-2">
           <span className="text-base font-black text-gray-800">{orderedLabel}</span>
           {showQtyBadge && (
             <span className="inline-flex items-center justify-center min-w-[2.75rem] h-8 px-2 rounded-full bg-red-600 text-white text-lg font-black leading-none">
               x{qtyBadgeText}
+            </span>
+          )}
+          {group?.isOrganic && (
+            <span className="rounded-full bg-green-600 px-2 py-0.5 text-xs font-black text-white">
+              {t8.organicBadge}
             </span>
           )}
         </span>
@@ -827,13 +845,18 @@ function ItemsStep({
     return true;
   });
   const printBusy = isPrinting || !!printAllProgress;
+  const [splitRowRef, splitRowHeight] = useFillViewportHeight();
   let prevBusiness = '';
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4">
-      <div className="lg:w-[340px] shrink-0">
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden lg:sticky lg:top-4">
-          <div className="px-4 py-3 border-b bg-gray-50 space-y-2">
+    <div
+      ref={splitRowRef}
+      className="flex flex-col lg:flex-row gap-4"
+      style={splitRowHeight ? { height: splitRowHeight } : undefined}
+    >
+      <div className="lg:w-[340px] shrink-0 lg:h-full lg:min-h-0">
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden lg:h-full lg:flex lg:flex-col">
+          <div className="px-4 py-3 border-b bg-gray-50 space-y-2 shrink-0">
             <div className="flex items-center justify-between gap-2">
               <span className="font-black text-gray-900">{t8.itemsList}</span>
               <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
@@ -862,7 +885,7 @@ function ItemsStep({
               {hideDoneItems ? t8.showDone : t8.hideDone}
             </button>
           </div>
-          <div className="divide-y max-h-[calc(100vh-280px)] overflow-y-auto">
+          <div className="divide-y max-h-[calc(100vh-280px)] overflow-y-auto lg:max-h-none lg:flex-1 lg:min-h-[180px]">
             {shownGroups.map((group) => {
               const active = activeGroup?.key === group.key;
               const showFarmer = itemSortMode === 'business' && group.businessName !== prevBusiness;
@@ -880,6 +903,8 @@ function ItemsStep({
                     onClick={() => onOpenGroup(group.key)}
                     aria-pressed={active}
                     className={`w-full p-3 text-start transition-colors ${
+                      group.isOrganic && !group.isDone ? 'border-s-8 border-green-500 ' : ''
+                    }${
                       group.isDone
                         ? 'bg-green-50 opacity-70'
                         : active
@@ -895,6 +920,11 @@ function ItemsStep({
                         {group.isDone ? '✓' : group.activeCount}
                       </span>
                       <span className="min-w-0 flex-1">
+                        {group.isOrganic && (
+                          <span className="inline-block mb-0.5 rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-black text-white">
+                            {t8.organicBadge}
+                          </span>
+                        )}
                         <span className={`block font-black text-sm truncate ${active ? 'text-blue-900' : 'text-gray-900'}`}>
                           {itemName(group, lang)}
                           {group.selectedOption ? ` · ${group.selectedOption}` : ''}
@@ -916,7 +946,7 @@ function ItemsStep({
               <div className="p-4 text-sm font-bold text-gray-500">{t8.noFilteredItems}</div>
             )}
           </div>
-          <div className="sticky bottom-0 border-t bg-white p-2 flex flex-col gap-2">
+          <div className="shrink-0 border-t bg-white p-2 flex flex-col gap-2">
             <button
               type="button"
               aria-pressed={packagesOnly}
@@ -937,7 +967,7 @@ function ItemsStep({
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 space-y-3">
+      <div className="flex-1 min-w-0 space-y-3 lg:h-full lg:min-h-0 lg:overflow-y-auto">
         {!activeGroup ? (
           <div className="bg-white rounded-xl shadow-sm p-12 text-center text-gray-500 text-lg font-bold leading-snug">{t8.pickItem}</div>
         ) : (
@@ -947,6 +977,11 @@ function ItemsStep({
                 {activeGroup.images?.[0] ? <img src={cachedImg(activeGroup.images[0])} alt="" className="w-full h-full object-contain" /> : null}
               </div>
               <div className="flex-1 min-w-0">
+                {activeGroup.isOrganic && (
+                  <span className="inline-block mb-1 rounded-full bg-green-600 px-3 py-1 text-base font-black text-white shadow">
+                    {t8.organicBadge}
+                  </span>
+                )}
                 <div className="text-3xl font-black text-gray-900 leading-tight">
                   {formatExpectedHeadline(activeGroup, t8)} {itemName(activeGroup, lang)}
                   {activeGroup.selectedOption ? <span className="text-amber-800"> · {activeGroup.selectedOption}</span> : null}

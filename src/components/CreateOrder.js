@@ -89,7 +89,6 @@ const CreateOrder = () => {
                 const userData = userSnap.data();
                 coordinatorCommunity = userData.community;
             } else {
-                console.log('Coordinator user document not found.');
                 alert('אירעה שגיאה בעת יצירת ההזמנה.');
                 return;
             }

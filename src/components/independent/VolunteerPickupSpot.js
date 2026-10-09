@@ -280,7 +280,6 @@ const VolunteerPickupSpot = () => {
         const url = 'https://us-central1-auth-development-323c3.cloudfunctions.net/updateIndependentOrderVolunteer';
         // test env
         // const url = 'http://127.0.0.1:5001/auth-development-323c3/us-central1/updateIndependentOrderVolunteer';
-        console.log('url', url);
         await axios.post(url, {
           businessId: orderData?.businessId,
           orderId,

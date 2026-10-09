@@ -70,6 +70,7 @@ jest.mock('../../../../services/pickupSpotsService', () => {
     subscribePickupSpots: (cb) => { cb(snapshot); return () => {}; },
     resolveCommunityName: (name) => name,
     getCommunityColor: () => '#336699',
+    getCommunityCode: (name) => (name ? `code-${name}` : ''),
   };
 });
 
@@ -88,6 +89,9 @@ jest.mock('../apiV7', () => ({
   updateDelayedOrderLineV7: async () => {},
   handleSuspendedPaymentV7: async () => {},
   prepareCommunityDiscountForSettlementV7: async () => {},
+  prepareCommunityWeeklyPromotionForSettlementV7: async () => {},
+  fetchWeeklyPromotionsForWeekV7: async () => [],
+  fetchWeeklyPromotionUnlocksV7: async () => ({}),
 }));
 
 jest.mock('../realtimeStateV7', () => ({
@@ -159,6 +163,7 @@ jest.mock('../../../../services/customerHistoryService', () => ({
 }));
 jest.mock('../../../../services/communityDiscountService', () => ({
   getDisplayDiscountInfo: async () => null,
+  getDiscountConfig: async () => ({}),
   subscribeDisplayDiscountInfo: ({ onValue }) => { onValue(null); return () => {}; },
 }));
 jest.mock('../../../../utils/ql800LabelCanvas', () => ({ renderQl800Label: () => ({}) }));

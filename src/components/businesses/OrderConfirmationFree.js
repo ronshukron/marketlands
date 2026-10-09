@@ -32,7 +32,6 @@ const OrderConfirmationFree = () => {
           setOrderData(orderSnap.data());
           setRequestAddress(orderSnap.data().requestAddress || false); // Check if address is requested
         } else {
-          console.log("Order does not exist!");
           navigate('/error');
         }
       } catch (error) {
@@ -161,7 +160,6 @@ const OrderConfirmationFree = () => {
           }
         }
       } else {
-        console.log("Order does not exist!");
         navigate('/error');
       }
     } catch (error) {

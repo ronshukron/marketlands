@@ -9,8 +9,11 @@ import {
   evaluateOrderMinimum,
   formatOrderMinimumFailure,
   getItemCommunityWeeklyPromotion,
+  getBufferedDisplayQuantity,
+  getEstimatedHoldQuantity,
   getEstimatedLineTotal,
   getEffectiveUnitPrice,
+  roundUpToStep,
   getEligibleMinimumItemCount,
   getQuantityDiscountLabel,
   hasEligibleCommunityWeeklyPromotion,
@@ -633,5 +636,38 @@ describe('group promotions and order minimums', () => {
       measurementType: 'package',
       ...attachGreen({}),
     }).groupPromotionApplied).toBe(false);
+  });
+});
+
+describe('weight buffer', () => {
+  const kg = (quantity, extra = {}) => ({ measurementType: 'kg', quantity, price: 10, ...extra });
+
+  it('rounds up to the next 0.05 without float noise', () => {
+    expect(roundUpToStep(1.05)).toBe(1.05);
+    expect(roundUpToStep(0.525)).toBe(0.55);
+    expect(roundUpToStep(2.625)).toBe(2.65);
+    expect(roundUpToStep(1.07)).toBe(1.1);
+  });
+
+  it('buffers kg lines by the configured percent', () => {
+    expect(getBufferedDisplayQuantity(kg(0.5), 5)).toBe(0.55);
+    expect(getBufferedDisplayQuantity(kg(1), 5)).toBe(1.05);
+    expect(getBufferedDisplayQuantity(kg(2.5), 5)).toBe(2.65);
+    expect(getBufferedDisplayQuantity(kg(1), 7)).toBe(1.1);
+    expect(getBufferedDisplayQuantity(kg(1), 0)).toBe(1);
+  });
+
+  it('leaves unit, package, shipping and basket lines unchanged', () => {
+    expect(getBufferedDisplayQuantity({ measurementType: 'unit', quantity: 3 }, 5)).toBe(3);
+    expect(getBufferedDisplayQuantity({ measurementType: 'package', quantity: 2 }, 5)).toBe(2);
+    expect(getBufferedDisplayQuantity(kg(1, { isShipping: true }), 5)).toBe(1);
+    expect(getBufferedDisplayQuantity(kg(1, { isBasketComponent: true }), 5)).toBe(1);
+    expect(getEstimatedHoldQuantity({ measurementType: 'unit', quantity: 2, averageWeightKg: 0.5 }, 5)).toBe(1);
+  });
+
+  it('prices the buffered quantity only when a buffer is requested', () => {
+    expect(getEstimatedLineTotal(kg(1))).toBe(10);
+    expect(getEstimatedLineTotal(kg(1), { bufferPercent: 5 })).toBe(10.5);
+    expect(getEstimatedLineTotal(kg(0.5), { bufferPercent: 5 })).toBe(5.5);
   });
 });

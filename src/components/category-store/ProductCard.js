@@ -6,6 +6,7 @@ import Swal from 'sweetalert2';
 import {
   attachCommunityWeeklyPromotionFields,
   attachGroupPromotionFields,
+  getBufferedDisplayQuantity,
   getEffectiveUnitPrice,
   getGroupPromotionLabel,
   getItemCommunityWeeklyPromotion,
@@ -14,6 +15,7 @@ import {
   normalizeQuantityDiscount,
 } from '../../utils/pricing';
 import { isNewProduct } from '../../utils/productFreshness';
+import { useWeightBuffer } from '../../contexts/WeightBufferContext';
 
 const CATEGORY_CARD_IMAGE_LIMIT = 1;
 
@@ -101,6 +103,7 @@ const ProductCard = ({
   quantityInCart,
   addItem,
   openUnlockModal,
+  communityUnlocked = false,
 }) => {
   const measurementType = product.measurementType || 'kg';
   const unitSize = product.unitSize || 1;
@@ -117,6 +120,9 @@ const ProductCard = ({
   const weeklyPromotion = getItemCommunityWeeklyPromotion(product);
   const weeklyPromotionApplied = hasEligibleCommunityWeeklyPromotion(product);
   const hasWeeklyPromotion = Boolean(weeklyPromotion);
+  const showUnlockShare = hasWeeklyPromotion && !weeklyPromotionApplied && !communityUnlocked;
+  const { bufferPercent } = useWeightBuffer();
+  const showWeightBuffer = isKgItem && bufferPercent > 0;
 
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
   const [selectedOption] = useState(
@@ -139,14 +145,20 @@ const ProductCard = ({
 
   const formatQuantity = (qty) => {
     if (isKgItem) {
-      return qty % 1 === 0 ? qty.toString() : qty.toFixed(1);
+      return qty % 1 === 0 ? qty.toString() : String(Math.round(qty * 100) / 100);
     }
     return Math.round(qty).toString();
   };
 
+  const toDisplayQuantity = (qty) => (
+    showWeightBuffer
+      ? getBufferedDisplayQuantity({ measurementType: 'kg', quantity: qty }, bufferPercent)
+      : qty
+  );
+
   const formatQuantityWithUnit = (qty) => {
     if (isKgItem) {
-      return `${formatQuantity(qty)} ק"ג`;
+      return `${formatQuantity(toDisplayQuantity(qty))} ק"ג`;
     }
     if (isUnitItem) {
       return `${Math.round(qty)} יח'`;
@@ -361,7 +373,7 @@ const ProductCard = ({
                   ? `מחיר קהילתי: ₪${weeklyPromotion.price.toFixed(2)}`
                   : `מחיר שבועי נעול: ₪${weeklyPromotion.price.toFixed(2)}`}
               </p>
-              {!weeklyPromotionApplied && (
+              {showUnlockShare && (
                 <button
                   type="button"
                   onClick={openUnlockModal}
@@ -406,7 +418,7 @@ const ProductCard = ({
               -
             </button>
             <span className="flex-1 truncate py-1.5 text-center text-sm font-medium">
-              {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
+              {formatQuantity(toDisplayQuantity(quantity))}{isKgItem ? ' ק"ג' : ''}
             </span>
             <button
               onClick={() => handleQuantityChange(true)}
@@ -416,6 +428,11 @@ const ProductCard = ({
               +
             </button>
           </div>
+          {showWeightBuffer && (
+            <p className="text-[11px] text-gray-500 text-center">
+              כולל {bufferPercent}% מרווח שקילה · החיוב לפי המשקל בפועל
+            </p>
+          )}
 
           <button
             onClick={addToCart}
@@ -518,7 +535,7 @@ const ProductCard = ({
                   ? `מחיר קהילתי ₪${weeklyPromotion.price.toFixed(2)}`
                   : `מחיר נעול ₪${weeklyPromotion.price.toFixed(2)}`}
               </p>
-              {!weeklyPromotionApplied && (
+              {showUnlockShare && (
                 <button
                   type="button"
                   onClick={openUnlockModal}
@@ -565,7 +582,7 @@ const ProductCard = ({
               -
             </button>
             <span className="min-w-[36px] px-1 py-1 text-center text-sm">
-              {formatQuantity(quantity)}{isKgItem ? ' ק"ג' : ''}
+              {formatQuantity(toDisplayQuantity(quantity))}{isKgItem ? ' ק"ג' : ''}
             </span>
             <button
               onClick={() => handleQuantityChange(true)}
@@ -584,6 +601,11 @@ const ProductCard = ({
             <span className="truncate">הוסף לסל</span>
           </button>
         </div>
+        {showWeightBuffer && (
+          <p className="text-[10px] text-gray-500">
+            כולל {bufferPercent}% מרווח שקילה · החיוב לפי המשקל בפועל
+          </p>
+        )}
       </div>
       </div>
     </div>

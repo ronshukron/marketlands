@@ -251,8 +251,6 @@ export async function handleSuspendedPaymentV5({
   // const url = functionsEndpoint('handleSuspendedPayment');
   const url = 'https://us-central1-auth-development-323c3.cloudfunctions.net/handleSuspendedPayment';
   const token = await getIdTokenIfAvailable();
-  console.log('handleSuspendedPaymentV5 url', url);
-  console.log('handleSuspendedPaymentV5 orderId:', orderId, 'finalSum:', finalSum, 'lines:', finalInvoiceLines?.length);
   try {
     const { data } = await axios.post(
       url,

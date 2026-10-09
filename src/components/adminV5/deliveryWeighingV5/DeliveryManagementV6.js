@@ -1207,12 +1207,9 @@ export default function DeliveryManagementV6() {
         finalInvoiceLines, finalSum, productDataForGrow,
       };
 
-      console.log('=== handleSuspendedPayment DEBUG ===');
-      console.log('payload:', payload);
 
       try {
-        const res = await handleSuspendedPaymentV5(payload);
-        console.log('handleSuspendedPayment response', res);
+        await handleSuspendedPaymentV5(payload);
 
         // Mark completed
         const updCompleted = upsertOrderWeighing({ weekKey: selectedWeek, orderId: selectedOrder.id, patch: { status: 'completed' } });

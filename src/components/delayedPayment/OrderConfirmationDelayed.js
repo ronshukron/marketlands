@@ -14,16 +14,20 @@ import { createDelayedPaymentCheckout } from '../../services/delayedPaymentGatew
 import { buildGrowSuccessUrl, storeDelayedCustomerOrderId } from '../../utils/growReturnParams';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
-import { getReusableCartonConfig, isDelayedPaymentSpot } from '../../services/paymentConfigService';
+import { getReusableCartonConfig, getWeightBufferPercent, isDelayedPaymentSpot } from '../../services/paymentConfigService';
 import { resolveCommunityName } from '../../services/pickupSpotsService';
 import {
     buildPricingSnapshot,
     evaluateOrderMinimum,
     formatOrderMinimumFailure,
+    getBufferedDisplayQuantity,
     getEstimatedChargeableQuantity,
     getEstimatedLineTotal,
     groupPricedItemsByOrder,
+    isWeightBufferedItem,
+    normalizeWeightBufferPercent,
 } from '../../utils/pricing';
+import { useWeightBuffer } from '../../contexts/WeightBufferContext';
 import { refreshCartCommercialTerms } from '../../services/productPromotionService';
 import { describeCommunityWeeklyCheckoutRefreshError } from '../../services/communityWeeklyPromotionService';
 import { buildCommunityWeeklyPromotionOrderAttribution } from '../../utils/communityWeeklyPromotionUrl';
@@ -80,11 +84,11 @@ const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATAL
 const SHIPPING_PRODUCT_ID = 'Mdean61FIezxRcMUZjVn';
 
 // ------------------------------------------------------------------
-// HOLD BUFFER: % extra to hold on the customer's credit card (J5).
-// e.g. 5 means hold 105% of order total so final weighing can go up.
+// HOLD BUFFER: kg lines use the weight buffer (settings/paymentConfig.weightBufferPercent)
+// so 1 kg is held as 1.05 kg. Unit, package, shipping, and basket lines are held
+// at their real total. Stored order quantities stay on the base amount.
 // ------------------------------------------------------------------
-const HOLD_BUFFER_PERCENT = 5;
-// Catalog number for the buffer line item (weighing safety margin)
+// Catalog number used only when Grow line prices need a rounding remainder.
 const BUFFER_LINE_CATALOG_NUMBER = process.env.REACT_APP_BUFFER_LINE_CATALOG_NUMBER || '999003';
 const hebrewPickupSpotCollator = new Intl.Collator('he');
 
@@ -96,10 +100,39 @@ const normalizePickupSpotName = (spot) =>
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
-const buildOrderLineFromCartItem = (item) => ({
+// Amount held on the card for one cart line. Only kg lines are inflated.
+const getHoldLineTotal = (item, bufferPercent) => {
+    const percent = normalizeWeightBufferPercent(bufferPercent);
+    if (percent && isWeightBufferedItem(item)) {
+        return getEstimatedLineTotal(item, { bufferPercent: percent });
+    }
+    return getEstimatedLineTotal(item);
+};
+
+const sumHoldExtra = (items = [], bufferPercent) => roundMoney(items.reduce(
+    (sum, item) => (
+        Number(item?.quantity) > 0
+            ? sum + getHoldLineTotal(item, bufferPercent) - getEstimatedLineTotal(item)
+            : sum
+    ),
+    0,
+));
+
+const buildWeightBufferLineFields = (item, bufferPercent) => {
+    const percent = normalizeWeightBufferPercent(bufferPercent);
+    if (!percent || !isWeightBufferedItem(item)) return {};
+    return {
+        displayQuantity: getBufferedDisplayQuantity(item, percent),
+        weightBufferPercent: percent,
+        estimatedHoldLineTotal: getHoldLineTotal(item, percent),
+    };
+};
+
+const buildOrderLineFromCartItem = (item, bufferPercent = 0) => ({
     productId: item.id,
     productName: item.name,
     quantity: item.quantity,
+    ...buildWeightBufferLineFields(item, bufferPercent),
     estimatedChargeQuantity: getEstimatedChargeableQuantity(item),
     estimatedLineTotal: getEstimatedLineTotal(item),
     price: item.price,
@@ -181,6 +214,7 @@ const OrderConfirmationDelayed = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems, applyCommercialRefresh, orderInfoMap } = useCart();
+    const { configuredPercent: displayWeightBufferPercent } = useWeightBuffer();
     const promotionOrderAttribution = buildCommunityWeeklyPromotionOrderAttribution(localStorage);
     
     const [loading, setLoading] = useState(false);
@@ -351,6 +385,9 @@ const OrderConfirmationDelayed = () => {
         [cutoffCartItems]
     );
     const effectiveTotalWithDelivery = Math.max(0, totalWithDelivery - cutoffCartTotal);
+    const displayHoldTotal = roundMoney(
+        effectiveTotalWithDelivery + sumHoldExtra(effectiveCartItems, displayWeightBufferPercent)
+    );
 
     // Add this useEffect to update the total when delivery option changes
     useEffect(() => {
@@ -880,6 +917,9 @@ const OrderConfirmationDelayed = () => {
         }
     
         setLoading(true);
+        const weightBufferPercent = await getWeightBufferPercent();
+        const checkoutItems = Object.values(checkoutItemsByOrder).flatMap((orderData) => orderData.items || []);
+        const holdAmount = roundMoney(effectiveTotalWithDelivery + sumHoldExtra(checkoutItems, weightBufferPercent));
         const customerOrderId = `temp_${new Date().getTime()}`; // Generate a temporary ID
         const customerOrderIdOrderRef = doc(collection(db, "customerOrdersDelayed"), customerOrderId);
         
@@ -893,7 +933,7 @@ const OrderConfirmationDelayed = () => {
             // Process each item in this order
             orderData.items.forEach(item => {
                 if (item.quantity > 0) {
-                    orderItems.push(buildOrderLineFromCartItem(item));
+                    orderItems.push(buildOrderLineFromCartItem(item, weightBufferPercent));
                 }
             });
             businessIds.push(orderData.businessId);
@@ -969,8 +1009,9 @@ const OrderConfirmationDelayed = () => {
                 provider: 'grow',
                 status: 'created',
                 checkoutFlow: 'dynamic_frontend_gateway',
-                holdBufferPercent: HOLD_BUFFER_PERCENT,
-                holdSum: Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100
+                holdBufferPercent: weightBufferPercent,
+                holdBufferMode: 'per_line_weight',
+                holdSum: holdAmount
             },
             ...buildOrderAccountPayload(checkoutUid)
             },
@@ -994,9 +1035,6 @@ const OrderConfirmationDelayed = () => {
         try {
             // Call backend to create Grow (J5) payment process.
             // Backend MUST be the one calling Grow.
-            // Hold extra buffer so final weighing can exceed estimate.
-            const holdAmount = Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100;
-
             const paymentData = {
                 mode: 'weekly_delayed',
                 amount: holdAmount,
@@ -1030,8 +1068,13 @@ const OrderConfirmationDelayed = () => {
             Object.entries(checkoutItemsByOrder).forEach(([orderId, orderData]) => {
                 orderData.items.forEach(item => {
                     if (item.quantity > 0 && !item.isBasketComponent && !item.isBasketAdjustment) {
-                        const linePrice = getEstimatedLineTotal(item);
-                        const invoiceItem = buildGrowInvoiceItem(item);
+                        const isBufferedKg = weightBufferPercent > 0 && isWeightBufferedItem(item);
+                        const linePrice = isBufferedKg
+                            ? getHoldLineTotal(item, weightBufferPercent)
+                            : getEstimatedLineTotal(item);
+                        const invoiceItem = buildGrowInvoiceItem(item, isBufferedKg
+                            ? { descriptionQuantity: getBufferedDisplayQuantity(item, weightBufferPercent) }
+                            : {});
                         paymentData[`productData[${productIndex}][catalogNumber]`] = item.catalogNumber;
                         paymentData[`productData[${productIndex}][quantity]`] = invoiceItem.quantity;
                         paymentData[`productData[${productIndex}][price]`] = linePrice;
@@ -1054,7 +1097,6 @@ const OrderConfirmationDelayed = () => {
                 productIndex++;
             }
 
-            console.log('paymentData', paymentData);
 
             storeDelayedCustomerOrderId(customerOrderId);
 
@@ -1102,7 +1144,6 @@ const OrderConfirmationDelayed = () => {
                     }
                 }
             } else {
-                console.log("Order does not exist!");
                 navigate('/error');
             }
         } catch (error) {
@@ -1969,21 +2010,14 @@ const OrderConfirmationDelayed = () => {
                         </div>
                     </div>
 
-                    {/* Order Total - credit hold emphasized; estimate shown via buffer subtitle */}
                     <div className="mb-6 bg-gradient-to-r from-purple-50 to-purple-100 p-4 sm:p-6 rounded-lg border-2 border-purple-200">
                         <div className="flex items-baseline justify-between gap-3">
-                            <span className="min-w-0">
-                                <span className="block text-lg sm:text-2xl font-bold text-gray-900">סה"כ הזמנה משוער:</span>
-                                <span className="block text-xs sm:text-sm font-normal text-gray-600 mt-0.5">
-                                    כולל {HOLD_BUFFER_PERCENT}% מרווח (מסגרת אשראי)
-                                </span>
-                            </span>
+                            <span className="block text-lg sm:text-2xl font-bold text-gray-900">סה"כ הזמנה משוער:</span>
                             <span className="text-xl sm:text-3xl font-bold text-purple-700 whitespace-nowrap">
-                                {(Math.round(effectiveTotalWithDelivery * (1 + HOLD_BUFFER_PERCENT / 100) * 100) / 100).toFixed(2)}₪
+                                {displayHoldTotal.toFixed(2)}₪
                             </span>
                         </div>
-                        <p className="text-xs sm:text-sm text-gray-600 mt-2">
-                            נחזיק מסגרת גבוהה יותר למקרה שהמשקל הסופי יעלה על ההערכה.{' '}
+                        <p className="text-sm sm:text-base text-gray-600 mt-2">
                             <span className="font-bold text-gray-800">החיוב בפועל יהיה לפי השקילה ביום המשלוח.</span>
                         </p>
                     </div>

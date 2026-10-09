@@ -23,6 +23,17 @@ describe('buildGrowInvoiceItem', () => {
     });
   });
 
+  test('describes the buffered kg amount without changing the Grow quantity', () => {
+    expect(buildGrowInvoiceItem({
+      name: 'מלפפון',
+      quantity: 2,
+      measurementType: 'kg',
+    }, { descriptionQuantity: 2.1 })).toEqual({
+      quantity: 2,
+      description: 'מלפפון - 2.1 ק"ג',
+    });
+  });
+
   test('does not add a kg label to packaged products', () => {
     expect(buildGrowInvoiceItem({
       name: 'מארז ירקות',

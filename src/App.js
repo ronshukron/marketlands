@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import ScrollToTop from './components/ScrollToTop';
 import { AuthProvider } from "./contexts/authContext";
 import { CartProvider } from './contexts/CartContext';
@@ -11,6 +11,7 @@ import AccessibilityButton from './components/AccessibilityButton';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
 import { SaleModeProvider } from './contexts/SaleModeContext';
 import { CommunityWeeklyPromotionProvider } from './contexts/CommunityWeeklyPromotionContext';
+import { WeightBufferProvider } from './contexts/WeightBufferContext';
 import './App.css';
 import './components/Accessibility.css';
 
@@ -140,19 +141,33 @@ const RouteFallback = () => (
   <div className="p-8 text-center text-gray-500" dir="rtl">טוען...</div>
 );
 
+const DELIVERY_WORKSPACE_PATHS = new Set(['/admin/delivery-v7', '/admin/delivery-v8']);
+
+const AppFrame = ({ children }) => {
+  const { pathname } = useLocation();
+  const hideSiteChrome = DELIVERY_WORKSPACE_PATHS.has(pathname.replace(/\/+$/, '') || '/');
+  return (
+    <div className="App min-h-screen flex flex-col">
+      {!hideSiteChrome && <AppMenu />}
+      <main className="flex-grow">{children}</main>
+      {!hideSiteChrome && <Footer />}
+      <AccessibilityButton />
+    </div>
+  );
+};
+
 const App = () => {
   return (
     <AuthProvider>
       <PickupSpotProvider>
         <CommunityWeeklyPromotionProvider>
+          <WeightBufferProvider>
           <CartProvider>
             <MarketplaceCartProvider>
           <SaleModeProvider>
             <Router>
             <ScrollToTop />
-            <div className="App min-h-screen flex flex-col">
-              <AppMenu />
-              <main className="flex-grow">
+            <AppFrame>
                 <Suspense fallback={<RouteFallback />}>
                 <Routes>
                   <Route path="/landing" element={<LandingPage />} />
@@ -302,14 +317,12 @@ const App = () => {
                   <Route path="/marketplace/products/:productId" element={<MarketplaceEditProduct />} />
                 </Routes>
                 </Suspense>
-              </main>
-              <Footer />
-              <AccessibilityButton />
-            </div>
+            </AppFrame>
           </Router>
         </SaleModeProvider>
             </MarketplaceCartProvider>
           </CartProvider>
+          </WeightBufferProvider>
         </CommunityWeeklyPromotionProvider>
       </PickupSpotProvider>
     </AuthProvider>

@@ -44,8 +44,11 @@ import { getEstimatedChargeableQuantity, getEstimatedLineTotal } from '../../../
 import {
   BUFFER_LINE_CATALOG_NUMBER,
   buildSettlementPayload,
+  countHandledItems,
+  deriveWeighingStatus,
   getNextUnweighedIndex,
   mergeProductDetailsIntoItems,
+  resolveActualQuantity,
   isCanonicalLineIdV7,
   sanitizeDraftForItems,
   weekKeyToRangeLabel,
@@ -65,6 +68,8 @@ import {
   partitionReadyByExclusion,
 } from './v7/batchCommunityChargeV7';
 import BatchChargeControlModal from './v7/BatchChargeControlModal';
+import useWeeklyPromotionSettlementV7 from './v7/useWeeklyPromotionSettlementV7';
+import { applyWeeklyPromotionToItems } from './v7/weeklyPromotionSettlementV7';
 import {
   buildChargeRefundDialogText,
   fetchOpenRefundsForChargeV7,
@@ -98,6 +103,7 @@ import {
 import { parseAutoloadSetupFromSearch, readAutoloadSetupFromLocation } from './v7/autoloadSetupV7';
 import {
   computeCommunityOrderNumbers,
+  computeLoadingOrderNumbers,
   readShowCommunityNumbering,
   saveShowCommunityNumbering,
 } from './v7/communityOrderNumbering';
@@ -206,6 +212,14 @@ const TR = {
     communityDiscountAuto: 'הנחת קהילה אוטומטית',
     communityDiscountPrepared: 'הנחת קהילה הוכנה לחיוב',
     communityDiscountTier: 'רמת הנחת קהילה',
+    applyWeeklyPromotion: (amount) => `החל מבצע שבועי (~₪${amount})`,
+    removeWeeklyPromotion: 'הסר מבצע שבועי',
+    weeklyPromotionAuto: (amount) => `מבצע שבועי אוטומטי (~₪${amount})`,
+    weeklyPromotionPrepared: 'מבצע שבועי הוחל',
+    weeklyPromotionBanner: (count, amount) => `${count} פריטים זכאים למחיר המבצע השבועי (הקהילה פתחה את המבצע) · חיסכון משוער ₪${amount}`,
+    weeklyPromotionConfirm: (amount) => `\nמבצע שבועי: חיסכון משוער ₪${amount}`,
+    batchApplyWeeklyPromotion: 'החל מבצע שבועי להזמנות שהוזמנו לפני שהמבצע נפתח',
+    batchWeeklyPromotionSavings: (amount) => `מבצע שבועי -₪${amount}`,
     beforeDiscount: 'לפני הנחה',
     discountAmount: 'הנחה',
     afterDiscount: 'לחיוב אחרי הנחה',
@@ -252,6 +266,7 @@ const TR = {
     unitOrderedBadge: 'הוזמן ביחידות',
     basketPartBadge: (title) => `חלק מסל היכרות: ${title || 'סל היכרות'}`,
     underOneKgBadge: 'פחות מקילו',
+    organicBadge: 'אורגני',
     largeDiffWarn: (exp, act, pct) => `הכמות שהוזנה שונה ב-${pct}% מהכמות שהוזמנה.\nהוזמן: ${exp}\nהוזן: ${act}\nלהמשיך בכל זאת?`,
     claim: 'תפוס הזמנה',
     release: 'שחרר',
@@ -420,6 +435,14 @@ const TR = {
     communityDiscountAuto: 'ส่วนลดชุมชนอัตโนมัติ',
     communityDiscountPrepared: 'เตรียมส่วนลดชุมชนแล้ว',
     communityDiscountTier: 'ระดับส่วนลดชุมชน',
+    applyWeeklyPromotion: (amount) => `ใช้โปรประจำสัปดาห์ (~₪${amount})`,
+    removeWeeklyPromotion: 'ยกเลิกโปรประจำสัปดาห์',
+    weeklyPromotionAuto: (amount) => `โปรประจำสัปดาห์อัตโนมัติ (~₪${amount})`,
+    weeklyPromotionPrepared: 'ใช้โปรประจำสัปดาห์แล้ว',
+    weeklyPromotionBanner: (count, amount) => `${count} รายการได้ราคาโปรประจำสัปดาห์ · ประหยัดประมาณ ₪${amount}`,
+    weeklyPromotionConfirm: (amount) => `\nโปรประจำสัปดาห์: ประหยัดประมาณ ₪${amount}`,
+    batchApplyWeeklyPromotion: 'ใช้โปรประจำสัปดาห์กับคำสั่งซื้อก่อนเปิดโปร',
+    batchWeeklyPromotionSavings: (amount) => `โปรประจำสัปดาห์ -₪${amount}`,
     beforeDiscount: 'ก่อนส่วนลด',
     discountAmount: 'ส่วนลด',
     afterDiscount: 'ยอดหลังส่วนลด',
@@ -466,6 +489,7 @@ const TR = {
     unitOrderedBadge: 'สั่งเป็นหน่วย',
     basketPartBadge: (title) => `ส่วนหนึ่งของตะกร้าแนะนำ: ${title || 'ตะกร้าแนะนำ'}`,
     underOneKgBadge: 'น้อยกว่า 1 กก.',
+    organicBadge: 'ออร์แกนิก',
     largeDiffWarn: (exp, act, pct) => `ค่าน้ำหนักต่างจากที่สั่ง ${pct}%\nสั่ง: ${exp}\nที่กรอก: ${act}\nยืนยันดำเนินการต่อหรือไม่?`,
     claim: 'จองออเดอร์',
     release: 'ปล่อย',
@@ -950,9 +974,7 @@ function getDisplayName(user) {
 }
 
 function getEffectiveOrderStatus(order, draft) {
-  if (!order) return 'pending';
-  if (order.status === 'completed') return 'completed';
-  return draft?.status || order.status || 'pending';
+  return deriveWeighingStatus(order, draft);
 }
 
 function getPersistedCompletedDraft(order) {
@@ -1997,6 +2019,10 @@ export default function DeliveryManagementV7() {
   }, [selectedOrder, productDetails]);
 
   const activeItems = useMemo(() => items.filter((it) => !removedLineIds[it.lineId]), [items, removedLineIds]);
+  const handledItemsCount = useMemo(
+    () => countHandledItems(items, weightsByLineId, removedLineIds),
+    [items, weightsByLineId, removedLineIds],
+  );
   const nextIdx = useMemo(() => getNextUnweighedIndex(items, weightsByLineId, removedLineIds, 0), [items, weightsByLineId, removedLineIds]);
   const canComplete = activeItems.length > 0 && nextIdx === -1;
   const selectedOrderStatus = getEffectiveOrderStatus(selectedOrder, selectedOrderSaved);
@@ -2268,6 +2294,14 @@ export default function DeliveryManagementV7() {
 
   const computedCommunityOrderNumbers = useMemo(() => (
     computeCommunityOrderNumbers({
+      orders,
+      communities: orderCommunities,
+      customerNumbersMap: permanentNumbersMap,
+    })
+  ), [orders, orderCommunities, permanentNumbersMap]);
+
+  const loadingOrderNumbers = useMemo(() => (
+    computeLoadingOrderNumbers({
       orders,
       communities: orderCommunities,
       customerNumbersMap: permanentNumbersMap,
@@ -2555,15 +2589,51 @@ export default function DeliveryManagementV7() {
     manualDiscountSelected,
     preparedCommunityDiscount,
   ]);
+  const weeklyPromotionSettlement = useWeeklyPromotionSettlementV7({ selectedWeek, orders });
+  const { autoApply: autoApplyWeeklyPromotion, getOrderWeeklyPromotion } = weeklyPromotionSettlement;
+  const [weeklyPromotionChoiceByOrder, setWeeklyPromotionChoiceByOrder] = useState({});
+  const [batchApplyWeeklyPromotion, setBatchApplyWeeklyPromotion] = useState(false);
+  const isWeeklyPromotionChosen = useCallback((orderId, fallback = autoApplyWeeklyPromotion) => {
+    const choice = weeklyPromotionChoiceByOrder[orderId];
+    if (choice === 'on') return true;
+    if (choice === 'off') return false;
+    return fallback;
+  }, [autoApplyWeeklyPromotion, weeklyPromotionChoiceByOrder]);
+  const getBatchWeeklyPromotion = useCallback((order, orderItems, draft) => (
+    order?.id && isWeeklyPromotionChosen(order.id, batchApplyWeeklyPromotion)
+      ? getOrderWeeklyPromotion(order, orderItems, draft)
+      : null
+  ), [batchApplyWeeklyPromotion, getOrderWeeklyPromotion, isWeeklyPromotionChosen]);
+  const preparedWeeklyPromotion = selectedOrder?.rawData?.communityWeeklyPromotionPreparation?.status === 'prepared'
+    ? selectedOrder.rawData.communityWeeklyPromotionPreparation
+    : null;
+  const eligibleWeeklyPromotion = useMemo(() => (
+    selectedOrder ? getOrderWeeklyPromotion(selectedOrder, items, selectedOrderSaved) : null
+  ), [getOrderWeeklyPromotion, items, selectedOrder, selectedOrderSaved]);
+  const selectedWeeklyPromotion = eligibleWeeklyPromotion && isWeeklyPromotionChosen(selectedOrderId)
+    ? eligibleWeeklyPromotion
+    : null;
+  const settlementItems = useMemo(
+    () => applyWeeklyPromotionToItems(items, selectedWeeklyPromotion),
+    [items, selectedWeeklyPromotion],
+  );
+  const toggleWeeklyPromotion = () => {
+    if (!selectedOrderId || !eligibleWeeklyPromotion) return;
+    const chosen = isWeeklyPromotionChosen(selectedOrderId);
+    setWeeklyPromotionChoiceByOrder((previous) => ({
+      ...previous,
+      [selectedOrderId]: chosen ? 'off' : 'on',
+    }));
+  };
   const discountedSettlementPreview = useMemo(() => {
     if (!selectedOrder || !selectedCommunityDiscount || !canComplete) return null;
     return buildSettlementPayload({
       selectedOrder,
-      items,
+      items: settlementItems,
       draft: selectedOrderSaved,
       communityDiscount: selectedCommunityDiscount,
     });
-  }, [canComplete, items, selectedCommunityDiscount, selectedOrder, selectedOrderSaved]);
+  }, [canComplete, selectedCommunityDiscount, selectedOrder, selectedOrderSaved, settlementItems]);
 
   const toggleCommunityDiscount = () => {
     if (
@@ -2628,6 +2698,7 @@ export default function DeliveryManagementV7() {
         name: selectedOrder.customerDetails?.name || t.customer,
         community: selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot || '',
         crateIndex: printUses.index,
+        loadingOrder: loadingOrderNumbers[selectedOrder.id] || null,
       });
       const result = await printImage(image);
       if (!result?.ok) {
@@ -2641,6 +2712,7 @@ export default function DeliveryManagementV7() {
         const synced = await setPackedCartonCountV7({
           orderId: selectedOrder.id,
           printedIndex: printUses.index,
+          loadingOrder: loadingOrderNumbers[selectedOrder.id] || null,
         });
         const packedCartonCount = synced?.packedCartonCount || printUses.index;
         setOrders((prev) => prev.map((order) => (
@@ -2668,6 +2740,7 @@ export default function DeliveryManagementV7() {
     crateIndex,
     hasPrinterSupport,
     isPrinting,
+    loadingOrderNumbers,
     permanentNumbersMap,
     persistCrateLabel,
     printImage,
@@ -2703,7 +2776,8 @@ export default function DeliveryManagementV7() {
       autoWeighActiveRef.current = false;
     }
 
-    if (selectedOrder && getEffectiveOrderStatus(selectedOrder, selectedOrderSaved) !== 'completed') {
+    const stillOpen = getNextUnweighedIndex(items, weightsByLineId, removedLineIds) !== -1;
+    if (selectedOrder && stillOpen && getEffectiveOrderStatus(selectedOrder, selectedOrderSaved) !== 'completed') {
       await saveDraftPatch({ status: 'in_progress' });
     }
   }, [items, claimedByOther, removedLineIds, activeItemIndex, weightsByLineId, selectedOrder, selectedOrderSaved, saveDraftPatch]);
@@ -3210,27 +3284,30 @@ export default function DeliveryManagementV7() {
         entry.order,
         selectedWeek,
       );
+      const weeklyPromotion = getBatchWeeklyPromotion(entry.order, entry.items, entry.draft);
       const payload = buildSettlementPayload({
         selectedOrder: entry.order,
-        items: entry.items,
+        items: applyWeeklyPromotionToItems(entry.items, weeklyPromotion),
         draft: entry.draft,
         communityDiscount: snapshot,
       });
       map[entry.order.id] = {
         finalSum: payload.finalSum,
         discount: payload.communityDiscount?.amount || 0,
+        weeklySavings: weeklyPromotion?.estimatedSavings || 0,
       };
     });
     return map;
-  }, [batchChargeDiscountByCommunity, batchChargeLivePlan.ready, selectedWeek]);
+  }, [batchChargeDiscountByCommunity, batchChargeLivePlan.ready, getBatchWeeklyPromotion, selectedWeek]);
   const batchChargePreviewTotals = useMemo(() => (
     batchChargeIncludedReady.reduce((acc, entry) => {
       const preview = batchChargeOrderPreviews[entry.order.id];
       return {
         total: acc.total + (Number(preview?.finalSum) || 0),
         discount: acc.discount + (Number(preview?.discount) || 0),
+        weeklySavings: acc.weeklySavings + (Number(preview?.weeklySavings) || 0),
       };
-    }, { total: 0, discount: 0 })
+    }, { total: 0, discount: 0, weeklySavings: 0 })
   ), [batchChargeIncludedReady, batchChargeOrderPreviews]);
 
   const completeOrder = async () => {
@@ -3265,10 +3342,16 @@ export default function DeliveryManagementV7() {
     );
     const confirmationPreview = buildSettlementPayload({
       selectedOrder,
-      items,
+      items: settlementItems,
       draft: selectedOrderSaved,
       communityDiscount: settlementDiscount,
     });
+    const weeklyConfirmationHe = selectedWeeklyPromotion
+      ? TR.he.weeklyPromotionConfirm(selectedWeeklyPromotion.estimatedSavings.toFixed(2))
+      : '';
+    const weeklyConfirmationTh = selectedWeeklyPromotion
+      ? TR.th.weeklyPromotionConfirm(selectedWeeklyPromotion.estimatedSavings.toFixed(2))
+      : '';
     const appliedSettlementDiscount = confirmationPreview.communityDiscount
       ? settlementDiscount
       : null;
@@ -3287,8 +3370,8 @@ export default function DeliveryManagementV7() {
       lang: 'th',
     });
     const ok = await biConfirm({
-      heText: `לסמן כהושלם ולחייב את הלקוח?${discountConfirmationHe}${refundConfirmationHe}`,
-      thText: `ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?${discountConfirmationTh}${refundConfirmationTh}`,
+      heText: `לסמן כהושלם ולחייב את הלקוח?${weeklyConfirmationHe}${discountConfirmationHe}${refundConfirmationHe}`,
+      thText: `ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?${weeklyConfirmationTh}${discountConfirmationTh}${refundConfirmationTh}`,
       title: selectedOrderRefunds.length > 0 ? 'warning' : 'info',
       confirmButtonDelay: selectedOrderRefunds.length > 0 ? 2000 : 0,
     });
@@ -3304,6 +3387,7 @@ export default function DeliveryManagementV7() {
         session,
         weekKey: selectedWeek,
         communityDiscount: appliedSettlementDiscount,
+        communityWeeklyPromotion: selectedWeeklyPromotion,
       });
       applySuccessfulChargeToState(selectedOrder.id, result);
       if (selectedClaim?.sessionId === session.sessionId) {
@@ -3353,6 +3437,8 @@ export default function DeliveryManagementV7() {
     if (!isAdmin || batchChargeProgress) return;
     const names = defaultBatchChargeCommunities(selectedCommunities, orderCommunities);
     setBatchChargeModalCommunities(new Set(names));
+    setBatchApplyWeeklyPromotion(autoApplyWeeklyPromotion);
+    weeklyPromotionSettlement.refresh();
     setBatchChargeModalOpen(true);
   };
 
@@ -3468,6 +3554,11 @@ export default function DeliveryManagementV7() {
           session,
           weekKey: selectedWeek,
           communityDiscount,
+          communityWeeklyPromotion: getBatchWeeklyPromotion(
+            latestOrder,
+            latestContext.items,
+            latestContext.draft,
+          ),
         });
         applySuccessfulChargeToState(latestOrder.id, result);
         includeReadyOrderIds([latestOrder.id]);
@@ -3797,7 +3888,7 @@ export default function DeliveryManagementV7() {
         </div>
       )}
 
-      <div className="bg-white border-b shadow-sm px-4 py-3">
+      <div className="shrink-0 bg-white border-b shadow-sm px-4 py-3">
         <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-black text-gray-900">{t.title}</h1>
@@ -3870,7 +3961,7 @@ export default function DeliveryManagementV7() {
       </div>
 
       {showScalePanel && (
-        <div className="bg-white border-b px-4 py-3">
+        <div className="shrink-0 bg-white border-b px-4 py-3">
           <div className="max-w-[1600px] mx-auto">
             <ScaleConnectionPanel className="max-w-md" />
           </div>
@@ -3878,14 +3969,14 @@ export default function DeliveryManagementV7() {
       )}
 
       {showPrinterPanel && (
-        <div className="bg-white border-b px-4 py-3">
+        <div className="shrink-0 bg-white border-b px-4 py-3">
           <div className="max-w-[1600px] mx-auto">
             <LabelPrinterPanel t={t} className="max-w-xl" />
           </div>
         </div>
       )}
 
-      <div className="bg-white border-b px-4 py-4">
+      <div className="shrink-0 bg-white border-b px-4 py-4">
         <div className="max-w-[1600px] mx-auto">
           <div className="flex flex-wrap items-end gap-4">
             <div className="min-w-[200px]">
@@ -4015,11 +4106,11 @@ export default function DeliveryManagementV7() {
         </div>
       </div>
 
-      <div className="max-w-[1600px] mx-auto p-4">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="lg:w-[340px] flex-shrink-0">
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden sticky top-4">
-              <div className="px-4 py-3 border-b bg-gray-50">
+      <div className="w-full px-4 pb-4">
+        <div className="flex flex-col gap-4 lg:flex-row">
+          <div className="w-full lg:sticky lg:top-3 lg:z-10 lg:w-72 lg:self-start">
+            <div className="flex h-[calc(100vh-8rem)] max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden rounded-xl bg-white shadow-sm lg:h-[calc(100vh-1.5rem)]">
+              <div className="px-4 py-3 border-b bg-gray-50 shrink-0">
                 <div className="flex items-center justify-between">
                 <span className="font-bold text-gray-900">{t.orders}</span>
                 <div className="flex items-center gap-2">
@@ -4057,9 +4148,10 @@ export default function DeliveryManagementV7() {
                 )}
               </div>
 
+              <div className="flex min-h-0 flex-1 flex-col">
               {orderCommunities.length > 0 && (
-                <div className="px-3 py-2 border-b">
-                  <div className="flex flex-wrap gap-1 items-center mb-2">
+                <div className="flex max-h-48 shrink-0 flex-wrap items-center gap-1 overflow-x-hidden overflow-y-auto border-b px-2 py-1.5">
+                  <div className="flex flex-wrap items-center gap-1">
                     <button
                       type="button"
                       onClick={toggleCommunityNumbering}
@@ -4081,7 +4173,7 @@ export default function DeliveryManagementV7() {
                       </button>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-1 items-center">
+                  <div className="flex flex-wrap items-center gap-1">
                     <button
                       onClick={() => setCommunityFilter('__all__')}
                       className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
@@ -4186,7 +4278,7 @@ export default function DeliveryManagementV7() {
                 </div>
               )}
 
-              <div className="divide-y max-h-[calc(100vh-280px)] overflow-y-auto">
+              <div className="min-h-0 flex-1 divide-y overflow-y-auto">
                 {filteredOrders.length === 0 && (
                   <div className="p-6 text-center text-gray-400 text-sm">{t.noOrders}</div>
                 )}
@@ -4246,7 +4338,7 @@ export default function DeliveryManagementV7() {
                     <button
                       type="button"
                       onClick={() => setSelectedOrderId(o.id)}
-                      className={`w-full p-3 transition-colors relative ${isRTL ? 'text-right' : 'text-left'} ${
+                      className={`w-full px-2.5 py-1.5 transition-colors relative ${isRTL ? 'text-right' : 'text-left'} ${
                         isDone
                           ? `bg-green-50 ${isRTL ? 'border-r-4 border-green-500' : 'border-l-4 border-green-500'} opacity-60`
                           : isActive
@@ -4258,12 +4350,12 @@ export default function DeliveryManagementV7() {
                         className={`absolute inset-y-0 w-1.5 ${isRTL ? 'right-0' : 'left-0'}`}
                         style={{ backgroundColor: communityColor }}
                       />
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div className="relative flex-shrink-0">
-                          <div className={`relative w-10 h-10 rounded-full font-black flex items-center justify-center text-lg ${
+                          <div className={`relative w-8 h-8 rounded-full font-black flex items-center justify-center text-sm ${
                             isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-600 text-white ring-2 ring-blue-300' : 'bg-yellow-500 text-white'
                           }`}>
-                            {isDone ? <span className="text-xl leading-none">&#10003;</span> : custNum}
+                            {isDone ? <span className="text-sm leading-none">&#10003;</span> : custNum}
                           </div>
                           {communityNum && (
                             <span className="absolute -bottom-1 -left-1 min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[9px] font-black flex items-center justify-center leading-none">
@@ -4272,8 +4364,15 @@ export default function DeliveryManagementV7() {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className={`font-bold text-sm truncate ${isDone ? 'text-green-800 line-through' : isActive ? 'text-blue-900' : 'text-gray-900'}`}>
-                            {o.customerDetails?.name || t.customer}
+                          <div className="flex items-center gap-1 min-w-0">
+                            <div className={`font-bold text-sm truncate ${isDone ? 'text-green-800 line-through' : isActive ? 'text-blue-900' : 'text-gray-900'}`}>
+                              {o.customerDetails?.name || t.customer}
+                            </div>
+                            {loadingOrderNumbers[o.id] && (
+                              <span className="shrink-0 rounded bg-gray-900 px-1 py-0 text-[10px] font-black text-white">
+                                {loadingOrderNumbers[o.id]}
+                              </span>
+                            )}
                           </div>
                           <div className={`text-[11px] truncate flex items-center gap-1 ${isDone ? 'text-green-600' : isActive ? 'text-blue-700' : 'text-gray-500'}`}>
                             <span className="inline-block w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: getEffectiveCommunityColor(o.customerDetails?.pickupSpot || o.pickupSpot) }} />
@@ -4305,9 +4404,8 @@ export default function DeliveryManagementV7() {
                             </div>
                           )}
                           {(custProfile?.noteHebrew || custProfile?.noteThai) && (
-                            <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900">
-                              {custProfile?.noteHebrew && <div dir="rtl">📝 {custProfile.noteHebrew}</div>}
-                              {custProfile?.noteThai && <div>📝 {custProfile.noteThai}</div>}
+                            <div className="truncate text-[10px] text-amber-800">
+                              📝 {custProfile?.noteHebrew || custProfile?.noteThai}
                             </div>
                           )}
                           {claim && (
@@ -4339,10 +4437,11 @@ export default function DeliveryManagementV7() {
                   );
                 })}
               </div>
+              </div>
             </div>
           </div>
 
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto">
             {!selectedOrder ? (
               <div className="bg-white rounded-xl shadow-sm p-12 text-center text-gray-400 text-lg">{t.pickOrder}</div>
             ) : (
@@ -4583,6 +4682,26 @@ export default function DeliveryManagementV7() {
                             ? `${t.communityDiscountAuto} (${communityDiscountInfo.discountPercent}%)`
                             : (manualDiscountSelected ? t.removeCommunityDiscount : t.applyCommunityDiscount)}
                         </button>
+                        {(eligibleWeeklyPromotion || preparedWeeklyPromotion) && (
+                          <button
+                            type="button"
+                            onClick={toggleWeeklyPromotion}
+                            disabled={!isOnline || selectedOrderCompleted || claimedByOther || !eligibleWeeklyPromotion}
+                            className={`px-4 py-2 font-bold rounded-lg text-sm border transition-colors disabled:opacity-50 ${
+                              selectedWeeklyPromotion
+                                ? 'bg-sky-100 border-sky-300 text-sky-800 hover:bg-sky-200'
+                                : 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
+                            }`}
+                          >
+                            {!eligibleWeeklyPromotion
+                              ? t.weeklyPromotionPrepared
+                              : selectedWeeklyPromotion
+                                ? (weeklyPromotionChoiceByOrder[selectedOrderId] === 'on'
+                                  ? t.removeWeeklyPromotion
+                                  : t.weeklyPromotionAuto(eligibleWeeklyPromotion.estimatedSavings.toFixed(2)))
+                                : t.applyWeeklyPromotion(eligibleWeeklyPromotion.estimatedSavings.toFixed(2))}
+                          </button>
+                        )}
                         {isAdmin && (
                           <div className="w-full mt-1 pt-2 border-t border-gray-200">
                             <button
@@ -4706,7 +4825,7 @@ export default function DeliveryManagementV7() {
                   <div className="bg-white rounded-xl shadow-sm p-3 flex flex-wrap items-center gap-4 text-sm">
                     <span className="font-bold text-gray-800">{items.length} {lang === 'th' ? 'รายการ' : 'פריטים'}</span>
                     <span className="text-green-700 font-semibold">
-                      {items.filter((it) => weightsByLineId[it.lineId]?.value > 0).length} {lang === 'th' ? 'ชั่งแล้ว' : 'נשקלו'}
+                      {items.filter((it) => resolveActualQuantity(it, weightsByLineId) != null).length} {lang === 'th' ? 'ชั่งแล้ว' : 'נשקלו'}
                     </span>
                     <span className="text-red-700 font-semibold">
                       {items.filter((it) => getMissingLineDetails(it, weightsByLineId, removedLineIds)).length} {lang === 'th' ? 'ขาด' : 'חסרים'}
@@ -4736,6 +4855,17 @@ export default function DeliveryManagementV7() {
                   </div>
                 </div>
 
+                {eligibleWeeklyPromotion && (
+                  <div className={`rounded-xl border p-3 text-sm font-bold shadow-sm ${
+                    selectedWeeklyPromotion ? 'border-sky-300 bg-sky-50 text-sky-900' : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                  >
+                    {t.weeklyPromotionBanner(
+                      eligibleWeeklyPromotion.lines.length,
+                      eligibleWeeklyPromotion.estimatedSavings.toFixed(2),
+                    )}
+                  </div>
+                )}
                 {(communityDiscountInfo?.enabled === true || preparedDiscountSelected) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -4840,11 +4970,11 @@ export default function DeliveryManagementV7() {
 
                 <div className="flex items-center justify-between">
                   <h2 className="font-black text-gray-800">
-                    {t.itemsLabel(activeItems.length, items.length)}
+                    {t.itemsLabel(handledItemsCount, items.length)}
                   </h2>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-3">
                   {items.map((it, idx) => {
                     const weighed = weightsByLineId?.[it.lineId];
                     const weighedQty = weighed?.actualQuantity;
@@ -4889,6 +5019,7 @@ export default function DeliveryManagementV7() {
                                   ? 'border-green-300 bg-green-50'
                                   : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow'
                           }
+                          ${it.isOrganic && !isRemoved && !isActive ? 'ring-4 ring-green-500' : ''}
                         `}
                       >
                         {hasProductImage && (
@@ -4946,6 +5077,11 @@ export default function DeliveryManagementV7() {
                           className="p-2"
                           style={hasProductImage ? { textShadow: '0 1px 2px rgba(255,255,255,0.95), 0 0 8px rgba(255,255,255,0.85)' } : undefined}
                         >
+                          {it.isOrganic && !isRemoved && (
+                            <span className="inline-block mb-1 me-1 rounded-full bg-green-600 px-2 py-0.5 text-xs font-black text-white shadow border border-white">
+                              {t.organicBadge}
+                            </span>
+                          )}
                           <div className={`inline rounded-md px-1.5 py-0.5 font-black text-sm leading-tight shadow-sm ${isRemoved ? 'bg-gray-100 text-gray-400 line-through' : 'bg-cyan-100 text-cyan-950'}`}>
                             {displayName}
                           </div>
@@ -5065,18 +5201,18 @@ export default function DeliveryManagementV7() {
                                       if (e.key === 'Escape') cancelEdit();
                                     }}
                                     inputMode={isPackage ? 'numeric' : 'decimal'}
-                                    className="flex-1 border-2 border-blue-400 rounded-lg px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="min-w-0 flex-1 border-2 border-blue-400 rounded-lg px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     placeholder={isPackage ? '2' : '1.500'}
                                   />
                                   <button
                                     onClick={() => saveManualWeight(it.lineId, editValue, 'manual')}
-                                    className="px-3 py-1.5 bg-green-600 text-white rounded-md text-xs font-bold hover:bg-green-700"
+                                    className="shrink-0 px-3 py-1.5 bg-green-600 text-white rounded-md text-xs font-bold hover:bg-green-700"
                                   >
                                     {t.save}
                                   </button>
                                   <button
                                     onClick={cancelEdit}
-                                    className="px-2.5 py-1.5 bg-gray-200 text-gray-700 rounded-md text-xs font-bold hover:bg-gray-300"
+                                    className="shrink-0 px-2.5 py-1.5 bg-gray-200 text-gray-700 rounded-md text-xs font-bold hover:bg-gray-300"
                                   >
                                     {t.cancel}
                                   </button>
@@ -5091,7 +5227,7 @@ export default function DeliveryManagementV7() {
                                       if (e.key === 'Enter' && editValue) saveManualWeight(it.lineId, editValue, 'manual');
                                     }}
                                     inputMode="decimal"
-                                    className="flex-1 border-2 border-blue-400 rounded-lg px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="min-w-0 flex-1 border-2 border-blue-400 rounded-lg px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     placeholder={scaleConnected ? t.placeOnScale : '1.500'}
                                     onFocus={() => { setEditingLineId(it.lineId); }}
                                   />
@@ -5111,7 +5247,7 @@ export default function DeliveryManagementV7() {
                                       }
                                     }}
                                     disabled={!editValue && !(scaleConnected && ((liveWeight?.stable && liveWeight.value > WEIGHT_ON_THRESHOLD) || (lastStableWeight?.value > WEIGHT_ON_THRESHOLD)))}
-                                    className={`px-3 py-1.5 rounded-md text-xs font-bold ${
+                                    className={`shrink-0 px-3 py-1.5 rounded-md text-xs font-bold ${
                                       (editValue || (scaleConnected && ((liveWeight?.stable && liveWeight.value > WEIGHT_ON_THRESHOLD) || (lastStableWeight?.value > WEIGHT_ON_THRESHOLD))))
                                         ? 'bg-green-600 text-white hover:bg-green-700'
                                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -5568,6 +5704,10 @@ export default function DeliveryManagementV7() {
         completedCount={batchChargeLivePlan.alreadyCompleted.length}
         previewTotal={batchChargePreviewTotals.total}
         previewDiscount={batchChargePreviewTotals.discount}
+        previewWeeklySavings={batchChargePreviewTotals.weeklySavings}
+        weeklyPromotionAvailable={weeklyPromotionSettlement.hasPromotions}
+        weeklyPromotionEnabled={batchApplyWeeklyPromotion}
+        onToggleWeeklyPromotion={() => setBatchApplyWeeklyPromotion((value) => !value)}
         confirmDisabled={!isOnline || !!batchChargeProgress}
         onConfirm={confirmBatchChargeFromModal}
         onClose={() => setBatchChargeModalOpen(false)}

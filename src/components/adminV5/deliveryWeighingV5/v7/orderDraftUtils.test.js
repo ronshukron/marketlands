@@ -2,6 +2,8 @@ import {
   buildCommunityDiscountFingerprint,
   buildCommunityDiscountOrderPatch,
   buildSettlementPayload,
+  countHandledItems,
+  deriveWeighingStatus,
   ensureLineIdsInBreakdown,
   recomputeBreakdownTotals,
   sumItemsTotal,
@@ -687,5 +689,49 @@ describe('V7 order draft baseline contracts', () => {
     expect(items[5].price).toBe(10);
     expect(patch.estimatedDiscountAmount).toBe(3);
     expect(patch.grandTotal).toBe(127);
+  });
+});
+
+describe('weighing progress', () => {
+  const items = [
+    { lineId: 'a' },
+    { lineId: 'b' },
+    { lineId: 'c' },
+  ];
+
+  test('counts only weighed or removed lines', () => {
+    expect(countHandledItems(items, {}, {})).toBe(0);
+    expect(countHandledItems(items, { a: { actualQuantity: 1.2 } }, { b: true })).toBe(2);
+    expect(countHandledItems(items, {
+      a: { actualQuantity: 1 },
+      b: { actualQuantity: 2 },
+      c: { actualQuantity: 3 },
+    }, {})).toBe(3);
+  });
+
+  test('shows a fully weighed order as weighed even when the draft still says preparing', () => {
+    const order = {
+      id: 'o1',
+      status: 'pending',
+      items,
+      delayedMeta: { delayedOrderStatus: 'pending_weighing', paymentStatus: 'held' },
+    };
+    expect(deriveWeighingStatus(order, {
+      status: 'in_progress',
+      weightsByLineId: {
+        a: { actualQuantity: 1 },
+        b: { actualQuantity: 1 },
+        c: { actualQuantity: 1 },
+      },
+    })).toBe('weighed');
+  });
+
+  test('keeps a charged order completed', () => {
+    expect(deriveWeighingStatus({
+      id: 'o1',
+      status: 'pending',
+      items,
+      rawData: { delayedOrderStatus: 'completed', paymentStatus: 'completed' },
+    }, { status: 'in_progress' })).toBe('completed');
   });
 });

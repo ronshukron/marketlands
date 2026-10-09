@@ -56,7 +56,6 @@ const OrderFormBusiness = () => {
 
         await fetchBusinessDetails(orderData.businessId, orderData.selectedProducts || []);
       } else {
-        console.log("No such document!");
         navigate('/error');
       }
       setLoading(false);
@@ -115,8 +114,6 @@ const OrderFormBusiness = () => {
 
       setProducts(fetchedProducts);
   
-    } else {
-      console.log("Business document not found!");
     }
   };
     
@@ -162,7 +159,6 @@ const OrderFormBusiness = () => {
       return;
     }
     
-    console.log('product', product);
     // Create a copy of the product to avoid reference issues
     const productToAdd = {
       id: product.id,
@@ -187,7 +183,6 @@ const OrderFormBusiness = () => {
         findActiveGroupPromotionForProduct(productPromotions, product),
       ),
     };
-    console.log('productToAdd', productToAdd);
     // Add to global cart only
     addItem(
       productToAdd,
@@ -228,7 +223,6 @@ const OrderFormBusiness = () => {
           }
         }
       } else {
-        console.log("Order does not exist!");
         navigate('/error');
       }
     } catch (error) {

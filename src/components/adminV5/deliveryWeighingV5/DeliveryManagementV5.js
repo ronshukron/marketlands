@@ -516,16 +516,8 @@ export default function DeliveryManagementV5() {
         productDataForGrow[`productData[${idx}][vatType]`] = li.vatType;
       });
 
-      console.log('=== handleSuspendedPayment DEBUG ===');
-      console.log('orderId:', selectedOrder.id);
-      console.log('weightsByLineId:', weightsByLineId);
-      console.log('removedLineIds:', removedLineIds);
-      console.log('finalInvoiceLines:', finalInvoiceLines);
-      console.log('finalSum (should charge this amount):', finalSum);
-      console.log('productDataForGrow (pass to Grow J4):', productDataForGrow);
-      console.log('====================================');
 
-      const res = await handleSuspendedPaymentV5({
+      await handleSuspendedPaymentV5({
         orderId: selectedOrder.id,
         weightsByLineId,
         removedLineIds,
@@ -533,7 +525,6 @@ export default function DeliveryManagementV5() {
         finalSum,
         productDataForGrow,
       });
-      console.log('handleSuspendedPayment response', res);
 
       // Only now mark as completed.
       const updatedCompleted = upsertOrderWeighing({

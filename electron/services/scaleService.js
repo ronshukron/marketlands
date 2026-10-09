@@ -256,7 +256,6 @@ class ScaleService extends EventEmitter {
    * @param {string} data - Raw data from scale (without CR/LF)
    */
   handleData(data) {
-    console.log('Scale data received:', data, '| Hex:', Buffer.from(data).toString('hex'));
     
     // Parse based on protocol mode
     const weight = this.parseBeaverProtocol(data);
@@ -371,26 +370,22 @@ class ScaleService extends EventEmitter {
     // Zero command response: "Z" followed by optional weight
     const zeroMatch = data.match(/^Z\s*([-]?\d+\.?\d*)?/);
     if (zeroMatch) {
-      console.log('Zero command acknowledged');
       return null; // Don't emit as weight, just acknowledge
     }
 
     // Tare command response: "T" followed by tare value
     const tareMatch = data.match(/^T\s*([-]?\d+\.?\d*)?/);
     if (tareMatch) {
-      console.log('Tare command acknowledged:', tareMatch[1]);
       return null;
     }
 
     // Firmware identifier response
     if (data.match(/^I?\s*\d{5}$/)) {
-      console.log('Firmware identifier:', data);
       return null;
     }
 
     // Reboot response
     if (data.toLowerCase().includes('reboot')) {
-      console.log('Scale rebooting');
       return null;
     }
 
@@ -410,7 +405,6 @@ class ScaleService extends EventEmitter {
       }
     }
 
-    console.log('Could not parse scale data:', data);
     return null;
   }
 

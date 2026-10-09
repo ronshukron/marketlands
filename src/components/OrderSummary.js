@@ -19,8 +19,6 @@ const OrderSummary = () => {
                 const data = docSnap.data();
                 setOrderData(data);
                 fetchProducerMinValue(data.Producer_ID);
-            } else {
-                console.log("No order data found");
             }
             setLoading(false);
         };

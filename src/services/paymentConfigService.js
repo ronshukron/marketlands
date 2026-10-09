@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { DEFAULT_WEIGHT_BUFFER_PERCENT, normalizeWeightBufferPercent } from '../utils/pricing';
 
 const CONFIG_DOC_PATH = 'settings/paymentConfig';
 export const REGULAR_PAYMENT_PROVIDERS = ['bit_legacy', 'grow_payment_link'];
@@ -89,21 +90,72 @@ export const getDelayedPaymentSpotsForAdmin = async (allCommunities = []) => {
  * @param {string} pickupSpot - The pickup spot name to check
  * @returns {Promise<boolean>} True if the spot uses delayed payment
  */
+export const isDelayedPaymentSpotInConfig = (data = {}, pickupSpot) => {
+  if (!pickupSpot) return false;
+  const delayedSpots = data.delayedPaymentSpots || [];
+  const knownCommunities = data.knownCommunities;
+
+  if (delayedSpots.includes(pickupSpot)) return true;
+  if (Array.isArray(knownCommunities)) {
+    return !knownCommunities.includes(pickupSpot);
+  }
+  return false;
+};
+
 export const isDelayedPaymentSpot = async (pickupSpot) => {
   if (!pickupSpot) return false;
 
   try {
     const data = await readPaymentConfigDoc();
-    const delayedSpots = data.delayedPaymentSpots || [];
-    const knownCommunities = data.knownCommunities;
-
-    if (delayedSpots.includes(pickupSpot)) return true;
-    if (Array.isArray(knownCommunities)) {
-      return !knownCommunities.includes(pickupSpot);
-    }
-    return false;
+    return isDelayedPaymentSpotInConfig(data, pickupSpot);
   } catch (error) {
     console.error('Error checking delayed payment spot:', error);
+    return false;
+  }
+};
+
+const resolveWeightBufferPercent = (data = {}) => (
+  data.weightBufferPercent === undefined || data.weightBufferPercent === null
+    ? DEFAULT_WEIGHT_BUFFER_PERCENT
+    : normalizeWeightBufferPercent(data.weightBufferPercent)
+);
+
+/**
+ * Weight buffer shown on kg lines (and held on the card) for delayed-payment spots.
+ * @returns {Promise<{percent: number, isDelayedSpot: boolean}>}
+ */
+export const getWeightBufferForSpot = async (pickupSpot) => {
+  try {
+    const data = await readPaymentConfigDoc();
+    return {
+      percent: resolveWeightBufferPercent(data),
+      isDelayedSpot: isDelayedPaymentSpotInConfig(data, pickupSpot),
+    };
+  } catch (error) {
+    console.error('Error fetching weight buffer config:', error);
+    return { percent: DEFAULT_WEIGHT_BUFFER_PERCENT, isDelayedSpot: false };
+  }
+};
+
+export const getWeightBufferPercent = async () => {
+  try {
+    return resolveWeightBufferPercent(await readPaymentConfigDoc());
+  } catch (error) {
+    console.error('Error fetching weight buffer percent:', error);
+    return DEFAULT_WEIGHT_BUFFER_PERCENT;
+  }
+};
+
+export const setWeightBufferPercent = async (percent) => {
+  try {
+    const configRef = doc(db, CONFIG_DOC_PATH);
+    await setDoc(configRef, {
+      weightBufferPercent: normalizeWeightBufferPercent(percent),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error setting weight buffer percent:', error);
     return false;
   }
 };

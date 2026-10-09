@@ -118,7 +118,6 @@ const Menu = () => {
     try {
       await doSignOut();
       navigate('/');
-      console.log("Successfully logged out");
     } catch (error) {
       console.error("Logout failed:", error);
     }
