@@ -61,6 +61,69 @@ service cloud.firestore {
         request.auth.uid in ['rfHOLhNoJOW8ByNypCtm3hlSNKs2','Q0bohhVCdmeMhgBbDknvLxbEzW53']; // Replace with your actual UID
     }
 
+    function isPurchasedFeedbackOrder(order) {
+      return order.get('paymentStatus', '') in ['paid', 'completed', 'charged', 'settled']
+        || order.get('delayedOrderStatus', '') in ['paid', 'completed', 'charged', 'settled']
+        || (
+          order.get('paymentStatus', '') == 'held'
+          && order.get('delayedOrderStatus', '') == 'pending_weighing'
+        );
+    }
+
+    function isValidProductFeedbackWrite(data, feedbackId) {
+      return isAuthenticated()
+        && data.keys().hasAll([
+          'userId', 'orderId', 'orderCollection', 'lineId', 'productId', 'productName',
+          'businessId', 'businessName', 'rating', 'feedback', 'tags', 'source', 'active', 'submittedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'orderId', 'orderCollection', 'lineId', 'productId', 'productName',
+          'businessId', 'businessName', 'rating', 'feedback', 'tags', 'source', 'active', 'submittedAt'
+        ])
+        && data.userId is string
+        && data.userId.size() > 0
+        && data.userId.size() <= 128
+        && data.userId == request.auth.uid
+        && data.orderId is string
+        && data.orderId.size() > 0
+        && data.orderId.size() <= 128
+        && data.orderId.matches('^[A-Za-z0-9_-]+$')
+        && data.orderCollection in ['customerOrders', 'customerOrdersDelayed']
+        && data.lineId is string
+        && data.lineId.size() > 0
+        && data.lineId.size() <= 1000
+        && data.lineId.matches('^' + data.orderId + '::[^/~]+$')
+        && feedbackId == data.orderId + '~' + data.lineId
+        && data.productId is string
+        && data.productId.size() > 0
+        && data.productId.size() <= 200
+        && data.productName is string
+        && data.productName.size() <= 160
+        && data.businessId is string
+        && data.businessId.size() <= 200
+        && data.businessName is string
+        && data.businessName.size() <= 160
+        && data.rating is int
+        && data.rating >= 1
+        && data.rating <= 5
+        && data.feedback is string
+        && data.feedback.size() <= 1000
+        && (data.feedback.size() == 0 || data.feedback.size() >= 10)
+        && data.tags is list
+        && data.tags.size() <= 6
+        && data.tags.hasOnly(['טרי', 'טעים', 'כמו בתמונה', 'לא טרי', 'קטן מהצפוי', 'הגיע פגום'])
+        && data.source in ['homepage', 'order_detail']
+        && data.active == true
+        && data.submittedAt == request.time
+        && productFeedbackOrderOwnedAndPurchased(data);
+    }
+
+    function productFeedbackOrderOwnedAndPurchased(data) {
+      let order = get(/databases/$(database)/documents/$(data.orderCollection)/$(data.orderId)).data;
+      return order.get('userId', '') == request.auth.uid
+        && isPurchasedFeedbackOrder(order);
+    }
+
     function isValidFarmerPastedOrder(data) {
       return data.keys().hasAll([
           'businessId',
@@ -238,6 +301,61 @@ service cloud.firestore {
       allow read, write, update: if isAuthenticated() && (
             resource.data.customerDetails.email == request.auth.email ||
             resource.data.userId == request.auth.uid);
+    }
+
+    match /productFeedback/{feedbackId} {
+      allow read: if isAdmin()
+        || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isValidProductFeedbackWrite(request.resource.data, feedbackId);
+      allow update: if isValidProductFeedbackWrite(request.resource.data, feedbackId)
+        && resource.data.userId == request.resource.data.userId
+        && resource.data.orderId == request.resource.data.orderId
+        && resource.data.lineId == request.resource.data.lineId
+        && resource.data.orderCollection == request.resource.data.orderCollection
+        && resource.data.productId == request.resource.data.productId
+        && resource.data.productName == request.resource.data.productName
+        && resource.data.businessId == request.resource.data.businessId
+        && resource.data.businessName == request.resource.data.businessName
+        && resource.data.source == request.resource.data.source;
+      allow delete: if false;
+    }
+
+    function isValidProductFeedbackModeration(feedbackId) {
+      let data = request.resource.data;
+      let dismissing = data.dismissed == true && data.dismissedAt == request.time;
+      let restoring = data.dismissed == false
+        && data.dismissedAt is timestamp
+        && data.restoredAt == request.time;
+      return feedbackId.size() > 0
+        && feedbackId.size() <= 2200
+        && feedbackId.matches('^[^/]+$')
+        && exists(/databases/$(database)/documents/productFeedback/$(feedbackId))
+        && data.keys().hasAll(['feedbackId', 'dismissed', 'reason', 'updatedAt', 'updatedBy'])
+        && data.keys().hasOnly([
+          'feedbackId', 'dismissed', 'reason', 'updatedAt', 'updatedBy', 'dismissedAt', 'restoredAt'
+        ])
+        && data.feedbackId == feedbackId
+        && data.dismissed is bool
+        && data.reason is string
+        && data.reason.size() > 0
+        && data.reason.size() <= 300
+        && data.updatedBy == request.auth.uid
+        && data.updatedAt == request.time
+        && (!('dismissedAt' in data) || data.dismissedAt is timestamp)
+        && (!('restoredAt' in data) || data.restoredAt is timestamp)
+        && (dismissing || restoring);
+    }
+
+    match /productFeedbackModeration/{feedbackId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && isValidProductFeedbackModeration(feedbackId)
+        && request.resource.data.dismissed == true
+        && request.resource.data.keys().hasOnly([
+          'feedbackId', 'dismissed', 'reason', 'updatedAt', 'updatedBy', 'dismissedAt'
+        ]);
+      allow update: if isAdmin() && isValidProductFeedbackModeration(feedbackId);
+      allow delete: if false;
     }
     
     // Delayed orders collection (J5/J4 flow)

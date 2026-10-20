@@ -35,6 +35,7 @@ const PaymentCancel = lazy(() => import('./components/PaymentCancel'));
 const PaymentSuccess = lazy(() => import('./components/PaymentSuccess'));
 const TermsOfService = lazy(() => import('./components/TermsOfService'));
 const MyOrders = lazy(() => import('./components/MyOrders'));
+const RefundRequestPage = lazy(() => import('./components/RefundRequestPage'));
 const CustomerOrderDetail = lazy(() => import('./components/CustomerOrderDetail'));
 const SavedCarts = lazy(() => import('./components/SavedCarts'));
 const OngoingOrders = lazy(() => import('./components/OngoingOrders'));
@@ -196,6 +197,7 @@ const App = () => {
                   <Route path="/blog" element={<BlogIndex />} />
                   <Route path="/blog/:slug" element={<BlogPost />} />
                   <Route path="/my-orders" element={<MyOrders />} />
+                  <Route path="/refund-request" element={<RefundRequestPage />} />
                   <Route path="/my-orders/:orderId" element={<CustomerOrderDetail />} />
                   <Route path="/saved-carts" element={<SavedCarts />} />
                   <Route path="/ongoing-orders" element={<OngoingOrders />} />

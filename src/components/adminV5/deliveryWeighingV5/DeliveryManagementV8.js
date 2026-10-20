@@ -295,6 +295,7 @@ const TR = {
     basketPartBadge: (title) => `חלק מסל היכרות: ${title || 'סל היכרות'}`,
     underOneKgBadge: 'פחות מקילו',
     organicBadge: 'אורגני',
+    kosherMehadrinBadge: 'כשר מהדרין',
     largeDiffWarn: (exp, act, pct) => `הכמות שהוזנה שונה ב-${pct}% מהכמות שהוזמנה.\nהוזמן: ${exp}\nהוזן: ${act}\nלהמשיך בכל זאת?`,
     claim: 'תפוס הזמנה',
     release: 'שחרר',
@@ -518,6 +519,7 @@ const TR = {
     basketPartBadge: (title) => `ส่วนหนึ่งของตะกร้าแนะนำ: ${title || 'ตะกร้าแนะนำ'}`,
     underOneKgBadge: 'น้อยกว่า 1 กก.',
     organicBadge: 'ออร์แกนิก',
+    kosherMehadrinBadge: 'โคเชอร์ เมฮาดริน',
     largeDiffWarn: (exp, act, pct) => `ค่าน้ำหนักต่างจากที่สั่ง ${pct}%\nสั่ง: ${exp}\nที่กรอก: ${act}\nยืนยันดำเนินการต่อหรือไม่?`,
     claim: 'จองออเดอร์',
     release: 'ปล่อย',
@@ -5590,7 +5592,11 @@ export default function DeliveryManagementV8() {
                                   ? 'border-green-300 bg-green-50'
                                   : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow'
                           }
-                          ${it.isOrganic && !isRemoved && !isActive ? 'ring-4 ring-green-500' : ''}
+                          ${!isRemoved && !isActive
+                            ? (it.isKosherMehadrin
+                              ? 'ring-[6px] ring-indigo-600'
+                              : it.isOrganic ? 'ring-4 ring-green-500' : '')
+                            : ''}
                         `}
                       >
                         {hasProductImage && (
@@ -5648,6 +5654,11 @@ export default function DeliveryManagementV8() {
                           className="p-2"
                           style={hasProductImage ? { textShadow: '0 1px 2px rgba(255,255,255,0.95), 0 0 8px rgba(255,255,255,0.85)' } : undefined}
                         >
+                          {it.isKosherMehadrin && !isRemoved && (
+                            <span className="inline-block mb-1 me-1 rounded-lg bg-indigo-700 px-3 py-1 text-base font-black text-white shadow-lg border-2 border-white">
+                              {t.kosherMehadrinBadge}
+                            </span>
+                          )}
                           {it.isOrganic && !isRemoved && (
                             <span className="inline-block mb-1 me-1 rounded-full bg-green-600 px-2 py-0.5 text-xs font-black text-white shadow border border-white">
                               {t.organicBadge}

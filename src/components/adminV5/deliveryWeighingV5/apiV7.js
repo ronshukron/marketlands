@@ -287,6 +287,7 @@ export async function fetchProductDetailsV7(productIds = []) {
         averageWeightKg: safeNumber(data.averageWeightKg, 1),
         hardToPick: Boolean(data.hardToPick),
         isOrganic: Boolean(data.isOrganic),
+        isKosherMehadrin: Boolean(data.isKosherMehadrin),
       };
     } catch (error) {
       // Ignore per-product failures so one bad product does not break the whole view.
@@ -319,6 +320,7 @@ export async function searchProductsV7({ term = '', limit = 20 }) {
         averageWeightKg: safeNumber(data.averageWeightKg, 1),
         hardToPick: Boolean(data.hardToPick),
         isOrganic: Boolean(data.isOrganic),
+        isKosherMehadrin: Boolean(data.isKosherMehadrin),
       };
     })
     .filter((product) => product.independentFarmer !== true)

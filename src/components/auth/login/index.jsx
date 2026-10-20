@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
-import { doSignInWithEmailAndPassword, doSignInWithGoogle } from '../../../firebase/auth'
+import { doSignInWithEmailAndPassword, doSignInWithGoogle, doPasswordReset } from '../../../firebase/auth'
 import { useAuth } from '../../../contexts/authContext'
 
 const Login = () => {
@@ -13,6 +13,39 @@ const Login = () => {
     const [password, setPassword] = useState('');
     const [isSigningIn, setIsSigningIn] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const [isResetting, setIsResetting] = useState(false);
+    const [resetMessage, setResetMessage] = useState('');
+
+    const onPasswordReset = async () => {
+        if (isResetting) return;
+        setErrorMessage('');
+        setResetMessage('');
+
+        const trimmedEmail = email.trim();
+        if (!trimmedEmail) {
+            setErrorMessage('נא להזין את כתובת האימייל בשדה למעלה ואז ללחוץ על "שכחתם סיסמה?"');
+            return;
+        }
+
+        try {
+            setIsResetting(true);
+            await doPasswordReset(trimmedEmail);
+            setResetMessage('אם קיים חשבון עם כתובת זו, נשלח אליו מייל לאיפוס הסיסמה. כדאי לבדוק גם בתיקיית הספאם.');
+        } catch (error) {
+            console.error("Password reset failed:", error);
+            if (error.code === 'auth/invalid-email') {
+                setErrorMessage('כתובת האימייל אינה תקינה');
+            } else if (error.code === 'auth/user-not-found') {
+                setErrorMessage('לא נמצא משתמש עם כתובת האימייל הזו');
+            } else if (error.code === 'auth/too-many-requests') {
+                setErrorMessage('יותר מדי ניסיונות. נסו שוב בעוד כמה דקות');
+            } else {
+                setErrorMessage('שליחת מייל האיפוס נכשלה. נסו שוב');
+            }
+        } finally {
+            setIsResetting(false);
+        }
+    };
 
     const onSubmit = async (e) => {
         e.preventDefault();
@@ -92,10 +125,24 @@ const Login = () => {
                                 value={password} onChange={(e) => { setPassword(e.target.value) }}
                                 className="w-full mt-2 px-3 py-2 text-gray-500 bg-transparent outline-none border focus:border-indigo-600 shadow-sm rounded-lg transition duration-300"
                             />
+                            <div className="mt-2 text-right">
+                                <button
+                                    type="button"
+                                    onClick={onPasswordReset}
+                                    disabled={isSigningIn || isResetting}
+                                    className="text-sm text-indigo-600 hover:underline disabled:text-gray-400 disabled:no-underline"
+                                >
+                                    {isResetting ? 'שולח מייל...' : 'שכחתם סיסמה?'}
+                                </button>
+                            </div>
                         </div>
 
                         {errorMessage && (
-                            <span className='text-red-600 font-bold'>{errorMessage}</span>
+                            <span role="alert" className='block text-red-600 font-bold'>{errorMessage}</span>
+                        )}
+
+                        {resetMessage && (
+                            <span role="status" className='block text-green-700 font-bold'>{resetMessage}</span>
                         )}
 
                         <button

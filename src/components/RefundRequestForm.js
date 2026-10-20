@@ -54,8 +54,8 @@ const RefundRequestForm = ({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!reason.trim()) {
-      alert('אנא הזן סיבה לבקשת ההחזר');
+    if (isExternalOrder && !reason.trim()) {
+      alert('אנא הזן פרטי הזמנה וסיבה לזיכוי');
       return;
     }
     if (!isExternalOrder && selectedLines.length === 0) {
@@ -154,22 +154,28 @@ const RefundRequestForm = ({
 
       {!isExternalOrder && selectedLines.length > 0 && (
         <div className="mb-4 rounded-lg bg-green-50 border border-green-200 p-3 text-sm">
-          <span className="font-semibold">סה״כ מבוקש לזיכוי: </span>
+          <span className="font-semibold">סה״כ לזיכוי: </span>
           <span className="text-green-800 font-bold">₪{requestedRefundAmount.toFixed(2)}</span>
         </div>
       )}
 
       <div className="mb-4">
         <label htmlFor="refundReason" className="block text-sm font-medium text-gray-700 mb-1">
-          {isExternalOrder ? 'פרטי ההזמנה והסיבה לזיכוי' : 'סיבת בקשת הזיכוי — הבקשה תועבר לבדיקה'}
+          {isExternalOrder ? 'פרטי ההזמנה והסיבה לזיכוי' : 'רוצים לשתף מה קרה? (לא חובה)'}
         </label>
+        {!isExternalOrder && (
+          <p className="mb-2 text-xs text-gray-500">
+            הזיכוי מאושר אוטומטית. ההסבר רק אם תרצו לספר לנו.
+          </p>
+        )}
         <textarea
           id="refundReason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          rows="4"
-          required
+          rows={isExternalOrder ? 4 : 3}
+          placeholder={isExternalOrder ? undefined : 'למשל: הפריט לא היה טרי'}
+          required={isExternalOrder}
         />
       </div>
 
@@ -184,11 +190,13 @@ const RefundRequestForm = ({
         <button
           type="submit"
           disabled={isSubmitting}
-          className={`px-4 py-2 bg-red-600 text-white rounded-md transition-colors ${
-            isSubmitting ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
-          }`}
+          className={`px-4 py-2 text-white rounded-md transition-colors ${
+            isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
+          } ${isExternalOrder ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
         >
-          {isSubmitting ? 'שולח בקשה...' : 'שלח בקשת החזר'}
+          {isSubmitting
+            ? (isExternalOrder ? 'שולח בקשה...' : 'מאשר...')
+            : (isExternalOrder ? 'שלח בקשת החזר' : 'קבל זיכוי')}
         </button>
       </div>
     </form>

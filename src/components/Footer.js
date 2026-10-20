@@ -16,6 +16,7 @@ const Footer = () => {
                         <li><Link to="/">בית</Link></li>
                         <li><Link to="/blog">התובנות של רון</Link></li>
                         <li><Link to="/contact">צור קשר</Link></li>
+                        <li><Link to="/refund-request">בקשת זיכוי / החזר</Link></li>
                         <li><Link to="/terms-of-service">תקנון</Link></li>
                         {/* <li><Link to="/privacy-policy">מדיניות פרטיות</Link></li> */}
                         <li><Link to="/accessibility">הצהרת נגישות</Link></li>

@@ -45,6 +45,13 @@ describe('refundUtils', () => {
     expect(isUnsupportedV7RefundLine({ productId: 'tomato' })).toBe(false);
   });
 
+  test('shows a pending refund as approved to the customer while admin still sees it waiting', () => {
+    const pending = getRefundStatusDetails(REFUND_STATUSES.PENDING);
+    expect(pending.adminLabel).toBe('ממתין לטיפול');
+    expect(pending.customerLabel).toBe('הזיכוי אושר');
+    expect(pending.customerDescription).toContain('אוטומטית');
+  });
+
   test('provides labels for the manual refund workflow', () => {
     expect(getRefundStatusDetails(REFUND_STATUSES.PENDING_MANUAL_REFUND).adminLabel)
       .toBe('ממתין להחזר ידני');

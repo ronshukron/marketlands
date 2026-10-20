@@ -13,6 +13,8 @@ import {
     getOrderPickupSpot,
 } from '../services/customerOrderService';
 import RefundRequestForm from './RefundRequestForm';
+import QuickProductReviewSheet from './category-store/QuickProductReviewSheet';
+import { isProductFeedbackEligible } from '../utils/productFeedbackUtils';
 import PackedCartonPickupBanner from './PackedCartonPickupBanner';
 import {
     filterCustomerActiveLines,
@@ -35,6 +37,8 @@ const MyOrders = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [refundSuccess, setRefundSuccess] = useState(false);
     const [refundStatuses, setRefundStatuses] = useState({});
+    const [reviewTarget, setReviewTarget] = useState(null);
+    const [reviewedLineIds, setReviewedLineIds] = useState(() => new Set());
 
     useEffect(() => {
         const fetchOrders = async () => {
@@ -43,6 +47,8 @@ const MyOrders = () => {
                 setLoading(false);
                 return;
             }
+
+            setError(null);
 
             try {
                 setLoading(true);
@@ -314,6 +320,29 @@ const MyOrders = () => {
         }
     };
 
+    const canReviewLine = (order, line) => (
+        !order.isIndependent
+        && !reviewedLineIds.has(`${order.id}~${line?.lineId}`)
+        && isProductFeedbackEligible({ order, line, userId: currentUser?.uid })
+    );
+
+    const openLineReview = (order, line) => {
+        const createdAtMs = order.createdAt?.toMillis?.()
+            || order.createdAt?.toDate?.()?.getTime?.()
+            || 0;
+        setReviewTarget({
+            productName: line.productName || line.name || 'מוצר',
+            target: {
+                orderId: order.id,
+                orderCollection: order.customerOrderSource || 'customerOrdersDelayed',
+                lineId: line.lineId,
+                productId: String(line.productId || ''),
+                productName: line.productName || line.name || '',
+                orderCreatedAt: createdAtMs,
+            },
+        });
+    };
+
     const openRefundModal = (orderId = null) => {
         setCurrentOrderId(orderId);
         setIsExternalRefund(!orderId);
@@ -401,11 +430,22 @@ const MyOrders = () => {
                                                 <p className="text-sm font-medium text-gray-800">{businessOrder.businessName || 'עסק לא ידוע'}</p>
                                                 <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
                                                     {filterCustomerActiveLines(order, businessOrder.items).map((item, index) => (
-                                                        <li key={item.lineId || index}>
-                                                            {item.productName} (x{item.quantity})
-                                                            {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
-                                                            {typeof item.price === 'number' && (
-                                                                <span> - ₪{(item.price * item.quantity).toFixed(2)}</span>
+                                                        <li key={item.lineId || index} className="flex flex-wrap items-center justify-between gap-2">
+                                                            <span>
+                                                                {item.productName} (x{item.quantity})
+                                                                {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
+                                                                {typeof item.price === 'number' && (
+                                                                    <span> - ₪{(item.price * item.quantity).toFixed(2)}</span>
+                                                                )}
+                                                            </span>
+                                                            {canReviewLine(order, item) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openLineReview(order, item)}
+                                                                    className="inline-flex min-h-11 items-center text-xs font-medium text-amber-800 underline-offset-2 hover:underline"
+                                                                >
+                                                                    איך היה? דרגו ★
+                                                                </button>
                                                             )}
                                                         </li>
                                                     ))}
@@ -487,19 +527,38 @@ const MyOrders = () => {
                 </button>
             </div>
 
+            {reviewTarget && (
+                <QuickProductReviewSheet
+                    productName={reviewTarget.productName}
+                    target={reviewTarget.target}
+                    onClose={() => setReviewTarget(null)}
+                    onSubmitted={() => {
+                        const reviewedId = `${reviewTarget.target.orderId}~${reviewTarget.target.lineId}`;
+                        setReviewedLineIds((current) => {
+                            const next = new Set(current);
+                            next.add(reviewedId);
+                            return next;
+                        });
+                        setReviewTarget(null);
+                    }}
+                />
+            )}
+
             {/* Refund Request Modal */}
             {isRefundModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6" dir="rtl">
-                        <h3 className="text-xl font-bold mb-4">בקשת זיכוי</h3>
+                        <h3 className="text-xl font-bold mb-4">
+                            {refundSuccess ? 'הזיכוי אושר' : 'בקשת זיכוי'}
+                        </h3>
                         
                         {refundSuccess ? (
                             <div className="text-center py-8">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-green-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                 </svg>
-                                <p className="text-lg font-medium">בקשת ההחזר נשלחה בהצלחה!</p>
-                                <p className="text-gray-500 mt-2">נאשר את בקשתך בהקדם האפשרי.</p>
+                                <p className="text-lg font-medium">הזיכוי אושר אוטומטית</p>
+                                <p className="text-gray-500 mt-2">הסכום יופחת מהחיוב.</p>
                             </div>
                         ) : (
                             <RefundRequestForm

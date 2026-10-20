@@ -1,14 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { pickupSpots } from '../../data/pickupSpots';
+import { buildRecentWeekKeys, fetchDocsByCreatedAtRange } from '../../utils/customerOrderDateQueries';
 
-const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
+const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
 const SUCCESSFUL_DELAYED_STATUSES = ['pending_weighing', 'settled', 'completed', 'charged'];
+
+const parseCreatedAt = (ca) => {
+  if (typeof ca === 'string') {
+    const dt = new Date(ca);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+  if (ca?.toDate) return ca.toDate();
+  return null;
+};
+
+const resolveDateRange = (week, specificStart, specificEnd) => {
+  if (specificStart || specificEnd) {
+    const parsedStart = parseISO(specificStart || specificEnd);
+    const parsedEnd = parseISO(specificEnd || specificStart);
+    const [from, to] = parsedStart <= parsedEnd ? [parsedStart, parsedEnd] : [parsedEnd, parsedStart];
+    const startDate = new Date(from);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(to);
+    endDate.setHours(23, 59, 59, 999);
+    return { startDate, endDate };
+  }
+  const startDate = parseISO(week);
+  const endDate = new Date(startDate);
+  endDate.setDate(startDate.getDate() + 5);
+  endDate.setHours(23, 59, 59, 999);
+  return { startDate, endDate };
+};
 
 const getStatusLabel = (order) => {
   if (order.source === 'regular') {
@@ -45,14 +71,14 @@ const formatPhone = (phone) => {
 };
 
 const AbandonedCarts = () => {
-  const { currentUser } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const { currentUser, loading: authLoading } = useAuth();
+  const [loading, setLoading] = useState(false);
   const [orders, setOrders] = useState([]);
   const [error, setError] = useState(null);
 
-  const [availableWeeks, setAvailableWeeks] = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState('');
-  const [tempSelectedWeek, setTempSelectedWeek] = useState('');
+  const availableWeeks = useMemo(() => buildRecentWeekKeys(), []);
+  const [selectedWeek, setSelectedWeek] = useState(availableWeeks[0]);
+  const [tempSelectedWeek, setTempSelectedWeek] = useState(availableWeeks[0]);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedSpecificStartDate, setSelectedSpecificStartDate] = useState('');
   const [selectedSpecificEndDate, setSelectedSpecificEndDate] = useState('');
@@ -66,6 +92,9 @@ const AbandonedCarts = () => {
   const [expandedOrders, setExpandedOrders] = useState(new Set());
 
   const communityDropdownRef = useRef(null);
+  const latestRequestRef = useRef(0);
+
+  const isAuthorized = Boolean(currentUser && ADMIN_UIDS.includes(currentUser.uid));
 
   useEffect(() => {
     const handler = (e) => {
@@ -77,204 +106,85 @@ const AbandonedCarts = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  useEffect(() => {
-    if (!currentUser || !ADMIN_UIDS.includes(currentUser.uid)) {
-      setError('You are not authorized to view this page');
-      setLoading(false);
-      return;
-    }
-    fetchAvailableWeeks();
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate) {
-      fetchAbandonedOrders();
-    }
-  }, [selectedWeek, selectedCommunities, selectedSpecificStartDate, selectedSpecificEndDate]);
-
-  // ─── Fetch available weeks ──────────────────────────────────────────
-  const fetchAvailableWeeks = async () => {
+  const fetchAbandonedOrders = useCallback(async (week, specificStart, specificEnd, communities) => {
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
+    setError(null);
     try {
-      const [ordersSnap, delayedSnap] = await Promise.all([
-        getDocs(collection(db, 'Orders')),
-        getDocs(collection(db, 'customerOrdersDelayed'))
-      ]);
-
-      const weeksSet = new Set();
-
-      ordersSnap.docs.forEach((d) => {
-        const data = d.data();
-        const endingTime = data.Ending_Time || data.endingTime;
-        if (endingTime) {
-          const endDate = endingTime.toDate ? endingTime.toDate() : new Date(endingTime);
-          const sun = new Date(endDate);
-          sun.setDate(endDate.getDate() - endDate.getDay());
-          sun.setHours(0, 0, 0, 0);
-          weeksSet.add(sun.toISOString().split('T')[0]);
-        }
-      });
-
-      delayedSnap.docs.forEach((d) => {
-        const data = d.data();
-        const createdAt = data.createdAt;
-        let dt;
-        if (typeof createdAt === 'string') dt = new Date(createdAt);
-        else if (createdAt?.toDate) dt = createdAt.toDate();
-        else return;
-        const sun = new Date(dt);
-        sun.setDate(dt.getDate() - dt.getDay());
-        sun.setHours(0, 0, 0, 0);
-        weeksSet.add(sun.toISOString().split('T')[0]);
-      });
-
-      const sorted = Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));
-      setAvailableWeeks(sorted);
-      if (sorted.length > 0) setTempSelectedWeek(sorted[0]);
-    } catch (err) {
-      console.error('Error fetching weeks:', err);
-      setError('Failed to load weeks');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ─── Fetch abandoned / incomplete orders ────────────────────────────
-  const fetchAbandonedOrders = async () => {
-    setLoading(true);
-    try {
-      const hasSpecificDates = Boolean(selectedSpecificStartDate || selectedSpecificEndDate);
-      let startDate;
-      let endDate;
-
-      if (hasSpecificDates) {
-        const rawStart = selectedSpecificStartDate || selectedSpecificEndDate;
-        const rawEnd = selectedSpecificEndDate || selectedSpecificStartDate;
-        const parsedStart = new Date(rawStart);
-        const parsedEnd = new Date(rawEnd);
-
-        parsedStart.setHours(0, 0, 0, 0);
-        parsedEnd.setHours(23, 59, 59, 999);
-
-        if (parsedStart <= parsedEnd) {
-          startDate = parsedStart;
-          endDate = parsedEnd;
-        } else {
-          startDate = new Date(parsedEnd);
-          startDate.setHours(0, 0, 0, 0);
-          endDate = new Date(parsedStart);
-          endDate.setHours(23, 59, 59, 999);
-        }
-      } else {
-        const sunday = new Date(selectedWeek);
-        const friday = new Date(sunday);
-        friday.setDate(sunday.getDate() + 5);
-        friday.setHours(23, 59, 59, 999);
-        startDate = sunday;
-        endDate = friday;
-      }
+      const { startDate, endDate } = resolveDateRange(week, specificStart, specificEnd);
 
       setDateRange({
         start: format(startDate, 'dd/MM/yyyy'),
         end: format(endDate, 'dd/MM/yyyy')
       });
 
-      const [regularSnap, delayedSnap] = await Promise.all([
-        getDocs(collection(db, 'customerOrders')),
-        getDocs(collection(db, 'customerOrdersDelayed'))
+      const [regularDocs, delayedDocs] = await Promise.all([
+        fetchDocsByCreatedAtRange('customerOrders', startDate, endDate),
+        fetchDocsByCreatedAtRange('customerOrdersDelayed', startDate, endDate)
       ]);
 
-      // Build a set of normalized phones from successful orders (same week)
+      if (requestId !== latestRequestRef.current) return;
+
+      const inRange = (dt) => dt && dt >= startDate && dt <= endDate;
+
+      // Normalized phones of customers who completed an order in the same range
       const successfulPhones = new Set();
-
-      delayedSnap.docs.forEach((doc) => {
-        const data = doc.data();
-        const ds = data.delayedOrderStatus || '';
-        if (!SUCCESSFUL_DELAYED_STATUSES.includes(ds)) return;
-
-        const ca = data.createdAt;
-        let dt;
-        if (typeof ca === 'string') dt = new Date(ca);
-        else if (ca?.toDate) dt = ca.toDate();
-        else return;
-        if (dt < startDate || dt > endDate) return;
-
-        const ph = formatPhone(data.customerDetails?.phone);
-        if (ph) successfulPhones.add(ph);
-      });
-
-      regularSnap.docs.forEach((doc) => {
-        const data = doc.data();
-        if (data.paymentStatus !== 'completed') return;
-
-        const ca = data.createdAt;
-        let dt;
-        if (typeof ca === 'string') dt = new Date(ca);
-        else if (ca?.toDate) dt = ca.toDate();
-        else return;
-        if (dt < startDate || dt > endDate) return;
-
-        const ph = formatPhone(data.customerDetails?.phone);
-        if (ph) successfulPhones.add(ph);
-      });
-
-      // Collect abandoned orders and flag if customer also completed an order
       const abandoned = [];
 
-      delayedSnap.docs.forEach((doc) => {
-        const data = doc.data();
-        const ds = data.delayedOrderStatus || '';
-        if (SUCCESSFUL_DELAYED_STATUSES.includes(ds)) return;
+      const collect = (docs, source, isSuccessful) => {
+        docs.forEach((d) => {
+          const data = d.data();
+          const dt = parseCreatedAt(data.createdAt);
+          if (!inRange(dt)) return;
 
-        const ca = data.createdAt;
-        let dt;
-        if (typeof ca === 'string') dt = new Date(ca);
-        else if (ca?.toDate) dt = ca.toDate();
-        else return;
+          const ph = formatPhone(data.customerDetails?.phone);
+          if (isSuccessful(data)) {
+            if (ph) successfulPhones.add(ph);
+            return;
+          }
 
-        if (dt < startDate || dt > endDate) return;
+          const spot = data.customerDetails?.pickupSpot || 'לא צוין';
+          if (communities.size > 0 && !communities.has(spot)) return;
 
-        const spot = data.customerDetails?.pickupSpot || 'לא צוין';
-        if (selectedCommunities.size > 0 && !selectedCommunities.has(spot)) return;
-
-        const ph = formatPhone(data.customerDetails?.phone);
-        abandoned.push({
-          id: doc.id, ...data, createdDate: dt, source: 'delayed',
-          hasCompletedOrder: ph ? successfulPhones.has(ph) : false
+          abandoned.push({ id: d.id, ...data, createdDate: dt, source, phoneKey: ph });
         });
-      });
+      };
 
-      regularSnap.docs.forEach((doc) => {
-        const data = doc.data();
-        if (data.paymentStatus === 'completed') return;
+      collect(delayedDocs, 'delayed', (data) =>
+        SUCCESSFUL_DELAYED_STATUSES.includes(data.delayedOrderStatus || '')
+      );
+      collect(regularDocs, 'regular', (data) => data.paymentStatus === 'completed');
 
-        const ca = data.createdAt;
-        let dt;
-        if (typeof ca === 'string') dt = new Date(ca);
-        else if (ca?.toDate) dt = ca.toDate();
-        else return;
+      const result = abandoned
+        .map(({ phoneKey, ...order }) => ({
+          ...order,
+          hasCompletedOrder: phoneKey ? successfulPhones.has(phoneKey) : false
+        }))
+        .sort((a, b) => b.createdDate - a.createdDate);
 
-        if (dt < startDate || dt > endDate) return;
-
-        const spot = data.customerDetails?.pickupSpot || 'לא צוין';
-        if (selectedCommunities.size > 0 && !selectedCommunities.has(spot)) return;
-
-        const ph = formatPhone(data.customerDetails?.phone);
-        abandoned.push({
-          id: doc.id, ...data, createdDate: dt, source: 'regular',
-          hasCompletedOrder: ph ? successfulPhones.has(ph) : false
-        });
-      });
-
-      abandoned.sort((a, b) => b.createdDate - a.createdDate);
-      setOrders(abandoned);
+      setOrders(result);
     } catch (err) {
+      if (requestId !== latestRequestRef.current) return;
       console.error('Error fetching abandoned orders:', err);
       setError('Failed to load orders');
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestRef.current) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !isAuthorized) return;
+    if (!selectedWeek && !selectedSpecificStartDate && !selectedSpecificEndDate) return;
+    fetchAbandonedOrders(selectedWeek, selectedSpecificStartDate, selectedSpecificEndDate, selectedCommunities);
+  }, [
+    authLoading,
+    isAuthorized,
+    selectedWeek,
+    selectedCommunities,
+    selectedSpecificStartDate,
+    selectedSpecificEndDate,
+    fetchAbandonedOrders
+  ]);
 
   // ─── Filter helpers ─────────────────────────────────────────────────
   const toggleCommunity = (community) => {
@@ -302,12 +212,12 @@ const AbandonedCarts = () => {
   };
 
   // ─── Group by pickup spot ──────────────────────────────────────────
-  const groupedOrders = orders.reduce((acc, order) => {
+  const groupedOrders = useMemo(() => orders.reduce((acc, order) => {
     const spot = order.customerDetails?.pickupSpot || 'לא צוין';
     if (!acc[spot]) acc[spot] = [];
     acc[spot].push(order);
     return acc;
-  }, {});
+  }, {}), [orders]);
 
   // ─── Stats ──────────────────────────────────────────────────────────
   const totalAbandoned = orders.length;
@@ -322,18 +232,21 @@ const AbandonedCarts = () => {
   ).length;
 
   // ─── Render ─────────────────────────────────────────────────────────
-  if (loading) return <LoadingSpinner />;
+  if (authLoading) return <LoadingSpinner />;
 
-  if (error) {
+  if (!isAuthorized) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
           <p className="font-bold">שגיאה</p>
-          <p>{error}</p>
+          <p>You are not authorized to view this page</p>
         </div>
       </div>
     );
   }
+
+  const hasActiveFilter = Boolean(selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate);
+  const showResults = hasActiveFilter && !loading && !error;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8" dir="rtl">
@@ -352,7 +265,7 @@ const AbandonedCarts = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-400"
             >
               {availableWeeks.map((week) => {
-                const sun = new Date(week);
+                const sun = parseISO(week);
                 const fri = new Date(sun);
                 fri.setDate(sun.getDate() + 5);
                 return (
@@ -455,7 +368,8 @@ const AbandonedCarts = () => {
         <div className="mt-6 text-center">
           <button
             onClick={handleSubmitFilters}
-            className="px-8 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
+            disabled={loading}
+            className="px-8 py-3 disabled:opacity-60 disabled:cursor-wait bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
           >
             טען נתונים
           </button>
@@ -475,8 +389,21 @@ const AbandonedCarts = () => {
         )}
       </div>
 
+      {loading && (
+        <div className="flex justify-center py-12">
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-red-200 border-t-red-600" />
+        </div>
+      )}
+
+      {error && !loading && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-8 text-center">
+          <p className="font-bold">שגיאה</p>
+          <p>{error}</p>
+        </div>
+      )}
+
       {/* ── Summary Stats ───────────────────────────────────────────── */}
-      {(selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate) && (
+      {showResults && (
         <div className="mb-8 bg-gradient-to-r from-red-50 to-orange-50 p-6 rounded-lg shadow">
           <h2 className="text-xl font-semibold mb-4 text-red-800">סיכום עגלות נטושות</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -514,8 +441,7 @@ const AbandonedCarts = () => {
       )}
 
       {/* ── No results ──────────────────────────────────────────────── */}
-      {orders.length === 0 &&
-        (selectedWeek || selectedSpecificStartDate || selectedSpecificEndDate) && (
+      {orders.length === 0 && showResults && (
         <div className="bg-green-50 border border-green-200 text-green-700 p-6 rounded-lg text-center">
           <p className="text-lg font-medium">אין עגלות נטושות!</p>
           <p className="text-sm mt-1">לא נמצאו הזמנות שלא הושלמו בטווח התאריכים ובקהילות שנבחרו.</p>
@@ -524,7 +450,7 @@ const AbandonedCarts = () => {
 
       {/* ── Orders grouped by pickup spot ───────────────────────────── */}
       <div className="space-y-8">
-        {Object.entries(groupedOrders)
+        {showResults && Object.entries(groupedOrders)
           .sort(([, a], [, b]) => b.length - a.length)
           .map(([spot, spotOrders]) => {
             const spotTotal = spotOrders.reduce((s, o) => s + (Number(o.grandTotal) || 0), 0);

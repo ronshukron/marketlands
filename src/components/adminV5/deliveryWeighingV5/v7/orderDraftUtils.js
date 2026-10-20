@@ -123,6 +123,7 @@ export function mergeProductDetailsIntoItems(items = [], productDetails = {}) {
       averageWeightKg: safeNumber(pd?.averageWeightKg ?? item?.averageWeightKg, 1),
       hardToPick: Boolean(pd?.hardToPick ?? item?.hardToPick),
       isOrganic: Boolean(pd?.isOrganic ?? item?.isOrganic),
+      isKosherMehadrin: Boolean(pd?.isKosherMehadrin ?? item?.isKosherMehadrin),
       pricePerUnit: safeNumber(item?.pricePerUnit ?? item?.price, 0),
     };
   });

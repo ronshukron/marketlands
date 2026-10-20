@@ -144,6 +144,26 @@ describe('itemPickingV8', () => {
     expect(eggs.hardToPick).toBe(false);
   });
 
+  test('buildItemPickGroups marks a group kosher mehadrin when any line is', () => {
+    contexts.o1 = {
+      items: [
+        { lineId: 'o1::tom', productId: 'tom', productName: 'עגבניה', requestedQuantity: 1, measurementType: 'kg' },
+        { lineId: 'o1::cuc', productId: 'cuc', productName: 'מלפפון', requestedQuantity: 1, measurementType: 'kg' },
+      ],
+      draft: {},
+    };
+    contexts.o2 = {
+      items: [
+        { lineId: 'o2::tom', productId: 'tom', productName: 'עגבניה', requestedQuantity: 1, measurementType: 'kg', isKosherMehadrin: true },
+      ],
+      draft: {},
+    };
+
+    const groups = buildItemPickGroups({ orders: [makeOrder('o1'), makeOrder('o2')], getOrderContext });
+    expect(groups.find((group) => group.productId === 'tom').isKosherMehadrin).toBe(true);
+    expect(groups.find((group) => group.productId === 'cuc').isKosherMehadrin).toBe(false);
+  });
+
   test('buildItemPickGroups ignores orders without id or lines without lineId', () => {
     contexts.o1 = { items: [{ productId: 'x', requestedQuantity: 1 }], draft: {} };
     expect(buildItemPickGroups({ orders: [makeOrder('o1'), { items: [] }], getOrderContext })).toEqual([]);

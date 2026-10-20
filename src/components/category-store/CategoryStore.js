@@ -31,27 +31,22 @@ import CommunityDiscountWidget from '../communityHub/widgets/CommunityDiscountWi
 import CommunityWeeklyPromotionSummary from './CommunityWeeklyPromotionSummary';
 import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
 import { usePickupSpot } from '../../contexts/PickupSpotContext';
+import { ProductFeedbackProvider } from '../../contexts/ProductFeedbackContext';
+import {
+  STORE_CATEGORIES,
+  calculateCategoryCounts,
+  getCategoryStoreSortRank,
+  productMatchesStoreCategory,
+  sortCategoryStoreProducts,
+} from '../../utils/categoryStoreUtils';
 
 // Firestore allows up to 30 values in an `in` filter.
 const PRODUCT_QUERY_CHUNK_SIZE = 30;
 const PRODUCT_QUERY_CONCURRENCY = 6;
-const STORE_CATEGORIES = ['הכל', 'ירקות', 'פירות', 'ירוקים ופטריות', 'משתלה', 'אחר'];
 const hebrewPickupSpotCollator = new Intl.Collator('he');
 
 const sortPickupSpotsByHebrewAlphabet = (spots) =>
   [...spots].sort((a, b) => hebrewPickupSpotCollator.compare(a, b));
-
-const getCategoryStoreSortRank = (product) => {
-  if (product.businessName === 'הבסקט של בסטה') return 2;
-  if (product.isFarmerOrder === true) return 0;
-  return 1;
-};
-
-const sortCategoryStoreProducts = (a, b) => {
-  const rankDiff = getCategoryStoreSortRank(a) - getCategoryStoreSortRank(b);
-  if (rankDiff !== 0) return rankDiff;
-  return (a.sortIndex ?? 0) - (b.sortIndex ?? 0);
-};
 
 const buildCandidateOrderQueries = (adjustedCurrentTime) => {
   const ordersRef = collection(db, 'Orders');
@@ -84,16 +79,6 @@ const fetchCandidateOrderDocs = async (adjustedCurrentTime) => {
     throw snapshots[0]?.reason || new Error('Failed to load orders');
   }
   return Array.from(docsById.values());
-};
-
-const calculateCategoryCounts = (products) => {
-  const counts = {};
-  products.forEach(product => {
-    const cat = product.category || 'אחר';
-    counts[cat] = (counts[cat] || 0) + 1;
-  });
-  counts['הכל'] = products.length;
-  return counts;
 };
 
 const getAdjustedSlideIndex = (index) => {
@@ -984,14 +969,11 @@ const CategoryStore = () => {
         return true;
       });
     }
-    return productsWithFarmerBadges.filter((product) => {
-      const productCategory = product.category || 'אחר';
-      // Special handling for "ירוקים ופטריות" - match both "ירוקים" and "ירוקים ופטריות"
-      if (selectedCategory === 'ירוקים ופטריות') {
-        return productCategory === 'ירוקים' || productCategory === 'ירוקים ופטריות';
-      }
-      return productCategory === selectedCategory;
-    });
+    // Kosher-mehadrin products also match their original category (and are
+    // sorted last); the 'כשר מהדרין' category matches only mehadrin products.
+    return productsWithFarmerBadges.filter((product) =>
+      productMatchesStoreCategory(product, selectedCategory)
+    );
   }, [isMultiSearchActive, isSearchActive, productsWithFarmerBadges, searchResultsWithFarmerBadges, selectedCategory]);
 
   const displayProducts = useMemo(
@@ -1047,6 +1029,7 @@ const CategoryStore = () => {
   };
 
   return (
+    <ProductFeedbackProvider>
     <div className="category-store-container" dir="rtl" id="category-store" ref={storeTopRef}>
       <div className="w-full max-w-full mx-auto">
         {/* Community Selector - small list above search */}
@@ -1213,7 +1196,9 @@ const CategoryStore = () => {
                           : 'bg-white text-gray-700 shadow-md hover:shadow-lg'
                       }`}
                     >
-                      <div className="category-icon">{categoryIcon[category]}</div>
+                      {categoryIcon[category] && (
+                        <div className="category-icon">{categoryIcon[category]}</div>
+                      )}
                       <h3 className={`category-title ${isActive ? 'text-white' : 'text-gray-800'}`}>
                         {category}
                       </h3>
@@ -1329,6 +1314,7 @@ const CategoryStore = () => {
         )}
       </div>
     </div>
+    </ProductFeedbackProvider>
   );
 };
 

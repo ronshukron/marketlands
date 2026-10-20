@@ -130,7 +130,7 @@ const Menu = () => {
   const businessId = currentUser && (userRole === 'business' || userRole === 'localBusiness') && !isDriver
     ? currentUser.uid
     : null;
-  const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר'];
+  const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר', 'כשר מהדרין'];
 
   return (
     <>
@@ -347,6 +347,12 @@ const Menu = () => {
                   </svg>
                   אחר
                 </button>
+                <button
+                  onClick={() => navigateToCategory('כשר מהדרין')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 transition-colors"
+                >
+                  כשר מהדרין
+                </button>
               </div>
             )}
 
@@ -461,12 +467,18 @@ const Menu = () => {
                     </button>
                     <button
                       onClick={() => navigateToCategory('אחר')}
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors col-span-2"
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                       </svg>
                       אחר
+                    </button>
+                    <button
+                      onClick={() => navigateToCategory('כשר מהדרין')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors"
+                    >
+                      כשר מהדרין
                     </button>
                   </div>
                 </div>

@@ -1,3 +1,5 @@
+import { getKosherMehadrinSortRank } from './categoryStoreUtils';
+
 export const parseShoppingListTerms = (input) => {
   if (!input || typeof input !== 'string') return [];
   const seen = new Set();
@@ -43,7 +45,13 @@ export const searchProducts = (products, term) => {
   if (!term || !term.trim()) return [];
   return products
     .filter((product) => productMatchesTerm(product, term))
-    .sort((a, b) => calculateRelevance(b, term) - calculateRelevance(a, term));
+    // Kosher-mehadrin products are always last; relevance decides the
+    // order inside the regular group and inside the mehadrin group.
+    .sort((a, b) => {
+      const mehadrinDiff = getKosherMehadrinSortRank(a) - getKosherMehadrinSortRank(b);
+      if (mehadrinDiff !== 0) return mehadrinDiff;
+      return calculateRelevance(b, term) - calculateRelevance(a, term);
+    });
 };
 
 export const findBestProductForTerm = (products, term) => {

@@ -1,4 +1,6 @@
 import {
+  buildCompletedOrderIndex,
+  findWinBackReturnOrder,
   buildWinBackMessage,
   buildWinBackWhatsAppUrl,
   filterLapsedCustomers,
@@ -149,6 +151,66 @@ describe('customerWinBackMessage', () => {
     expect(link).toContain('community=');
     expect(link).toContain(encodeURIComponent('חיפה'));
     expect(link).not.toContain(encodeURIComponent('ישן'));
+  });
+
+  test('finds the first completed order after the offer, even under another customer entry', () => {
+    const sentAt = weeksBefore(3).toISOString();
+    const contacted = {
+      id: 'dana@example.com',
+      email: 'dana@example.com',
+      phone: '0501111111',
+      orders: [{ createdAt: weeksBefore(10), phone: '0501111111' }],
+    };
+    const returnedUnderPhone = {
+      id: '972501111111',
+      phone: '972501111111',
+      orders: [
+        { id: 'late', createdAt: weeksBefore(1), phone: '972501111111' },
+        {
+          id: 'first-back',
+          createdAt: weeksBefore(2),
+          phone: '972501111111',
+          orderBreakdown: { a: { items: [{ productName: 'עגבניות', isCompensation: true }] } },
+        },
+      ],
+    };
+    const index = buildCompletedOrderIndex([contacted, returnedUnderPhone]);
+
+    const found = findWinBackReturnOrder(contacted, index, sentAt);
+    expect(found.id).toBe('first-back');
+    expect(found.includesGift).toBe(true);
+  });
+
+  test('does not count orders placed before the offer as redeemed', () => {
+    const contacted = {
+      id: 'c',
+      phone: '0502222222',
+      orders: [{ createdAt: weeksBefore(10), phone: '0502222222' }],
+    };
+    const index = buildCompletedOrderIndex([contacted]);
+
+    expect(findWinBackReturnOrder(contacted, index, weeksBefore(3).toISOString())).toBeNull();
+    expect(findWinBackReturnOrder(contacted, index, '')).toBeNull();
+  });
+
+  test('prefers the custom community link, then the short ?c= link', () => {
+    const customer = { orders: [{ createdAt: weeksBefore(8), pickupSpot: 'חיפה' }] };
+
+    expect(getWinBackStoreLink(customer, { communityCode: 'abc123' }))
+      .toBe('https://www.bastabasket.com/?c=abc123');
+    expect(getWinBackStoreLink(customer, { communityCode: 'abc123', customLink: 'https://x.co/haifa' }))
+      .toBe('https://x.co/haifa');
+    expect(getWinBackStoreLink(customer)).toContain(encodeURIComponent('חיפה'));
+  });
+
+  test('prefers the custom community link, then the short ?c= link', () => {
+    const customer = { orders: [{ createdAt: weeksBefore(8), pickupSpot: 'חיפה' }] };
+
+    expect(getWinBackStoreLink(customer, { communityCode: 'abc123' }))
+      .toBe('https://www.bastabasket.com/?c=abc123');
+    expect(getWinBackStoreLink(customer, { communityCode: 'abc123', customLink: 'https://x.co/haifa' }))
+      .toBe('https://x.co/haifa');
+    expect(getWinBackStoreLink(customer)).toContain(encodeURIComponent('חיפה'));
   });
 
   test('does not build a WhatsApp link when the phone is missing', () => {

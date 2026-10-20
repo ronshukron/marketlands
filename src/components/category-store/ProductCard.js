@@ -16,6 +16,8 @@ import {
 } from '../../utils/pricing';
 import { isNewProduct } from '../../utils/productFreshness';
 import { useWeightBuffer } from '../../contexts/WeightBufferContext';
+import { useProductFeedback } from '../../contexts/ProductFeedbackContext';
+import QuickProductReviewSheet from './QuickProductReviewSheet';
 
 const CATEGORY_CARD_IMAGE_LIMIT = 1;
 
@@ -125,6 +127,9 @@ const ProductCard = ({
   const showWeightBuffer = isKgItem && bufferPercent > 0;
 
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const { getReviewTarget, markReviewed } = useProductFeedback();
+  const reviewTarget = getReviewTarget(product);
   const [selectedOption] = useState(
     product.options && product.options.length > 0 ? product.options[0] : ""
   );
@@ -397,6 +402,15 @@ const ProductCard = ({
           <p className="text-xs text-blue-600 font-medium mb-1">
             מאת: {product.businessName} - {product.businessKind}
           </p>
+          {reviewTarget && (
+            <button
+              type="button"
+              onClick={() => setReviewOpen(true)}
+              className="mb-1 inline-flex min-h-11 items-center text-xs font-medium text-amber-800 underline-offset-2 hover:underline"
+            >
+              איך היה? דרגו ★
+            </button>
+          )}
 
           {calculateTimeRemaining && (
             <p className="text-[11px] text-red-600 font-medium">
@@ -428,11 +442,6 @@ const ProductCard = ({
               +
             </button>
           </div>
-          {showWeightBuffer && (
-            <p className="text-[11px] text-gray-500 text-center">
-              כולל {bufferPercent}% מרווח שקילה · החיוב לפי המשקל בפועל
-            </p>
-          )}
 
           <button
             onClick={addToCart}
@@ -559,6 +568,15 @@ const ProductCard = ({
           <p className="text-xs text-blue-600 font-medium">
             מאת: {product.businessName} - {product.businessKind}
           </p>
+          {reviewTarget && (
+            <button
+              type="button"
+              onClick={() => setReviewOpen(true)}
+              className="mt-1 inline-flex min-h-11 items-center text-xs font-medium text-amber-800 underline-offset-2 hover:underline"
+            >
+              איך היה? דרגו ★
+            </button>
+          )}
 
           {calculateTimeRemaining && (
             <p className="text-[11px] text-red-600 font-medium mt-0.5">
@@ -601,13 +619,19 @@ const ProductCard = ({
             <span className="truncate">הוסף לסל</span>
           </button>
         </div>
-        {showWeightBuffer && (
-          <p className="text-[10px] text-gray-500">
-            כולל {bufferPercent}% מרווח שקילה · החיוב לפי המשקל בפועל
-          </p>
-        )}
       </div>
       </div>
+      {reviewOpen && reviewTarget && (
+        <QuickProductReviewSheet
+          productName={product.name}
+          target={reviewTarget}
+          onClose={() => setReviewOpen(false)}
+          onSubmitted={() => {
+            markReviewed(product);
+            setReviewOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 };

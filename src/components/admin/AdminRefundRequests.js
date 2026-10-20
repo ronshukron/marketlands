@@ -278,7 +278,12 @@ const AdminRefundRequests = () => {
                     <div>
                       <p className="text-xs text-gray-500">לקוח</p>
                       <p className="font-medium">{request.userName || 'לא צוין'}</p>
-                      <p className="text-xs text-gray-500">{request.userEmail}</p>
+                      {request.source === 'guest_footer' && (
+                        <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                          אורח (ללא התחברות)
+                        </span>
+                      )}
+                      <p className="text-xs text-gray-500">{request.userEmail || 'לא צוין אימייל'}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">סכום מבוקש</p>

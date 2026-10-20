@@ -7,13 +7,21 @@ import {
   listCompensationsForIdentity,
 } from '../../services/compensationService';
 import { getCustomerKey, markCustomerWinBackSent } from '../../services/customerProfileService';
+import {
+  getCommunityCode,
+  resolveCommunityByCode,
+  resolveCommunityName,
+} from '../../services/pickupSpotsService';
+import usePickupSpots from '../../hooks/usePickupSpots';
 import { normalizePhoneForWhatsApp } from '../../utils/marketplaceOrderWhatsApp';
 import {
   WIN_BACK_WEEK_OPTIONS,
+  buildCompletedOrderIndex,
   buildWinBackGiftLine,
   buildWinBackMessage,
   buildWinBackWhatsAppUrl,
   filterLapsedCustomers,
+  findWinBackReturnOrder,
   getLastCompletedOrder,
   getWinBackCommunity,
   getWinBackStoreLink,
@@ -30,12 +38,38 @@ const ASSIGN_ERRORS = {
 
 const formatMoney = (value) => `₪${Number(value || 0).toFixed(2)}`;
 
-const formatSentLabel = (sentAt) => {
-  if (!sentAt) return 'טרם נשלח';
-  const date = new Date(sentAt);
-  if (Number.isNaN(date.getTime())) return 'נשלח';
-  return `נשלח ב־${format(date, 'dd/MM')}`;
+const formatShortDate = (value) => {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : format(date, 'dd/MM');
 };
+
+const formatSendCount = (count) => {
+  if (count <= 0) return 'טרם נשלח';
+  if (count === 1) return 'קיבל הצעה פעם אחת';
+  if (count === 2) return 'קיבל הצעה פעמיים';
+  return `קיבל הצעה ${count} פעמים`;
+};
+
+const resolveTracking = (customer, profilesMap, orderIndex) => {
+  const key = getCustomerKey({ phone: customer.phone, email: customer.email });
+  const profile = key ? profilesMap[key] : null;
+  const sendCount = Number(profile?.winBackSendCount) || (profile?.winBackSentAt ? 1 : 0);
+  const firstSentAt = profile?.winBackFirstSentAt || profile?.winBackSentAt || '';
+  return {
+    profile,
+    sendCount,
+    firstSentAt,
+    lastSentAt: profile?.winBackSentAt || '',
+    returnOrder: sendCount > 0 ? findWinBackReturnOrder(customer, orderIndex, firstSentAt) : null,
+  };
+};
+
+const STATUS_FILTERS = [
+  { id: 'lapsed', label: 'לא הזמינו' },
+  { id: 'contacted', label: 'קיבלו הצעה' },
+  { id: 'redeemed', label: 'מימשו' },
+];
 
 const formatIdleLabel = (date) => {
   const weeks = weeksIdle(date);
@@ -90,30 +124,79 @@ const CustomerWinBackTab = ({
     };
   }, []);
 
+  const [statusFilter, setStatusFilter] = useState('lapsed');
+  const { pickupSpotsData } = usePickupSpots();
+
+  const orderIndex = useMemo(() => buildCompletedOrderIndex(customers), [customers]);
+
+  const getTracking = (customer) => resolveTracking(customer, profilesMap, orderIndex);
+
+  const contactedCustomers = useMemo(() => {
+    const seenKeys = new Set();
+    return (customers || []).filter((customer) => {
+      const key = getCustomerKey({ phone: customer.phone, email: customer.email });
+      if (!key || seenKeys.has(key) || !profilesMap[key]?.winBackSentAt) return false;
+      seenKeys.add(key);
+      return true;
+    });
+  }, [customers, profilesMap]);
+
+  const trackingStats = useMemo(() => ({
+    contacted: contactedCustomers.length,
+    redeemed: contactedCustomers
+      .filter((customer) => resolveTracking(customer, profilesMap, orderIndex).returnOrder)
+      .length,
+  }), [contactedCustomers, profilesMap, orderIndex]);
+
   const lapsedCustomers = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return filterLapsedCustomers(customers, weeks)
-      .filter((customer) => {
-        if (!query) return true;
-        return [customer.name, customer.phone, customer.email]
-          .some((value) => String(value || '').toLowerCase().includes(query));
-      })
-      .sort((a, b) => {
-        const aTime = getLastCompletedOrder(a)?.createdAt?.getTime() || 0;
-        const bTime = getLastCompletedOrder(b)?.createdAt?.getTime() || 0;
-        return aTime - bTime;
-      });
-  }, [customers, weeks, search]);
+    const matchesSearch = (customer) => {
+      if (!query) return true;
+      return [customer.name, customer.phone, customer.email]
+        .some((value) => String(value || '').toLowerCase().includes(query));
+    };
+
+    if (statusFilter === 'lapsed') {
+      return filterLapsedCustomers(customers, weeks)
+        .filter(matchesSearch)
+        .sort((a, b) => {
+          const aTime = getLastCompletedOrder(a)?.createdAt?.getTime() || 0;
+          const bTime = getLastCompletedOrder(b)?.createdAt?.getTime() || 0;
+          return aTime - bTime;
+        });
+    }
+
+    const lastSentTime = (customer) => (
+      new Date(resolveTracking(customer, profilesMap, orderIndex).lastSentAt || 0).getTime() || 0
+    );
+    return contactedCustomers
+      .filter(matchesSearch)
+      .filter((customer) => (
+        statusFilter !== 'redeemed'
+        || Boolean(resolveTracking(customer, profilesMap, orderIndex).returnOrder)
+      ))
+      .sort((a, b) => lastSentTime(b) - lastSentTime(a));
+  }, [customers, weeks, search, statusFilter, contactedCustomers, profilesMap, orderIndex]);
 
   const selectedCustomer = lapsedCustomers.find((customer) => customer.id === selectedId) || null;
+  const selectedTracking = selectedCustomer ? getTracking(selectedCustomer) : null;
   const profileKey = selectedCustomer
     ? getCustomerKey({ phone: selectedCustomer.phone, email: selectedCustomer.email })
     : '';
-  const selectedProfile = profileKey ? profilesMap[profileKey] : null;
   const grants = grantsState.id === selectedCustomer?.id ? grantsState.grants : [];
   const activeGrants = grants.filter((grant) => grant.status === COMPENSATION_STATUSES.ACTIVE);
   const hasPhone = Boolean(normalizePhoneForWhatsApp(selectedCustomer?.phone));
-  const storeLink = selectedCustomer ? getWinBackStoreLink(selectedCustomer) : '';
+  const selectedCommunity = selectedCustomer ? getWinBackCommunity(selectedCustomer) : '';
+  const storeLink = useMemo(() => {
+    if (!selectedCustomer) return '';
+    const resolvedName = resolveCommunityName(selectedCommunity) || '';
+    const code = getCommunityCode(resolvedName);
+    const codeResolves = Boolean(code) && resolveCommunityByCode(code) === resolvedName;
+    return getWinBackStoreLink(selectedCustomer, {
+      communityCode: codeResolves ? code : '',
+      customLink: pickupSpotsData?.[resolvedName]?.storeLink,
+    });
+  }, [selectedCustomer, selectedCommunity, pickupSpotsData]);
 
   const selectedCandidate = useMemo(
     () => candidates.find((item) => `${item.orderId}:${item.productId}` === selectedCandidateKey) || null,
@@ -327,13 +410,24 @@ const CustomerWinBackTab = ({
   };
 
   const renderStatus = (customer) => {
-    const key = getCustomerKey({ phone: customer.phone, email: customer.email });
-    const profile = key ? profilesMap[key] : null;
+    const { profile, sendCount, lastSentAt, returnOrder } = getTracking(customer);
+    if (sendCount === 0) return <div className="text-gray-400">טרם נשלח</div>;
     return (
-      <div>
-        <div>{formatSentLabel(profile?.winBackSentAt)}</div>
-        {profile?.winBackOfferSummary && (
-          <div className="text-xs text-gray-500">{profile.winBackOfferSummary}</div>
+      <div className="space-y-1">
+        <div className="font-medium text-gray-800">{formatSendCount(sendCount)}</div>
+        <div className="text-xs text-gray-500">
+          אחרונה ב־{formatShortDate(lastSentAt)}
+          {profile?.winBackOfferSummary ? ` · ${profile.winBackOfferSummary}` : ''}
+        </div>
+        {returnOrder ? (
+          <span className="inline-block rounded bg-emerald-100 text-emerald-800 text-xs font-medium px-2 py-0.5">
+            מימש ב־{formatShortDate(returnOrder.createdAt)}
+            {returnOrder.includesGift ? ' · כולל המתנה' : ''}
+          </span>
+        ) : (
+          <span className="inline-block rounded bg-amber-50 text-amber-800 text-xs font-medium px-2 py-0.5">
+            טרם מימש
+          </span>
         )}
       </div>
     );
@@ -390,6 +484,32 @@ const CustomerWinBackTab = ({
           </div>
         </div>
 
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="סינון לפי סטטוס פנייה">
+            {STATUS_FILTERS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={statusFilter === option.id}
+                onClick={() => setStatusFilter(option.id)}
+                className={`min-h-[44px] px-3 py-2 rounded text-sm font-medium ${
+                  statusFilter === option.id
+                    ? 'bg-gray-800 text-white'
+                    : 'bg-white text-gray-700 border border-gray-300'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-sm text-gray-600">
+            {trackingStats.contacted} קיבלו הצעה · {trackingStats.redeemed} מימשו
+            {trackingStats.contacted > 0
+              ? ` (${Math.round((trackingStats.redeemed / trackingStats.contacted) * 100)}%)`
+              : ''}
+          </p>
+        </div>
+
         <p className="text-sm text-gray-600 mb-3">
           {lapsedCustomers.length === 0
             ? 'אין לקוחות בסינון הזה.'
@@ -398,7 +518,9 @@ const CustomerWinBackTab = ({
 
         {lapsedCustomers.length === 0 ? (
           <div className="text-center text-gray-400 text-sm py-10 border border-dashed rounded">
-            אין לקוחות שהפסיקו להזמין בטווח הזה.
+            {statusFilter === 'lapsed' && 'אין לקוחות שהפסיקו להזמין בטווח הזה.'}
+            {statusFilter === 'contacted' && 'עוד לא נשלחו הצעות.'}
+            {statusFilter === 'redeemed' && 'אף לקוח עוד לא מימש הצעה.'}
           </div>
         ) : (
           <>
@@ -496,9 +618,14 @@ const CustomerWinBackTab = ({
               )}
             </div>
 
-            {selectedProfile?.winBackSentAt && (
+            {selectedTracking?.sendCount > 0 && (
               <p className="text-sm text-gray-600">
-                {formatSentLabel(selectedProfile.winBackSentAt)}. אפשר לשלוח שוב.
+                {formatSendCount(selectedTracking.sendCount)}, לאחרונה ב־{formatShortDate(selectedTracking.lastSentAt)}.
+                {' '}
+                {selectedTracking.returnOrder
+                  ? `מימש ב־${formatShortDate(selectedTracking.returnOrder.createdAt)}.`
+                  : 'טרם מימש.'}
+                {' '}שליחה נוספת תיספר כפעם {selectedTracking.sendCount + 1}.
               </p>
             )}
 

@@ -5,6 +5,7 @@ import {
   isProductFeedbackEligible,
   validateProductFeedback,
 } from '../utils/productFeedbackUtils';
+import StarRatingPicker from './StarRatingPicker';
 
 const ProductFeedbackSection = ({ order, lines, userId }) => {
   const [drafts, setDrafts] = useState({});
@@ -75,32 +76,10 @@ const ProductFeedbackSection = ({ order, lines, userId }) => {
           return (
             <div key={line.lineId} className="rounded-xl border border-amber-200 bg-white p-4">
               <h3 className="font-semibold text-gray-900">{line.productName || line.name || 'מוצר'}</h3>
-              <fieldset className="mt-3">
-                <legend className="text-sm font-medium text-gray-700">דירוג</legend>
-                <div className="mt-1 flex flex-wrap gap-2" dir="ltr">
-                  {[1, 2, 3, 4, 5].map((rating) => (
-                    <label
-                      key={rating}
-                      className={`min-h-[44px] min-w-[44px] cursor-pointer rounded-lg border px-3 py-2 text-center text-lg ${
-                        Number(draft.rating) === rating
-                          ? 'border-amber-500 bg-amber-100 text-amber-900'
-                          : 'border-gray-300 bg-white text-gray-600'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        className="sr-only"
-                        name={`rating-${line.lineId}`}
-                        value={rating}
-                        checked={Number(draft.rating) === rating}
-                        onChange={() => updateDraft(line.lineId, { rating })}
-                      />
-                      <span aria-hidden="true">★</span>
-                      <span className="sr-only">{rating} מתוך 5</span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              <StarRatingPicker
+                value={draft.rating}
+                onChange={(rating) => updateDraft(line.lineId, { rating })}
+              />
               <label htmlFor={`feedback-${line.lineId}`} className="mt-3 block text-sm font-medium text-gray-700">
                 משוב בונה
               </label>

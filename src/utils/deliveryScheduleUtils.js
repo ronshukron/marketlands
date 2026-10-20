@@ -344,6 +344,48 @@ export function generateSharedAvailableDeliveryDates(
   }, []);
 }
 
+/**
+ * Cart businesses that push the shared delivery date later than the earliest date
+ * any other business in the cart could still deliver (e.g. one business closed earlier).
+ * Returns null when nothing is holding the cart back.
+ */
+export function findDeliveryDateBlockers(scheduleDoc, ordersById = {}, options = {}) {
+  const { communityName, now = new Date() } = options;
+  const eligible = Object.entries(ordersById || {}).filter(
+    ([, orderData]) => isAlwaysOnGroceryOrder(orderData)
+      && isAlwaysOnGroceryOrderEnabled(orderData)
+      && orderServesCommunity(orderData, communityName)
+  );
+  if (!scheduleDoc || eligible.length < 2) return null;
+
+  const datesByOrderId = new Map(eligible.map(([orderId, orderData]) => [
+    orderId,
+    generateAvailableDeliveryDates(scheduleDoc, { ...options, now, orderData }),
+  ]));
+  const earliestDate = Array.from(datesByOrderId.values())
+    .map((dates) => dates[0])
+    .filter(Boolean)
+    .sort()[0];
+  if (!earliestDate) return null;
+
+  const blockingOrderIds = eligible
+    .map(([orderId]) => orderId)
+    .filter((orderId) => !datesByOrderId.get(orderId).includes(earliestDate));
+  if (blockingOrderIds.length === 0) return null;
+
+  return {
+    earliestDate,
+    blockers: blockingOrderIds.map((orderId) => {
+      const orderData = ordersById[orderId];
+      return {
+        orderId,
+        businessName: orderData.businessName || orderData.orderName || '',
+        cutoffAt: getEffectiveOrderCutoffAt(earliestDate, scheduleDoc, orderData, communityName),
+      };
+    }),
+  };
+}
+
 export function getOrderDeliveryDate(orderData = {}) {
   return parseDateSafe(orderData.fulfillment?.deliveryDate)
     || parseDateSafe(orderData.deliveryDate)

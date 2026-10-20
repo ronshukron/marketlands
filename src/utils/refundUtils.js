@@ -53,9 +53,9 @@ export function getRefundStatusDetails(status) {
     case REFUND_STATUSES.PENDING:
       return {
         adminLabel: 'ממתין לטיפול',
-        customerLabel: 'בקשת זיכוי בטיפול',
-        customerDescription: 'בקשת הזיכוי הוגשה ונמצאת בבדיקה',
-        badgeClass: 'bg-yellow-100 text-yellow-800',
+        customerLabel: 'הזיכוי אושר',
+        customerDescription: 'הזיכוי אושר אוטומטית ויופחת מסכום החיוב',
+        badgeClass: 'bg-green-100 text-green-800',
       };
     case REFUND_STATUSES.APPROVED_PRE_CHARGE:
       return {

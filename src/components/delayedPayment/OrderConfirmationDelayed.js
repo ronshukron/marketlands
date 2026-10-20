@@ -32,6 +32,7 @@ import { refreshCartCommercialTerms } from '../../services/productPromotionServi
 import { describeCommunityWeeklyCheckoutRefreshError } from '../../services/communityWeeklyPromotionService';
 import { buildCommunityWeeklyPromotionOrderAttribution } from '../../utils/communityWeeklyPromotionUrl';
 import {
+    findDeliveryDateBlockers,
     generateSharedAvailableDeliveryDates,
     getWeekKey,
     isAlwaysOnGroceryOrder,
@@ -270,6 +271,7 @@ const OrderConfirmationDelayed = () => {
     const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
     const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
     const [deliveryDateError, setDeliveryDateError] = useState('');
+    const [deliveryDateBlockers, setDeliveryDateBlockers] = useState(null);
     const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some(
         (orderData) => isAlwaysOnGroceryOrder(orderData) && isAlwaysOnGroceryOrderEnabled(orderData)
     );
@@ -553,6 +555,7 @@ const OrderConfirmationDelayed = () => {
 
         const loadDeliverySchedule = async () => {
             setDeliveryDateError('');
+            setDeliveryDateBlockers(null);
 
             if (!cartOrderMetaReady) {
                 setDeliverySchedule(null);
@@ -605,6 +608,7 @@ const OrderConfirmationDelayed = () => {
                 const dates = scheduleDates.filter((dateKey) => getWeekKey(dateKey) === nextVisibleWeekKey);
 
                 setAvailableDeliveryDates(dates);
+                setDeliveryDateBlockers(findDeliveryDateBlockers(scheduleData, cartOrderMeta, { communityName: communityKey }));
                 if (dates.length === 0) {
                     setSelectedDeliveryDate('');
                     setDeliveryDateError('אין תאריכי משלוח זמינים לקהילה זו כרגע.');
@@ -1721,6 +1725,37 @@ const OrderConfirmationDelayed = () => {
 
                             {cartHasAlwaysOnGrocery && (
                                 <div className="form-group md:col-span-2 bg-green-50 rounded-lg p-3 border border-green-200">
+                                    {deliveryDateBlockers && (() => {
+                                        const earliestLabel = new Date(`${deliveryDateBlockers.earliestDate}T00:00:00`).toLocaleDateString('he-IL', {
+                                            weekday: 'long',
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                        });
+                                        const names = deliveryDateBlockers.blockers.map((blocker) => blocker.businessName).filter(Boolean).join(', ');
+                                        return (
+                                            <div className="text-right rounded-lg border-2 border-amber-400 bg-amber-50 p-3 mb-3">
+                                                <p className="text-base font-bold text-amber-900">
+                                                    {`המוצרים של ${names || 'חלק מהעסקים בסל'} כבר לא יכולים להגיע ב${earliestLabel}, ולכן כל ההזמנה נדחתה.`}
+                                                </p>
+                                                <ul className="mt-1 text-sm text-amber-900">
+                                                    {deliveryDateBlockers.blockers
+                                                        .filter((blocker) => blocker.cutoffAt && blocker.cutoffAt <= new Date())
+                                                        .map((blocker) => (
+                                                            <li key={blocker.orderId}>
+                                                                {`ההזמנות אצל ${blocker.businessName} נסגרו ב-${blocker.cutoffAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`}
+                                                            </li>
+                                                        ))}
+                                                </ul>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => deliveryDateBlockers.blockers.forEach((blocker) => removeOrderFromCart(blocker.orderId))}
+                                                    className="mt-2 w-full rounded-md bg-amber-600 px-3 py-2 text-sm font-bold text-white hover:bg-amber-700"
+                                                >
+                                                    {`הסירו את המוצרים האלה וקבלו את ההזמנה ב${earliestLabel}`}
+                                                </button>
+                                            </div>
+                                        );
+                                    })()}
                                     {isShowingNextDeliveryWeek(availableDeliveryDates) && (
                                         <p className="text-lg font-black text-amber-900 bg-amber-100 border-2 border-amber-400 rounded-lg p-3 mb-3">
                                             שימו לב: אין משלוח השבוע — ההזמנה תישלח בשבוע הבא!

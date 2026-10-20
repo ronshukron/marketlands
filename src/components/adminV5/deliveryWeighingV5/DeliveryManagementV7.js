@@ -267,6 +267,7 @@ const TR = {
     basketPartBadge: (title) => `חלק מסל היכרות: ${title || 'סל היכרות'}`,
     underOneKgBadge: 'פחות מקילו',
     organicBadge: 'אורגני',
+    kosherMehadrinBadge: 'כשר מהדרין',
     largeDiffWarn: (exp, act, pct) => `הכמות שהוזנה שונה ב-${pct}% מהכמות שהוזמנה.\nהוזמן: ${exp}\nהוזן: ${act}\nלהמשיך בכל זאת?`,
     claim: 'תפוס הזמנה',
     release: 'שחרר',
@@ -279,6 +280,7 @@ const TR = {
     qty: 'כמות',
     price: 'מחיר',
     savePrice: 'שמור מחיר',
+    savingPrice: 'שומר...',
     realtimeDraft: 'טיוטת שקילה בזמן אמת',
     orderClaimedOk: 'ההזמנה נתפסה לתחנה זו',
     orderReleasedOk: 'ההזמנה שוחררה',
@@ -490,6 +492,7 @@ const TR = {
     basketPartBadge: (title) => `ส่วนหนึ่งของตะกร้าแนะนำ: ${title || 'ตะกร้าแนะนำ'}`,
     underOneKgBadge: 'น้อยกว่า 1 กก.',
     organicBadge: 'ออร์แกนิก',
+    kosherMehadrinBadge: 'โคเชอร์ เมฮาดริน',
     largeDiffWarn: (exp, act, pct) => `ค่าน้ำหนักต่างจากที่สั่ง ${pct}%\nสั่ง: ${exp}\nที่กรอก: ${act}\nยืนยันดำเนินการต่อหรือไม่?`,
     claim: 'จองออเดอร์',
     release: 'ปล่อย',
@@ -502,6 +505,7 @@ const TR = {
     qty: 'จำนวน',
     price: 'ราคา',
     savePrice: 'บันทึกราคา',
+    savingPrice: 'กำลังบันทึก...',
     realtimeDraft: 'ฉบับร่างชั่งน้ำหนักแบบเรียลไทม์',
     orderClaimedOk: 'จองคำสั่งซื้อนี้แล้ว',
     orderReleasedOk: 'ปล่อยคำสั่งซื้อแล้ว',
@@ -3066,7 +3070,11 @@ export default function DeliveryManagementV7() {
   }, [selectedOrder, selectedWeek, session, showToast, t.orderReleasedOk, biAlert, isOnline]);
 
   const savePriceEdit = useCallback(async (item) => {
-    if (!selectedOrder || claimedByOther) return;
+    if (!selectedOrder || savingActionKey === `price:${item.lineId}`) return;
+    if (claimedByOther) {
+      await biAlert({ heText: TR.he.busyElsewhere, thText: TR.th.busyElsewhere, title: 'warning' });
+      return;
+    }
     if (!isOnline) {
       await biAlert({ heText: TR.he.offlineEditOnlineOnly, thText: TR.th.offlineEditOnlineOnly, title: 'warning' });
       return;
@@ -3101,7 +3109,7 @@ export default function DeliveryManagementV7() {
     } finally {
       setSavingActionKey('');
     }
-  }, [selectedOrder, claimedByOther, editPriceValue, session, showToast, t.priceUpdatedOk, biAlert, isOnline]);
+  }, [selectedOrder, savingActionKey, claimedByOther, editPriceValue, session, showToast, t.priceUpdatedOk, biAlert, isOnline]);
 
   const addProductToOrder = useCallback(async (product) => {
     if (!selectedOrder || claimedByOther) return;
@@ -5019,7 +5027,11 @@ export default function DeliveryManagementV7() {
                                   ? 'border-green-300 bg-green-50'
                                   : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow'
                           }
-                          ${it.isOrganic && !isRemoved && !isActive ? 'ring-4 ring-green-500' : ''}
+                          ${!isRemoved && !isActive
+                            ? (it.isKosherMehadrin
+                              ? 'ring-[6px] ring-indigo-600'
+                              : it.isOrganic ? 'ring-4 ring-green-500' : '')
+                            : ''}
                         `}
                       >
                         {hasProductImage && (
@@ -5077,6 +5089,11 @@ export default function DeliveryManagementV7() {
                           className="p-2"
                           style={hasProductImage ? { textShadow: '0 1px 2px rgba(255,255,255,0.95), 0 0 8px rgba(255,255,255,0.85)' } : undefined}
                         >
+                          {it.isKosherMehadrin && !isRemoved && (
+                            <span className="inline-block mb-1 me-1 rounded-lg bg-indigo-700 px-3 py-1 text-base font-black text-white shadow-lg border-2 border-white">
+                              {t.kosherMehadrinBadge}
+                            </span>
+                          )}
                           {it.isOrganic && !isRemoved && (
                             <span className="inline-block mb-1 me-1 rounded-full bg-green-600 px-2 py-0.5 text-xs font-black text-white shadow border border-white">
                               {t.organicBadge}
@@ -5264,6 +5281,7 @@ export default function DeliveryManagementV7() {
                                     <input
                                       autoFocus
                                       value={editPriceValue}
+                                      disabled={savingActionKey === `price:${it.lineId}`}
                                       onChange={(e) => setEditPriceValue(e.target.value)}
                                       onKeyDown={(e) => {
                                         if (e.key === 'Enter') savePriceEdit(it);
@@ -5274,9 +5292,10 @@ export default function DeliveryManagementV7() {
                                     />
                                     <button
                                       onClick={() => savePriceEdit(it)}
-                                      className="px-2.5 py-1.5 bg-amber-500 text-white rounded-md text-[11px] font-bold hover:bg-amber-600"
+                                      disabled={savingActionKey === `price:${it.lineId}`}
+                                      className="px-2.5 py-1.5 bg-amber-500 text-white rounded-md text-[11px] font-bold hover:bg-amber-600 disabled:opacity-60 disabled:cursor-wait"
                                     >
-                                      {t.savePrice}
+                                      {savingActionKey === `price:${it.lineId}` ? t.savingPrice : t.savePrice}
                                     </button>
                                     <button
                                       onClick={cancelPriceEdit}

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { collection, doc, getDocs, runTransaction, updateDoc } from 'firebase/firestore';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
@@ -9,8 +9,9 @@ import { getEstimatedLineTotal } from '../../utils/pricing';
 import { isSuccessfulRegularCustomerOrder } from '../../utils/customerOrderUtils';
 import { transferCustomerOrderQuantity } from '../../utils/customerOrderTransferUtils';
 import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import { buildRecentWeekKeys, fetchDocsByCreatedAtRange } from '../../utils/customerOrderDateQueries';
 
-const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
+const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
 const CANCELLED_STATUSES = new Set(['cancelled', 'cancelled_by_admin']);
 
@@ -24,13 +25,6 @@ const getCreatedDate = (createdAt) => {
     return createdAt.toDate();
   }
   return null;
-};
-
-const toWeekKey = (date) => {
-  const sunday = new Date(date);
-  sunday.setDate(date.getDate() - date.getDay());
-  sunday.setHours(0, 0, 0, 0);
-  return sunday.toISOString().split('T')[0];
 };
 
 const sumItemsTotal = (orderBreakdown = {}) => {
@@ -81,13 +75,13 @@ const isOrderActive = (orderData, source) => {
 };
 
 const WeeklyCustomerOrderManager = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, loading: authLoading } = useAuth();
   const { pickupSpots } = usePickupSpots();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [availableWeeks, setAvailableWeeks] = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState('');
-  const [tempSelectedWeek, setTempSelectedWeek] = useState('');
+  const availableWeeks = useMemo(() => buildRecentWeekKeys(), []);
+  const [selectedWeek, setSelectedWeek] = useState(availableWeeks[0]);
+  const [tempSelectedWeek, setTempSelectedWeek] = useState(availableWeeks[0]);
   const [selectedCommunities, setSelectedCommunities] = useState(new Set());
   const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set());
   const [showCommunityDropdown, setShowCommunityDropdown] = useState(false);
@@ -96,8 +90,12 @@ const WeeklyCustomerOrderManager = () => {
   const [communityUpdates, setCommunityUpdates] = useState({});
   const [transferDrafts, setTransferDrafts] = useState({});
   const [transferCatalog, setTransferCatalog] = useState({ businesses: [], productsByBusiness: {} });
+  const [transferCatalogStatus, setTransferCatalogStatus] = useState('idle');
   const [savingActionKey, setSavingActionKey] = useState('');
   const communityDropdownRef = useRef(null);
+  const latestRequestRef = useRef(0);
+
+  const isAuthorized = Boolean(currentUser && ADMIN_UIDS.includes(currentUser.uid));
 
   useEffect(() => {
     const handler = (e) => {
@@ -109,17 +107,9 @@ const WeeklyCustomerOrderManager = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  useEffect(() => {
-    if (!currentUser || !ADMIN_UIDS.includes(currentUser.uid)) {
-      setError('You are not authorized to view this page');
-      setLoading(false);
-      return;
-    }
-    fetchAvailableWeeks();
-    fetchTransferCatalog();
-  }, [currentUser]);
-
-  const fetchTransferCatalog = async () => {
+  const ensureTransferCatalog = async () => {
+    if (transferCatalogStatus === 'loading' || transferCatalogStatus === 'ready') return;
+    setTransferCatalogStatus('loading');
     try {
       const [businessSnap, productSnap, ordersSnap] = await Promise.all([
         getDocs(collection(db, 'businesses')),
@@ -168,56 +158,19 @@ const WeeklyCustomerOrderManager = () => {
         .filter((business) => (productsByBusiness[business.id] || []).length > 0)
         .sort((a, b) => a.businessName.localeCompare(b.businessName, 'he'));
       setTransferCatalog({ businesses, productsByBusiness });
+      setTransferCatalogStatus('ready');
     } catch (err) {
       console.error('Error loading transfer catalog:', err);
+      setTransferCatalogStatus('error');
     }
   };
 
-  useEffect(() => {
-    if (selectedWeek) {
-      fetchWeeklyOrders();
-    }
-  }, [selectedWeek, selectedCommunities]);
-
-  const allOrders = useMemo(
-    () => Object.values(ordersByPickupSpot).flat(),
-    [ordersByPickupSpot]
-  );
-
-  const getOrderCommunityKey = (order) => `${order.source}::${order.id}`;
-
-  const fetchAvailableWeeks = async () => {
+  const fetchWeeklyOrders = useCallback(async (week, communities) => {
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
+    setError(null);
     try {
-      const [regularSnap, delayedSnap] = await Promise.all([
-        getDocs(collection(db, 'customerOrders')),
-        getDocs(collection(db, 'customerOrdersDelayed'))
-      ]);
-
-      const weeksSet = new Set();
-      [...regularSnap.docs, ...delayedSnap.docs].forEach((orderDoc) => {
-        const createdDate = getCreatedDate(orderDoc.data()?.createdAt);
-        if (!createdDate) return;
-        weeksSet.add(toWeekKey(createdDate));
-      });
-
-      const sorted = Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));
-      setAvailableWeeks(sorted);
-      if (sorted.length > 0) {
-        setTempSelectedWeek(sorted[0]);
-      }
-    } catch (err) {
-      console.error('Error fetching available weeks:', err);
-      setError('Failed to load weeks data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchWeeklyOrders = async () => {
-    setLoading(true);
-    try {
-      const sunday = new Date(selectedWeek);
+      const sunday = parseISO(week);
       const friday = new Date(sunday);
       friday.setDate(sunday.getDate() + 5);
       friday.setHours(23, 59, 59, 999);
@@ -227,18 +180,17 @@ const WeeklyCustomerOrderManager = () => {
         end: format(friday, 'dd/MM/yyyy')
       });
 
-      const startISO = sunday.toISOString();
-      const endISO = friday.toISOString();
-
-      const [regularSnap, delayedSnap] = await Promise.all([
-        getDocs(collection(db, 'customerOrders')),
-        getDocs(collection(db, 'customerOrdersDelayed'))
+      const [regularDocs, delayedDocs] = await Promise.all([
+        fetchDocsByCreatedAtRange('customerOrders', sunday, friday),
+        fetchDocsByCreatedAtRange('customerOrdersDelayed', sunday, friday)
       ]);
+
+      if (requestId !== latestRequestRef.current) return;
 
       const grouped = {};
       const allDocs = [
-        ...regularSnap.docs.map((d) => ({ doc: d, source: 'customerOrders' })),
-        ...delayedSnap.docs.map((d) => ({ doc: d, source: 'customerOrdersDelayed' }))
+        ...regularDocs.map((d) => ({ doc: d, source: 'customerOrders' })),
+        ...delayedDocs.map((d) => ({ doc: d, source: 'customerOrdersDelayed' }))
       ];
 
       allDocs.forEach(({ doc: orderDoc, source }) => {
@@ -246,13 +198,10 @@ const WeeklyCustomerOrderManager = () => {
         if (!isOrderActive(orderData, source)) return;
 
         const createdDate = getCreatedDate(orderData.createdAt);
-        if (!createdDate) return;
-
-        const createdDateISO = createdDate.toISOString();
-        if (createdDateISO < startISO || createdDateISO > endISO) return;
+        if (!createdDate || createdDate < sunday || createdDate > friday) return;
 
         const pickupSpot = orderData.customerDetails?.pickupSpot || 'לא צוין';
-        if (selectedCommunities.size > 0 && !selectedCommunities.has(pickupSpot)) return;
+        if (communities.size > 0 && !communities.has(pickupSpot)) return;
 
         if (!grouped[pickupSpot]) grouped[pickupSpot] = [];
         const normalizedBreakdown = ensureLineIdsInBreakdown(
@@ -274,12 +223,25 @@ const WeeklyCustomerOrderManager = () => {
 
       setOrdersByPickupSpot(grouped);
     } catch (err) {
+      if (requestId !== latestRequestRef.current) return;
       console.error('Error fetching orders:', err);
       setError('Failed to load order data');
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestRef.current) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !isAuthorized || !selectedWeek) return;
+    fetchWeeklyOrders(selectedWeek, selectedCommunities);
+  }, [authLoading, isAuthorized, selectedWeek, selectedCommunities, fetchWeeklyOrders]);
+
+  const allOrders = useMemo(
+    () => Object.values(ordersByPickupSpot).flat(),
+    [ordersByPickupSpot]
+  );
+
+  const getOrderCommunityKey = (order) => `${order.source}::${order.id}`;
 
   const handleSubmitFilters = () => {
     setSelectedWeek(tempSelectedWeek);
@@ -579,14 +541,14 @@ const WeeklyCustomerOrderManager = () => {
     }
   };
 
-  if (loading) return <LoadingSpinner />;
+  if (authLoading) return <LoadingSpinner />;
 
-  if (error) {
+  if (!isAuthorized) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
           <p className="font-bold">Error</p>
-          <p>{error}</p>
+          <p>You are not authorized to view this page</p>
         </div>
       </div>
     );
@@ -606,7 +568,7 @@ const WeeklyCustomerOrderManager = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {availableWeeks.map((week) => {
-                const sunday = new Date(week);
+                const sunday = parseISO(week);
                 const friday = new Date(sunday);
                 friday.setDate(sunday.getDate() + 5);
                 return (
@@ -667,7 +629,8 @@ const WeeklyCustomerOrderManager = () => {
         <div className="mt-6 text-center">
           <button
             onClick={handleSubmitFilters}
-            className="px-8 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
+            disabled={loading}
+            className="px-8 py-3 disabled:opacity-60 disabled:cursor-wait bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
           >
             טען הזמנות
           </button>
@@ -681,7 +644,16 @@ const WeeklyCustomerOrderManager = () => {
         )}
       </div>
 
-      {allOrders.length === 0 ? (
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-indigo-200 border-t-indigo-600" />
+        </div>
+      ) : error ? (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-center">
+          <p className="font-bold">Error</p>
+          <p>{error}</p>
+        </div>
+      ) : allOrders.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 p-4 rounded text-center">
           לא נמצאו הזמנות פעילות עבור השבוע והקהילות שנבחרו
         </div>
@@ -802,6 +774,7 @@ const WeeklyCustomerOrderManager = () => {
                                 <div className="text-xs font-bold text-indigo-900">העברת מוצר לעסק אחר</div>
                                 <select
                                   value={transferDraft.sourceLineId || ''}
+                                  onFocus={ensureTransferCatalog}
                                   onChange={(e) => updateTransferDraft(order.id, {
                                     sourceLineId: e.target.value,
                                     quantity: '',
@@ -832,13 +805,20 @@ const WeeklyCustomerOrderManager = () => {
                                   />
                                   <select
                                     value={transferDraft.targetBusinessId || ''}
+                                    onFocus={ensureTransferCatalog}
                                     onChange={(e) => updateTransferDraft(order.id, {
                                       targetBusinessId: e.target.value,
                                       targetProductId: '',
                                     })}
                                     className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
                                   >
-                                    <option value="">עסק יעד</option>
+                                    <option value="">
+                                      {transferCatalogStatus === 'loading'
+                                        ? 'טוען עסקים...'
+                                        : transferCatalogStatus === 'error'
+                                          ? 'שגיאה בטעינה - נסה שוב'
+                                          : 'עסק יעד'}
+                                    </option>
                                     {transferCatalog.businesses
                                       .filter((business) => business.id !== sourceBusinessId)
                                       .map((business) => (

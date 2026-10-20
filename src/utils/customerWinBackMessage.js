@@ -1,4 +1,4 @@
-import { buildCommunityStoreLink } from './communityBroadcastMessage';
+import { DEFAULT_BROADCAST_TEMPLATE, buildCommunityStoreLink } from './communityBroadcastMessage';
 import { buildOrderReadyWhatsAppUrl } from './marketplaceOrderWhatsApp';
 
 export const WIN_BACK_WEEK_OPTIONS = [4, 6, 8, 12];
@@ -122,6 +122,71 @@ export function filterLapsedCustomers(customers, weeks, now = new Date()) {
   ));
 }
 
+function normalizeWinBackEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function getIdentityKeys(customer) {
+  const keys = new Set();
+  const phone = normalizeWinBackPhone(customer?.phone);
+  if (phone) keys.add(`p:${phone}`);
+  const email = normalizeWinBackEmail(customer?.email);
+  if (email) keys.add(`e:${email}`);
+  (customer?.orders || []).forEach((order) => {
+    const orderPhone = normalizeWinBackPhone(order?.phone);
+    if (orderPhone) keys.add(`p:${orderPhone}`);
+  });
+  return keys;
+}
+
+/**
+ * Index completed orders by normalized phone / email so a returning customer
+ * is found even when the new order landed under a different customer entry.
+ */
+export function buildCompletedOrderIndex(customers) {
+  const index = new Map();
+  (customers || []).forEach((customer) => {
+    (customer?.orders || []).forEach((order) => {
+      const createdAt = toDate(order?.createdAt);
+      if (!createdAt) return;
+      const entry = { ...order, createdAt };
+      const keys = new Set();
+      const orderPhone = normalizeWinBackPhone(order?.phone) || normalizeWinBackPhone(customer?.phone);
+      if (orderPhone) keys.add(`p:${orderPhone}`);
+      const email = normalizeWinBackEmail(customer?.email);
+      if (email) keys.add(`e:${email}`);
+      keys.forEach((key) => {
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(entry);
+      });
+    });
+  });
+  return index;
+}
+
+export function orderHasCompensationItem(order) {
+  return Object.values(order?.orderBreakdown || {}).some((group) => (
+    (group?.items || []).some((item) => item?.isCompensation === true)
+  ));
+}
+
+/**
+ * First completed order placed after the win-back message was sent, or null.
+ */
+export function findWinBackReturnOrder(customer, orderIndex, sentAt) {
+  const sentDate = toDate(sentAt);
+  if (!sentDate || !orderIndex) return null;
+  let first = null;
+  getIdentityKeys(customer).forEach((key) => {
+    (orderIndex.get(key) || []).forEach((order) => {
+      if (order.createdAt <= sentDate) return;
+      if (!first || order.createdAt < first.createdAt) first = order;
+    });
+  });
+  if (!first) return null;
+  return { ...first, includesGift: orderHasCompensationItem(first) };
+}
+
 export function weeksIdle(date, now = new Date()) {
   const createdAt = toDate(date);
   if (!createdAt) return null;
@@ -134,7 +199,14 @@ export function getWinBackCommunity(customer) {
   return String(getLastCompletedOrder(customer)?.pickupSpot || '').trim();
 }
 
-export function getWinBackStoreLink(customer) {
+export function getWinBackStoreLink(customer, { communityCode = '', customLink = '' } = {}) {
+  const custom = String(customLink || '').trim();
+  if (custom) return custom;
+  const code = String(communityCode || '').trim();
+  if (code) {
+    const baseUrl = DEFAULT_BROADCAST_TEMPLATE.siteBaseUrl.replace(/\/$/, '');
+    return `${baseUrl}/?c=${encodeURIComponent(code)}`;
+  }
   return buildCommunityStoreLink(getWinBackCommunity(customer));
 }
 

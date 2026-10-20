@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, setDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 
 const COLLECTION = 'customerProfiles';
@@ -17,8 +17,17 @@ const EMPTY_PROFILE = {
   noteHebrew: '',
   noteThai: '',
   winBackSentAt: '',
+  winBackFirstSentAt: '',
+  winBackSendCount: 0,
   winBackOfferSummary: '',
 };
+
+// Profiles written before the counter existed only have winBackSentAt.
+function readWinBackSendCount(data) {
+  const count = Number(data?.winBackSendCount);
+  if (Number.isFinite(count) && count > 0) return Math.floor(count);
+  return data?.winBackSentAt ? 1 : 0;
+}
 
 function normalizeProfile(data) {
   if (!data) return { ...EMPTY_PROFILE };
@@ -27,6 +36,8 @@ function normalizeProfile(data) {
     noteHebrew: data.noteHebrew || '',
     noteThai: data.noteThai || '',
     winBackSentAt: data.winBackSentAt || '',
+    winBackFirstSentAt: data.winBackFirstSentAt || data.winBackSentAt || '',
+    winBackSendCount: readWinBackSendCount(data),
     winBackOfferSummary: data.winBackOfferSummary || '',
   };
 }
@@ -100,14 +111,23 @@ export async function markCustomerWinBackSent(key, { offerSummary = '', sentAt }
   if (!id) throw new Error('Missing customer key');
   const winBackSentAt = sentAt || new Date().toISOString();
   const winBackOfferSummary = String(offerSummary || '').trim();
-  await setDoc(
-    doc(db, COLLECTION, id),
-    {
-      winBackSentAt,
-      winBackOfferSummary,
-      updatedAt: winBackSentAt,
-    },
-    { merge: true }
-  );
-  return { winBackSentAt, winBackOfferSummary };
+  const ref = doc(db, COLLECTION, id);
+  return runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    const existing = snap.exists() ? snap.data() : null;
+    const winBackSendCount = readWinBackSendCount(existing) + 1;
+    const winBackFirstSentAt = existing?.winBackFirstSentAt || existing?.winBackSentAt || winBackSentAt;
+    transaction.set(
+      ref,
+      {
+        winBackSentAt,
+        winBackFirstSentAt,
+        winBackSendCount,
+        winBackOfferSummary,
+        updatedAt: winBackSentAt,
+      },
+      { merge: true }
+    );
+    return { winBackSentAt, winBackFirstSentAt, winBackSendCount, winBackOfferSummary };
+  });
 }

@@ -3,6 +3,7 @@ jest.mock('../services/pickupSpotsService', () => ({
 }));
 
 import {
+  findDeliveryDateBlockers,
   generateAvailableDeliveryDates,
   generateSharedAvailableDeliveryDates,
   getDeliveryScheduleDocumentKeys,
@@ -138,6 +139,53 @@ describe('delivery schedule utilities', () => {
 
     expect(dates.length).toBeGreaterThan(0);
     expect(dates.every((dateKey) => new Date(`${dateKey}T00:00:00`).getDay() === 4)).toBe(true);
+  });
+
+  describe('findDeliveryDateBlockers', () => {
+    const tuesdaySchedule = {
+      active: true,
+      weeklyDays: [2],
+      defaultCutoff: { hoursBeforeDelivery: 33 },
+      horizonWeeks: 4,
+    };
+    const tuesdayOrder = (hoursBefore, businessName) => ({
+      orderMode: 'always_on_grocery',
+      businessName,
+      pickupSpots: [community],
+      fulfillmentConfig: { weeklyDeliveryDays: [2, 3], weeklyCutoffByDay: { 2: hoursBefore } },
+    });
+    const mondayLunch = new Date(2026, 9, 12, 12, 52);
+
+    test('names the business whose earlier cutoff moves the whole cart to next week', () => {
+      const ordersById = {
+        regular: tuesdayOrder(33, 'Regular Farm'),
+        early: tuesdayOrder(36, 'Early Farm'),
+      };
+
+      expect(generateSharedAvailableDeliveryDates(
+        tuesdaySchedule,
+        Object.values(ordersById),
+        { communityName: community, now: mondayLunch }
+      )[0]).toBe('2026-10-20');
+
+      const result = findDeliveryDateBlockers(tuesdaySchedule, ordersById, {
+        communityName: community,
+        now: mondayLunch,
+      });
+
+      expect(result.earliestDate).toBe('2026-10-13');
+      expect(result.blockers).toHaveLength(1);
+      expect(result.blockers[0].orderId).toBe('early');
+      expect(result.blockers[0].businessName).toBe('Early Farm');
+      expect(result.blockers[0].cutoffAt.getHours()).toBe(11);
+    });
+
+    test('returns null when every business in the cart still makes the earliest date', () => {
+      expect(findDeliveryDateBlockers(tuesdaySchedule, {
+        a: tuesdayOrder(33, 'A'),
+        b: tuesdayOrder(33, 'B'),
+      }, { communityName: community, now: mondayLunch })).toBeNull();
+    });
   });
 
   test('schedule document keys keep the resolved name first and skip blanks', () => {

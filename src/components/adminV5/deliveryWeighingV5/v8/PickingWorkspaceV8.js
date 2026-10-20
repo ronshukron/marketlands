@@ -534,6 +534,11 @@ function OrderPickCard({
               x{qtyBadgeText}
             </span>
           )}
+          {group?.isKosherMehadrin && (
+            <span className="rounded-lg bg-indigo-700 px-2 py-0.5 text-sm font-black text-white">
+              {t8.kosherMehadrinBadge}
+            </span>
+          )}
           {group?.isOrganic && (
             <span className="rounded-full bg-green-600 px-2 py-0.5 text-xs font-black text-white">
               {t8.organicBadge}
@@ -903,7 +908,11 @@ function ItemsStep({
                     onClick={() => onOpenGroup(group.key)}
                     aria-pressed={active}
                     className={`w-full p-3 text-start transition-colors ${
-                      group.isOrganic && !group.isDone ? 'border-s-8 border-green-500 ' : ''
+                      group.isDone
+                        ? ''
+                        : group.isKosherMehadrin
+                          ? 'border-s-8 border-indigo-600 '
+                          : group.isOrganic ? 'border-s-8 border-green-500 ' : ''
                     }${
                       group.isDone
                         ? 'bg-green-50 opacity-70'
@@ -920,6 +929,11 @@ function ItemsStep({
                         {group.isDone ? '✓' : group.activeCount}
                       </span>
                       <span className="min-w-0 flex-1">
+                        {group.isKosherMehadrin && (
+                          <span className="inline-block mb-0.5 me-1 rounded-md bg-indigo-700 px-2 py-0.5 text-xs font-black text-white">
+                            {t8.kosherMehadrinBadge}
+                          </span>
+                        )}
                         {group.isOrganic && (
                           <span className="inline-block mb-0.5 rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-black text-white">
                             {t8.organicBadge}
@@ -977,6 +991,11 @@ function ItemsStep({
                 {activeGroup.images?.[0] ? <img src={cachedImg(activeGroup.images[0])} alt="" className="w-full h-full object-contain" /> : null}
               </div>
               <div className="flex-1 min-w-0">
+                {activeGroup.isKosherMehadrin && (
+                  <span className="inline-block mb-1 me-1 rounded-xl bg-indigo-700 px-4 py-1.5 text-2xl font-black text-white shadow-lg ring-4 ring-indigo-200">
+                    {t8.kosherMehadrinBadge}
+                  </span>
+                )}
                 {activeGroup.isOrganic && (
                   <span className="inline-block mb-1 rounded-full bg-green-600 px-3 py-1 text-base font-black text-white shadow">
                     {t8.organicBadge}
