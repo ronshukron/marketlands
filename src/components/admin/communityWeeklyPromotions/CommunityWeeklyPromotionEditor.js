@@ -1,8 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import usePickupSpots from '../../../hooks/usePickupSpots';
 import { getCommunityCode } from '../../../services/pickupSpotsService';
-import { loadEligibleWeeklyProducts } from '../../../services/communityWeeklyPromotionService';
+import {
+  COMMUNITY_WEEKLY_PROMOTION_SHARE_MESSAGE_MAX_LENGTH,
+  loadEligibleWeeklyProducts,
+} from '../../../services/communityWeeklyPromotionService';
 import { getWeekKey, toLocalDateKey } from '../../../utils/deliveryScheduleUtils';
+import {
+  COMMUNITY_WEEKLY_PROMOTION_DEFAULT_SHARE_BODY,
+  buildCommunityStoreUrlForCode,
+  buildCommunityWeeklyPromotionShareMessage,
+} from '../../../utils/communityWeeklyPromotionShareMessage';
 
 const inputClass =
   'mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-gray-100';
@@ -67,7 +75,7 @@ const initialForm = (promotion) => {
 
   return {
     title: promotion?.title || '',
-    message: promotion?.shareConfig?.message || promotion?.message || promotion?.description || '',
+    message: promotion?.shareConfig?.message || promotion?.message || '',
     weekKey: promotion?.weekKey || promotion?.deliveryWeekKey || sunday,
     communities: Array.isArray(selectedCommunities) ? selectedCommunities : [],
     startsAtDate: asDateInput(promotion?.startsAt) || sunday,
@@ -86,18 +94,20 @@ const CommunityWeeklyPromotionEditor = ({
   onSave,
   onCancel,
 }) => {
-  const { pickupSpots = [], loaded: communitiesLoaded } = usePickupSpots();
+  const { pickupSpots = [], pickupSpotsData = {}, loaded: communitiesLoaded } = usePickupSpots();
   const [form, setForm] = useState(() => initialForm(promotion));
+  const [previewCommunity, setPreviewCommunity] = useState('');
   const [communitySearch, setCommunitySearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [eligibleProducts, setEligibleProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState('');
   const [errors, setErrors] = useState({});
-  const readOnly = Boolean(promotion?.id && promotion?.status !== 'draft');
+  const readOnly = promotion?.status === 'archived';
 
   useEffect(() => {
     setForm(initialForm(promotion));
+    setPreviewCommunity('');
     setErrors({});
   }, [promotion]);
 
@@ -159,6 +169,32 @@ const CommunityWeeklyPromotionEditor = ({
     name.toLocaleLowerCase('he').includes(communitySearch.trim().toLocaleLowerCase('he'))
   );
 
+  const activePreviewCommunity = form.communities.includes(previewCommunity)
+    ? previewCommunity
+    : (form.communities[0] || '');
+
+  const sharePreview = useMemo(() => {
+    const communityData = pickupSpotsData[activePreviewCommunity] || {};
+    const storeUrl = activePreviewCommunity
+      ? (String(communityData.storeLink || '').trim() || buildCommunityStoreUrlForCode({
+        origin: typeof window !== 'undefined' ? window.location.origin : '',
+        communityCode: getCommunityCode(activePreviewCommunity),
+        communityName: activePreviewCommunity,
+      }))
+      : 'https://www.bastabasket.com/?c=קוד-הקהילה';
+    const whatsappGroupLink = activePreviewCommunity
+      ? String(communityData.whatsappGroupLink || '').trim()
+      : 'https://chat.whatsapp.com/קישור-הקבוצה';
+    return {
+      whatsappGroupLink,
+      text: buildCommunityWeeklyPromotionShareMessage({
+        promotion: { shareConfig: { message: form.message } },
+        storeUrl,
+        whatsappGroupLink,
+      }),
+    };
+  }, [activePreviewCommunity, form.message, pickupSpotsData]);
+
   const patch = (updates) => {
     setForm((current) => ({ ...current, ...updates }));
     setErrors({});
@@ -201,6 +237,9 @@ const CommunityWeeklyPromotionEditor = ({
       new Date(combineLocalDateTime(form.startsAtDate, form.startsAtTime))
     ) {
       next.dates = 'מועד הסגירה חייב להיות מאוחר ממועד הפתיחה.';
+    }
+    if (form.message.trim().length > COMMUNITY_WEEKLY_PROMOTION_SHARE_MESSAGE_MAX_LENGTH) {
+      next.message = `ההודעה יכולה להכיל עד ${COMMUNITY_WEEKLY_PROMOTION_SHARE_MESSAGE_MAX_LENGTH.toLocaleString('he-IL')} תווים.`;
     }
     if (form.products.length === 0) next.products = 'יש לבחור לפחות מוצר אחד.';
     form.products.forEach((product) => {
@@ -255,7 +294,7 @@ const CommunityWeeklyPromotionEditor = ({
     <form onSubmit={submit} dir="rtl" className="space-y-5" noValidate>
       {readOnly && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900" role="status">
-          מבצע שתוזמן או הופעל נעול לעריכה. ניתן לשכפל אותו כדי ליצור טיוטה חדשה.
+          מבצע בארכיון נעול לעריכה. ניתן לשכפל אותו כדי ליצור טיוטה חדשה.
         </div>
       )}
 
@@ -274,17 +313,6 @@ const CommunityWeeklyPromotionEditor = ({
             />
             {errors.title && <span id="promotion-title-error" className="mt-1 block text-xs text-red-600">{errors.title}</span>}
           </label>
-          <label className="block text-sm font-medium text-gray-700 sm:col-span-2">
-            הודעה לקהילה
-            <textarea
-              value={form.message}
-              onChange={(event) => patch({ message: event.target.value })}
-              className={inputClass}
-              rows={3}
-              disabled={readOnly}
-              placeholder="מה מיוחד במבצע השבוע?"
-            />
-          </label>
           <label className="block text-sm font-medium text-gray-700">
             שבוע המבצע
             <input
@@ -297,6 +325,95 @@ const CommunityWeeklyPromotionEditor = ({
             />
             <span className="mt-1 block text-xs text-gray-500">השבוע נשמר לפי יום ראשון.</span>
           </label>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">הודעת וואטסאפ</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500">
+              כתבו כאן את נוסח ההודעה. שדה ריק שולח את נוסח ברירת המחדל.
+              הקישור לאתר וקישור קבוצת הוואטסאפ מתווספים לבד בסוף, לפי כל יישוב.
+              שורה אחרונה שמתחילה ב«מגיעים» מופיעה אחרי הקישורים.
+            </p>
+          </div>
+          {!readOnly && (
+            form.message.trim() ? (
+              <button
+                type="button"
+                onClick={() => patch({ message: '' })}
+                className="min-h-11 shrink-0 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300"
+              >
+                חזרה לברירת מחדל
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => patch({ message: COMMUNITY_WEEKLY_PROMOTION_DEFAULT_SHARE_BODY })}
+                className="min-h-11 shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                עריכת ברירת המחדל
+              </button>
+            )
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div>
+            <label htmlFor="promotion-share-message" className="block text-sm font-medium text-gray-700">
+              הודעה ידנית
+            </label>
+            <textarea
+              id="promotion-share-message"
+              value={form.message}
+              onChange={(event) => patch({ message: event.target.value })}
+              className={`${inputClass} min-h-80 resize-y leading-6`}
+              rows={16}
+              disabled={readOnly}
+              placeholder="השאירו ריק כדי לשלוח את הודעת ברירת המחדל"
+              aria-invalid={Boolean(errors.message)}
+              aria-describedby="promotion-message-help"
+            />
+            <span id="promotion-message-help" className="mt-1 flex items-center justify-between gap-3 text-xs text-gray-500">
+              <span>{form.message.trim() ? 'נשלח הנוסח שכתבתם, עם קישורים לפי היישוב' : 'נשלח נוסח ברירת המחדל, עם קישורים לפי היישוב'}</span>
+              <span dir="ltr">
+                {form.message.trim().length.toLocaleString('he-IL')} / {COMMUNITY_WEEKLY_PROMOTION_SHARE_MESSAGE_MAX_LENGTH.toLocaleString('he-IL')}
+              </span>
+            </span>
+            {errors.message && <span className="mt-1 block text-xs text-red-600" role="alert">{errors.message}</span>}
+          </div>
+
+          <div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <p className="text-sm font-medium text-gray-700">תצוגה מקדימה</p>
+              {form.communities.length > 1 && (
+                <label className="block text-xs font-medium text-gray-600 sm:w-48">
+                  קהילה
+                  <select
+                    value={activePreviewCommunity}
+                    onChange={(event) => setPreviewCommunity(event.target.value)}
+                    className={inputClass}
+                  >
+                    {form.communities.map((name) => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              {activePreviewCommunity
+                ? `כך ההודעה תיראה ב${activePreviewCommunity}.`
+                : 'בחרו קהילה כדי לראות את הקישורים האמיתיים שלה.'}
+              {activePreviewCommunity && !sharePreview.whatsappGroupLink && ' ליישוב הזה אין קישור לקבוצת וואטסאפ, אז השורה הזו לא נכללת.'}
+            </p>
+            <textarea
+              readOnly
+              value={sharePreview.text}
+              aria-label="תצוגה מקדימה של הודעת הוואטסאפ"
+              className={`${inputClass} mt-2 min-h-80 resize-y bg-gray-50 leading-6`}
+              rows={16}
+            />
+          </div>
         </div>
       </section>
 

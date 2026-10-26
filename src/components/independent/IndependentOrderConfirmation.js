@@ -6,6 +6,7 @@ import LoadingSpinner from '../LoadingSpinner';
 import Swal from 'sweetalert2';
 import { checkAndUpdateIndependentStock } from '../../utils/independentStock';
 import { createSuspendedPayment, generateCustomerOrderId } from '../../services/independentPaymentService';
+import { rememberPendingPurchase } from '../../utils/metaPixel';
 import { db } from '../../firebase/firebase';
 import { doc, setDoc, updateDoc, arrayUnion, serverTimestamp, getDoc, increment } from 'firebase/firestore';
 
@@ -239,6 +240,11 @@ const IndependentOrderConfirmation = () => {
       });
 
       if (paymentResponse?.status === 1 && paymentResponse?.data?.url) {
+        rememberPendingPurchase({
+          orderId: customerOrderId,
+          value: Number(total) || 0,
+          items,
+        });
         window.location.href = paymentResponse.data.url;
         return;
       }

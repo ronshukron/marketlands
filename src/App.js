@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import ScrollToTop from './components/ScrollToTop';
+import MetaPixelTracker from './components/MetaPixelTracker';
 import { AuthProvider } from "./contexts/authContext";
 import { CartProvider } from './contexts/CartContext';
 import { MarketplaceCartProvider } from './contexts/MarketplaceCartContext';
@@ -168,6 +169,7 @@ const App = () => {
           <SaleModeProvider>
             <Router>
             <ScrollToTop />
+            <MetaPixelTracker />
             <AppFrame>
                 <Suspense fallback={<RouteFallback />}>
                 <Routes>

@@ -34,21 +34,23 @@ const CommunityWeeklyPromotionSummary = ({ promotion, unlocked, onUnlock }) => {
 
   return (
     <section
-      className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2"
+      className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-4 py-3 shadow-sm"
       aria-label="מבצע שבועי לקהילה"
     >
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="min-w-0 truncate text-sm font-bold text-gray-900">
-          <span className="text-blue-700">מבצע שבועי:</span>{' '}
-          {promotion.title || 'מחיר קהילתי מיוחד'}
-        </h2>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-emerald-800">מבצע שבועי לקהילה</p>
+          <h2 className="mt-0.5 text-lg font-black text-gray-900">
+            {promotion.title || 'מחיר קהילתי מיוחד'}
+          </h2>
+        </div>
         {!unlocked && (
           <button
             type="button"
             onClick={onUnlock}
-            className="min-h-11 max-w-[11rem] flex-shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold leading-tight text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            className="min-h-11 shrink-0 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700"
           >
-            פתיחת המבצע עבור כל הקהילה
+            שיתוף ופתיחת המחיר
           </button>
         )}
       </div>
@@ -72,7 +74,7 @@ const CommunityWeeklyPromotionSummary = ({ promotion, unlocked, onUnlock }) => {
       )}
 
       {!unlocked && (
-        <p className="mt-1 text-[11px] text-gray-500">שיתוף אחד בקבוצת הקהילה פותח את המחיר לכל חברי הקהילה.</p>
+        <p className="mt-2 text-sm font-medium text-emerald-900">שיתוף אחד בקבוצת הקהילה פותח את המחיר לכל חברי הקהילה.</p>
       )}
     </section>
   );

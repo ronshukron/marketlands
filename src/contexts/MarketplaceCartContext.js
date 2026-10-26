@@ -4,6 +4,7 @@ import {
   clampCartQuantityToStock,
   getProductStockLimit,
 } from '../utils/marketplaceProductStock';
+import { trackAddToCart } from '../utils/metaPixel';
 
 const STORAGE_KEY = 'marketplaceCartItems';
 
@@ -47,6 +48,18 @@ export const MarketplaceCartProvider = ({ children }) => {
     if (!canAddProductToStoreCart(product, existingQty)) {
       return false;
     }
+
+    trackAddToCart({
+      value: Number(product.price) || 0,
+      contentName: product.name,
+      items: [{
+        id: product.id,
+        name: product.name,
+        price: Number(product.price) || 0,
+        quantity: 1,
+        catalogNumber: product.catalogNumber,
+      }],
+    });
 
     const stockLimit = getProductStockLimit(product);
 

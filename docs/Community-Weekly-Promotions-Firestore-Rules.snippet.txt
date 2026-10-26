@@ -86,7 +86,7 @@ function cwpValidPromotionSchema(data) {
     && data.shareConfig.headline is string
     && data.shareConfig.headline.size() <= 240
     && data.shareConfig.message is string
-    && data.shareConfig.message.size() <= 2000
+    && data.shareConfig.message.size() <= 4000
     && data.schemaVersion is int
     && data.schemaVersion >= 1
     && data.schemaVersion <= 100

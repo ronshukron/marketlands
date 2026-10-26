@@ -11,6 +11,7 @@ import 'slick-carousel/slick/slick.css';
 import 'slick-carousel/slick/slick-theme.css';
 import Swal from 'sweetalert2';
 import { isVolunteerAvailableForCommunity } from '../../services/volunteerService';
+import { trackInitiateCheckout } from '../../utils/metaPixel';
 
 const IndependentOrderForm = () => {
   const { orderId } = useParams();
@@ -318,6 +319,10 @@ const IndependentOrderForm = () => {
       Swal.fire({ icon: 'info', title: 'סכום מינימום להזמנת סוחר', text: `על מנת להזמין כסוחר יש להגיע למינימום של ₪${merchantMin}` });
       return;
     }
+    trackInitiateCheckout({
+      value: cartTotal,
+      items: cartItems,
+    });
     navigate('/order-confirmation-independent', {
       state: {
         orderId,

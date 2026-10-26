@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   parseShoppingListTerms,
   searchProducts,
   findBestProductForTerm,
 } from '../../utils/productSearchUtils';
+import { trackSearch } from '../../utils/metaPixel';
 
 const noop = () => {};
 
@@ -16,6 +17,22 @@ const SearchBar = ({
   onClearMultiSearch = noop,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const productsRef = useRef(products);
+  productsRef.current = products;
+
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (term.length < 2) return undefined;
+    const timer = window.setTimeout(() => {
+      const list = productsRef.current || [];
+      const listTerms = parseShoppingListTerms(term);
+      const matched = listTerms.length >= 2
+        ? listTerms.flatMap((part) => searchProducts(list, part))
+        : searchProducts(list, term);
+      trackSearch({ searchString: term, items: matched.slice(0, 10) });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     if (searchTerm.trim() === '') {

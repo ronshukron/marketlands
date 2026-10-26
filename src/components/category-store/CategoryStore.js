@@ -39,6 +39,7 @@ import {
   productMatchesStoreCategory,
   sortCategoryStoreProducts,
 } from '../../utils/categoryStoreUtils';
+import { trackViewContent } from '../../utils/metaPixel';
 
 // Firestore allows up to 30 values in an `in` filter.
 const PRODUCT_QUERY_CHUNK_SIZE = 30;
@@ -980,6 +981,23 @@ const CategoryStore = () => {
     () => filterProductsForCommunity(baseProducts),
     [baseProducts, filterProductsForCommunity]
   );
+  const viewContentKeyRef = useRef('');
+
+  useEffect(() => {
+    if (loading || isSearchActive || isMultiSearchActive || displayProducts.length === 0) return;
+    const signature = [
+      selectedCategory,
+      selectedCommunity,
+      displayProducts.slice(0, 10).map((product) => product.id).join(','),
+    ].join('|');
+    if (viewContentKeyRef.current === signature) return;
+    viewContentKeyRef.current = signature;
+    trackViewContent({
+      contentName: selectedCategory,
+      contentCategory: selectedCategory,
+      items: displayProducts.slice(0, 10),
+    });
+  }, [displayProducts, isMultiSearchActive, isSearchActive, loading, selectedCategory, selectedCommunity]);
 
   const searchableProducts = useMemo(() => {
     if (!selectedCommunity) return productsWithFarmerBadges;
@@ -1087,6 +1105,16 @@ const CategoryStore = () => {
           </div>
         </div>
 
+        {selectedCommunity && activePromotion && (
+          <div className="mb-3 px-1">
+            <CommunityWeeklyPromotionSummary
+              promotion={activePromotion}
+              unlocked={unlocked}
+              onUnlock={openUnlockModal}
+            />
+          </div>
+        )}
+
         {selectedCommunity && !deliveryDatesLoading && availableDeliveryDates.length === 0 && (
           <div className="mb-3 px-1">
             <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-right">
@@ -1140,11 +1168,6 @@ const CategoryStore = () => {
               deliveryWeekKey={selectedDeliveryDate ? getWeekKey(selectedDeliveryDate) : undefined}
               variant="compact"
               showCommunityLink
-            />
-            <CommunityWeeklyPromotionSummary
-              promotion={activePromotion}
-              unlocked={unlocked}
-              onUnlock={openUnlockModal}
             />
           </div>
         )}

@@ -44,6 +44,7 @@ import {
   isValidCommunityWeeklyPromotionTransition,
   loadEligibleWeeklyProducts,
   publishPromotion,
+  updatePromotion,
   validateCommunityWeeklyPromotion,
 } from './communityWeeklyPromotionService';
 
@@ -267,6 +268,40 @@ describe('community weekly promotion service', () => {
       expect.objectContaining({ name: 'communityWeeklyPromotions', id: 'promo-1' }),
       expect.objectContaining({ status: 'active' }),
     );
+  });
+
+  test('updates a published promotion and keeps it active', async () => {
+    getDoc.mockResolvedValue({
+      id: 'promo-1',
+      exists: () => true,
+      data: () => validPromotion({ status: 'active' }),
+    });
+    updateDoc.mockResolvedValue(undefined);
+
+    const result = await updatePromotion('promo-1', validPromotion({
+      status: 'draft',
+      title: 'Updated title',
+    }));
+
+    expect(result.promotion).toEqual(expect.objectContaining({
+      status: 'active',
+      title: 'Updated title',
+    }));
+    expect(updateDoc).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'promo-1' }),
+      expect.objectContaining({ status: 'active', title: 'Updated title' }),
+    );
+  });
+
+  test('rejects edits to an archived promotion', async () => {
+    getDoc.mockResolvedValue({
+      id: 'promo-1',
+      exists: () => true,
+      data: () => validPromotion({ status: 'archived' }),
+    });
+
+    await expect(updatePromotion('promo-1', validPromotion())).rejects.toThrow('ארכיון');
+    expect(updateDoc).not.toHaveBeenCalled();
   });
 
   test('loads products only for non-independent businesses', async () => {

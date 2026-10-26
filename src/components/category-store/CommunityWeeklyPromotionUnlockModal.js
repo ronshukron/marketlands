@@ -210,7 +210,7 @@ const CommunityWeeklyPromotionUnlockModal = ({
                 readOnly
                 value={shareText}
                 onFocus={(event) => event.target.select()}
-                className="min-h-32 w-full resize-none rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm leading-6 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="min-h-64 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm leading-6 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <button
                 type="button"

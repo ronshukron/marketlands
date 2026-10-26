@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { trackViewContent } from '../utils/metaPixel';
 import './ProductDetail.css';
 
 const ProductDetail = () => {
@@ -30,6 +31,22 @@ const ProductDetail = () => {
 
     fetchProductData();
   }, [productId]);
+
+  useEffect(() => {
+    if (!productData) return;
+    trackViewContent({
+      contentName: productData.name,
+      contentCategory: productData.category,
+      value: Number(productData.price) || 0,
+      items: [{
+        id: productId,
+        name: productData.name,
+        price: productData.price,
+        quantity: 1,
+        catalogNumber: productData.catalogNumber,
+      }],
+    });
+  }, [productData, productId]);
 
   const handleImageClick = (imageUrl) => {
     setSelectedImage(imageUrl);

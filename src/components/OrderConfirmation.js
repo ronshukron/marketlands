@@ -23,6 +23,7 @@ import {
 import { refreshCartCommercialTerms } from '../services/productPromotionService';
 import { describeCommunityWeeklyCheckoutRefreshError } from '../services/communityWeeklyPromotionService';
 import { persistCustomerOrderWithCompensation } from '../services/compensationService';
+import { rememberPendingPurchase, trackPurchase } from '../utils/metaPixel';
 import CheckoutAccountModal from './CheckoutAccountModal';
 import {
     buildOrderAccountPayload,
@@ -588,6 +589,11 @@ const OrderConfirmation = () => {
             // });
     
             if (paymentResponse.data.paymentLink) {
+                rememberPendingPurchase({
+                    orderId: customerOrderId,
+                    value: totalWithDelivery,
+                    items: Object.values(checkoutItemsByOrder).flatMap((orderData) => orderData.items || []),
+                });
                 window.location.href = paymentResponse.data.paymentLink;
                 // setPaymentUrl(paymentResponse.data.paymentLink); // for iframe Open the payment link in an iframe 
             } else {
@@ -811,6 +817,12 @@ const OrderConfirmation = () => {
                     console.error("Error updating user document with order reference:", error);
                 }
             }
+
+            trackPurchase({
+                orderId: customerOrderRef.id,
+                value: totalWithDelivery,
+                items: Object.values(checkoutItemsByOrder).flatMap((orderData) => orderData.items || []),
+            });
 
             // Clear cart after successful submission
             clearCart();

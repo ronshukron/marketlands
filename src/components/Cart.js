@@ -6,6 +6,7 @@ import { getCheckoutRoute } from '../services/paymentConfigService';
 import { saveCart } from '../services/savedCartService';
 import Swal from 'sweetalert2';
 import { evaluateOrderMinimum, formatOrderMinimumFailure, getBufferedDisplayQuantity, getEstimatedChargeableQuantity } from '../utils/pricing';
+import { trackInitiateCheckout } from '../utils/metaPixel';
 import { useWeightBuffer } from '../contexts/WeightBufferContext';
 
 const Cart = ({ isOpen, onClose }) => {
@@ -110,6 +111,11 @@ const Cart = ({ isOpen, onClose }) => {
       });
       return;
     }
+
+    trackInitiateCheckout({
+      value: cartTotal,
+      items: cartItems,
+    });
 
     setCheckingRoute(true);
     try {

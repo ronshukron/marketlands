@@ -48,6 +48,7 @@ import {
 } from '../../services/referralService';
 import { INTRODUCTION_BASKET_CATALOG_NUMBER } from '../../services/introductionBasketService';
 import { persistCustomerOrderWithCompensation } from '../../services/compensationService';
+import { rememberPendingPurchase, trackPurchase } from '../../utils/metaPixel';
 import CheckoutAccountModal from '../CheckoutAccountModal';
 import {
     buildOrderAccountPayload,
@@ -1111,6 +1112,11 @@ const OrderConfirmationDelayed = () => {
             // Firestore rules allow create for guests but block updates.
 
             if (url) {
+                rememberPendingPurchase({
+                    orderId: customerOrderId,
+                    value: effectiveTotalWithDelivery,
+                    items: checkoutItems,
+                });
                 window.location.href = url;
             } else {
                 console.error('Failed to create delayed payment checkout', checkoutResult);
@@ -1338,6 +1344,12 @@ const OrderConfirmationDelayed = () => {
                     console.error("Error updating user document with order reference:", error);
                 }
             }
+
+            trackPurchase({
+                orderId: customerOrderRef.id,
+                value: effectiveTotalWithDelivery,
+                items: Object.values(checkoutItemsByOrder).flatMap((orderData) => orderData.items || []),
+            });
 
             // Clear cart after successful submission
             clearCart();

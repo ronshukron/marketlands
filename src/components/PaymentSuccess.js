@@ -11,6 +11,7 @@ import {
 } from '../utils/delayedPaymentConfirm';
 import './PaymentSuccess.css';
 import LoadingSpinner from './LoadingSpinner';
+import { discardPendingPurchase, trackPendingPurchase } from '../utils/metaPixel';
 
 const readDelayedOrder = async (orderId) => {
   if (!orderId) return { exists: false, data: null, readable: false };
@@ -196,6 +197,16 @@ const PaymentSuccess = () => {
       cancelled = true;
     };
   }, [clearCart, location]);
+
+  useEffect(() => {
+    if (view.kind === 'success') {
+      trackPendingPurchase(view.orderId);
+      return;
+    }
+    if (view.kind === 'not_paid' || view.kind === 'abandoned' || view.kind === 'error' || view.kind === 'unrecoverable') {
+      discardPendingPurchase(view.orderId);
+    }
+  }, [view]);
 
   const handleBackToHome = () => {
     navigate('/');

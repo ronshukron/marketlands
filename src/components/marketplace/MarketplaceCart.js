@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMarketplaceCart } from '../../contexts/MarketplaceCartContext';
+import { trackInitiateCheckout } from '../../utils/metaPixel';
 import './marketplace.css';
 
 const formatCurrency = (value) =>
@@ -15,6 +16,10 @@ const MarketplaceCart = ({ isOpen, onClose }) => {
 
   const handleCheckout = () => {
     if (cartItems.length === 0) return;
+    trackInitiateCheckout({
+      value: cartTotal,
+      items: cartItems,
+    });
     onClose();
     navigate('/community-marketplace/checkout');
   };

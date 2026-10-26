@@ -3,6 +3,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
 import { applyCartPricing, applyQuantityPricing, getEstimatedLineTotal } from '../utils/pricing';
+import { trackAddToCart } from '../utils/metaPixel';
 import {
   isAlwaysOnGroceryOrder,
   isAlwaysOnGroceryOrderEnabled,
@@ -193,6 +194,13 @@ export const CartProvider = ({ children }) => {
    * @param {number} [minimumOrderItemCount=0] - Minimum eligible unit/package count.
    */
   const addItem = useCallback((item, orderId, businessId, minimumOrderAmount, minimumOrderItemCount = 0) => {
+    if (item && !item.isShipping && !item.isBasketAdjustment && Number(item.quantity) > 0) {
+      trackAddToCart({
+        value: getEstimatedLineTotal(item),
+        contentName: item.name,
+        items: [{ ...item, orderId }],
+      });
+    }
     setCartItems(prevItems => {
       const incomingKey = getCartLineKey({ ...item, orderId });
       // Check if item already exists in cart

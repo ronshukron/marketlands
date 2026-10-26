@@ -25,6 +25,7 @@ import { resolveCommunityName } from './pickupSpotsService';
 export const COMMUNITY_WEEKLY_PROMOTIONS_COLLECTION = 'communityWeeklyPromotions';
 export const COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION = 'communityWeeklyPromotionUnlocks';
 export const COMMUNITY_WEEKLY_PROMOTION_STATS_COLLECTION = 'communityWeeklyPromotionStats';
+export const COMMUNITY_WEEKLY_PROMOTION_SHARE_MESSAGE_MAX_LENGTH = 4000;
 
 export const COMMUNITY_WEEKLY_PROMOTION_STATUSES = Object.freeze({
   DRAFT: 'draft',
@@ -168,7 +169,11 @@ export const validateCommunityWeeklyPromotion = (input = {}) => {
     shareConfig: {
       enabled: input.shareConfig?.enabled !== false,
       headline: optionalString(input.shareConfig?.headline, 'shareConfig.headline', 240),
-      message: optionalString(input.shareConfig?.message, 'shareConfig.message', 2000),
+      message: optionalString(
+        input.shareConfig?.message,
+        'shareConfig.message',
+        COMMUNITY_WEEKLY_PROMOTION_SHARE_MESSAGE_MAX_LENGTH,
+      ),
     },
     schemaVersion,
     pricingVersion,
@@ -437,11 +442,8 @@ export const createPromotion = async (promotion) => {
 export const updatePromotion = async (promotionId, patch = {}) => {
   const existing = await getPromotion(promotionId);
   if (!existing) throw new Error('promotion not found');
-  if (
-    existing.status !== COMMUNITY_WEEKLY_PROMOTION_STATUSES.DRAFT
-    && existing.status !== COMMUNITY_WEEKLY_PROMOTION_STATUSES.SCHEDULED
-  ) {
-    throw new Error('only draft or scheduled promotions can be edited');
+  if (existing.status === COMMUNITY_WEEKLY_PROMOTION_STATUSES.ARCHIVED) {
+    throw new Error('מבצע בארכיון לא ניתן לעריכה.');
   }
 
   const document = toPromotionDocument({

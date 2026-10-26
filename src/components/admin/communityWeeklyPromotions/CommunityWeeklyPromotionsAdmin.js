@@ -159,7 +159,7 @@ const CommunityWeeklyPromotionsAdmin = () => {
     try {
       if (selectedPromotion?.id) {
         await updatePromotion(selectedPromotion.id, payload, { user: currentUser });
-        setNotice('הטיוטה עודכנה בהצלחה.');
+        setNotice(selectedPromotion.status === 'draft' ? 'הטיוטה עודכנה בהצלחה.' : 'המבצע עודכן בהצלחה.');
       } else {
         await createPromotion(payload, { user: currentUser });
         setNotice('הטיוטה נוצרה בהצלחה.');
@@ -168,7 +168,7 @@ const CommunityWeeklyPromotionsAdmin = () => {
       await loadPromotions();
     } catch (saveError) {
       console.error('Failed to save community weekly promotion', saveError);
-      setError(saveError?.message || 'שמירת הטיוטה נכשלה. נסו שוב.');
+      setError(saveError?.message || 'שמירת המבצע נכשלה. נסו שוב.');
     } finally {
       setSaving(false);
     }
@@ -190,7 +190,7 @@ const CommunityWeeklyPromotionsAdmin = () => {
   };
 
   const publish = (promotion) => {
-    if (!window.confirm(`לפרסם את "${promotion.title || 'המבצע'}"? לאחר הפרסום לא ניתן לערוך אותו.`)) return;
+    if (!window.confirm(`לפרסם את "${promotion.title || 'המבצע'}"? הוא יופיע בדף הבית של הקהילות שנבחרו, ואפשר יהיה להמשיך לערוך אותו.`)) return;
     runAction(
       promotion,
       () => publishPromotion(promotion.id, { user: currentUser }),
@@ -376,6 +376,7 @@ const CommunityWeeklyPromotionsAdmin = () => {
                   const communities = getPromotionCommunities(promotion);
                   const items = promotion.productSnapshots || [];
                   const busy = actingId === promotion.id;
+                  const manualMessage = String(promotion.shareConfig?.message || promotion.message || '').trim();
                   return (
                     <article key={promotion.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
                       <div className="flex items-start justify-between gap-3">
@@ -388,11 +389,9 @@ const CommunityWeeklyPromotionsAdmin = () => {
                         <StatusBadge status={status} />
                       </div>
 
-                      {(promotion.shareConfig?.message || promotion.message) && (
-                        <p className="mt-3 line-clamp-2 text-sm text-gray-600">
-                          {promotion.shareConfig?.message || promotion.message}
-                        </p>
-                      )}
+                      <p className={`mt-3 line-clamp-3 whitespace-pre-line text-sm ${manualMessage ? 'text-gray-600' : 'text-gray-400'}`}>
+                        {manualMessage || 'הודעת וואטסאפ: ברירת מחדל'}
+                      </p>
 
                       <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-3 text-sm">
                         <div>
@@ -419,7 +418,7 @@ const CommunityWeeklyPromotionsAdmin = () => {
                           onClick={() => editPromotion(promotion)}
                           className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300"
                         >
-                          {status === 'draft' ? 'עריכה' : 'צפייה'}
+                          {status === 'archived' ? 'צפייה' : 'עריכה'}
                         </button>
                         <button
                           type="button"

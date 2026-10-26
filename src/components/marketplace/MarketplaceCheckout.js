@@ -20,6 +20,7 @@ import { createMarketplaceOrderForBusiness } from './MarketplaceCreateOrder';
 import { notifyMarketplaceCustomerCombinedCheckout } from '../../services/marketplaceOrderNotifications';
 import { summarizeEmailNotifications } from '../../utils/marketplaceEmailSummary';
 import { saveOrderConfirmationSession } from '../../utils/marketplaceOrderConfirmation';
+import { trackAddPaymentInfo, trackPurchase } from '../../utils/metaPixel';
 import {
   normalizeCustomerPhone,
   validateCheckoutCustomer,
@@ -423,6 +424,25 @@ const MarketplaceCheckout = () => {
       const emailSummary = summarizeEmailNotifications(createdOrders, {
         combinedCustomer: combinedCustomerNotification,
       });
+
+      const purchasedItems = storeGroups
+        .filter((group) => createdOrders.some((order) => order.businessId === group.businessId))
+        .flatMap((group) => group.items || []);
+      const purchaseValue = createdOrders.reduce(
+        (sum, order) => sum + Number(order.total ?? order.subtotal ?? 0),
+        0,
+      );
+      trackPurchase({
+        orderId: createdOrders.map((order) => order.id).filter(Boolean).join('_'),
+        value: purchaseValue,
+        items: purchasedItems,
+      });
+      if (paymentMethod) {
+        trackAddPaymentInfo({
+          value: purchaseValue,
+          items: purchasedItems,
+        });
+      }
 
       const confirmationPayload = {
         orders: createdOrders.map((order) => ({

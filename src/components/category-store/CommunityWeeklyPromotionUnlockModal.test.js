@@ -2,7 +2,6 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CommunityWeeklyPromotionUnlockModal from './CommunityWeeklyPromotionUnlockModal';
 import { confirmCommunityUnlock } from '../../services/communityWeeklyPromotionService';
-import { COMMUNITY_WEEKLY_PROMOTION_SHARE_TITLE } from '../../utils/communityWeeklyPromotionShareMessage';
 
 jest.mock('../../services/communityWeeklyPromotionService', () => ({
   confirmCommunityUnlock: jest.fn(),
@@ -54,10 +53,12 @@ describe('CommunityWeeklyPromotionUnlockModal', () => {
     );
 
     const shareText = screen.getByLabelText('ההודעה לשיתוף').value;
-    expect(shareText).toContain(COMMUNITY_WEEKLY_PROMOTION_SHARE_TITLE);
-    expect(shareText).toContain('• *קרטון רימון 6 ק"ג - 30₪*');
+    expect(shareText).toContain('🍄פטריות של מוגו🍄');
     expect(shareText).toContain('https://chat.whatsapp.com/orhaner');
     expect(shareText).toContain('c=abc123');
+    expect(shareText).toContain('מגיעים ברביעי.');
+    expect(shareText).not.toContain('קרטון רימון');
+    expect(shareText).not.toContain('{{');
     expect(screen.queryByRole('button', { name: 'שיתפתי — פתיחת ההנחה' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'העתקת ההודעה' }));

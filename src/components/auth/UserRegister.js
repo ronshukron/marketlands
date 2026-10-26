@@ -7,6 +7,7 @@ import { searchCommunities } from '../../services/communityService';
 import LoadingSpinner from '../LoadingSpinner';
 import './AuthForms.css';
 import { getAuth } from 'firebase/auth';
+import { trackCompleteRegistration } from '../../utils/metaPixel';
 
 // Searchable community picker backed by the Firestore `communities` collection.
 // Only existing communities can be selected (no free-text creation).
@@ -214,6 +215,7 @@ const UserRegister = () => {
       };
 
       await doCreateUserWithEmailAndPassword(email, password, userData, 'users');
+      trackCompleteRegistration();
 
       // Navigate immediately for better UX
       navigate('/');
@@ -275,6 +277,7 @@ const UserRegister = () => {
         });
       }
 
+      trackCompleteRegistration();
       navigate('/');
     } catch (error) {
       console.error('Failed to save community for Google user:', error);
