@@ -13,6 +13,7 @@ import { PickupSpotProvider } from './contexts/PickupSpotContext';
 import { SaleModeProvider } from './contexts/SaleModeContext';
 import { CommunityWeeklyPromotionProvider } from './contexts/CommunityWeeklyPromotionContext';
 import { WeightBufferProvider } from './contexts/WeightBufferContext';
+import DeliveryErrorBoundary from './components/adminV5/deliveryWeighingV5/v8/DeliveryErrorBoundary';
 import './App.css';
 import './components/Accessibility.css';
 
@@ -248,8 +249,8 @@ const App = () => {
                   <Route path="/admin/delivery-v4-5" element={<DeliveryManagementV45 />} />
                   <Route path="/admin/delivery-v5" element={<DeliveryManagementV5 />} />
                   <Route path="/admin/delivery-v6" element={<DeliveryManagementV6 />} />
-                  <Route path="/admin/delivery-v7" element={<><DeliveryManagementV7 /><DeliveryUiSwitch current="v7" /></>} />
-                  <Route path="/admin/delivery-v8" element={<><DeliveryManagementV8 /><DeliveryUiSwitch current="v8" /></>} />
+                  <Route path="/admin/delivery-v7" element={<><DeliveryErrorBoundary key="v7"><DeliveryManagementV7 /></DeliveryErrorBoundary><DeliveryUiSwitch current="v7" /></>} />
+                  <Route path="/admin/delivery-v8" element={<><DeliveryErrorBoundary key="v8"><DeliveryManagementV8 /></DeliveryErrorBoundary><DeliveryUiSwitch current="v8" /></>} />
                   <Route path="/admin/delivery-schedules" element={<DeliveryScheduleAdmin />} />
                   <Route path="/driver/delivery" element={<DeliveryDriverV7 />} />
                   <Route path="/independent/create" element={<CreateIndependentOrderForm />} />

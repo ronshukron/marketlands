@@ -308,6 +308,7 @@ const TR = {
     qty: 'כמות',
     price: 'מחיר',
     savePrice: 'שמור מחיר',
+    savingPrice: 'שומר...',
     realtimeDraft: 'טיוטת שקילה בזמן אמת',
     orderClaimedOk: 'ההזמנה נתפסה לתחנה זו',
     orderReleasedOk: 'ההזמנה שוחררה',
@@ -532,6 +533,7 @@ const TR = {
     qty: 'จำนวน',
     price: 'ราคา',
     savePrice: 'บันทึกราคา',
+    savingPrice: 'กำลังบันทึก...',
     realtimeDraft: 'ฉบับร่างชั่งน้ำหนักแบบเรียลไทม์',
     orderClaimedOk: 'จองคำสั่งซื้อนี้แล้ว',
     orderReleasedOk: 'ปล่อยคำสั่งซื้อแล้ว',
@@ -1137,7 +1139,7 @@ export default function DeliveryManagementV8() {
   const currentScreenRef = useRef({ orders: [] });
   const [showScalePanel, setShowScalePanel] = useState(false);
   const [showPrinterPanel, setShowPrinterPanel] = useState(false);
-  const { isElectron: isElectronEnv, isConnected: scaleConnected, weight: liveWeight, lastStableWeight } = useWeightScale();
+  const { isElectron: isElectronEnv, isConnected: scaleConnected, weight: liveWeight, lastStableWeight } = useWeightScale({ dedupeReadings: true });
   const {
     hasPrinterSupport,
     status: printerStatus,
@@ -1294,6 +1296,12 @@ export default function DeliveryManagementV8() {
   useEffect(() => {
     pendingOpsRef.current = pendingOps;
   }, [pendingOps]);
+  // Latest drafts for async save callbacks: a save that finishes after another
+  // save started must not write back the drafts it captured when it began.
+  const remoteDraftsRef = useRef({});
+  useEffect(() => {
+    remoteDraftsRef.current = remoteDraftsByOrder;
+  }, [remoteDraftsByOrder]);
 
   const [presence, setPresence] = useState([]);
   const [claimsByOrder, setClaimsByOrder] = useState({});
@@ -1398,10 +1406,17 @@ export default function DeliveryManagementV8() {
     if (uniqueCustomers.length === 0) return {};
     const mapping = {};
     const missing = [];
+    // Numbers are permanent once assigned, so only unknown customers are read.
+    // Without this, every order change (e.g. each label print) re-read every customer.
+    const knownNumbers = permanentNumbersMapRef.current || {};
     try {
       await Promise.all(uniqueCustomers.map(async (customer) => {
         const id = customer?.id;
         if (!id) return;
+        if (knownNumbers[id] != null) {
+          mapping[id] = knownNumbers[id];
+          return;
+        }
         const ref = doc(db, 'customerNumbers', id);
         const snap = await getDoc(ref);
         if (snap.exists()) mapping[id] = snap.data()?.number;
@@ -1516,27 +1531,34 @@ export default function DeliveryManagementV8() {
   }, [showToast]);
 
   const queueManyDraftOps = useCallback((ops) => {
-    let nextPending = pendingOps;
+    let nextPending = pendingOpsRef.current || [];
     (ops || []).forEach((op) => {
       nextPending = mergePendingOps(nextPending, op);
     });
+    pendingOpsRef.current = nextPending;
     setPendingOps(nextPending);
-    setLocalDraftsByOrder(applyOpsToDrafts(remoteDraftsByOrder, nextPending));
+    setLocalDraftsByOrder(applyOpsToDrafts(remoteDraftsRef.current || {}, nextPending));
     return nextPending;
-  }, [pendingOps, remoteDraftsByOrder]);
+  }, []);
 
-  const rollbackQueuedDraftOps = useCallback(() => {
-    setLocalDraftsByOrder(applyOpsToDrafts(remoteDraftsByOrder, pendingOps));
-  }, [remoteDraftsByOrder, pendingOps]);
+  const rollbackQueuedDraftOps = useCallback((failedOps = []) => {
+    const failedIds = new Set((failedOps || []).map((op) => op.id));
+    const remaining = (pendingOpsRef.current || []).filter((op) => !failedIds.has(op.id));
+    pendingOpsRef.current = remaining;
+    setPendingOps(remaining);
+    setLocalDraftsByOrder(applyOpsToDrafts(remoteDraftsRef.current || {}, remaining));
+  }, []);
 
   const ackManyDraftOps = useCallback((ops, nextRemoteDrafts) => {
     const ackIds = new Set((ops || []).map((op) => op.id));
-    const remaining = pendingOps.filter((op) => !ackIds.has(op.id));
+    const remaining = (pendingOpsRef.current || []).filter((op) => !ackIds.has(op.id));
+    pendingOpsRef.current = remaining;
+    remoteDraftsRef.current = nextRemoteDrafts;
     setRemoteDraftsByOrder(nextRemoteDrafts);
     setPendingOps(remaining);
     setLocalDraftsByOrder(applyOpsToDrafts(nextRemoteDrafts, remaining));
     return remaining;
-  }, [pendingOps]);
+  }, []);
 
   const applyQueuedOpsOnline = useCallback(async ({ ops, remoteWrite, successToast = '' }) => {
     const queuedOps = (ops || []).map(buildQueuedOp);
@@ -1549,7 +1571,7 @@ export default function DeliveryManagementV8() {
     applyingOpsOnlineRef.current = true;
     try {
       await remoteWrite(queuedOps);
-      const nextRemoteDrafts = { ...remoteDraftsByOrder };
+      const nextRemoteDrafts = { ...(remoteDraftsRef.current || {}) };
       queuedOps.forEach((op) => {
         nextRemoteDrafts[op.orderId] = applyOpToDraft(nextRemoteDrafts[op.orderId] || {}, op);
       });
@@ -1563,8 +1585,7 @@ export default function DeliveryManagementV8() {
         showToast(tRef.current.offlineDraftSaved);
         return queuedOps;
       }
-      setPendingOps((prev) => prev.filter((queued) => !queuedOps.some((op) => op.id === queued.id)));
-      rollbackQueuedDraftOps();
+      rollbackQueuedDraftOps(queuedOps);
       throw error;
     } finally {
       applyingOpsOnlineRef.current = false;
@@ -1575,7 +1596,6 @@ export default function DeliveryManagementV8() {
     isLikelyNetworkError,
     isOnline,
     queueManyDraftOps,
-    remoteDraftsByOrder,
     rollbackQueuedDraftOps,
     showToast,
   ]);
@@ -1767,12 +1787,19 @@ export default function DeliveryManagementV8() {
     }
     setLoading(true);
     setError(null);
+    // Snapshots are processed async; a slow older snapshot (or one from a scope
+    // that was already left) must not overwrite newer orders on screen.
+    let disposed = false;
+    let latestSnapshotSeq = 0;
     const unsubscribe = subscribeDelayedOrdersForWeekV7({
       weekKey: selectedWeek,
       communities: Array.from(selectedCommunities),
       startDate: selectedSpecificStartDate,
       endDate: selectedSpecificEndDate,
       onOrders: async ({ allOrders }) => {
+        latestSnapshotSeq += 1;
+        const snapshotSeq = latestSnapshotSeq;
+        const isStale = () => disposed || snapshotSeq !== latestSnapshotSeq;
         try {
           const dateFilteredOrders = filterOrdersByDeliveryDates(
             allOrders,
@@ -1798,6 +1825,7 @@ export default function DeliveryManagementV8() {
               : {},
             fetchPermanentCustomerNumbers(customersList),
           ]);
+          if (isStale()) return;
           const mergedProductDetails = Object.keys(newPd).length > 0
             ? { ...productDetailsRef.current, ...newPd }
             : productDetailsRef.current;
@@ -1831,6 +1859,7 @@ export default function DeliveryManagementV8() {
           });
         } catch (e) {
           console.error(e);
+          if (isStale()) return;
           if (isLikelyNetworkError(e)) {
             const browserOffline = isBrowserOffline();
             if (browserOffline) setIsOnline(false);
@@ -1844,7 +1873,7 @@ export default function DeliveryManagementV8() {
             setError(tRef.current.failOrders);
           }
         } finally {
-          setLoading(false);
+          if (!isStale()) setLoading(false);
         }
       },
       onError: (e) => {
@@ -1864,7 +1893,10 @@ export default function DeliveryManagementV8() {
         setLoading(false);
       },
     });
-    return unsubscribe;
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   }, [
     selectedWeek,
     selectedCommunities,
@@ -1885,6 +1917,7 @@ export default function DeliveryManagementV8() {
     const unsubDrafts = subscribeDraftsV7({
       weekKey: selectedWeek,
       onData: (nextDrafts) => {
+        remoteDraftsRef.current = nextDrafts;
         setRemoteDraftsByOrder(nextDrafts);
         setLocalDraftsByOrder((prev) => {
           const localPending = pendingOpsRef.current || [];
@@ -1904,19 +1937,24 @@ export default function DeliveryManagementV8() {
   // Additive-only: load VIP/notes profiles + order-history stats for the
   // customers currently displayed. Fully isolated from the core V7 flow — a
   // failure here only means badges/notes don't render.
+  // Keyed by the set of customers, not by `orders`: every order change (label
+  // print, charge, another station) would otherwise re-read all profiles.
+  const customerKeysSignature = useMemo(() => Array.from(new Set(
+    (orders || [])
+      .map((o) => getCustomerKey({ phone: o?.customerDetails?.phone, email: o?.customerDetails?.email }))
+      .filter(Boolean),
+  )).sort().join('\n'), [orders]);
+  const hasOrders = orders.length > 0;
+
   useEffect(() => {
-    if (!orders || orders.length === 0) {
+    if (!hasOrders) {
       setCustomerProfilesMap({});
       setCustomerHistoryMap({});
       setCustomerHistoryLoaded(false);
       return () => {};
     }
     let active = true;
-    const keys = Array.from(new Set(
-      orders
-        .map((o) => getCustomerKey({ phone: o?.customerDetails?.phone, email: o?.customerDetails?.email }))
-        .filter(Boolean),
-    ));
+    const keys = customerKeysSignature ? customerKeysSignature.split('\n') : [];
     getCustomerProfiles(keys)
       .then((map) => { if (active) setCustomerProfilesMap(map); })
       .catch((e) => console.error('V7 customer profiles load failed', e));
@@ -1928,7 +1966,7 @@ export default function DeliveryManagementV8() {
       })
       .catch((e) => console.error('V7 customer history load failed', e));
     return () => { active = false; };
-  }, [orders]);
+  }, [customerKeysSignature, hasOrders]);
 
   useEffect(() => {
     if (!selectedWeek || !session.sessionId || !isOnline) return () => {};
@@ -3106,7 +3144,11 @@ export default function DeliveryManagementV8() {
   }, [selectedOrder, selectedWeek, session, showToast, t.orderReleasedOk, biAlert, isOnline]);
 
   const savePriceEdit = useCallback(async (item) => {
-    if (!selectedOrder || claimedByOther) return;
+    if (!selectedOrder || savingActionKey === `price:${item.lineId}`) return;
+    if (claimedByOther) {
+      await biAlert({ heText: TR.he.busyElsewhere, thText: TR.th.busyElsewhere, title: 'warning' });
+      return;
+    }
     if (!isOnline) {
       await biAlert({ heText: TR.he.offlineEditOnlineOnly, thText: TR.th.offlineEditOnlineOnly, title: 'warning' });
       return;
@@ -3141,7 +3183,7 @@ export default function DeliveryManagementV8() {
     } finally {
       setSavingActionKey('');
     }
-  }, [selectedOrder, claimedByOther, editPriceValue, session, showToast, t.priceUpdatedOk, biAlert, isOnline]);
+  }, [selectedOrder, savingActionKey, claimedByOther, editPriceValue, session, showToast, t.priceUpdatedOk, biAlert, isOnline]);
 
   const addProductToOrder = useCallback(async (product) => {
     if (!selectedOrder || claimedByOther) return;
@@ -3789,8 +3831,8 @@ export default function DeliveryManagementV8() {
     return <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${m.cls}`}>{m.label}</span>;
   };
 
-  const itemDisplayName = (it) => (lang === 'th' && it.thaiName) ? it.thaiName : it.productName;
-  const itemSecondaryName = (it) => (lang === 'th' && it.thaiName) ? it.productName : it.thaiName;
+  const itemDisplayName = (it) => (lang === 'th' && it?.thaiName) ? it.thaiName : it?.productName;
+  const itemSecondaryName = (it) => (lang === 'th' && it?.thaiName) ? it.productName : it?.thaiName;
 
   const openMissingOrderModal = () => {
     const initialCommunities = communityFilter !== '__all__' ? [communityFilter] : [];
@@ -3940,21 +3982,26 @@ export default function DeliveryManagementV8() {
   const pickCommunityProgress = useMemo(() => {
     const map = {};
     orders.forEach((order) => {
-      const community = order?.customerDetails?.pickupSpot || order?.pickupSpot || '';
-      if (!community) return;
-      if (!map[community]) map[community] = { picked: 0, total: 0 };
-      map[community].total += 1;
-      const persisted = mergeOrderDraftWithPersistedCompletion(order, effectiveDraftsByOrder[order.id] || {});
-      const status = getEffectiveOrderStatus(order, persisted);
-      if (status === 'settling' || status === 'completed') {
-        map[community].picked += 1;
-        return;
+      try {
+        const community = order?.customerDetails?.pickupSpot || order?.pickupSpot || '';
+        if (!community) return;
+        if (!map[community]) map[community] = { picked: 0, total: 0 };
+        map[community].total += 1;
+        const items = order.items || [];
+        const persisted = mergeOrderDraftWithPersistedCompletion(order, effectiveDraftsByOrder[order.id] || {});
+        const status = getEffectiveOrderStatus(order, persisted);
+        if (status === 'settling' || status === 'completed') {
+          map[community].picked += 1;
+          return;
+        }
+        // Status only needs lineIds — skip merging product details on every draft tick.
+        if (isOrderFullyPicked(items, sanitizeDraftForItems(persisted, items))) map[community].picked += 1;
+      } catch (error) {
+        console.error('[v8] pick progress', order?.id, error);
       }
-      const merged = mergeProductDetailsIntoItems(order.items || [], productDetails);
-      if (isOrderFullyPicked(merged, sanitizeDraftForItems(persisted, merged))) map[community].picked += 1;
     });
     return map;
-  }, [effectiveDraftsByOrder, orders, productDetails]);
+  }, [effectiveDraftsByOrder, orders]);
 
   useEffect(() => {
     if (pickScopeCommunities !== null || pickScopeBlocks.length === 0) return;
@@ -4048,9 +4095,14 @@ export default function DeliveryManagementV8() {
   const pickGroupsAll = useMemo(() => buildItemPickGroups({
     orders: pickScopeOrders,
     getOrderContext: (order) => {
-      const merged = mergeProductDetailsIntoItems(order.items || [], productDetails);
-      const persisted = mergeOrderDraftWithPersistedCompletion(order, effectiveDraftsByOrder[order.id] || {});
-      return { items: merged, draft: sanitizeDraftForItems(persisted, merged) };
+      try {
+        const merged = mergeProductDetailsIntoItems(order.items || [], productDetails);
+        const persisted = mergeOrderDraftWithPersistedCompletion(order, effectiveDraftsByOrder[order.id] || {});
+        return { items: merged, draft: sanitizeDraftForItems(persisted, merged) };
+      } catch (error) {
+        console.error('[v8] getOrderContext', order?.id, error);
+        return { items: Array.isArray(order?.items) ? order.items : [], draft: {} };
+      }
     },
   }), [effectiveDraftsByOrder, pickScopeOrders, productDetails]);
 
@@ -4069,19 +4121,45 @@ export default function DeliveryManagementV8() {
   );
 
   const getPickBoxInfo = useCallback((order) => {
-    const cid = order?.customerDetails?.phone || order?.customerDetails?.email || null;
-    const community = order?.customerDetails?.pickupSpot || order?.pickupSpot || '';
-    return {
-      customerNumber: cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-',
-      communityNumber: computedCommunityOrderNumbers[community]?.[order?.id] || null,
-      loadingOrder: loadingOrderNumbers[order?.id] || null,
-      communityIndex: orderCommunities.indexOf(community),
-      community,
-      color: getEffectiveCommunityColor(community),
-      name: order?.customerDetails?.name || t.customer,
-      wantsReusableCartons: order?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true,
-    };
+    try {
+      const cid = order?.customerDetails?.phone || order?.customerDetails?.email || null;
+      const community = order?.customerDetails?.pickupSpot || order?.pickupSpot || '';
+      return {
+        customerNumber: cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-',
+        communityNumber: computedCommunityOrderNumbers[community]?.[order?.id] || null,
+        loadingOrder: loadingOrderNumbers[order?.id] || null,
+        communityIndex: orderCommunities.indexOf(community),
+        community,
+        color: getEffectiveCommunityColor(community),
+        name: order?.customerDetails?.name || t.customer,
+        wantsReusableCartons: order?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true,
+      };
+    } catch (error) {
+      console.error('[v8] getPickBoxInfo', order?.id, error);
+      return {
+        customerNumber: '-',
+        communityNumber: null,
+        loadingOrder: null,
+        communityIndex: -1,
+        community: order?.customerDetails?.pickupSpot || order?.pickupSpot || '',
+        color: '#9ca3af',
+        name: order?.customerDetails?.name || t.customer,
+        wantsReusableCartons: false,
+      };
+    }
   }, [computedCommunityOrderNumbers, getEffectiveCommunityColor, loadingOrderNumbers, orderCommunities, permanentNumbersMap, t.customer]);
+
+  const pickBoxInfoByOrderId = useMemo(() => {
+    const map = {};
+    pickScopeOrders.forEach((order) => {
+      if (order?.id) map[order.id] = getPickBoxInfo(order);
+    });
+    return map;
+  }, [getPickBoxInfo, pickScopeOrders]);
+
+  const getCachedPickBoxInfo = useCallback((order) => (
+    (order?.id && pickBoxInfoByOrderId[order.id]) || getPickBoxInfo(order)
+  ), [getPickBoxInfo, pickBoxInfoByOrderId]);
 
   const getPickOrderLock = useCallback((orderId) => {
     const claim = claimsByOrder[orderId];
@@ -4138,6 +4216,18 @@ export default function DeliveryManagementV8() {
     setActivePickLineId(next ? next.lineId : '');
   }, [activePickGroup]);
 
+  const pickInFlightRef = useRef(new Set());
+  const beginPickLine = useCallback((lineId) => {
+    if (!lineId || pickInFlightRef.current.has(lineId)) return false;
+    pickInFlightRef.current.add(lineId);
+    setSavingActionKey(`pick:${lineId}`);
+    return true;
+  }, []);
+  const endPickLine = useCallback((lineId) => {
+    pickInFlightRef.current.delete(lineId);
+    setSavingActionKey((current) => (current === `pick:${lineId}` ? '' : current));
+  }, []);
+
   const savePickWeight = useCallback(async (entry, rawValue, src = 'manual') => {
     if (!entry?.orderId || !entry?.lineId || !selectedWeek) return false;
     const ctx = guardPickOrder(entry.orderId);
@@ -4172,9 +4262,9 @@ export default function DeliveryManagementV8() {
       }
     }
 
+    if (!beginPickLine(item.lineId)) return false;
     const newStatus = predictStatusAfterWeight(ctx.items, ctx.draft, item.lineId, actual, src);
     const customerName = ctx.order.customerDetails?.name || t.customer;
-    setSavingActionKey(`pick:${item.lineId}`);
     try {
       await applyQueuedOpsOnline({
         ops: [{
@@ -4201,12 +4291,13 @@ export default function DeliveryManagementV8() {
       return true;
     } catch (e) {
       console.error(e);
+      endPickLine(item.lineId);
       await biAlert({ heText: e?.message || 'שגיאה בשמירת משקל', thText: e?.message || 'บันทึกน้ำหนักไม่สำเร็จ', title: 'error' });
       return false;
     } finally {
-      setSavingActionKey('');
+      endPickLine(item.lineId);
     }
-  }, [applyQueuedOpsOnline, biAlert, biConfirm, guardPickOrder, selectedWeek, session, t, t8]);
+  }, [applyQueuedOpsOnline, beginPickLine, biAlert, biConfirm, endPickLine, guardPickOrder, selectedWeek, session, t, t8]);
 
   const handlePickSaveWeight = useCallback(async (entry, value, src) => {
     const ok = await savePickWeight(entry, value, src);
@@ -4231,8 +4322,8 @@ export default function DeliveryManagementV8() {
       title: 'warning',
     });
     if (!ok) return;
+    if (!beginPickLine(entry.lineId)) return;
     const completesOrder = predictCompletesAfterRemove(ctx.items, ctx.draft, entry.lineId);
-    setSavingActionKey(`pick:${entry.lineId}`);
     try {
       await applyQueuedOpsOnline({
         ops: [
@@ -4249,17 +4340,18 @@ export default function DeliveryManagementV8() {
       advancePickEntry(entry.lineId);
     } catch (e) {
       console.error(e);
+      endPickLine(entry.lineId);
       await biAlert({ heText: e?.message || 'שגיאה בסימון חוסר', thText: e?.message || 'ทำเครื่องหมายของขาดไม่สำเร็จ', title: 'error' });
     } finally {
-      setSavingActionKey('');
+      endPickLine(entry.lineId);
     }
-  }, [advancePickEntry, applyQueuedOpsOnline, biAlert, biConfirm, guardPickOrder, lang, selectedWeek, session, t.customer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [advancePickEntry, applyQueuedOpsOnline, beginPickLine, biAlert, biConfirm, endPickLine, guardPickOrder, lang, selectedWeek, session, t.customer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePickRestore = useCallback(async (entry) => {
     const ctx = guardPickOrder(entry?.orderId);
-    if (!ctx || !selectedWeek) return;
+    if (!ctx || !selectedWeek || !entry?.lineId) return;
     const reopen = getEffectiveOrderStatus(ctx.order, ctx.draft) === 'weighed';
-    setSavingActionKey(`pick:${entry.lineId}`);
+    if (!beginPickLine(entry.lineId)) return;
     try {
       await applyQueuedOpsOnline({
         ops: [
@@ -4275,15 +4367,17 @@ export default function DeliveryManagementV8() {
       });
     } catch (e) {
       console.error(e);
+      endPickLine(entry.lineId);
+      await biAlert({ heText: e?.message || 'שגיאה בשחזור פריט', thText: e?.message || 'คืนสินค้าไม่สำเร็จ', title: 'error' });
     } finally {
-      setSavingActionKey('');
+      endPickLine(entry.lineId);
     }
-  }, [applyQueuedOpsOnline, guardPickOrder, selectedWeek, session]);
+  }, [applyQueuedOpsOnline, beginPickLine, biAlert, endPickLine, guardPickOrder, selectedWeek, session]);
 
   const handlePickReset = useCallback(async (entry) => {
     const ctx = guardPickOrder(entry?.orderId);
-    if (!ctx || !selectedWeek) return;
-    setSavingActionKey(`pick:${entry.lineId}`);
+    if (!ctx || !selectedWeek || !entry?.lineId) return;
+    if (!beginPickLine(entry.lineId)) return;
     try {
       await applyQueuedOpsOnline({
         ops: [{
@@ -4298,10 +4392,12 @@ export default function DeliveryManagementV8() {
       });
     } catch (e) {
       console.error(e);
+      endPickLine(entry.lineId);
+      await biAlert({ heText: e?.message || 'שגיאה באיפוס משקל', thText: e?.message || 'รีเซ็ตน้ำหนักไม่สำเร็จ', title: 'error' });
     } finally {
-      setSavingActionKey('');
+      endPickLine(entry.lineId);
     }
-  }, [applyQueuedOpsOnline, guardPickOrder, selectedWeek, session]);
+  }, [applyQueuedOpsOnline, beginPickLine, biAlert, endPickLine, guardPickOrder, selectedWeek, session]);
 
   const printedCountByOrder = useMemo(() => {
     const map = {};
@@ -4677,7 +4773,7 @@ export default function DeliveryManagementV8() {
           isAdmin={isAdmin}
           onOpenBatchCharge={openBatchChargeModal}
           batchChargeBusy={!!batchChargeProgress}
-          getBoxInfo={getPickBoxInfo}
+          getBoxInfo={getCachedPickBoxInfo}
           getOrderLock={getPickOrderLock}
           cachedImg={cachedImg}
           printedCountByOrder={printedCountByOrder}
@@ -5846,6 +5942,7 @@ export default function DeliveryManagementV8() {
                                     <input
                                       autoFocus
                                       value={editPriceValue}
+                                      disabled={savingActionKey === `price:${it.lineId}`}
                                       onChange={(e) => setEditPriceValue(e.target.value)}
                                       onKeyDown={(e) => {
                                         if (e.key === 'Enter') savePriceEdit(it);
@@ -5856,9 +5953,10 @@ export default function DeliveryManagementV8() {
                                     />
                                     <button
                                       onClick={() => savePriceEdit(it)}
-                                      className="px-2.5 py-1.5 bg-amber-500 text-white rounded-md text-[11px] font-bold hover:bg-amber-600"
+                                      disabled={savingActionKey === `price:${it.lineId}`}
+                                      className="px-2.5 py-1.5 bg-amber-500 text-white rounded-md text-[11px] font-bold hover:bg-amber-600 disabled:opacity-60 disabled:cursor-wait"
                                     >
-                                      {t.savePrice}
+                                      {savingActionKey === `price:${it.lineId}` ? t.savingPrice : t.savePrice}
                                     </button>
                                     <button
                                       onClick={cancelPriceEdit}

@@ -170,6 +170,36 @@ describe('itemPickingV8', () => {
     expect(buildItemPickGroups({ orders: [makeOrder('o1')] })).toEqual([]);
   });
 
+  test('buildItemPickGroups skips a throwing order and still builds the rest', () => {
+    const getOrderContext = (order) => {
+      if (order.id === 'bad') throw new Error('corrupt order');
+      return {
+        items: [{ lineId: `${order.id}::tom`, productId: 'tom', productName: 'עגבניה', requestedQuantity: 1 }],
+        draft: {},
+      };
+    };
+    const groups = buildItemPickGroups({
+      orders: [makeOrder('bad'), makeOrder('ok'), null, { items: [] }],
+      getOrderContext,
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].entries.map((entry) => entry.orderId)).toEqual(['ok']);
+  });
+
+  test('zero and empty requested quantities do not crash status or grouping', () => {
+    contexts.o1 = {
+      items: [
+        { lineId: 'o1::z', productId: 'z', productName: 'x', requestedQuantity: 0, measurementType: 'kg' },
+        { lineId: 'o1::n', productId: 'n', productName: 'y', requestedQuantity: 'nope', measurementType: 'unit' },
+      ],
+      draft: { weightsByLineId: { 'o1::z': { actualQuantity: 0 } } },
+    };
+    const groups = buildItemPickGroups({ orders: [makeOrder('o1')], getOrderContext });
+    expect(groups).toHaveLength(2);
+    expect(getEntryPickStatus({ lineId: 'o1::z' }, contexts.o1.draft)).toBe(PICK_STATUS.done);
+    expect(isOrderFullyPicked(contexts.o1.items, contexts.o1.draft)).toBe(false);
+  });
+
   test('sortItemPickGroups sorts by name or by business then name', () => {
     const groups = [
       { productName: 'מלפפון', businessName: 'משק ב', selectedOption: '' },

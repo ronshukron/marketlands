@@ -1040,14 +1040,16 @@ const OrderConfirmationDelayed = () => {
         try {
             // Call backend to create Grow (J5) payment process.
             // Backend MUST be the one calling Grow.
+            // Grow rejects localhost return URLs, so local testing can point them at an HTTPS tunnel.
+            const returnOrigin = process.env.REACT_APP_GROW_RETURN_ORIGIN || window.location.origin;
             const paymentData = {
                 mode: 'weekly_delayed',
                 amount: holdAmount,
                 userName,
                 userPhone,
                 userEmail,
-                successUrl: buildGrowSuccessUrl(window.location.origin, customerOrderId),
-                cancelUrl: `${window.location.origin}/payment-cancel/`,
+                successUrl: buildGrowSuccessUrl(returnOrigin, customerOrderId),
+                cancelUrl: `${returnOrigin}/payment-cancel/`,
                 description: `תשלום מושהה (J5) עבור תוצרת חקלאית`,
                 customerOrderId,
                 orderIds,
@@ -1124,7 +1126,8 @@ const OrderConfirmationDelayed = () => {
             }
         } catch (error) {
             console.error("Failed to create delayed payment:", error);
-            Swal.fire('שגיאה', 'אירעה שגיאה בעת יצירת דף התשלום. נסו שוב מאוחר יותר.', 'error');
+            const providerMessage = error?.response?.data?.err?.message;
+            Swal.fire('שגיאה', providerMessage || 'אירעה שגיאה בעת יצירת דף התשלום. נסו שוב מאוחר יותר.', 'error');
         } finally {
             setLoading(false);
         }

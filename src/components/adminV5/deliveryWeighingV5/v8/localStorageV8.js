@@ -52,7 +52,12 @@ export function readV8BoxesReady(weekKey) {
 
 export function saveV8BoxesReady(weekKey, orderIds) {
   if (!weekKey) return false;
-  const ids = [...new Set([...(orderIds || [])].map(String).filter(Boolean))].slice(0, 1000);
+  const ids = [...new Set(
+    (orderIds || [])
+      .filter((id) => id != null && id !== '')
+      .map(String)
+      .filter(Boolean),
+  )].slice(0, 1000);
   return writeString(`${BOXES_READY_PREFIX}${weekKey}`, JSON.stringify(ids));
 }
 

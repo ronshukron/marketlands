@@ -100,6 +100,7 @@ export const TR8 = {
     pkgLbl: 'מארז',
     batchCharge: 'חיוב קבוצתי',
     reusableCarton: 'קרטון חוזר',
+    cardError: 'כרטיס זה נתקע. המשיכו עם שאר הארגזים.',
   },
   th: {
     stepBoxes: 'เตรียมกล่อง',
@@ -202,5 +203,6 @@ export const TR8 = {
     pkgLbl: 'แพ็ก',
     batchCharge: 'เรียกเก็บแบบกลุ่ม',
     reusableCarton: 'กล่องใช้ซ้ำ',
+    cardError: 'การ์ดนี้มีปัญหา ทำกล่องอื่นต่อได้',
   },
 };

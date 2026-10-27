@@ -38,7 +38,7 @@ const callGrowPaymentLinkCheckout = async (payload) => {
   const endpoint = functionsEndpoint('createGrowPaymentLinkCheckout');
   const { data } = await axios.post(endpoint, payload, {
     headers: { 'Content-Type': 'application/json' },
-    timeout: 30000,
+    timeout: 60000,
   });
   return data;
 };

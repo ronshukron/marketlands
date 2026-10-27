@@ -82,7 +82,12 @@ export function buildItemPickGroups({ orders = [], getOrderContext } = {}) {
 
   (orders || []).forEach((order, orderIndex) => {
     if (!order?.id) return;
-    const context = getOrderContext(order) || {};
+    let context = {};
+    try {
+      context = getOrderContext(order) || {};
+    } catch {
+      return;
+    }
     const items = Array.isArray(context.items) ? context.items : [];
     const draft = context.draft || {};
 

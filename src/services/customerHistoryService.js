@@ -8,6 +8,9 @@ export const LAPSED_WEEKS = 6; // no completed order in this many weeks => "laps
 
 let _statsCache = null;
 let _statsCacheTimestamp = 0;
+// Shared by concurrent callers so a burst of calls after the cache expires
+// runs one full scan, not one scan per call.
+let _statsInflight = null;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 function parseDate(val) {
@@ -50,7 +53,18 @@ export async function loadCustomerHistoryStats({ force = false } = {}) {
   if (!force && _statsCache && now - _statsCacheTimestamp < CACHE_TTL_MS) {
     return _statsCache;
   }
+  if (!force && _statsInflight) return _statsInflight;
 
+  const request = scanCustomerHistoryStats(now);
+  _statsInflight = request;
+  try {
+    return await request;
+  } finally {
+    if (_statsInflight === request) _statsInflight = null;
+  }
+}
+
+async function scanCustomerHistoryStats(now) {
   const stats = {};
 
   const bump = (key, date) => {
@@ -98,6 +112,7 @@ export async function loadCustomerHistoryStats({ force = false } = {}) {
 export function invalidateCustomerHistoryCache() {
   _statsCache = null;
   _statsCacheTimestamp = 0;
+  _statsInflight = null;
 }
 
 /**

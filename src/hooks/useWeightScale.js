@@ -17,6 +17,17 @@ export const isElectron = () => {
   return typeof window !== 'undefined' && window.electron !== undefined;
 };
 
+// The scale is polled every 200ms and mostly repeats the same reading. Keeping
+// the previous object for an identical reading avoids re-rendering the whole
+// weighing screen 5 times a second while nothing changes.
+export function isSameScaleReading(a, b) {
+  if (!a || !b) return false;
+  return a.value === b.value
+    && a.stable === b.stable
+    && a.status === b.status
+    && a.unit === b.unit;
+}
+
 /**
  * useWeightScale - React hook for scale integration
  * @param {object} options - Configuration options
@@ -25,7 +36,10 @@ export const isElectron = () => {
  * @returns {object} Scale state and control methods
  */
 export function useWeightScale(options = {}) {
-  const { autoConnect = false, connectionConfig = null } = options;
+  const { autoConnect = false, connectionConfig = null, dedupeReadings = false } = options;
+  // Opt-in: WeighItemModal (V5) re-runs its state machine on every reading object.
+  const dedupeReadingsRef = useRef(dedupeReadings);
+  dedupeReadingsRef.current = dedupeReadings;
 
   // State
   const [isConnected, setIsConnected] = useState(false);
@@ -260,9 +274,16 @@ export function useWeightScale(options = {}) {
 
     // Subscribe to weight updates
     const unsubWeight = scaleAPI.onWeight((weightData) => {
-      setWeight(weightData);
-      if (weightData.stable) {
-        setLastStableWeight(weightData);
+      if (!dedupeReadingsRef.current) {
+        setWeight(weightData);
+        if (weightData.stable) {
+          setLastStableWeight(weightData);
+        }
+        return;
+      }
+      setWeight((prev) => (isSameScaleReading(prev, weightData) ? prev : weightData));
+      if (weightData?.stable) {
+        setLastStableWeight((prev) => (isSameScaleReading(prev, weightData) ? prev : weightData));
       }
     });
     unsubscribersRef.current.push(unsubWeight);

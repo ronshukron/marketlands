@@ -6,6 +6,45 @@ import useFillViewportHeight from '../../../../hooks/useFillViewportHeight';
 const WEIGHT_ON_THRESHOLD = 0.020;
 const WEIGHT_OFF_THRESHOLD = 0.010;
 
+export const EMPTY_BOX_INFO = {
+  customerNumber: '-',
+  communityNumber: null,
+  loadingOrder: null,
+  communityIndex: -1,
+  community: '',
+  color: '#9ca3af',
+  name: '',
+  wantsReusableCartons: false,
+};
+
+function safeBoxInfo(info) {
+  return info && typeof info === 'object' ? info : EMPTY_BOX_INFO;
+}
+
+export class PickCardErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error) {
+    console.error('[v8] pick card crashed', error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900">
+        {this.props.fallback}
+      </div>
+    );
+  }
+}
+
 function fmtKg(value) {
   return Number(value || 0).toFixed(3);
 }
@@ -87,18 +126,19 @@ export function V8ViewTabs({ view, onChange, t8, counts = {} }) {
 }
 
 function BoxBadge({ info, size = 'md' }) {
+  const box = safeBoxInfo(info);
   const dims = size === 'xl' ? 'w-24 h-24 text-5xl' : size === 'lg' ? 'w-14 h-14 text-2xl' : 'w-11 h-11 text-lg';
   return (
     <div className="relative shrink-0">
       <div
         className={`${dims} rounded-2xl bg-yellow-500 text-white font-black flex items-center justify-center shadow border-4`}
-        style={{ borderColor: info.color }}
+        style={{ borderColor: box.color }}
       >
-        {info.customerNumber}
+        {box.customerNumber}
       </div>
-      {info.communityNumber ? (
+      {box.communityNumber ? (
         <span className="absolute -bottom-1.5 -left-1.5 min-w-[22px] h-[22px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-white">
-          #{info.communityNumber}
+          #{box.communityNumber}
         </span>
       ) : null}
     </div>
@@ -106,9 +146,10 @@ function BoxBadge({ info, size = 'md' }) {
 }
 
 function sumProgress(names, communityProgress) {
-  return names.reduce((acc, name) => ({
-    picked: acc.picked + (communityProgress[name]?.picked || 0),
-    total: acc.total + (communityProgress[name]?.total || 0),
+  const progress = communityProgress || {};
+  return (names || []).reduce((acc, name) => ({
+    picked: acc.picked + (progress[name]?.picked || 0),
+    total: acc.total + (progress[name]?.total || 0),
   }), { picked: 0, total: 0 });
 }
 
@@ -128,7 +169,7 @@ function ScopeBar({
   allCommunities,
   onSelectCommunities,
   onToggleCommunity,
-  communityProgress,
+  communityProgress = {},
   getCommunityColor,
   getCommunityGroup,
   isAdmin,
@@ -324,7 +365,7 @@ function ScopeBar({
 
 function BoxesStep({
   t8,
-  orders,
+  orders = [],
   getBoxInfo,
   getOrderLock,
   printedCountByOrder,
@@ -394,7 +435,8 @@ function BoxesStep({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
         {orders.map((order) => {
-          const info = getBoxInfo(order);
+          if (!order?.id) return null;
+          const info = safeBoxInfo(getBoxInfo?.(order));
           const showHeader = info.community !== prevCommunity;
           prevCommunity = info.community;
           const ready = boxesReadyIds.has(order.id);
@@ -472,7 +514,18 @@ function formatExpectedHeadline(group, t8) {
 
 const ORDER_CARD_CLASS = 'relative h-[380px] w-full rounded-2xl border overflow-hidden text-start flex flex-col bg-white';
 
-function OrderPickCard({
+function sameWeighProps(a = {}, b = {}, needScale) {
+  return a.savingActionKey === b.savingActionKey
+    && a.scaleConnected === b.scaleConnected
+    && a.onSaveWeight === b.onSaveWeight
+    && a.onUseOrdered === b.onUseOrdered
+    && a.onMarkMissing === b.onMarkMissing
+    && a.onRestore === b.onRestore
+    && a.onReset === b.onReset
+    && (!needScale || (a.liveWeight === b.liveWeight && a.lastStableWeight === b.lastStableWeight));
+}
+
+function OrderPickCardInner({
   entry,
   active,
   t8,
@@ -486,15 +539,18 @@ function OrderPickCard({
   printBusy,
   weighProps,
 }) {
+  if (!entry?.lineId) return null;
+  const item = entry.item || {};
+  const box = safeBoxInfo(info);
   const orderedLabel = formatPickQuantity({
-    measurementType: entry.item.measurementType,
+    measurementType: item.measurementType,
     quantity: entry.requested,
-    averageWeightKg: entry.item.averageWeightKg,
+    averageWeightKg: item.averageWeightKg,
   }, t8);
   const done = entry.status === PICK_STATUS.done;
   const reqQty = Number(entry.requested || 0);
   const showQtyBadge = reqQty > 1;
-  const qtyBadgeText = (entry.item.measurementType === 'package' || entry.item.measurementType === 'unit')
+  const qtyBadgeText = (item.measurementType === 'package' || item.measurementType === 'unit')
     ? Math.floor(reqQty)
     : reqQty;
   const tone = entry.status === PICK_STATUS.removed
@@ -511,19 +567,19 @@ function OrderPickCard({
         active ? 'bg-blue-600 text-white' : 'bg-amber-400 text-gray-900'
       }`}
       >
-        {info.customerNumber}
+        {box.customerNumber}
         {done && (
           <span className="absolute -bottom-1.5 -left-1.5 w-6 h-6 rounded-full bg-green-600 text-white text-xs font-black flex items-center justify-center border-2 border-white">✓</span>
         )}
       </span>
       <span className="min-w-0 flex-1">
         {active && <span className="block text-[11px] font-bold text-gray-400">{t8.putInBox}</span>}
-        <span className="block text-xl font-black text-gray-900 truncate leading-tight">{info.name}</span>
-        <span className="block text-sm font-semibold truncate mt-0.5" style={{ color: info.color }}>
-          {info.community}
-          {info.loadingOrder ? (
+        <span className="block text-xl font-black text-gray-900 truncate leading-tight">{box.name}</span>
+        <span className="block text-sm font-semibold truncate mt-0.5" style={{ color: box.color }}>
+          {box.community}
+          {box.loadingOrder ? (
             <span className="ms-2 rounded bg-gray-900 px-1.5 py-0.5 text-[11px] font-black text-white">
-              {info.loadingOrder}
+              {box.loadingOrder}
             </span>
           ) : null}
         </span>
@@ -574,7 +630,7 @@ function OrderPickCard({
           {header}
           <span className="flex-1 flex items-center justify-center text-sm font-black text-gray-400">
             {done
-              ? `✓ ${formatPickedQuantity(entry.item.measurementType, entry.actual, t8)}`
+              ? `✓ ${formatPickedQuantity(item.measurementType, entry.actual, t8)}`
               : entry.status === PICK_STATUS.removed
                 ? t8.missing
                 : t8.pending}
@@ -596,7 +652,7 @@ function OrderPickCard({
           lang={lang}
           group={group}
           entry={entry}
-          info={info}
+          info={box}
           lock={lock}
         />
       </div>
@@ -604,6 +660,21 @@ function OrderPickCard({
     </div>
   );
 }
+
+const OrderPickCard = React.memo(OrderPickCardInner, (prev, next) => (
+  prev.entry === next.entry
+  && prev.active === next.active
+  && prev.t8 === next.t8
+  && prev.lang === next.lang
+  && prev.group === next.group
+  && prev.info === next.info
+  && prev.lock === next.lock
+  && prev.onSelectEntry === next.onSelectEntry
+  && prev.onPrintLabel === next.onPrintLabel
+  && prev.hasPrinterSupport === next.hasPrinterSupport
+  && prev.printBusy === next.printBusy
+  && sameWeighProps(prev.weighProps, next.weighProps, next.active)
+));
 
 function WeighPanel({
   t8,
@@ -626,7 +697,8 @@ function WeighPanel({
   const [manualValue, setManualValue] = useState('');
   const [scaleArmed, setScaleArmed] = useState(true);
   const inputRef = useRef(null);
-  const isPackage = entry?.item?.measurementType === 'package';
+  const item = entry?.item || {};
+  const isPackage = item.measurementType === 'package';
 
   useEffect(() => {
     setManualValue('');
@@ -647,10 +719,11 @@ function WeighPanel({
   const disabled = busy || !!lock;
   const stableWeight = scaleConnected && !isPackage ? getLiveStableWeight(liveWeight, lastStableWeight) : 0;
   const canSaveScale = !disabled && scaleArmed && stableWeight > 0;
+  const box = safeBoxInfo(info);
   const orderedLabel = formatPickQuantity({
-    measurementType: entry.item.measurementType,
+    measurementType: item.measurementType,
     quantity: entry.requested,
-    averageWeightKg: entry.item.averageWeightKg,
+    averageWeightKg: item.averageWeightKg,
   }, t8);
 
   const saveScale = async () => {
@@ -676,12 +749,12 @@ function WeighPanel({
       {!compact && (
         <>
           <div className="flex items-center gap-4">
-            <BoxBadge info={info} size="xl" />
+            <BoxBadge info={box} size="xl" />
             <div className="min-w-0">
               <div className="text-xs font-black text-gray-500">{t8.putInBox}</div>
-              <div className="text-2xl font-black text-gray-900 truncate">{info.name}</div>
-              <div className="text-sm font-bold truncate" style={{ color: info.color }}>{info.community}</div>
-              {info.wantsReusableCartons && (
+              <div className="text-2xl font-black text-gray-900 truncate">{box.name}</div>
+              <div className="text-sm font-bold truncate" style={{ color: box.color }}>{box.community}</div>
+              {box.wantsReusableCartons && (
                 <span className="inline-block mt-1 text-[11px] font-black rounded-full px-2 py-0.5 bg-emerald-600 text-white">🌱 {t8.reusableCarton}</span>
               )}
             </div>
@@ -714,7 +787,7 @@ function WeighPanel({
         <div className="space-y-2">
           <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3">
             <div className="text-xs font-bold text-green-700">{t8.picked}</div>
-            <div className="text-3xl font-black text-green-800">{formatPickedQuantity(entry.item.measurementType, entry.actual, t8)}</div>
+            <div className="text-3xl font-black text-green-800">{formatPickedQuantity(item.measurementType, entry.actual, t8)}</div>
           </div>
           <button
             type="button"
@@ -817,8 +890,8 @@ function WeighPanel({
 function ItemsStep({
   t8,
   lang,
-  groups,
-  summary,
+  groups = [],
+  summary = { items: 0, doneItems: 0 },
   itemSortMode,
   onChangeItemSort,
   hideDoneItems,
@@ -1027,22 +1100,23 @@ function ItemsStep({
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {activeGroup.entries.map((entry) => (
-                <OrderPickCard
-                  key={entry.lineId}
-                  entry={entry}
-                  active={entry.lineId === activeLineId}
-                  t8={t8}
-                  lang={lang}
-                  group={activeGroup}
-                  info={getBoxInfo(entry.order)}
-                  lock={getOrderLock(entry.orderId)}
-                  onSelectEntry={onSelectEntry}
-                  onPrintLabel={onPrintLabel}
-                  hasPrinterSupport={hasPrinterSupport}
-                  printBusy={printBusy}
-                  weighProps={weighProps}
-                />
+              {(activeGroup.entries || []).map((entry) => (
+                <PickCardErrorBoundary key={entry.lineId} fallback={t8.cardError}>
+                  <OrderPickCard
+                    entry={entry}
+                    active={entry.lineId === activeLineId}
+                    t8={t8}
+                    lang={lang}
+                    group={activeGroup}
+                    info={getBoxInfo?.(entry.order)}
+                    lock={getOrderLock?.(entry.orderId)}
+                    onSelectEntry={onSelectEntry}
+                    onPrintLabel={onPrintLabel}
+                    hasPrinterSupport={hasPrinterSupport}
+                    printBusy={printBusy}
+                    weighProps={weighProps}
+                  />
+                </PickCardErrorBoundary>
               ))}
             </div>
           </>
@@ -1057,18 +1131,18 @@ export default function PickingWorkspaceV8(props) {
     t8,
     view,
     hasOrdersLoaded,
-    scopeBlocks,
-    scopeCommunities,
-    allCommunities,
+    scopeBlocks = [],
+    scopeCommunities = [],
+    allCommunities = [],
     onSelectScopeCommunities,
     onToggleScopeCommunity,
-    communityProgress,
+    communityProgress = {},
     getCommunityColor,
     getCommunityGroup,
     onSaveScopeAsGroup,
     onClearGroup,
     savingGroup,
-    scopeOrders,
+    scopeOrders = [],
     completedInScopeCount,
     isAdmin,
     pendingSyncCount = 0,

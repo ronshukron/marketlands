@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import PickingWorkspaceV8 from './PickingWorkspaceV8';
+import PickingWorkspaceV8, { PickCardErrorBoundary } from './PickingWorkspaceV8';
 import { buildItemPickGroups } from './itemPickingV8';
 import { TR8 } from './translationsV8';
 
@@ -341,5 +341,41 @@ describe('WeighPanel', () => {
     const { props } = openTomato();
     fireEvent.click(screen.getByRole('button', { name: /יוסי/ }));
     expect(props.onSelectEntry).toHaveBeenCalledWith('o2::tom');
+  });
+
+  test('missing box info or item fields do not crash the open product', () => {
+    const broken = {
+      ...tomato,
+      entries: [
+        { ...tomato.entries[0], item: undefined },
+        tomato.entries[1],
+      ],
+    };
+    renderWorkspace({
+      view: 'items',
+      activeGroup: broken,
+      groups: [broken, eggs],
+      activeLineId: 'o1::tom',
+      getBoxInfo: () => null,
+    });
+    expect(screen.getByText(t8.putInBox)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t8.save })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t8.markMissing })).toBeInTheDocument();
+  });
+
+  test('a crashing card stays isolated so the rest of the product can still be picked', () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    function Bomb() {
+      throw new Error('card exploded');
+    }
+    render(
+      <div>
+        <PickCardErrorBoundary fallback={t8.cardError}><Bomb /></PickCardErrorBoundary>
+        <button type="button">יוסי</button>
+      </div>,
+    );
+    expect(screen.getByText(t8.cardError)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'יוסי' })).toBeInTheDocument();
+    consoleSpy.mockRestore();
   });
 });
