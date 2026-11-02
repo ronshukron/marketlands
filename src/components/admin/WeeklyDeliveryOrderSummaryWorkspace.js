@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { fetchDocsForDeliveryWindow } from '../../utils/customerOrderDateQueries';
 import { format } from 'date-fns';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
@@ -131,6 +132,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
   const [customModalBusinessName, setCustomModalBusinessName] = useState('');
   const [customModalItems, setCustomModalItems] = useState([]);
   const communityDropdownRef = useRef(null);
+  const fetchRequestRef = useRef(0);
 
   useEffect(() => {
     const handler = (event) => {
@@ -209,6 +211,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
   };
 
   const fetchOrders = async () => {
+    const requestId = ++fetchRequestRef.current;
     setLoading(true);
     setError('');
     try {
@@ -225,16 +228,18 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
       });
       setOrderMessageDate(toLocalDateKey(window.end));
 
-      const [ordersSnapshot, delayedSnapshot] = await Promise.all([
-        getDocs(collection(db, 'customerOrders')),
-        getDocs(collection(db, 'customerOrdersDelayed')),
-      ]);
+      const delayedDocs = await fetchDocsForDeliveryWindow(
+        'customerOrdersDelayed',
+        window.start,
+        window.end,
+      );
+      if (requestId !== fetchRequestRef.current) return;
 
       const nextOrders = [];
-      const allDocs = [
-        ...ordersSnapshot.docs.map((docSnap) => ({ docSnap, source: 'customerOrders' })),
-        ...delayedSnapshot.docs.map((docSnap) => ({ docSnap, source: 'customerOrdersDelayed' })),
-      ];
+      const allDocs = delayedDocs.map((docSnap) => ({
+        docSnap,
+        source: 'customerOrdersDelayed',
+      }));
 
       allDocs.forEach(({ docSnap, source }) => {
         const orderData = docSnap.data() || {};
@@ -264,13 +269,15 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
       });
 
       nextOrders.sort((a, b) => b.deliveryDate - a.deliveryDate);
+      if (requestId !== fetchRequestRef.current) return;
       setOrders(nextOrders);
       setHasLoadedOrders(true);
     } catch (err) {
+      if (requestId !== fetchRequestRef.current) return;
       console.error('Error fetching delivery orders:', err);
       setError('Failed to load delivery orders');
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestRef.current) setLoading(false);
     }
   };
 
