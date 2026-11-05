@@ -60,9 +60,11 @@ export const refreshCartCommercialTerms = async ({ items = [], orderIds = [] } =
   ]);
 
   const orderMinimums = {};
+  const ordersById = {};
   orderSnaps.forEach((snap, index) => {
     if (!snap.exists()) return;
     const data = snap.data();
+    ordersById[uniqueOrderIds[index]] = data;
     orderMinimums[uniqueOrderIds[index]] = normalizeOrderMinimums(
       data.minimumOrderAmount,
       data.minimumOrderItemCount,
@@ -95,6 +97,7 @@ export const refreshCartCommercialTerms = async ({ items = [], orderIds = [] } =
   return {
     items: pricedItems,
     orderMinimums,
+    ordersById,
     promotionsByBusinessId,
   };
 };

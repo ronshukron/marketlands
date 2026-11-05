@@ -117,7 +117,7 @@ import {
 } from '../../../utils/deliveryScheduleUtils';
 import CustomerOrderDeliveryTransferControl from '../../admin/CustomerOrderDeliveryTransferControl';
 import { getCustomerKey, getCustomerProfiles } from '../../../services/customerProfileService';
-import { classifyCustomer, loadCustomerHistoryStats } from '../../../services/customerHistoryService';
+import { classifyCustomer, customerHistoryFromProfiles } from '../../../services/customerHistoryService';
 import {
   getDisplayDiscountInfo,
   subscribeDisplayDiscountInfo,
@@ -1956,15 +1956,13 @@ export default function DeliveryManagementV8() {
     let active = true;
     const keys = customerKeysSignature ? customerKeysSignature.split('\n') : [];
     getCustomerProfiles(keys)
-      .then((map) => { if (active) setCustomerProfilesMap(map); })
-      .catch((e) => console.error('V7 customer profiles load failed', e));
-    loadCustomerHistoryStats()
-      .then((stats) => {
+      .then((map) => {
         if (!active) return;
-        setCustomerHistoryMap(stats || {});
+        setCustomerProfilesMap(map);
+        setCustomerHistoryMap(customerHistoryFromProfiles(map));
         setCustomerHistoryLoaded(true);
       })
-      .catch((e) => console.error('V7 customer history load failed', e));
+      .catch((e) => console.error('V7 customer profiles load failed', e));
     return () => { active = false; };
   }, [customerKeysSignature, hasOrders]);
 

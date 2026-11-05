@@ -10,8 +10,41 @@ jest.mock('../utils/functionsClient', () => ({
 }));
 
 import axios from 'axios';
+import { getDoc } from 'firebase/firestore';
 import { functionsEndpoint } from '../utils/functionsClient';
-import { confirmDelayedPayment } from './delayedPaymentGatewayService';
+import { confirmDelayedPayment, getDelayedPaymentGateway } from './delayedPaymentGatewayService';
+
+describe('getDelayedPaymentGateway', () => {
+  beforeEach(() => {
+    localStorage.removeItem('delayedPaymentGatewayOverride');
+    getDoc.mockReset();
+  });
+
+  test('a browser override wins and does not read payment settings', async () => {
+    localStorage.setItem('delayedPaymentGatewayOverride', 'grow_j5_legacy');
+    await expect(getDelayedPaymentGateway({
+      paymentConfig: { delayedPaymentGateway: 'grow_payment_link' },
+    })).resolves.toBe('grow_j5_legacy');
+    expect(getDoc).not.toHaveBeenCalled();
+  });
+
+  test('uses a payment config already loaded by checkout instead of reading it again', async () => {
+    const envGateway = process.env.REACT_APP_DELAYED_PAYMENT_GATEWAY;
+    if (envGateway) {
+      await getDelayedPaymentGateway({ paymentConfig: { delayedPaymentGateway: 'grow_j5_legacy' } });
+      expect(getDoc).not.toHaveBeenCalled();
+      return;
+    }
+
+    await expect(getDelayedPaymentGateway({
+      paymentConfig: { delayedPaymentGateway: ' GROW_PAYMENT_LINK ' },
+    })).resolves.toBe('grow_payment_link');
+    await expect(getDelayedPaymentGateway({
+      paymentConfig: { delayedPaymentGateway: 'not-a-gateway' },
+    })).resolves.toBe('grow_j5_legacy');
+    expect(getDoc).not.toHaveBeenCalled();
+  });
+});
 
 describe('confirmDelayedPayment', () => {
   beforeEach(() => {

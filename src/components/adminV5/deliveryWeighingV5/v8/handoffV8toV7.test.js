@@ -159,7 +159,7 @@ jest.mock('../../../../services/customerProfileService', () => ({
 }));
 jest.mock('../../../../services/customerHistoryService', () => ({
   classifyCustomer: () => ({ isNew: false, isLapsed: false }),
-  loadCustomerHistoryStats: async () => ({}),
+  customerHistoryFromProfiles: () => ({}),
 }));
 jest.mock('../../../../services/communityDiscountService', () => ({
   getDisplayDiscountInfo: async () => null,

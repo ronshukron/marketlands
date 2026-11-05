@@ -52,12 +52,16 @@ const callGrowLegacyJ5Checkout = async (payload) => {
   return data;
 };
 
-export const getDelayedPaymentGateway = async () => {
+export const getDelayedPaymentGateway = async ({ paymentConfig } = {}) => {
   const localOverride = parseGateway(localStorage.getItem(GATEWAY_OVERRIDE_KEY));
   if (localOverride) return localOverride;
 
   const envGateway = parseGateway(process.env.REACT_APP_DELAYED_PAYMENT_GATEWAY);
   if (envGateway) return envGateway;
+
+  if (paymentConfig) {
+    return parseGateway(paymentConfig.delayedPaymentGateway) || DEFAULT_GATEWAY;
+  }
 
   try {
     const configRef = doc(db, CONFIG_DOC_PATH);
@@ -107,8 +111,8 @@ export const confirmDelayedPayment = async ({ customerOrderId } = {}) => {
   }
 };
 
-export const createDelayedPaymentCheckout = async (payload) => {
-  const gateway = await getDelayedPaymentGateway();
+export const createDelayedPaymentCheckout = async (payload, { paymentConfig } = {}) => {
+  const gateway = await getDelayedPaymentGateway({ paymentConfig });
 
   try {
     if (gateway === DELAYED_PAYMENT_GATEWAYS.GROW_PAYMENT_LINK) {

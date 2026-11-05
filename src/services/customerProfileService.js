@@ -20,6 +20,8 @@ const EMPTY_PROFILE = {
   winBackFirstSentAt: '',
   winBackSendCount: 0,
   winBackOfferSummary: '',
+  completedCount: 0,
+  lastOrderDate: '',
 };
 
 // Profiles written before the counter existed only have winBackSentAt.
@@ -39,6 +41,8 @@ function normalizeProfile(data) {
     winBackFirstSentAt: data.winBackFirstSentAt || data.winBackSentAt || '',
     winBackSendCount: readWinBackSendCount(data),
     winBackOfferSummary: data.winBackOfferSummary || '',
+    completedCount: Math.max(0, Math.floor(Number(data.completedCount) || 0)),
+    lastOrderDate: data.lastOrderDate || '',
   };
 }
 

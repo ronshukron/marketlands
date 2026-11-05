@@ -14,7 +14,7 @@ import { createDelayedPaymentCheckout } from '../../services/delayedPaymentGatew
 import { buildGrowSuccessUrl, storeDelayedCustomerOrderId } from '../../utils/growReturnParams';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
-import { getReusableCartonConfig, getWeightBufferPercent, isDelayedPaymentSpot } from '../../services/paymentConfigService';
+import { getReusableCartonConfig, isDelayedPaymentSpot, readPaymentConfigSnapshot, resolveWeightBufferPercent } from '../../services/paymentConfigService';
 import { resolveCommunityName } from '../../services/pickupSpotsService';
 import {
     buildPricingSnapshot,
@@ -865,10 +865,17 @@ const OrderConfirmationDelayed = () => {
             return;
         }
 
+        const paymentConfigPromise = readPaymentConfigSnapshot().catch((configError) => {
+            console.error('Error fetching payment config:', configError);
+            return {};
+        });
+
         let checkoutItemsByOrder = effectiveItemsByOrder;
+        let refreshedOrdersById = null;
         try {
             const refreshed = await refreshCartCommercialTerms({ items: cartItems });
             applyCommercialRefresh(refreshed);
+            refreshedOrdersById = refreshed.ordersById || null;
             const refreshedEffectiveItems = refreshed.items.filter((item) => (
                 !isOrderUnavailableForSelectedDate(item.orderId)
             ));
@@ -908,7 +915,7 @@ const OrderConfirmationDelayed = () => {
 
         // Check if any order has ended
         for (const [orderId, orderData] of Object.entries(checkoutItemsByOrder)) {
-            const orderHasEnded = await checkIfOrderEnded(orderId);
+            const orderHasEnded = await checkIfOrderEnded(orderId, null, refreshedOrdersById?.[orderId]);
             if (orderHasEnded) {
                 const businessName = orderData.items[0]?.businessName || "Unknown Business";
                 Swal.fire({
@@ -922,7 +929,8 @@ const OrderConfirmationDelayed = () => {
         }
     
         setLoading(true);
-        const weightBufferPercent = await getWeightBufferPercent();
+        const paymentConfig = await paymentConfigPromise;
+        const weightBufferPercent = resolveWeightBufferPercent(paymentConfig);
         const checkoutItems = Object.values(checkoutItemsByOrder).flatMap((orderData) => orderData.items || []);
         const holdAmount = roundMoney(effectiveTotalWithDelivery + sumHoldExtra(checkoutItems, weightBufferPercent));
         const customerOrderId = `temp_${new Date().getTime()}`; // Generate a temporary ID
@@ -1022,16 +1030,13 @@ const OrderConfirmationDelayed = () => {
             },
         });
 
-        // Add the order to the user's document
+        // Add the order to the user's document; the payment redirect does not depend on it.
         if (checkoutUid) {
-            try {
-                const userDocRef = doc(db, "users", checkoutUid);
-                await setDoc(userDocRef, {
-                    orders: arrayUnion(customerOrderId)
-                }, { merge: true });
-            } catch (error) {
+            setDoc(doc(db, "users", checkoutUid), {
+                orders: arrayUnion(customerOrderId)
+            }, { merge: true }).catch((error) => {
                 console.error("Error updating user document:", error);
-            }
+            });
         }
 
         // Get all orderIds instead of just the first one
@@ -1107,7 +1112,7 @@ const OrderConfirmationDelayed = () => {
 
             storeDelayedCustomerOrderId(customerOrderId);
 
-            const checkoutResult = await createDelayedPaymentCheckout(paymentData);
+            const checkoutResult = await createDelayedPaymentCheckout(paymentData, { paymentConfig });
             const url = checkoutResult?.url;
 
             // Do not update customerOrdersDelayed from client after create:
@@ -1137,13 +1142,15 @@ const OrderConfirmationDelayed = () => {
         navigate(`/`);
     };
 
-    const checkIfOrderEnded = async (orderId, pickupSpot = null) => {
+    const checkIfOrderEnded = async (orderId, pickupSpot = null, prefetchedOrderData = null) => {
         try {
-            const orderDoc = doc(db, "Orders", orderId);
-            const docSnap = await getDoc(orderDoc);
+            let orderData = prefetchedOrderData;
+            if (!orderData) {
+                const docSnap = await getDoc(doc(db, "Orders", orderId));
+                orderData = docSnap.exists() ? docSnap.data() : null;
+            }
     
-            if (docSnap.exists()) {
-                const orderData = docSnap.data();
+            if (orderData) {
                 if (isAlwaysOnGroceryOrder(orderData)) {
                     return false;
                 }
@@ -1522,7 +1529,7 @@ const OrderConfirmationDelayed = () => {
             }
 
             // Continue with payment processing
-            handleSubmitOrder(checkoutUid);
+            await handleSubmitOrder(checkoutUid);
         } catch (error) {
             console.error("Error proceeding to checkout:", error);
             Swal.fire({

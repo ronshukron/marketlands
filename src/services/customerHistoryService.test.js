@@ -1,44 +1,23 @@
-const mockFirestore = { getDocsCalls: 0, release: null };
+import { classifyCustomer, customerHistoryFromProfiles } from './customerHistoryService';
 
-jest.mock('firebase/firestore', () => ({
-  collection: (_db, name) => ({ name }),
-  doc: () => ({}),
-  getDoc: async () => ({ exists: () => false }),
-  setDoc: async () => {},
-  getDocs: async ({ name }) => {
-    mockFirestore.getDocsCalls += 1;
-    if (mockFirestore.release) await mockFirestore.release;
-    const docs = name === 'customerOrdersDelayed'
-      ? [{ data: () => ({ delayedOrderStatus: 'settled', customerDetails: { phone: '050-1' }, createdAt: '2026-10-01' }) }]
-      : [{ data: () => ({ paymentStatus: 'completed', customerDetails: { phone: '050-1' }, createdAt: '2026-09-01' }) }];
-    return { docs };
-  },
-}));
-jest.mock('../firebase/firebase', () => ({ db: {} }));
+test('builds history entries from profile counters and skips customers without completed orders', () => {
+  const stats = customerHistoryFromProfiles({
+    '050-1': { completedCount: 7, lastOrderDate: '2026-10-01T08:00:00.000Z' },
+    '050-2': { completedCount: 0, lastOrderDate: '' },
+    '050-3': { isVip: true },
+  });
 
-// eslint-disable-next-line import/first
-import { invalidateCustomerHistoryCache, loadCustomerHistoryStats } from './customerHistoryService';
-
-beforeEach(() => {
-  mockFirestore.getDocsCalls = 0;
-  mockFirestore.release = null;
-  invalidateCustomerHistoryCache();
+  expect(Object.keys(stats)).toEqual(['050-1']);
+  expect(stats['050-1'].completedCount).toBe(7);
+  expect(stats['050-1'].lastOrderDate).toEqual(new Date('2026-10-01T08:00:00.000Z'));
 });
 
-test('a burst of calls while the cache is empty runs one scan, not one per call', async () => {
-  let open;
-  mockFirestore.release = new Promise((resolve) => { open = resolve; });
-  const calls = Array.from({ length: 10 }, () => loadCustomerHistoryStats());
-  open();
-  const results = await Promise.all(calls);
-  expect(mockFirestore.getDocsCalls).toBe(2);
-  results.forEach((stats) => expect(stats['050-1'].completedCount).toBe(2));
-});
+test('classifies a profile-derived entry the same way as before', () => {
+  const recent = new Date();
+  const stats = customerHistoryFromProfiles({
+    loyal: { completedCount: 9, lastOrderDate: recent.toISOString() },
+  });
 
-test('cached stats are reused, and force starts a fresh scan', async () => {
-  await loadCustomerHistoryStats();
-  await loadCustomerHistoryStats();
-  expect(mockFirestore.getDocsCalls).toBe(2);
-  await loadCustomerHistoryStats({ force: true });
-  expect(mockFirestore.getDocsCalls).toBe(4);
+  expect(classifyCustomer(stats.loyal)).toMatchObject({ isNew: false, isLapsed: false, completedCount: 9 });
+  expect(classifyCustomer(stats.unknown)).toMatchObject({ isNew: true, isLapsed: false, completedCount: 0 });
 });

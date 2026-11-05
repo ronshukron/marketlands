@@ -114,7 +114,7 @@ export const isDelayedPaymentSpot = async (pickupSpot) => {
   }
 };
 
-const resolveWeightBufferPercent = (data = {}) => (
+export const resolveWeightBufferPercent = (data = {}) => (
   data.weightBufferPercent === undefined || data.weightBufferPercent === null
     ? DEFAULT_WEIGHT_BUFFER_PERCENT
     : normalizeWeightBufferPercent(data.weightBufferPercent)

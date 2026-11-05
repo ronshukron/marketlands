@@ -16,7 +16,7 @@ import { functionsEndpoint } from '../../../utils/functionsClient';
 import {
   getOrderCommunity,
   getOrderDeliveryDate,
-  getWeekKey,
+  getWeekKeysAroundToday,
   normalizeDateRange,
   parseDateSafe,
   toLocalDateKey,
@@ -220,17 +220,10 @@ function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = 
   };
 }
 
+// Generated locally: scanning customerOrdersDelayed for week keys reads every order ever placed.
+// The first entry (next week) is the default selection in V7/V8.
 export async function fetchAvailableDeliveryWeeksV7() {
-  const snapshot = await getDocs(collection(db, 'customerOrdersDelayed'));
-  const weeksSet = new Set();
-
-  snapshot.forEach((docSnap) => {
-    const data = docSnap.data() || {};
-    const weekKey = getWeekKey(getOrderDeliveryDate(data));
-    if (weekKey) weeksSet.add(weekKey);
-  });
-
-  return Array.from(weeksSet).sort((a, b) => new Date(b) - new Date(a));
+  return getWeekKeysAroundToday({ pastCount: 24, futureCount: 1 });
 }
 
 export function subscribeDelayedOrdersForWeekV7({
@@ -243,22 +236,87 @@ export function subscribeDelayedOrdersForWeekV7({
 }) {
   if (!weekKey && !startDate && !endDate) return () => {};
 
-  const collectionRef = weekKey
-    ? query(collection(db, 'customerOrdersDelayed'), where('deliveryWeekKey', '==', weekKey))
-    : collection(db, 'customerOrdersDelayed');
+  const ordersRef = collection(db, 'customerOrdersDelayed');
+  const handleError = (error) => {
+    if (typeof onError === 'function') onError(error);
+  };
 
-  const unsubscribe = onSnapshot(
-    collectionRef,
+  if (weekKey) {
+    return onSnapshot(
+      query(ordersRef, where('deliveryWeekKey', '==', weekKey)),
+      (snapshot) => {
+        const next = classifyDelayedOrders(snapshot, weekKey, communities, startDate, endDate);
+        if (typeof onOrders === 'function') onOrders(next);
+      },
+      handleError,
+    );
+  }
+
+  const rangeQueries = buildDateRangeOrderQueries(ordersRef, startDate, endDate);
+  if (!rangeQueries) {
+    return onSnapshot(
+      ordersRef,
+      (snapshot) => {
+        const next = classifyDelayedOrders(snapshot, weekKey, communities, startDate, endDate);
+        if (typeof onOrders === 'function') onOrders(next);
+      },
+      handleError,
+    );
+  }
+
+  // Orders with a scheduled delivery carry deliveryWeekKey; older orders fall back to createdAt.
+  const docsByQuery = rangeQueries.map(() => new Map());
+  const emit = () => {
+    const merged = new Map();
+    docsByQuery.forEach((docs) => docs.forEach((docSnap, id) => merged.set(id, docSnap)));
+    const snapshotLike = { forEach: (callback) => merged.forEach((docSnap) => callback(docSnap)) };
+    const next = classifyDelayedOrders(snapshotLike, weekKey, communities, startDate, endDate);
+    if (typeof onOrders === 'function') onOrders(next);
+  };
+
+  const unsubscribes = rangeQueries.map((rangeQuery, index) => onSnapshot(
+    rangeQuery,
     (snapshot) => {
-      const next = classifyDelayedOrders(snapshot, weekKey, communities, startDate, endDate);
-      if (typeof onOrders === 'function') onOrders(next);
+      const docs = new Map();
+      snapshot.forEach((docSnap) => docs.set(docSnap.id, docSnap));
+      docsByQuery[index] = docs;
+      emit();
     },
-    (error) => {
-      if (typeof onError === 'function') onError(error);
-    },
-  );
+    handleError,
+  ));
 
-  return unsubscribe;
+  return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+}
+
+const MAX_FIRESTORE_IN_VALUES = 30;
+
+function buildDateRangeOrderQueries(ordersRef, startDate, endDate) {
+  const window = normalizeDateRange(startDate, endDate);
+  if (!window) return null;
+
+  const weekKeys = [];
+  const cursor = new Date(window.start);
+  cursor.setHours(0, 0, 0, 0);
+  cursor.setDate(cursor.getDate() - cursor.getDay());
+  while (cursor <= window.end) {
+    weekKeys.push(toLocalDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  if (weekKeys.length === 0 || weekKeys.length > MAX_FIRESTORE_IN_VALUES) return null;
+
+  const createdFrom = new Date(window.start);
+  createdFrom.setDate(createdFrom.getDate() - 1);
+  const createdTo = new Date(window.end);
+  createdTo.setDate(createdTo.getDate() + 1);
+
+  return [
+    query(ordersRef, where('deliveryWeekKey', 'in', weekKeys)),
+    query(
+      ordersRef,
+      where('createdAt', '>=', createdFrom.toISOString()),
+      where('createdAt', '<=', createdTo.toISOString()),
+    ),
+  ];
 }
 
 export async function fetchProductDetailsV7(productIds = []) {
@@ -297,45 +355,68 @@ export async function fetchProductDetailsV7(productIds = []) {
   return productMap;
 }
 
+const PRODUCT_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+let productSearchCache = null;
+let productSearchCacheAt = 0;
+let productSearchInflight = null;
+
+async function loadSearchableProductsV7() {
+  if (productSearchCache && Date.now() - productSearchCacheAt < PRODUCT_SEARCH_CACHE_TTL_MS) {
+    return productSearchCache;
+  }
+  if (productSearchInflight) return productSearchInflight;
+
+  productSearchInflight = getDocs(collection(db, 'Products'))
+    .then((snapshot) => {
+      productSearchCache = snapshot.docs
+        .map((docSnap) => {
+          const data = docSnap.data() || {};
+          return {
+            id: docSnap.id,
+            name: data.name || '',
+            thaiName: data.thaiName || '',
+            independentFarmer: data.independentFarmer === true,
+            price: safeNumber(data.price, 0),
+            images: Array.isArray(data.images) ? data.images : [],
+            businessId: data.businessId || '',
+            businessName: data.businessName || '',
+            catalogNumber: data.catalogNumber || '',
+            vatType: data.vatType ?? 3,
+            measurementType: data.measurementType || 'kg',
+            unitSize: safeNumber(data.unitSize, 1),
+            averageWeightKg: safeNumber(data.averageWeightKg, 1),
+            hardToPick: Boolean(data.hardToPick),
+            isOrganic: Boolean(data.isOrganic),
+            isKosherMehadrin: Boolean(data.isKosherMehadrin),
+          };
+        })
+        .filter((product) => product.independentFarmer !== true)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      productSearchCacheAt = Date.now();
+      return productSearchCache;
+    })
+    .finally(() => {
+      productSearchInflight = null;
+    });
+
+  return productSearchInflight;
+}
+
 export async function searchProductsV7({ term = '', limit = 20 }) {
-  const snapshot = await getDocs(collection(db, 'Products'));
+  const products = await loadSearchableProductsV7();
   const needle = String(term || '').trim().toLowerCase();
 
-  const rows = snapshot.docs
-    .map((docSnap) => {
-      const data = docSnap.data() || {};
-      return {
-        id: docSnap.id,
-        name: data.name || '',
-        thaiName: data.thaiName || '',
-        independentFarmer: data.independentFarmer === true,
-        price: safeNumber(data.price, 0),
-        images: Array.isArray(data.images) ? data.images : [],
-        businessId: data.businessId || '',
-        businessName: data.businessName || '',
-        catalogNumber: data.catalogNumber || '',
-        vatType: data.vatType ?? 3,
-        measurementType: data.measurementType || 'kg',
-        unitSize: safeNumber(data.unitSize, 1),
-        averageWeightKg: safeNumber(data.averageWeightKg, 1),
-        hardToPick: Boolean(data.hardToPick),
-        isOrganic: Boolean(data.isOrganic),
-        isKosherMehadrin: Boolean(data.isKosherMehadrin),
-      };
-    })
-    .filter((product) => product.independentFarmer !== true)
-    .filter((product) => {
-      if (!needle) return true;
-      return [
-        product.name,
-        product.thaiName,
-        product.catalogNumber,
-        product.businessName,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(needle));
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const rows = products.filter((product) => {
+    if (!needle) return true;
+    return [
+      product.name,
+      product.thaiName,
+      product.catalogNumber,
+      product.businessName,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(needle));
+  });
 
   return rows.slice(0, limit);
 }
