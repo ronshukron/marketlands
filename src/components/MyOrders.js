@@ -25,9 +25,27 @@ import {
     REFUND_STATUSES,
     getRefundStatusDetails,
 } from '../utils/refundUtils';
+import {
+    STATUS_BADGE_CLASSES,
+    formatCustomerDeliveryDate,
+    formatCustomerLineQuantity,
+    formatWeighedQuantity,
+    getCustomerLineEstimatedTotal,
+    getCustomerOrderDisplayTotal,
+    getCustomerOrderStatusInfo,
+    getWeighedLinesById,
+    isLineRemovedAtWeighing,
+} from '../utils/customerOrderDisplay';
+
+const getRefundCreatedAtMs = (value) => (
+    value?.toMillis?.()
+    || value?.toDate?.()?.getTime?.()
+    || (value ? new Date(value).getTime() : 0)
+    || 0
+);
 
 const MyOrders = () => {
-    const { currentUser } = useAuth();
+    const { currentUser, loading: authLoading } = useAuth();
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -42,6 +60,7 @@ const MyOrders = () => {
 
     useEffect(() => {
         const fetchOrders = async () => {
+            if (authLoading) return;
             if (!currentUser || !currentUser.uid) {
                 setError("אנא התחבר כדי לראות את ההזמנות שלך.");
                 setLoading(false);
@@ -52,113 +71,104 @@ const MyOrders = () => {
 
             try {
                 setLoading(true);
-                const userDocRef = doc(db, "users", currentUser.uid);
-                const userDocSnap = await getDoc(userDocRef);
+                const userDocSnap = await getDoc(doc(db, "users", currentUser.uid)).catch((userDocError) => {
+                    console.error('Failed to load user document', userDocError);
+                    return null;
+                });
+                const legacyOrderIds = userDocSnap?.exists() ? getLegacyCustomerOrderIds(userDocSnap.data()) : [];
+                const legacyOrderIdSet = new Set(legacyOrderIds);
 
-                if (userDocSnap.exists()) {
-                    const legacyOrderIds = getLegacyCustomerOrderIds(userDocSnap.data());
-                    const legacyOrderIdSet = new Set(legacyOrderIds);
-                    // Owner-scoped queries are required by the Firestore rules.
-                    const fetchWeeklyByUserPromise = (async () => {
+                // Owner-scoped queries are required by the Firestore rules.
+                const fetchWeeklyByUserPromise = (async () => {
+                    try {
+                        const [standardSnap, delayedSnap] = await Promise.all([
+                            getDocs(query(collection(db, 'customerOrders'), where('userId', '==', currentUser.uid))),
+                            getDocs(query(collection(db, 'customerOrdersDelayed'), where('userId', '==', currentUser.uid))),
+                        ]);
+                        const standard = standardSnap.docs.map((d) => ({
+                            id: d.id,
+                            customerOrderSource: 'customerOrders',
+                            ...d.data(),
+                            isIndependent: false,
+                        }));
+                        const delayed = delayedSnap.docs.map((d) => ({
+                            id: d.id,
+                            customerOrderSource: 'customerOrdersDelayed',
+                            ...d.data(),
+                            isIndependent: false,
+                        }));
+                        return { orders: [...standard, ...delayed], failed: false };
+                    } catch (e) {
+                        console.error('Failed weekly orders query', e);
+                        return { orders: [], failed: true };
+                    }
+                })();
+
+                const fetchIndependentByUserPromise = (async () => {
+                    try {
+                        const qInd = query(collection(db, 'IndepentCustomerOrders'), where('userId', '==', currentUser.uid));
+                        const snap = await getDocs(qInd);
+                        return snap.docs.map((d) => ({ id: d.id, ...d.data(), isIndependent: true }));
+                    } catch (e) {
+                        console.error('Failed independent orders query', e);
+                        return [];
+                    }
+                })();
+
+                const fetchLegacyWeeklyPromise = Promise.all(
+                    legacyOrderIds.map(async (orderId) => {
                         try {
-                            const [standardSnap, delayedSnap] = await Promise.all([
-                                getDocs(query(collection(db, 'customerOrders'), where('userId', '==', currentUser.uid))),
-                                getDocs(query(collection(db, 'customerOrdersDelayed'), where('userId', '==', currentUser.uid))),
-                            ]);
-                            const standard = standardSnap.docs.map((d) => ({
-                                id: d.id,
-                                customerOrderSource: 'customerOrders',
-                                ...d.data(),
-                                isIndependent: false,
-                            }));
-                            const delayed = delayedSnap.docs.map((d) => ({
-                                id: d.id,
-                                customerOrderSource: 'customerOrdersDelayed',
-                                ...d.data(),
-                                isIndependent: false,
-                            }));
-                            return [...standard, ...delayed];
-                        } catch (e) {
-                            console.error('Failed weekly fallback query', e);
-                            return [];
+                            const order = await fetchCustomerOrderById(orderId);
+                            if (!order || (order.userId && order.userId !== currentUser.uid)) return null;
+                            return { ...order, isIndependent: false };
+                        } catch (legacyError) {
+                            console.error(`Failed legacy order lookup ${orderId}`, legacyError);
+                            return null;
                         }
-                    })();
+                    })
+                );
 
-                    const fetchIndependentByUserPromise = (async () => {
-                        try {
-                            const qInd = query(collection(db, 'IndepentCustomerOrders'), where('userId', '==', currentUser.uid));
-                            const snap = await getDocs(qInd);
-                            return snap.docs.map((d) => ({ id: d.id, ...d.data(), isIndependent: true }));
-                        } catch (e) {
-                            console.error('Failed independent fallback query', e);
-                            return [];
-                        }
-                    })();
+                const [legacyWeekly, weeklyResult, independentByUser] = await Promise.all([
+                    fetchLegacyWeeklyPromise,
+                    fetchWeeklyByUserPromise,
+                    fetchIndependentByUserPromise,
+                ]);
 
-                    const fetchLegacyWeeklyPromise = Promise.all(
-                        legacyOrderIds.map(async (orderId) => {
-                            try {
-                                const order = await fetchCustomerOrderById(orderId);
-                                if (!order || (order.userId && order.userId !== currentUser.uid)) return null;
-                                return { ...order, isIndependent: false };
-                            } catch (legacyError) {
-                                console.error(`Failed legacy order lookup ${orderId}`, legacyError);
-                                return null;
-                            }
-                        })
-                    );
+                const mergeUnique = (arr) => {
+                    const map = new Map();
+                    for (const item of (arr || [])) {
+                        if (item && item.id && !map.has(item.id)) map.set(item.id, item);
+                    }
+                    return Array.from(map.values());
+                };
 
-                    const [fetchedWeekly, fetchedIndependent, weeklyByUser, independentByUser] = await Promise.all([
-                        fetchLegacyWeeklyPromise,
-                        Promise.resolve([]),
-                        fetchWeeklyByUserPromise,
-                        fetchIndependentByUserPromise
-                    ]);
+                const validWeekly = mergeUnique([...legacyWeekly.filter(Boolean), ...weeklyResult.orders])
+                    .filter((order) => (
+                        isCustomerOrderOwner(order, currentUser.uid)
+                        || (!order.userId && legacyOrderIdSet.has(order.id))
+                    ))
+                    .filter((order) => shouldIncludeCustomerOrderInList(order))
+                    .map((order) => (
+                        order.orderBreakdown
+                            ? { ...order, orderBreakdown: ensureLineIdsInBreakdown(order.id, order.orderBreakdown).breakdown }
+                            : order
+                    ));
 
-                    // Merge arrays and de-duplicate by id
-                    const mergeUnique = (arr) => {
-                        const map = new Map();
-                        for (const item of (arr || [])) {
-                            if (item && item.id && !map.has(item.id)) map.set(item.id, item);
-                        }
-                        return Array.from(map.values());
-                    };
+                // Independent: include all so we can show status (held/pending/etc.)
+                const validIndependent = mergeUnique(independentByUser)
+                    .filter((order) => isCustomerOrderOwner(order, currentUser.uid));
 
-                    const weeklyCombined = mergeUnique([...(fetchedWeekly || []).filter(Boolean), ...(weeklyByUser || [])])
-                        .filter((order) => (
-                            isCustomerOrderOwner(order, currentUser.uid)
-                            || (!order.userId && legacyOrderIdSet.has(order.id))
-                        ));
-                    const independentCombined = mergeUnique([...(fetchedIndependent || []).filter(Boolean), ...(independentByUser || [])])
-                        .filter((order) => isCustomerOrderOwner(order, currentUser.uid));
+                const toMs = (value) => (value?.toDate ? value.toDate() : new Date(value)).getTime() || 0;
+                const combinedOrders = [...validIndependent, ...validWeekly]
+                    .sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
 
-                    const validWeekly = (weeklyCombined || [])
-                        .filter((order) => order !== null && shouldIncludeCustomerOrderInList(order))
-                        .map((order) => {
-                            if (!order.orderBreakdown) return order;
-                            return {
-                                ...order,
-                                orderBreakdown: ensureLineIdsInBreakdown(order.id, order.orderBreakdown).breakdown,
-                            };
-                        });
-
-                    // Independent: include all so we can show status (held/pending/etc.)
-                    const validIndependent = (independentCombined || []).filter((order) => order !== null);
-
-                    const combinedOrders = [...validIndependent, ...validWeekly].sort((a, b) => {
-                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-                        return dateB - dateA; // Sort descending
-                    });
-
-                    setOrders(combinedOrders);
-
-                    // Fetch refund statuses for all orders
-                    fetchRefundStatuses(combinedOrders.map(order => order.id));
-
-                } else {
-                    setError("לא נמצאו נתוני משתמש.");
+                if (combinedOrders.length === 0 && weeklyResult.failed) {
+                    setError("אירעה שגיאה בטעינת ההזמנות. נסו לרענן את הדף.");
+                    return;
                 }
+
+                setOrders(combinedOrders);
+                fetchRefundStatuses();
             } catch (err) {
                 console.error("Error fetching user orders:", err);
                 setError("אירעה שגיאה בטעינת ההזמנות.");
@@ -168,24 +178,25 @@ const MyOrders = () => {
         };
 
         fetchOrders();
-    }, [currentUser]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser, authLoading]);
     
-    // New function to fetch refund statuses
-    const fetchRefundStatuses = async (orderIds) => {
+    // Latest refund request per order
+    const fetchRefundStatuses = async () => {
         try {
-            // Create a map to store refund statuses by order ID
             const statusMap = {};
-            
-            // Query refunds collection for any refunds related to these orders
-            const refundsRef = collection(db, 'refunds');
-            const q = query(refundsRef, where('userId', '==', currentUser.uid));
-            const refundsSnapshot = await getDocs(q);
-            
-            refundsSnapshot.forEach(doc => {
-                const refundData = doc.data();
+            const refundsSnapshot = await getDocs(
+                query(collection(db, 'refunds'), where('userId', '==', currentUser.uid))
+            );
+
+            refundsSnapshot.forEach((refundDoc) => {
+                const refundData = refundDoc.data();
+                if (!refundData.orderId) return;
+                const existing = statusMap[refundData.orderId];
+                if (existing && getRefundCreatedAtMs(existing.createdAt) >= getRefundCreatedAtMs(refundData.createdAt)) return;
                 statusMap[refundData.orderId] = {
                     status: refundData.status,
-                    id: doc.id,
+                    id: refundDoc.id,
                     createdAt: refundData.createdAt
                 };
             });
@@ -210,35 +221,6 @@ const MyOrders = () => {
         } catch (e) {
             console.error("Error formatting date:", e);
             return 'Invalid Date';
-        }
-    };
-
-    // Helper to derive payment status (normalized)
-    const derivePaymentStatus = (order) => {
-        return (order?.paymentStatus || order?.status || order?.orderBreakdown?.paymentStatus || '').toLowerCase();
-    };
-
-    // Helper to get display status (raw text)
-    const getDisplayStatus = (order) => {
-        return order?.paymentStatus || order?.status || order?.orderBreakdown?.paymentStatus || 'לא ידוע';
-    };
-
-    // Helper function to get status styles
-    const getStatusBadge = (status) => {
-        switch (status?.toLowerCase()) {
-            case 'completed':
-            case 'paid':
-                return 'bg-green-100 text-green-800';
-            case 'pending_payment':
-            case 'pending':
-                return 'bg-yellow-100 text-yellow-800';
-            case 'held':
-                return 'bg-blue-100 text-blue-800';
-            case 'cancelled':
-            case 'failed':
-                return 'bg-red-100 text-red-800';
-            default:
-                return 'bg-gray-100 text-gray-800';
         }
     };
 
@@ -343,6 +325,32 @@ const MyOrders = () => {
         });
     };
 
+    const renderLineSummary = (order, item) => {
+        const quantityLabel = formatCustomerLineQuantity(item);
+        const option = item.selectedOption && item.selectedOption !== 'None' ? item.selectedOption : '';
+        const weighed = getWeighedLinesById(order)[item.lineId];
+        const removedAtWeighing = isLineRemovedAtWeighing(order, item.lineId);
+        const estimatedTotal = getCustomerLineEstimatedTotal(item);
+        return (
+            <>
+                <span className={removedAtWeighing ? 'line-through text-gray-400' : ''}>
+                    {item.productName || item.name}
+                    {quantityLabel && ` - ${quantityLabel}`}
+                    {option && ` (${option})`}
+                </span>
+                {item.isCompensation ? (
+                    <span className="text-green-700"> - פיצוי, ללא חיוב</span>
+                ) : removedAtWeighing ? (
+                    <span className="text-red-600"> - לא סופק, לא חויב</span>
+                ) : weighed ? (
+                    <span> - נשקל {formatWeighedQuantity(weighed)} · ₪{Number(weighed.linePrice || 0).toFixed(2)}</span>
+                ) : (
+                    <span> - ₪{estimatedTotal.toFixed(2)}</span>
+                )}
+            </>
+        );
+    };
+
     const openRefundModal = (orderId = null) => {
         setCurrentOrderId(orderId);
         setIsExternalRefund(!orderId);
@@ -408,8 +416,8 @@ const MyOrders = () => {
                                     </p>
                                 </div>
                                 <div className="flex flex-col items-end">
-                                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusBadge(derivePaymentStatus(order))}`}>
-                                        {getDisplayStatus(order)}
+                                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${STATUS_BADGE_CLASSES[getCustomerOrderStatusInfo(order).tone]}`}>
+                                        {getCustomerOrderStatusInfo(order).label}
                                     </span>
                                     {getRefundStatusBadge(order.id)}
                                 </div>
@@ -424,20 +432,21 @@ const MyOrders = () => {
                                 <div className="mb-4">
                                     <h3 className="text-md font-semibold text-gray-700 mb-2">סיכום הזמנה:</h3>
                                     {/* Prefer business-style breakdown when present (weekly orders) */}
+                                    {order.orderBreakdown
+                                        && Object.values(order.orderBreakdown).some((v) => Array.isArray(v?.items))
+                                        && !Object.values(order.orderBreakdown).some((v) => filterCustomerActiveLines(order, v?.items).length > 0) && (
+                                        <p className="text-sm text-gray-500">כל הפריטים הוסרו מההזמנה.</p>
+                                    )}
                                     {order.orderBreakdown && Object.values(order.orderBreakdown).some((v) => Array.isArray(v?.items)) && (
-                                        Object.entries(order.orderBreakdown).map(([businessOrderId, businessOrder]) => (
+                                        Object.entries(order.orderBreakdown)
+                                            .filter(([, businessOrder]) => filterCustomerActiveLines(order, businessOrder?.items).length > 0)
+                                            .map(([businessOrderId, businessOrder]) => (
                                             <div key={businessOrderId} className="mb-3 pl-4 border-r-2 border-blue-200">
                                                 <p className="text-sm font-medium text-gray-800">{businessOrder.businessName || 'עסק לא ידוע'}</p>
                                                 <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
                                                     {filterCustomerActiveLines(order, businessOrder.items).map((item, index) => (
                                                         <li key={item.lineId || index} className="flex flex-wrap items-center justify-between gap-2">
-                                                            <span>
-                                                                {item.productName} (x{item.quantity})
-                                                                {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
-                                                                {typeof item.price === 'number' && (
-                                                                    <span> - ₪{(item.price * item.quantity).toFixed(2)}</span>
-                                                                )}
-                                                            </span>
+                                                            <span>{renderLineSummary(order, item)}</span>
                                                             {canReviewLine(order, item) && (
                                                                 <button
                                                                     type="button"
@@ -458,7 +467,7 @@ const MyOrders = () => {
                                         <ul className="list-disc list-inside text-sm text-gray-600 mt-1 space-y-1">
                                             {filterCustomerActiveLines(order, order.items || order.orderItems || []).map((item, index) => (
                                                 <li key={item.lineId || index}>
-                                                    {item.productName} (x{item.quantity})
+                                                    {item.productName || item.name} (x{item.quantity})
                                                     {item.selectedOption && item.selectedOption !== "None" && ` - ${item.selectedOption}`}
                                                     {typeof item.price === 'number' && (
                                                         <span> - ₪{(item.price * item.quantity).toFixed(2)}</span>
@@ -469,25 +478,40 @@ const MyOrders = () => {
                                     )}
                                 </div>
 
-                                <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
-                                    <span className="text-md font-semibold text-gray-800">סה"כ לתשלום:</span>
-                                    <span className="text-lg font-bold text-blue-600">
-                                        ₪{(order.orderBreakdown
-                                            ? computeCustomerOrderGrandTotal(order)
-                                            : (order.grandTotal || order.totalAmount || 0)).toFixed(2)}
-                                    </span>
-                                </div>
+                                {(() => {
+                                    const total = getCustomerOrderDisplayTotal(order);
+                                    return (
+                                        <div className="border-t border-gray-200 pt-4">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-md font-semibold text-gray-800">{total.label}:</span>
+                                                <span className="text-lg font-bold text-blue-600">₪{total.amount.toFixed(2)}</span>
+                                            </div>
+                                            {total.isEstimate && !order.isIndependent && (
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    הסכום הסופי ייקבע לפי המשקל בפועל וייגבה לאחר השקילה.
+                                                </p>
+                                            )}
+                                            {total.isFinal && Number(order.delayedPayment?.holdSum) > 0 && (
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    הערכה בזמן ההזמנה: ₪{Number(order.delayedPayment.holdSum).toFixed(2)}
+                                                </p>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                                 {getOrderPickupSpot(order) && (
                                      <p className="text-sm text-gray-500 mt-2">נקודת איסוף: <span className="font-medium">{getOrderPickupSpot(order)}</span></p>
                                 )}
                                 {getOrderDeliveryDateFromCustomerOrder(order) && (
-                                    <p className="text-sm text-gray-500 mt-1">תאריך משלוח: <span className="font-medium">{getOrderDeliveryDateFromCustomerOrder(order)}</span></p>
+                                    <p className="text-sm text-gray-500 mt-1">תאריך משלוח: <span className="font-medium">{formatCustomerDeliveryDate(getOrderDeliveryDateFromCustomerOrder(order))}</span></p>
                                 )}
-                                <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
-                                    <Link to={`/my-orders/${order.id}`} className="inline-flex min-h-[44px] items-center px-2 text-sm text-blue-600 hover:underline">
-                                        {order.isIndependent ? 'פרטים נוספים' : 'פרטים ודירוג מוצרים'}
-                                    </Link>
-                                </div>
+                                {!order.isIndependent && (
+                                    <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                                        <Link to={`/my-orders/${order.id}`} className="inline-flex min-h-[44px] items-center px-2 text-sm text-blue-600 hover:underline">
+                                            פרטים ודירוג מוצרים
+                                        </Link>
+                                    </div>
+                                )}
                                 <div className="mt-2 text-right">
                                     {refundStatuses[order.id] ? (
                                         <div className="text-sm text-gray-500">

@@ -53,6 +53,31 @@ describe('decorateCommunityWeeklyPromotionProduct', () => {
     }));
   });
 
+  it('withholds the promotional price from a guest when the promotion is signed-in only', () => {
+    const product = {
+      id: 'tomato',
+      orderId: 'farm-2',
+      price: 12,
+      communityWeeklyPromotionId: 'promotion-1',
+      communityWeeklyPromotionPrice: 6.5,
+      communityWeeklyPromotionCommunityCode: 'abc123',
+      communityWeeklyPromotionWeekKey: '2026-08-23',
+    };
+
+    const result = decorateCommunityWeeklyPromotionProduct({
+      product,
+      promotion: { ...promotion, signedInOnly: true },
+      communityCode: 'abc123',
+      unlocked: true,
+      viewerCanUsePromotion: false,
+    });
+
+    expect(result.communityWeeklyPromotionId).toBeNull();
+    expect(result.communityWeeklyPromotionPrice).toBeNull();
+    expect(result.communityWeeklyPromotionUnlocked).toBe(false);
+    expect(result.price).toBe(12);
+  });
+
   it('leaves products outside the promotion snapshot unchanged', () => {
     const product = { id: 'cucumber', price: 9 };
 

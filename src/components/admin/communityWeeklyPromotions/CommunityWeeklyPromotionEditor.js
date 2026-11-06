@@ -83,6 +83,7 @@ const initialForm = (promotion) => {
     endsAtDate: asDateInput(promotion?.endsAt) || toLocalDateKey(saturday),
     endsAtTime: asTimeInput(promotion?.endsAt) || '22:00',
     products: (promotion?.productSnapshots || promotion?.products || promotion?.items || []).map(normalizeProduct),
+    signedInOnly: promotion?.signedInOnly === true,
   };
 };
 
@@ -285,6 +286,7 @@ const CommunityWeeklyPromotionEditor = ({
         headline: form.title.trim(),
         message: form.message.trim(),
       },
+      signedInOnly: form.signedInOnly === true,
       schemaVersion: 1,
       pricingVersion: 'community-weekly-v1',
     });
@@ -324,6 +326,21 @@ const CommunityWeeklyPromotionEditor = ({
               aria-invalid={Boolean(errors.weekKey)}
             />
             <span className="mt-1 block text-xs text-gray-500">השבוע נשמר לפי יום ראשון.</span>
+          </label>
+          <label className="flex min-h-11 items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={form.signedInOnly === true}
+              onChange={(event) => patch({ signedInOnly: event.target.checked })}
+              disabled={readOnly}
+              className="mt-0.5 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>
+              <span className="block font-medium text-gray-800">רק למשתמשים מחוברים</span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500">
+                אורחים יראו שהמבצע קיים. מחיר המבצע נפתח רק אחרי התחברות.
+              </span>
+            </span>
           </label>
         </div>
       </section>

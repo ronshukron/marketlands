@@ -13,7 +13,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { db } from '../firebase/firebase';
+import { auth, db } from '../firebase/firebase';
 import { isIndependentBusinessAccount } from '../utils/accountRoles';
 import {
   buildCommunityWeeklyPromotionAnalytics,
@@ -177,8 +177,11 @@ export const validateCommunityWeeklyPromotion = (input = {}) => {
     },
     schemaVersion,
     pricingVersion,
+    signedInOnly: input.signedInOnly === true,
   };
 };
+
+export const promotionRequiresSignedIn = (promotion) => promotion?.signedInOnly === true;
 
 export class CommunityWeeklyPromotionApiError extends Error {
   constructor(message, { status = 0, code = '', details = null } = {}) {
@@ -213,6 +216,7 @@ const toPromotionDocument = (input, { createdAt } = {}) => {
     shareConfig: validated.shareConfig,
     schemaVersion: validated.schemaVersion,
     pricingVersion: validated.pricingVersion,
+    signedInOnly: validated.signedInOnly === true,
     ...(validated.duplicatedFromPromotionId
       ? { duplicatedFromPromotionId: requiredString(validated.duplicatedFromPromotionId, 'duplicatedFromPromotionId', 200) }
       : {}),
@@ -520,6 +524,10 @@ export const confirmCommunityUnlock = async ({
 } = {}) => {
   const cleanPromotionId = requiredString(promotionId, 'promotionId', 200);
   const cleanCommunityCode = requiredString(communityCode, 'communityCode', 120);
+  const storedPromotion = await getPromotion(cleanPromotionId);
+  if (promotionRequiresSignedIn(storedPromotion) && !auth?.currentUser) {
+    throw new Error('יש להתחבר כדי לפתוח את המבצע.');
+  }
   const unlockId = getCommunityPromotionUnlockId(cleanPromotionId, cleanCommunityCode);
   const unlock = {
     promotionId: cleanPromotionId,
@@ -575,6 +583,9 @@ export const validateCommunityWeeklyCartPricing = async ({
 
   if (!isActive || unlock?.unlocked !== true) {
     throw pricingMismatch({ reason: 'promotion-not-unlocked' });
+  }
+  if (promotionRequiresSignedIn(promotion) && !auth?.currentUser) {
+    throw pricingMismatch({ reason: 'sign-in-required' });
   }
   if (pricingVersion && pricingVersion !== promotion.pricingVersion) {
     throw pricingMismatch({ pricingVersion: promotion.pricingVersion });

@@ -122,7 +122,14 @@ const CategoryStore = () => {
   const { addItem } = useCartActions();
   const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const { updatePickupSpot } = usePickupSpot();
-  const { activePromotion, unlocked, openUnlockModal } = useCommunityWeeklyPromotion();
+  const {
+    activePromotion,
+    unlocked,
+    openUnlockModal,
+    signedInOnly,
+    canUsePromotion,
+    promotionAccessReady,
+  } = useCommunityWeeklyPromotion();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -1109,8 +1116,10 @@ const CategoryStore = () => {
           <div className="mb-3 px-1">
             <CommunityWeeklyPromotionSummary
               promotion={activePromotion}
-              unlocked={unlocked}
+              unlocked={canUsePromotion && unlocked}
               onUnlock={openUnlockModal}
+              requiresSignIn={signedInOnly && promotionAccessReady && !canUsePromotion}
+              checkingAccess={signedInOnly && !promotionAccessReady}
             />
           </div>
         )}

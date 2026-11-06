@@ -98,6 +98,7 @@ export function getOrderDeliveryDateFromCustomerOrder(order = {}) {
   return order.deliveryDate
     || order.fulfillment?.deliveryDate
     || order.customerDetails?.deliveryDate
+    || Object.values(order.orderBreakdown || {}).find((business) => business?.deliveryDate)?.deliveryDate
     || '';
 }
 

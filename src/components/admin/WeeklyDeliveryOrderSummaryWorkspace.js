@@ -24,8 +24,24 @@ import {
 import { filterCustomerActiveLines, isCustomerLineExcluded } from '../../utils/customerOrderUtils';
 import { computeCustomerOrderGrandTotal } from '../../services/customerOrderService';
 import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
+import {
+  applyProcurementOverrides,
+  buildSupplierOrderText,
+  formatNativeQuantity,
+  getProcurementOverrideCandidates,
+  getSupplierProgressStatus,
+} from '../../utils/supplierOrderProgressUtils';
+import {
+  clearProcurementOverride,
+  fetchProcurementOverrides,
+  fetchProgressForBusinesses,
+  getSafeDocId,
+  removeSupplierOrderBatch,
+  setProcurementOverride,
+} from '../../services/supplierOrderProgressService';
 import LoadingSpinner from '../LoadingSpinner';
 import CustomerOrderDeliveryTransferControl from './CustomerOrderDeliveryTransferControl';
+import ContinuousSupplierOrderModal from './ContinuousSupplierOrderModal';
 import { buildWhatsappLink } from '../../constants/marketplaceStoreContent';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -59,13 +75,15 @@ const copyText = async (text) => {
   document.body.removeChild(textarea);
 };
 
-const getSafeDocId = (businessId, businessName) => {
-  const sanitize = (value) => String(value || '')
-    .replace(/[/\\#?[\]]+/g, '-')
-    .trim()
-    .slice(0, 120) || 'unknown';
-  if (businessId && !/[/\\#?[\]]/.test(String(businessId))) return String(businessId);
-  return sanitize(businessName);
+const formatDayLabel = (dateKey) => parseLocalDate(dateKey)?.toLocaleDateString('he-IL', {
+  weekday: 'long',
+  day: '2-digit',
+  month: '2-digit',
+}) || dateKey;
+
+const formatBatchTime = (iso) => {
+  const date = iso ? new Date(iso) : null;
+  return date && !Number.isNaN(date.getTime()) ? format(date, 'dd/MM HH:mm') : '';
 };
 
 const getProductUnitCount = (product) => {
@@ -131,7 +149,14 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [customModalBusinessName, setCustomModalBusinessName] = useState('');
   const [customModalItems, setCustomModalItems] = useState([]);
+  const [procurementOverrides, setProcurementOverrides] = useState([]);
+  const [overrideCandidateKey, setOverrideCandidateKey] = useState('');
+  const [overrideSaving, setOverrideSaving] = useState(false);
+  const [progressByBusiness, setProgressByBusiness] = useState({});
+  const [continuousModalBusinessId, setContinuousModalBusinessId] = useState('');
+  const [expandedProgressBusinessId, setExpandedProgressBusinessId] = useState('');
   const communityDropdownRef = useRef(null);
+  const progressRequestRef = useRef(0);
   const fetchRequestRef = useRef(0);
 
   useEffect(() => {
@@ -281,14 +306,23 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
     }
   };
 
-  const visibleOrders = useMemo(() => orders.filter((order) => {
-    if (selectedDeliveryDate && toLocalDateKey(order.deliveryDate) !== selectedDeliveryDate) return false;
-    return selectedCommunities.size === 0 || selectedCommunities.has(order.community);
-  }), [orders, selectedDeliveryDate, selectedCommunities]);
+  const procurementView = useMemo(
+    () => applyProcurementOverrides(orders, procurementOverrides, selectedDeliveryDate),
+    [orders, procurementOverrides, selectedDeliveryDate]
+  );
+
+  const visibleOrders = useMemo(() => procurementView.orders.filter((order) => (
+    selectedCommunities.size === 0 || selectedCommunities.has(order.community)
+  )), [procurementView, selectedCommunities]);
 
   const businessSummary = useMemo(
     () => aggregateDeliveryBusinessSummary(visibleOrders),
     [visibleOrders]
+  );
+
+  const overrideCandidates = useMemo(
+    () => getProcurementOverrideCandidates(orders, procurementOverrides, selectedDeliveryDate),
+    [orders, procurementOverrides, selectedDeliveryDate]
   );
 
   const displayDeliveryDates = useMemo(() => {
@@ -300,8 +334,124 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
         if (date && date >= window.start && date <= window.end) dates.add(dateKey);
       });
     }
+    procurementOverrides.forEach((entry) => {
+      if (entry.procureOnDate) dates.add(entry.procureOnDate);
+    });
     return Array.from(dates).sort();
-  }, [availableDeliveryDates, endDate, orders, selectedWeek, startDate]);
+  }, [availableDeliveryDates, endDate, orders, procurementOverrides, selectedWeek, startDate]);
+
+  const loadedWeekKeys = useMemo(() => Array.from(new Set(
+    orders.map((order) => getWeekKey(order.deliveryDate)).filter(Boolean)
+  )).sort().join(','), [orders]);
+
+  useEffect(() => {
+    if (!loadedWeekKeys) {
+      setProcurementOverrides([]);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchProcurementOverrides(loadedWeekKeys.split(','))
+      .then((entries) => {
+        if (!cancelled) setProcurementOverrides(entries);
+      })
+      .catch((err) => console.error('Failed to load procurement overrides:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [loadedWeekKeys]);
+
+  const progressWeekKey = selectedDeliveryDate ? getWeekKey(selectedDeliveryDate) : '';
+  const businessScopeKey = Object.entries(businessSummary)
+    .map(([businessId, business]) => `${businessId}::${business.businessName}`)
+    .sort()
+    .join('|');
+
+  const loadSupplierProgress = async () => {
+    const requestId = ++progressRequestRef.current;
+    if (!selectedDeliveryDate) {
+      setProgressByBusiness({});
+      return;
+    }
+    try {
+      const progress = await fetchProgressForBusinesses(
+        progressWeekKey,
+        selectedDeliveryDate,
+        Object.entries(businessSummary).map(([businessId, business]) => ({
+          businessId,
+          businessName: business.businessName,
+        })),
+      );
+      if (requestId === progressRequestRef.current) setProgressByBusiness(progress);
+    } catch (err) {
+      console.error('Failed to load supplier order progress:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadSupplierProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDeliveryDate, businessScopeKey]);
+
+  const handleAddProcurementOverride = async () => {
+    const candidate = overrideCandidates.find((entry) => entry.key === overrideCandidateKey);
+    if (!candidate || !selectedDeliveryDate) return;
+    setOverrideSaving(true);
+    try {
+      const weekKey = getWeekKey(candidate.originalDeliveryDate);
+      const saved = await setProcurementOverride(weekKey, {
+        community: candidate.community,
+        originalDeliveryDate: candidate.originalDeliveryDate,
+        procureOnDate: selectedDeliveryDate,
+        setBy: currentUser?.uid || null,
+      });
+      setProcurementOverrides((prev) => [
+        ...prev.filter((entry) => entry.weekKey !== weekKey),
+        ...saved.map((entry) => ({ ...entry, weekKey })),
+      ]);
+      if (selectedCommunities.size > 0) {
+        setSelectedCommunities((prev) => new Set([...prev, candidate.community]));
+      }
+      setOverrideCandidateKey('');
+    } catch (err) {
+      console.error('Failed to save procurement override:', err);
+      alert('שגיאה בשמירת הקהילה ליום הרכש');
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
+
+  const handleClearProcurementOverride = async ({ community, originalDeliveryDate }) => {
+    setOverrideSaving(true);
+    try {
+      const weekKey = getWeekKey(originalDeliveryDate);
+      const saved = await clearProcurementOverride(weekKey, { community, originalDeliveryDate });
+      setProcurementOverrides((prev) => [
+        ...prev.filter((entry) => entry.weekKey !== weekKey),
+        ...saved.map((entry) => ({ ...entry, weekKey })),
+      ]);
+    } catch (err) {
+      console.error('Failed to clear procurement override:', err);
+      alert('שגיאה בביטול הרכש המוקדם');
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
+
+  const handleRemoveBatch = async (businessId, business, batch) => {
+    if (!window.confirm(`למחוק את החלק "${batch.supplierLabel || ''}" מ-${formatBatchTime(batch.createdAt)}? הכמויות שלו יחזרו ל"נותר להזמין".`)) return;
+    try {
+      await removeSupplierOrderBatch({
+        weekKey: progressWeekKey,
+        deliveryDate: selectedDeliveryDate,
+        businessId,
+        businessName: business.businessName,
+      }, batch.id);
+      await loadSupplierProgress();
+    } catch (err) {
+      console.error('Failed to remove supplier order batch:', err);
+      alert('שגיאה במחיקת החלק');
+    }
+  };
 
   const ordersByCommunity = useMemo(() => {
     return visibleOrders.reduce((acc, order) => {
@@ -358,12 +508,16 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
     });
   };
 
-  const buildBusinessOrderMessage = (business, useKgFormat = false) => {
+  const buildOrderHeader = (name = orderMessageName) => {
     const dateForHeader = orderMessageDate
       ? format(parseLocalDate(orderMessageDate), 'dd.MM.yy')
       : String(dateRange.end || '').replace(/\//g, '.').slice(0, 8);
-    const greetingName = orderMessageName ? `${orderMessageName} ` : '';
-    const header = `${greetingName}צהריים טובים, הזמנה ל${dateForHeader}:`;
+    const greetingName = name ? `${name} ` : '';
+    return `${greetingName}צהריים טובים, הזמנה ל${dateForHeader}:`;
+  };
+
+  const buildBusinessOrderMessage = (business, useKgFormat = false) => {
+    const header = buildOrderHeader();
     const items = Object.values(business.products)
       .sort((a, b) => b.totalRevenue - a.totalRevenue)
       .map((product) => {
@@ -450,34 +604,10 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
     }));
   };
 
-  const buildCustomOrderText = () => {
-    const dateForHeader = orderMessageDate
-      ? format(parseLocalDate(orderMessageDate), 'dd.MM.yy')
-      : String(dateRange.end || '').replace(/\//g, '.').slice(0, 8);
-    const greetingName = orderMessageName ? `${orderMessageName} ` : '';
-    const parts = [`${greetingName}צהריים טובים, הזמנה ל${dateForHeader}:`, ''];
-    const included = customModalItems.filter((item) => item.included && (Number(item.quantity) || 0) > 0);
-    const kgItems = included.filter((item) => item.mode === 'kg' && !item.isUnitBased);
-    const unitItems = included.filter((item) => item.mode !== 'kg' || item.isUnitBased);
-    const formatLine = (item) => {
-      const opt = normalizeOption(item.selectedOption);
-      const isKgMode = item.mode === 'kg' && !item.isUnitBased;
-      const optPart = opt && !isKgMode ? ` *${opt}*` : '';
-      const qty = Number(item.quantity) || 0;
-      return `* ${item.productName}${optPart} - ${isKgMode ? qty.toFixed(1) : Math.round(qty)} ${isKgMode ? 'ק"ג' : "יח'"}`;
-    };
-
-    if (kgItems.length > 0) {
-      parts.push('הזמנה סיטונאית לא ארוז:');
-      parts.push(...kgItems.map(formatLine));
-    }
-    if (kgItems.length > 0 && unitItems.length > 0) parts.push('');
-    if (unitItems.length > 0) {
-      parts.push('הזמנה ארוז:');
-      parts.push(...unitItems.map(formatLine));
-    }
-    return parts.join('\n');
-  };
+  const buildCustomOrderText = () => buildSupplierOrderText({
+    header: buildOrderHeader(),
+    items: customModalItems.filter((item) => item.included),
+  });
 
   const handleCopyCustomOrder = async () => {
     try {
@@ -743,6 +873,75 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
         </button>
       </div>
 
+      {hasLoadedOrders && (
+        <div className="mb-6 bg-white rounded-lg shadow p-4 border-r-4 border-teal-500">
+          <h2 className="font-semibold text-gray-800 mb-1">רכש מוקדם לקהילות מיום אחר</h2>
+          {!selectedDeliveryDate ? (
+            <p className="text-sm text-gray-500">
+              בחרו "יום להצגה" כדי להוסיף לרכש של אותו יום קהילות שהמשלוח שלהן ביום אחר, ולהשתמש ב"הזמנה מתמשכת".
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500 mb-3">
+                הקהילות שתוסיפו ייכללו בסיכום הספקים של {formatDayLabel(selectedDeliveryDate)} (ויוסרו מהסיכום של יום המשלוח שלהן). תאריך המשלוח ללקוחות לא משתנה.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={overrideCandidateKey}
+                  onChange={(event) => setOverrideCandidateKey(event.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 min-w-[240px]"
+                  disabled={overrideSaving || overrideCandidates.length === 0}
+                >
+                  <option value="">
+                    {overrideCandidates.length === 0 ? 'אין קהילות מימים אחרים בטווח שנטען' : 'בחרו קהילה להוספה'}
+                  </option>
+                  {overrideCandidates.map((candidate) => (
+                    <option key={candidate.key} value={candidate.key}>
+                      {candidate.community} - משלוח {formatDayLabel(candidate.originalDeliveryDate)} ({candidate.count} הזמנות)
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleAddProcurementOverride}
+                  disabled={!overrideCandidateKey || overrideSaving}
+                  className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50"
+                >
+                  הוסף לרכש של היום
+                </button>
+              </div>
+              {procurementView.pulledIn.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="text-sm text-gray-700 self-center">כולל גם:</span>
+                  {procurementView.pulledIn.map((entry) => (
+                    <span key={`${entry.community}-${entry.originalDeliveryDate}`} className="inline-flex items-center gap-2 bg-teal-50 border border-teal-200 text-teal-800 text-sm px-3 py-1 rounded-full">
+                      {entry.community} (משלוח {formatDayLabel(entry.originalDeliveryDate)}, {entry.count} הזמנות)
+                      <button
+                        type="button"
+                        onClick={() => handleClearProcurementOverride(entry)}
+                        disabled={overrideSaving}
+                        className="text-teal-600 hover:text-red-600 font-bold"
+                        title="בטל רכש מוקדם"
+                      >
+                        בטל
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {procurementView.pushedOut.length > 0 && (
+                <div className="mt-3 text-sm bg-amber-50 border border-amber-200 text-amber-800 p-2 rounded">
+                  הוסרו מהסיכום של היום:{' '}
+                  {procurementView.pushedOut.map((entry) => (
+                    `${entry.community} (${entry.count} הזמנות, נרכשות ב${formatDayLabel(entry.procureOnDate)})`
+                  )).join(', ')}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {!hasLoadedOrders ? (
         <div className="bg-blue-50 border border-blue-200 text-blue-700 p-4 rounded text-center">
           בחרו פרמטרים ולחצו על "טען נתונים" כדי להציג הזמנות.
@@ -956,11 +1155,61 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {Object.entries(businessSummary)
                       .sort(([, a], [, b]) => b.totalRevenue - a.totalRevenue)
-                      .map(([businessId, business]) => (
+                      .map(([businessId, business]) => {
+                        const batches = progressByBusiness[businessId]?.batches || [];
+                        const progressStatus = getSupplierProgressStatus(business.products, batches);
+                        const historyOpen = expandedProgressBusinessId === businessId;
+                        return (
                         <tr key={businessId} className="hover:bg-gray-50 align-top">
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="font-medium text-gray-900">{business.businessName || 'עסק לא ידוע'}</div>
                             <div className="text-sm text-gray-500">{businessId}</div>
+                            {progressStatus.batchCount > 0 && (
+                              <div className="mt-2 whitespace-normal max-w-xs">
+                                <span className={`inline-block text-xs font-semibold px-2 py-1 rounded ${progressStatus.isComplete ? 'bg-green-100 text-green-800' : 'bg-teal-50 text-teal-800'}`}>
+                                  {progressStatus.isComplete
+                                    ? `הוזמן במלואו (${progressStatus.batchCount} חלקים)`
+                                    : `הוזמן ב-${progressStatus.batchCount} חלקים · נותר להזמין: ${progressStatus.remainingCount} מוצרים`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedProgressBusinessId(historyOpen ? '' : businessId)}
+                                  className="block mt-1 text-xs text-blue-600 hover:underline"
+                                >
+                                  {historyOpen ? 'הסתר היסטוריה' : 'היסטוריה'}
+                                </button>
+                                {historyOpen && (
+                                  <ul className="mt-2 space-y-2">
+                                    {batches.map((batch) => (
+                                      <li key={batch.id} className="text-xs bg-gray-50 border border-gray-200 rounded p-2">
+                                        <div className="flex justify-between gap-2">
+                                          <span className="font-semibold">
+                                            {formatBatchTime(batch.createdAt)} · {batch.supplierLabel || 'ללא שם'}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveBatch(businessId, business, batch)}
+                                            className="text-red-600 hover:underline"
+                                          >
+                                            מחק
+                                          </button>
+                                        </div>
+                                        {batch.note && <div className="text-gray-500">{batch.note}</div>}
+                                        <ul className="mt-1 text-gray-600">
+                                          {Object.entries(batch.lines || {}).map(([lineKey, line]) => (
+                                            <li key={lineKey}>
+                                              {line.productName}
+                                              {normalizeOption(line.selectedOption) && ` (${normalizeOption(line.selectedOption)})`}
+                                              {' - '}{formatNativeQuantity(line.quantity, line.measurementType, line.unitSize)}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4">
                             <ul className="list-disc list-inside text-sm space-y-1">
@@ -990,18 +1239,52 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                             <button onClick={() => openCustomModal(business)} className="mr-2 px-3 py-2 bg-orange-500 text-white rounded hover:bg-orange-600">
                               מותאם
                             </button>
+                            <button
+                              onClick={async () => {
+                                await loadSupplierProgress();
+                                setContinuousModalBusinessId(businessId);
+                              }}
+                              disabled={!selectedDeliveryDate}
+                              title={selectedDeliveryDate ? 'הזמנה בחלקים - המערכת זוכרת מה כבר הוזמן' : 'בחרו "יום להצגה" כדי להשתמש בהזמנה מתמשכת'}
+                              className="mr-2 px-3 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              הזמנה מתמשכת
+                            </button>
                             <button onClick={() => openCostModal(businessId, business)} className="mr-2 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700">
                               חשב עלות
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
             </section>
           )}
         </>
+      )}
+
+      {continuousModalBusinessId && businessSummary[continuousModalBusinessId] && selectedDeliveryDate && (
+        <ContinuousSupplierOrderModal
+          key={`${continuousModalBusinessId}-${selectedDeliveryDate}`}
+          businessId={continuousModalBusinessId}
+          business={businessSummary[continuousModalBusinessId]}
+          batches={progressByBusiness[continuousModalBusinessId]?.batches || []}
+          weekKey={progressWeekKey}
+          deliveryDate={selectedDeliveryDate}
+          deliveryDateLabel={formatDayLabel(selectedDeliveryDate)}
+          buildHeader={buildOrderHeader}
+          defaultSupplierLabel={orderMessageName}
+          communityFilterActive={selectedCommunities.size > 0}
+          adminUid={currentUser?.uid || null}
+          onCopy={copyText}
+          onClose={() => setContinuousModalBusinessId('')}
+          onSaved={(savedDoc) => {
+            setProgressByBusiness((prev) => ({ ...prev, [continuousModalBusinessId]: savedDoc }));
+            setContinuousModalBusinessId('');
+          }}
+        />
       )}
 
       {customModalOpen && (

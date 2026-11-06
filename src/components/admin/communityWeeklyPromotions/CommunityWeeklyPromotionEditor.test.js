@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { loadEligibleWeeklyProducts } from '../../../services/communityWeeklyPromotionService';
 import CommunityWeeklyPromotionEditor from './CommunityWeeklyPromotionEditor';
 
 jest.mock('../../../hooks/usePickupSpots', () => () => ({
@@ -71,5 +72,44 @@ describe('CommunityWeeklyPromotionEditor share message', () => {
     });
     expect(preview().value).not.toContain('וואטסאפ');
     expect(preview().value).toContain('מגיעים ברביעי.');
+  });
+
+  test('can limit the promotion to signed-in customers', async () => {
+    loadEligibleWeeklyProducts.mockResolvedValue({
+      businesses: [{ id: 'biz-1', businessName: 'מוגו' }],
+      products: [{
+        id: 'prod-1',
+        name: 'עגבניות',
+        businessId: 'biz-1',
+        price: 12,
+        measurementType: 'kg',
+      }],
+    });
+    const onSave = jest.fn();
+    render(<CommunityWeeklyPromotionEditor onSave={onSave} onCancel={jest.fn()} />);
+
+    expect(screen.getByRole('checkbox', { name: /רק למשתמשים מחוברים/ })).not.toBeChecked();
+    fireEvent.change(screen.getByRole('textbox', { name: 'כותרת' }), {
+      target: { value: 'מבצע למחוברים' },
+    });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'אור הנר' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /רק למשתמשים מחוברים/ }));
+
+    const productOption = await screen.findByRole('checkbox', { name: /עגבניות/ });
+    fireEvent.click(productOption);
+    fireEvent.change(screen.getByRole('spinbutton', { name: /מחיר מבצע/ }), {
+      target: { value: '9' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'יצירת טיוטה' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toEqual(expect.objectContaining({
+      title: 'מבצע למחוברים',
+      signedInOnly: true,
+      productSnapshots: [expect.objectContaining({
+        productId: 'prod-1',
+        promotionPrice: 9,
+      })],
+    }));
   });
 });

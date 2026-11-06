@@ -19,7 +19,10 @@ jest.mock('firebase/firestore', () => ({
   })),
 }));
 
-jest.mock('../firebase/firebase', () => ({ db: { name: 'test-db' } }));
+jest.mock('../firebase/firebase', () => ({
+  db: { name: 'test-db' },
+  auth: { currentUser: null },
+}));
 jest.mock('./pickupSpotsService', () => ({
   resolveCommunityName: (name) => String(name || '').trim(),
 }));
@@ -33,9 +36,11 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
+import { auth } from '../firebase/firebase';
 import {
   confirmCommunityUnlock,
   createPromotion,
+  validateCommunityWeeklyCartPricing,
   getActivePromotionForCommunity,
   getCommunityPromotionUnlockId,
   getPromotion,
@@ -72,6 +77,7 @@ const validPromotion = (overrides = {}) => ({
 describe('community weekly promotion service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    auth.currentUser = null;
     doc.mockImplementation((db, name, id) => ({ db, name, id }));
     serverTimestamp.mockImplementation(() => ({ type: 'serverTimestamp' }));
   });
@@ -89,6 +95,8 @@ describe('community weekly promotion service', () => {
       promotionPrice: 9,
       imageUrl: '',
     });
+    expect(result.signedInOnly).toBe(false);
+    expect(validateCommunityWeeklyPromotion(validPromotion({ signedInOnly: true })).signedInOnly).toBe(true);
   });
 
   test('rejects an invalid price or time range', () => {
@@ -130,6 +138,11 @@ describe('community weekly promotion service', () => {
 
   test('confirms a trust-based community unlock directly in Firestore', async () => {
     setDoc.mockResolvedValue(undefined);
+    getDoc.mockResolvedValue({
+      id: 'promo-1',
+      exists: () => true,
+      data: () => validPromotion(),
+    });
 
     await confirmCommunityUnlock({
       promotionId: 'promo-1',
@@ -151,6 +164,55 @@ describe('community weekly promotion service', () => {
       }),
       { merge: true },
     );
+  });
+
+  test('refuses a signed-in promotion until the customer is logged in', async () => {
+    auth.currentUser = null;
+    getDoc.mockImplementation(async (ref = {}) => {
+      if (ref.name === 'communityWeeklyPromotions') {
+        return {
+          id: 'promo-1',
+          exists: () => true,
+          data: () => validPromotion({
+            status: 'active',
+            signedInOnly: true,
+            startsAt: { toMillis: () => Date.now() - 1000 },
+            endsAt: { toMillis: () => Date.now() + 60_000 },
+          }),
+        };
+      }
+      return {
+        id: ref.id,
+        exists: () => true,
+        data: () => ({ unlocked: true, promotionId: 'promo-1', communityCode: 'north' }),
+      };
+    });
+
+    await expect(confirmCommunityUnlock({
+      promotionId: 'promo-1',
+      communityCode: 'north',
+      promotion: validPromotion({ signedInOnly: true }),
+    })).rejects.toThrow('יש להתחבר');
+    expect(setDoc).not.toHaveBeenCalled();
+
+    await expect(validateCommunityWeeklyCartPricing({
+      promotionId: 'promo-1',
+      communityCode: 'north',
+      pricingVersion: 'prices-2026-08-23',
+      items: [{ productId: 'product-1', unitPrice: 9 }],
+    })).rejects.toMatchObject({
+      code: 'pricing-mismatch',
+      details: { reason: 'sign-in-required' },
+    });
+
+    auth.currentUser = { uid: 'customer-1' };
+    await expect(validateCommunityWeeklyCartPricing({
+      promotionId: 'promo-1',
+      communityCode: 'north',
+      pricingVersion: 'prices-2026-08-23',
+      items: [{ productId: 'product-1', unitPrice: 9 }],
+    })).resolves.toMatchObject({ valid: true });
+    auth.currentUser = null;
   });
 
   test('reads a promotion without writing to Firestore', async () => {
@@ -245,6 +307,7 @@ describe('community weekly promotion service', () => {
     expect(addDoc.mock.calls[0][1]).toEqual(expect.objectContaining({
       title: 'Weekly tomatoes',
       status: 'draft',
+      signedInOnly: false,
       targetCommunityCodes: ['north'],
     }));
   });

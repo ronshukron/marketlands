@@ -10,6 +10,7 @@ import React, {
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import CommunityWeeklyPromotionUnlockModal from '../components/category-store/CommunityWeeklyPromotionUnlockModal';
+import { useAuth } from './authContext';
 import { usePickupSpot } from './PickupSpotContext';
 import {
   COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION,
@@ -37,6 +38,7 @@ export const decorateCommunityWeeklyPromotionProduct = ({
   promotion,
   communityCode,
   unlocked,
+  viewerCanUsePromotion = true,
 }) => {
   if (!product) return product;
   const withoutStalePromotion = () => (
@@ -44,7 +46,9 @@ export const decorateCommunityWeeklyPromotionProduct = ({
       ? clearCommunityWeeklyPromotionFields(product)
       : product
   );
-  if (!promotion?.id || !communityCode) return withoutStalePromotion();
+  if (viewerCanUsePromotion === false || !promotion?.id || !communityCode) {
+    return withoutStalePromotion();
+  }
 
   const productId = cleanId(product.productId || product.id);
   const orderId = cleanId(product.orderId);
@@ -93,6 +97,7 @@ export const useCommunityWeeklyPromotion = () => {
 
 export const CommunityWeeklyPromotionProvider = ({ children }) => {
   const { selectedPickupSpot, hasLoadedFromStorage } = usePickupSpot();
+  const { userLoggedIn, loading: authLoading } = useAuth();
   const [promotion, setPromotion] = useState(null);
   const [unlock, setUnlock] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -192,6 +197,9 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
     && (!unlock.promotionId || unlock.promotionId === promotion.id)
     && (!unlock.communityCode || unlock.communityCode === communityCode),
   );
+  const signedInOnly = promotion?.signedInOnly === true;
+  const promotionAccessReady = !signedInOnly || authLoading !== true;
+  const canUsePromotion = !signedInOnly || userLoggedIn === true;
 
   const decorateProduct = useCallback((product) => (
     decorateCommunityWeeklyPromotionProduct({
@@ -199,14 +207,20 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
       promotion,
       communityCode,
       unlocked,
+      viewerCanUsePromotion: canUsePromotion,
     })
-  ), [communityCode, promotion, unlocked]);
+  ), [canUsePromotion, communityCode, promotion, unlocked]);
 
   const openUnlockModal = useCallback(() => {
+    if (!canUsePromotion) return;
     if (communityWeeklyPromotionsEnabled && promotion && communityCode && !unlocked) {
       setUnlockModalOpen(true);
     }
-  }, [communityCode, promotion, unlocked]);
+  }, [canUsePromotion, communityCode, promotion, unlocked]);
+
+  useEffect(() => {
+    if (!canUsePromotion) setUnlockModalOpen(false);
+  }, [canUsePromotion]);
 
   const closeUnlockModal = useCallback(() => setUnlockModalOpen(false), []);
   const handleUnlocked = useCallback(async () => {
@@ -222,19 +236,25 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
     promotion,
     unlock,
     unlocked,
+    signedInOnly,
+    canUsePromotion,
+    promotionAccessReady,
     loading,
     error,
     refresh,
     decorateProduct,
     openUnlockModal,
   }), [
+    canUsePromotion,
     communityCode,
     decorateProduct,
     error,
     loading,
     openUnlockModal,
     promotion,
+    promotionAccessReady,
     refresh,
+    signedInOnly,
     unlock,
     unlocked,
   ]);

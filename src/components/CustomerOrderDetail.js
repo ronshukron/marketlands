@@ -5,7 +5,6 @@ import { db } from '../firebase/firebase';
 import { useAuth } from '../contexts/authContext';
 import LoadingSpinner from './LoadingSpinner';
 import {
-  computeCustomerOrderGrandTotal,
   fetchOwnedCustomerOrderById,
   flattenCustomerOrderLines,
   getOrderDeliveryDateFromCustomerOrder,
@@ -18,6 +17,17 @@ import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderD
 import { getDeliveryScheduleDocumentKeys } from '../utils/deliveryScheduleUtils';
 import ProductFeedbackSection from './ProductFeedbackSection';
 import PackedCartonPickupBanner from './PackedCartonPickupBanner';
+import {
+  STATUS_BADGE_CLASSES,
+  formatCustomerDeliveryDate,
+  formatCustomerLineQuantity,
+  formatWeighedQuantity,
+  getCustomerLineEstimatedTotal,
+  getCustomerOrderDisplayTotal,
+  getCustomerOrderStatusInfo,
+  getWeighedLinesById,
+  isLineRemovedAtWeighing,
+} from '../utils/customerOrderDisplay';
 
 const formatDate = (timestamp) => {
   if (!timestamp) return 'לא זמין';
@@ -29,31 +39,10 @@ const formatDate = (timestamp) => {
   }
 };
 
-const formatDeliveryDate = (dateKey) => {
-  if (!dateKey) return null;
-  const date = new Date(`${dateKey}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return dateKey;
-  return date.toLocaleDateString('he-IL', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
-};
-
-const getStatusBadge = (status) => {
-  const normalized = String(status || '').toLowerCase();
-  switch (normalized) {
-    case 'completed':
-    case 'paid':
-      return 'bg-green-100 text-green-800';
-    case 'pending_payment':
-    case 'pending':
-      return 'bg-yellow-100 text-yellow-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
-};
-
 const CustomerOrderDetail = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, loading: authLoading } = useAuth();
   const [order, setOrder] = useState(null);
   const [deliverySchedule, setDeliverySchedule] = useState(null);
   const [businessOrdersByKey, setBusinessOrdersByKey] = useState({});
@@ -63,6 +52,7 @@ const CustomerOrderDetail = () => {
 
   useEffect(() => {
     const load = async () => {
+      if (authLoading) return;
       if (!currentUser?.uid) {
         setError('יש להתחבר כדי לצפות בהזמנה');
         setLoading(false);
@@ -111,7 +101,7 @@ const CustomerOrderDetail = () => {
       }
     };
     load();
-  }, [orderId, currentUser]);
+  }, [orderId, currentUser, authLoading]);
 
   const excludedLineIds = useMemo(() => order?.customerExcludedLineIds || {}, [order]);
   const lines = useMemo(() => (order ? flattenCustomerOrderLines(order) : []), [order]);
@@ -124,7 +114,9 @@ const CustomerOrderDetail = () => {
     ? isCustomerOrderEditable(order, deliverySchedule, businessOrdersByKey)
     : false;
 
-  const displayTotal = order ? computeCustomerOrderGrandTotal(order) : 0;
+  const displayTotal = order ? getCustomerOrderDisplayTotal(order) : null;
+  const statusInfo = order ? getCustomerOrderStatusInfo(order) : null;
+  const weighedLinesById = useMemo(() => (order ? getWeighedLinesById(order) : {}), [order]);
 
   const handleToggleLine = async (lineId, exclude) => {
     if (!order || !currentUser?.uid) return;
@@ -190,15 +182,18 @@ const CustomerOrderDetail = () => {
               <p className="text-sm text-gray-500 mt-1">מספר: #{order.id.substring(0, 12)}...</p>
               <p className="text-sm text-gray-500">תאריך הזמנה: {formatDate(order.createdAt)}</p>
             </div>
-            <span className={`self-start px-3 py-1 text-xs font-medium rounded-full ${getStatusBadge(order.paymentStatus)}`}>
-              {order.paymentStatus || 'לא ידוע'}
+            <span className={`self-start px-3 py-1 text-xs font-medium rounded-full ${STATUS_BADGE_CLASSES[statusInfo.tone]}`}>
+              {statusInfo.label}
             </span>
           </div>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-700">
             {pickupSpot && <p><span className="font-semibold">קהילה:</span> {pickupSpot}</p>}
-            {deliveryDate && <p><span className="font-semibold">תאריך משלוח:</span> {formatDeliveryDate(deliveryDate)}</p>}
+            {deliveryDate && <p><span className="font-semibold">תאריך משלוח:</span> {formatCustomerDeliveryDate(deliveryDate)}</p>}
             {order.delayedPayment?.holdSum > 0 && (
-              <p><span className="font-semibold">סכום החזקה:</span> ₪{Number(order.delayedPayment.holdSum).toFixed(2)}</p>
+              <p>
+                <span className="font-semibold">סכום שהוחזק בכרטיס (כולל מרווח שקילה):</span>{' '}
+                ₪{Number(order.delayedPayment.holdSum).toFixed(2)}
+              </p>
             )}
           </div>
         </div>
@@ -231,15 +226,33 @@ const CustomerOrderDetail = () => {
                   {businessOrder.businessName || 'עסק'}
                 </h2>
                 <ul className="space-y-3">
-                  {businessLines.map((line) => (
+                  {businessLines.map((line) => {
+                    const quantityLabel = formatCustomerLineQuantity(line);
+                    const weighed = weighedLinesById[line.lineId];
+                    const removedAtWeighing = isLineRemovedAtWeighing(order, line.lineId);
+                    return (
                     <li key={line.lineId} className="flex items-start justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">{line.productName}</p>
+                        <p className={`font-medium ${removedAtWeighing ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{line.productName}</p>
                         <p className="text-sm text-gray-500">
-                          כמות: {line.quantity}
+                          {quantityLabel && `כמות שהוזמנה: ${quantityLabel}`}
                           {line.selectedOption && line.selectedOption !== 'None' && ` • ${line.selectedOption}`}
                         </p>
-                        <p className="text-sm font-semibold text-blue-600 mt-1">₪{line.lineTotal.toFixed(2)}</p>
+                        {line.isCompensation ? (
+                          <p className="text-sm font-semibold text-green-700 mt-1">פיצוי - ללא חיוב</p>
+                        ) : removedAtWeighing ? (
+                          <p className="text-sm font-semibold text-red-600 mt-1">לא סופק - לא חויב</p>
+                        ) : weighed ? (
+                          <p className="text-sm mt-1">
+                            <span className="text-gray-600">נשקל בפועל: {formatWeighedQuantity(weighed)} · </span>
+                            <span className="font-semibold text-blue-600">₪{Number(weighed.linePrice || 0).toFixed(2)}</span>
+                          </p>
+                        ) : (
+                          <p className="text-sm font-semibold text-blue-600 mt-1">
+                            ₪{getCustomerLineEstimatedTotal(line).toFixed(2)}
+                            {displayTotal.isEstimate && <span className="text-xs font-normal text-gray-500"> (משוער)</span>}
+                          </p>
+                        )}
                       </div>
                       {isLineEditable(line) && (
                         <button
@@ -252,7 +265,8 @@ const CustomerOrderDetail = () => {
                         </button>
                       )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </section>
             );
@@ -266,7 +280,9 @@ const CustomerOrderDetail = () => {
                   <li key={line.lineId} className="flex items-center justify-between gap-3 opacity-70">
                     <div>
                       <p className="font-medium text-gray-700 line-through">{line.productName}</p>
-                      <p className="text-sm text-gray-500">₪{line.lineTotal.toFixed(2)}</p>
+                      <p className="text-sm text-gray-500">
+                        {formatCustomerLineQuantity(line)} · ₪{getCustomerLineEstimatedTotal(line).toFixed(2)}
+                      </p>
                     </div>
                     {isLineEditable(line) && (
                       <button
@@ -291,9 +307,16 @@ const CustomerOrderDetail = () => {
           userId={currentUser?.uid}
         />
 
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
-          <span className="text-lg font-semibold text-gray-800">סה״כ לתשלום</span>
-          <span className="text-2xl font-bold text-blue-600">₪{displayTotal.toFixed(2)}</span>
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+          <div className="flex justify-between items-center">
+            <span className="text-lg font-semibold text-gray-800">{displayTotal.label}</span>
+            <span className="text-2xl font-bold text-blue-600">₪{displayTotal.amount.toFixed(2)}</span>
+          </div>
+          {displayTotal.isEstimate && (
+            <p className="text-xs text-gray-500 mt-1">
+              הסכום הסופי ייקבע לפי המשקל בפועל וייגבה לאחר השקילה.
+            </p>
+          )}
         </div>
       </div>
     </div>

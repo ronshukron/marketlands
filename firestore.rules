@@ -403,6 +403,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Admin-only: partial supplier orders per week/day/business
+    match /supplierOrderProgress/{progressId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Admin-only: per-week "procure community on another day" overrides
+    match /procurementOverrides/{weekKey} {
+      allow read, write: if isAdmin();
+    }
+
     // Communities collection
     match /communities/{communityId} {
       // Anyone can read communities (needed for community selection/search)
@@ -517,7 +527,7 @@ service cloud.firestore {
             && data.endsAt > request.time;
     }
 
-    // Guests may unlock too; the doc is validated against the active promotion.
+    // Guests may unlock a public promotion. signedInOnly promotions require a signed-in user.
     function validCommunityUnlock(data) {
         return data.keys().hasAll([
             'promotionId', 'communityCode', 'unlocked',
@@ -547,7 +557,11 @@ service cloud.firestore {
             ).data.pricingVersion
             && data.schemaVersion == get(
             weeklyPromotionPath(data.promotionId)
-            ).data.schemaVersion;
+            ).data.schemaVersion
+            && (
+              get(weeklyPromotionPath(data.promotionId)).data.signedInOnly != true
+              || isAuthenticated()
+            );
     }
 
     match /communityWeeklyPromotions/{promotionId} {

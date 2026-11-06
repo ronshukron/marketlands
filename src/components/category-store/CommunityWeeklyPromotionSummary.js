@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 
 const UNIT_LABELS = {
   kg: 'לק"ג',
@@ -11,7 +12,13 @@ const formatPrice = (value) => {
   return Number.isInteger(number) ? `₪${number}` : `₪${number.toFixed(2)}`;
 };
 
-const CommunityWeeklyPromotionSummary = ({ promotion, unlocked, onUnlock }) => {
+const CommunityWeeklyPromotionSummary = ({
+  promotion,
+  unlocked,
+  onUnlock,
+  requiresSignIn = false,
+  checkingAccess = false,
+}) => {
   const deals = useMemo(() => {
     const seen = new Set();
     return (Array.isArray(promotion?.productSnapshots) ? promotion.productSnapshots : [])
@@ -29,6 +36,9 @@ const CommunityWeeklyPromotionSummary = ({ promotion, unlocked, onUnlock }) => {
         unitLabel: UNIT_LABELS[entry.measurementType] || '',
       }));
   }, [promotion]);
+  const location = useLocation();
+  const returnTo = `${location.pathname}${location.search}`;
+  const showDeals = !requiresSignIn && !checkingAccess;
 
   if (!promotion) return null;
 
@@ -44,7 +54,16 @@ const CommunityWeeklyPromotionSummary = ({ promotion, unlocked, onUnlock }) => {
             {promotion.title || 'מחיר קהילתי מיוחד'}
           </h2>
         </div>
-        {!unlocked && (
+        {requiresSignIn && (
+          <Link
+            to="/login"
+            state={{ from: returnTo }}
+            className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          >
+            התחברות למבצע
+          </Link>
+        )}
+        {!requiresSignIn && !checkingAccess && !unlocked && (
           <button
             type="button"
             onClick={onUnlock}
@@ -55,7 +74,7 @@ const CommunityWeeklyPromotionSummary = ({ promotion, unlocked, onUnlock }) => {
         )}
       </div>
 
-      {deals.length > 0 && (
+      {showDeals && deals.length > 0 && (
         <ul className="mt-1 space-y-0.5 text-xs text-gray-700">
           {deals.map((deal) => (
             <li key={deal.key} className="flex justify-between gap-2">
@@ -73,7 +92,10 @@ const CommunityWeeklyPromotionSummary = ({ promotion, unlocked, onUnlock }) => {
         </ul>
       )}
 
-      {!unlocked && (
+      {requiresSignIn && (
+        <p className="mt-2 text-sm font-medium text-emerald-900">המבצע זמין רק למשתמשים מחוברים.</p>
+      )}
+      {!requiresSignIn && !checkingAccess && !unlocked && (
         <p className="mt-2 text-sm font-medium text-emerald-900">שיתוף אחד בקבוצת הקהילה פותח את המחיר לכל חברי הקהילה.</p>
       )}
     </section>
