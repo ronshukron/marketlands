@@ -13,7 +13,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Slider from 'react-slick';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../../utils/orderUtils';
-import { generateAvailableDeliveryDates, getDeliveryScheduleDocumentKeys, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
+import { generateAvailableDeliveryDates, getDeliveryScheduleDocumentKeys, getEffectiveOrderCutoffAt, getWeekKey, isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled, isAlwaysOnGroceryOrderLive, isShowingNextDeliveryWeek } from '../../utils/deliveryScheduleUtils';
+import { attachGoLiveLinkedOrders } from '../../services/orderGoLiveService';
 import { enrichProductsWithFarmerBadge } from '../../utils/farmerBadgeUtils';
 import { loadFarmerBadgeSelection } from '../../services/farmerBadgeService';
 import { attachGroupPromotionFields, findActiveGroupPromotionForProduct, getEstimatedLineTotal, normalizeProductPromotions } from '../../utils/pricing';
@@ -484,6 +485,11 @@ const CategoryStore = () => {
 
       // (UI list uses pickupSpots dataset; no need to collect communities here)
 
+      const ordersWithLinked = await attachGoLiveLinkedOrders(activeOrders.map((order) => order.data));
+      ordersWithLinked.forEach((data, index) => {
+        activeOrders[index].data = data;
+      });
+
       // Fetch each business doc once, even when a business has multiple active orders.
       const businessIds = [...new Set(activeOrders.map((order) => order.data.businessId).filter(Boolean))];
       const businessDocs = await Promise.all(
@@ -770,7 +776,19 @@ const CategoryStore = () => {
   }, [deliverySchedule, nowMs, selectedDeliveryDate]);
 
   const filterProductsForCommunity = useCallback((productList) => {
-    if (!selectedCommunity) return productList;
+    const liveCheckNow = new Date(Math.max(nowMs, Date.now()));
+    const goLiveByOrder = new Map();
+    const isAlwaysOnProduct = (p) => p.orderMode === 'always_on_grocery' || p.alwaysOn || p.groceryStore || p.orderType === 'always_on_grocery';
+    const isOrderLiveForCommunity = (p) => {
+      const cacheKey = p.orderId || p.uid;
+      if (!goLiveByOrder.has(cacheKey)) {
+        goLiveByOrder.set(cacheKey, isAlwaysOnGroceryOrderLive(p.orderData || p, selectedCommunity || '', liveCheckNow));
+      }
+      return goLiveByOrder.get(cacheKey);
+    };
+    if (!selectedCommunity) {
+      return productList.filter((p) => !isAlwaysOnProduct(p) || isOrderLiveForCommunity(p));
+    }
     const bufferTime = new Date(Math.max(nowMs, Date.now()) + 60 * 60 * 1000);
     const deliveryDateMatchByOrder = new Map();
     const orderDeliversOnSelectedDate = (p) => {
@@ -789,7 +807,8 @@ const CategoryStore = () => {
         return false;
       }
 
-      if (p.orderMode === 'always_on_grocery' || p.alwaysOn || p.groceryStore || p.orderType === 'always_on_grocery') {
+      if (isAlwaysOnProduct(p)) {
+        if (!isOrderLiveForCommunity(p)) return false;
         if (!deliverySchedule || !selectedDeliveryDate) return true;
         return orderDeliversOnSelectedDate(p);
       }

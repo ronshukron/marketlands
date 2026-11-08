@@ -11,6 +11,9 @@ import usePickupSpots from '../../hooks/usePickupSpots';
 import { loadPickupSpots } from '../../services/pickupSpotsService';
 import LoadingSpinner from '../LoadingSpinner';
 import { isOrderFormCreationDisabled } from '../../utils/accountRoles';
+import AlwaysOnGoLiveFields from './AlwaysOnGoLiveFields';
+import { buildGoLivePayload } from '../../services/orderGoLiveService';
+import { GO_LIVE_MODES } from '../../utils/deliveryScheduleUtils';
 
 // Add this custom style to the component for better radio and checkbox appearance
 const customInputStyle = `
@@ -70,6 +73,7 @@ const CreateOrderForBusiness = () => {
   // Per-pickup-spot ending times: { 'spotName': Date }
   const [endingTimeByPickupSpot, setEndingTimeByPickupSpot] = useState({});
   const isAlwaysOnGrocery = orderMode === 'always_on_grocery';
+  const [goLiveDraft, setGoLiveDraft] = useState({ mode: GO_LIVE_MODES.IMMEDIATE, opensAtLocal: '', linkedOrder: null });
 
   useEffect(() => {
     if (!selectedProducts || selectedProducts.length === 0) {
@@ -225,6 +229,16 @@ const CreateOrderForBusiness = () => {
         text: 'אנא בחרו לפחות נקודת איסוף אחת.',
       });
       return;
+    }
+
+    let goLivePayload = null;
+    if (isAlwaysOnGrocery) {
+      const { goLive, error } = buildGoLivePayload({ ...goLiveDraft, pickupSpots: selectedPickupSpots });
+      if (error) {
+        Swal.fire({ icon: 'error', title: 'שגיאה', text: error });
+        return;
+      }
+      goLivePayload = goLive;
     }
 
     if (!isAlwaysOnGrocery && orderType === 'recurring') {
@@ -388,6 +402,7 @@ const CreateOrderForBusiness = () => {
           alwaysOn: true,
           groceryStore: true,
           schedule: [],
+          goLive: goLivePayload,
           fulfillmentConfig: {
             type: 'community_delivery_schedule',
             allowCustomerDateSelection: true
@@ -938,6 +953,10 @@ const CreateOrderForBusiness = () => {
           <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-900">
             חנות קבועה לא דורשת זמן סיום או טווח משלוח. זמינות התאריכים תנוהל לפי לוחות המשלוחים לקהילות.
           </div>
+        )}
+
+        {isAlwaysOnGrocery && (
+          <AlwaysOnGoLiveFields value={goLiveDraft} onChange={setGoLiveDraft} />
         )}
 
 

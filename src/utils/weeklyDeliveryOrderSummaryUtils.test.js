@@ -51,6 +51,18 @@ describe('weekly delivery order summary utilities', () => {
       paymentStatus: 'completed',
       delayedOrderStatus: 'pending authorization',
     }, 'customerOrdersDelayed')).toBe(false);
+    expect(shouldIncludeOrderInDeliverySummary({
+      paymentStatus: 'completed',
+      delayedOrderStatus: 'cancelled_by_admin',
+    }, 'customerOrdersDelayed')).toBe(false);
+    expect(shouldIncludeOrderInDeliverySummary({
+      paymentStatus: 'cancelled',
+      delayedOrderStatus: 'cancelled_by_admin',
+    }, 'customerOrdersDelayed')).toBe(false);
+    expect(shouldIncludeOrderInDeliverySummary({
+      paymentStatus: 'abandoned',
+      delayedOrderStatus: 'abandoned',
+    }, 'customerOrdersDelayed')).toBe(false);
   });
 
   test('duplicates require the same normalized customer, date, community, and active item signature', () => {

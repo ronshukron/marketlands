@@ -7,6 +7,8 @@ import {
   generateAvailableDeliveryDates,
   generateSharedAvailableDeliveryDates,
   getDeliveryScheduleDocumentKeys,
+  GO_LIVE_LINKED_ORDER_FIELD,
+  isAlwaysOnGroceryOrderLive,
   isDeliveryDateOrderable,
   isOrderDeliveryDateFallback,
 } from './deliveryScheduleUtils';
@@ -185,6 +187,89 @@ describe('delivery schedule utilities', () => {
         a: tuesdayOrder(33, 'A'),
         b: tuesdayOrder(33, 'B'),
       }, { communityName: community, now: mondayLunch })).toBeNull();
+    });
+  });
+
+  describe('always-on go-live', () => {
+    const now = new Date(2026, 10, 7, 12, 0);
+    const base = {
+      orderMode: 'always_on_grocery',
+      pickupSpots: ['North', 'South'],
+    };
+    const linkedForm = {
+      orderType: 'one_time',
+      endingTimeByPickupSpot: {
+        North: new Date(2026, 10, 7, 12, 30),
+        South: new Date(2026, 10, 9, 20, 0),
+      },
+      endingTime: new Date(2026, 10, 9, 20, 0),
+    };
+
+    test('immediate and legacy forms are live right away', () => {
+      expect(isAlwaysOnGroceryOrderLive(base, 'North', now)).toBe(true);
+      expect(isAlwaysOnGroceryOrderLive({ ...base, goLive: { mode: 'immediate' } }, 'North', now)).toBe(true);
+    });
+
+    test('at_time opens every community at opensAt', () => {
+      const future = { ...base, goLive: { mode: 'at_time', opensAt: new Date(2026, 10, 7, 13, 0) } };
+      const past = { ...base, goLive: { mode: 'at_time', opensAt: new Date(2026, 10, 7, 11, 0) } };
+      expect(isAlwaysOnGroceryOrderLive(future, 'North', now)).toBe(false);
+      expect(isAlwaysOnGroceryOrderLive(past, 'North', now)).toBe(true);
+      expect(isAlwaysOnGroceryOrderLive(past, 'South', now)).toBe(true);
+    });
+
+    test('after_order opens per community once the linked form leaves the store there', () => {
+      const order = {
+        ...base,
+        goLive: { mode: 'after_order', linkedOrderId: 'linked' },
+        [GO_LIVE_LINKED_ORDER_FIELD]: linkedForm,
+      };
+      expect(isAlwaysOnGroceryOrderLive(order, 'North', now)).toBe(true);
+      expect(isAlwaysOnGroceryOrderLive(order, 'South', now)).toBe(false);
+      expect(isAlwaysOnGroceryOrderLive(order, '', now)).toBe(true);
+    });
+
+    test('after_order stays closed for a community without a linked end time', () => {
+      const order = {
+        ...base,
+        pickupSpots: ['West'],
+        goLive: { mode: 'after_order', linkedOrderId: 'linked' },
+        [GO_LIVE_LINKED_ORDER_FIELD]: { orderType: 'one_time', endingTimeByPickupSpot: { North: new Date(2026, 10, 1) } },
+      };
+      expect(isAlwaysOnGroceryOrderLive(order, 'West', now)).toBe(false);
+    });
+
+    test('after_order falls back to the saved snapshot, and stays closed without one', () => {
+      const withSnapshot = {
+        ...base,
+        goLive: {
+          mode: 'after_order',
+          linkedOrderId: 'linked',
+          linkedEndsAtByCommunity: { North: new Date(2026, 10, 7, 12, 30).toISOString() },
+        },
+      };
+      expect(isAlwaysOnGroceryOrderLive(withSnapshot, 'North', now)).toBe(true);
+      expect(isAlwaysOnGroceryOrderLive(withSnapshot, 'South', now)).toBe(false);
+      expect(isAlwaysOnGroceryOrderLive(
+        { ...base, goLive: { mode: 'after_order', linkedOrderId: 'linked' } },
+        'North',
+        now,
+      )).toBe(false);
+    });
+
+    test('manual disable wins over go-live', () => {
+      const order = { ...base, alwaysOnEnabled: false, goLive: { mode: 'at_time', opensAt: new Date(2026, 0, 1) } };
+      expect(isAlwaysOnGroceryOrderLive(order, 'North', now)).toBe(false);
+    });
+
+    test('delivery dates are not orderable before go-live', () => {
+      const order = {
+        ...alwaysOnOrder,
+        pickupSpots: [community],
+        goLive: { mode: 'at_time', opensAt: new Date(2026, 10, 20) },
+      };
+      expect(isDeliveryDateOrderable('2026-11-12', schedule, now, order, community)).toBe(false);
+      expect(isDeliveryDateOrderable('2026-11-12', schedule, now, { ...order, goLive: null }, community)).toBe(true);
     });
   });
 

@@ -18,13 +18,27 @@ const normalizeOption = (option) => {
 
 const normalizeStatus = (status) => String(status || '').trim().toLowerCase();
 
+const canonicalStatus = (status) => normalizeStatus(status).replace(/[\s-]+/g, '_');
+
+const TERMINAL_ORDER_STATUSES = new Set([
+  'abandoned',
+  'cancelled',
+  'cancelled_by_admin',
+  'failed',
+  'declined',
+  'expired',
+]);
+
 export function shouldIncludeOrderInDeliverySummary(orderData = {}, source = '') {
-  if (source !== 'customerOrdersDelayed') {
-    return normalizeStatus(orderData.paymentStatus) === 'completed';
+  const delayedStatus = canonicalStatus(orderData.delayedOrderStatus);
+  const paymentStatus = canonicalStatus(orderData.paymentStatus);
+  if (TERMINAL_ORDER_STATUSES.has(delayedStatus) || TERMINAL_ORDER_STATUSES.has(paymentStatus)) {
+    return false;
   }
 
-  const delayedStatus = normalizeStatus(orderData.delayedOrderStatus);
-  const paymentStatus = normalizeStatus(orderData.paymentStatus);
+  if (source !== 'customerOrdersDelayed') {
+    return paymentStatus === 'completed';
+  }
   const isPendingAuthorization = [delayedStatus, paymentStatus]
     .some((status) => status.replace(/[\s-]+/g, '_') === 'pending_authorization');
   if (isPendingAuthorization) return false;

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { collection, doc, getDocs, runTransaction, updateDoc } from 'firebase/firestore';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
@@ -9,7 +9,12 @@ import { getEstimatedLineTotal } from '../../utils/pricing';
 import { isSuccessfulRegularCustomerOrder } from '../../utils/customerOrderUtils';
 import { transferCustomerOrderQuantity } from '../../utils/customerOrderTransferUtils';
 import { ensureLineIdsInBreakdown } from '../adminV5/deliveryWeighingV5/v7/orderDraftUtils';
-import { buildRecentWeekKeys, fetchDocsByCreatedAtRange } from '../../utils/customerOrderDateQueries';
+import { buildRecentWeekKeys, fetchDocsForDeliveryWindow } from '../../utils/customerOrderDateQueries';
+import {
+  getDateRangeFromWeekKey,
+  getOrderDeliveryDate,
+  isOrderDeliveryDateFallback,
+} from '../../utils/deliveryScheduleUtils';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
@@ -170,19 +175,22 @@ const WeeklyCustomerOrderManager = () => {
     setLoading(true);
     setError(null);
     try {
-      const sunday = parseISO(week);
-      const friday = new Date(sunday);
-      friday.setDate(sunday.getDate() + 5);
-      friday.setHours(23, 59, 59, 999);
+      const deliveryWindow = getDateRangeFromWeekKey(week);
+      if (!deliveryWindow) {
+        setOrdersByPickupSpot({});
+        setDateRange({ start: '', end: '' });
+        return;
+      }
 
       setDateRange({
-        start: format(sunday, 'dd/MM/yyyy'),
-        end: format(friday, 'dd/MM/yyyy')
+        start: format(deliveryWindow.start, 'dd/MM/yyyy'),
+        end: format(deliveryWindow.end, 'dd/MM/yyyy')
       });
 
+      // Same delivery week as the weekly delivery summary, including orders placed on Saturday.
       const [regularDocs, delayedDocs] = await Promise.all([
-        fetchDocsByCreatedAtRange('customerOrders', sunday, friday),
-        fetchDocsByCreatedAtRange('customerOrdersDelayed', sunday, friday)
+        fetchDocsForDeliveryWindow('customerOrders', deliveryWindow.start, deliveryWindow.end),
+        fetchDocsForDeliveryWindow('customerOrdersDelayed', deliveryWindow.start, deliveryWindow.end)
       ]);
 
       if (requestId !== latestRequestRef.current) return;
@@ -197,8 +205,8 @@ const WeeklyCustomerOrderManager = () => {
         const orderData = orderDoc.data();
         if (!isOrderActive(orderData, source)) return;
 
-        const createdDate = getCreatedDate(orderData.createdAt);
-        if (!createdDate || createdDate < sunday || createdDate > friday) return;
+        const deliveryDate = getOrderDeliveryDate(orderData);
+        if (!deliveryDate || deliveryDate < deliveryWindow.start || deliveryDate > deliveryWindow.end) return;
 
         const pickupSpot = orderData.customerDetails?.pickupSpot || 'לא צוין';
         if (communities.size > 0 && !communities.has(pickupSpot)) return;
@@ -209,16 +217,18 @@ const WeeklyCustomerOrderManager = () => {
           orderData.orderBreakdown || {},
         ).breakdown;
         grouped[pickupSpot].push({
+          ...orderData,
           id: orderDoc.id,
           source,
-          createdDate,
-          ...orderData,
+          createdDate: getCreatedDate(orderData.createdAt) || deliveryDate,
+          deliveryDate,
+          deliveryDateIsFallback: isOrderDeliveryDateFallback(orderData),
           orderBreakdown: normalizedBreakdown,
         });
       });
 
       Object.keys(grouped).forEach((spot) => {
-        grouped[spot].sort((a, b) => b.createdDate - a.createdDate);
+        grouped[spot].sort((a, b) => b.deliveryDate - a.deliveryDate || b.createdDate - a.createdDate);
       });
 
       setOrdersByPickupSpot(grouped);
@@ -561,19 +571,18 @@ const WeeklyCustomerOrderManager = () => {
       <div className="mb-6 bg-white p-6 rounded-lg shadow">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-gray-700 text-sm font-medium mb-2">בחר שבוע:</label>
+            <label className="block text-gray-700 text-sm font-medium mb-2">בחר שבוע משלוח:</label>
             <select
               value={tempSelectedWeek}
               onChange={(e) => setTempSelectedWeek(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {availableWeeks.map((week) => {
-                const sunday = parseISO(week);
-                const friday = new Date(sunday);
-                friday.setDate(sunday.getDate() + 5);
+                const range = getDateRangeFromWeekKey(week);
+                if (!range) return null;
                 return (
                   <option key={week} value={week}>
-                    {format(sunday, 'dd/MM/yyyy')} - {format(friday, 'dd/MM/yyyy')}
+                    {format(range.start, 'dd/MM/yyyy')} - {format(range.end, 'dd/MM/yyyy')}
                   </option>
                 );
               })}
@@ -638,7 +647,7 @@ const WeeklyCustomerOrderManager = () => {
 
         {selectedWeek && (
           <p className="text-center text-gray-600 mt-4">
-            מציג הזמנות פעילות מ-{dateRange.start} עד {dateRange.end}
+            מציג הזמנות פעילות לפי תאריך משלוח מ-{dateRange.start} עד {dateRange.end}
             {selectedCommunities.size > 0 && ` עבור ${selectedCommunities.size} קהילות`}
           </p>
         )}
@@ -719,6 +728,10 @@ const WeeklyCustomerOrderManager = () => {
                             <div className="text-sm font-semibold text-gray-900">{order.customerDetails?.name || 'לא צוין'}</div>
                             <div className="text-xs text-gray-500">{order.customerDetails?.phone || 'אין טלפון'}</div>
                             <div className="text-xs text-gray-400 mt-1">{order.id}</div>
+                            <div className="text-xs text-indigo-700 mt-1">
+                              משלוח: {format(order.deliveryDate, 'dd/MM/yyyy')}
+                              {order.deliveryDateIsFallback ? ' (לפי תאריך יצירה)' : ''}
+                            </div>
                             <div className="text-xs text-gray-400">{format(order.createdDate, 'dd/MM/yyyy HH:mm')}</div>
                           </td>
                           <td className="px-4 py-4 text-sm text-gray-700 min-w-[130px]">

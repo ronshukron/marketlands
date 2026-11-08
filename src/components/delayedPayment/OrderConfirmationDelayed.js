@@ -36,7 +36,7 @@ import {
     generateSharedAvailableDeliveryDates,
     getWeekKey,
     isAlwaysOnGroceryOrder,
-    isAlwaysOnGroceryOrderEnabled,
+    isAlwaysOnGroceryOrderLive,
     isDeliveryDateOrderable,
     isShowingNextDeliveryWeek,
     orderServesCommunity,
@@ -57,6 +57,8 @@ import {
 } from '../../utils/checkoutAccountUtils';
 import { buildGrowInvoiceItem } from '../../utils/growInvoiceUtils';
 import { validateCheckoutCustomer } from '../../utils/marketplaceCustomerValidation';
+import { computeCityDeliveryFee, getProductSubtotal, isCityPlace, normalizeFreeShippingMinCart } from '../../utils/cityDeliveryFee';
+import { attachGoLiveLinkedOrdersById } from '../../services/orderGoLiveService';
 
 async function processReferralReward({ orderId, buyerUid, orderTotal }) {
   const refCode = getStoredReferralCode();
@@ -274,7 +276,8 @@ const OrderConfirmationDelayed = () => {
     const [deliveryDateError, setDeliveryDateError] = useState('');
     const [deliveryDateBlockers, setDeliveryDateBlockers] = useState(null);
     const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some(
-        (orderData) => isAlwaysOnGroceryOrder(orderData) && isAlwaysOnGroceryOrderEnabled(orderData)
+        (orderData) => isAlwaysOnGroceryOrder(orderData)
+            && isAlwaysOnGroceryOrderLive(orderData, resolveCommunityName(selectedPickupSpot))
     );
     const cartOrderMetaReady = !cartOrderMetaLoading
         && Object.keys(itemsByOrder).length > 0
@@ -339,8 +342,8 @@ const OrderConfirmationDelayed = () => {
     const isOrderUnavailableForSelectedDate = useCallback((orderId) => {
         const orderData = cartOrderMeta[orderId];
         if (!orderData || !isAlwaysOnGroceryOrder(orderData)) return false;
-        if (!isAlwaysOnGroceryOrderEnabled(orderData)) return true;
         const communityKey = resolveCommunityName(selectedPickupSpot);
+        if (!isAlwaysOnGroceryOrderLive(orderData, communityKey)) return true;
         if (selectedPickupSpot && !orderServesCommunity(orderData, communityKey)) return true;
         if (!deliverySchedule || !selectedDeliveryDate || !selectedPickupSpot) return false;
         return !isDeliveryDateOrderable(
@@ -379,6 +382,11 @@ const OrderConfirmationDelayed = () => {
     const effectiveCartItems = useMemo(() => (
         Object.values(effectiveItemsByOrder).flatMap((orderData) => orderData.items || [])
     ), [effectiveItemsByOrder]);
+    const selectedIsCity = isCityPlace(selectedSpotData);
+    const cityFreeShippingMinCart = normalizeFreeShippingMinCart(selectedSpotData?.freeShippingMinCart);
+    const productSubtotal = getProductSubtotal(effectiveCartItems);
+    const cityDeliveryFee = computeCityDeliveryFee(selectedSpotData, productSubtotal);
+    const homeDeliveryFeeToStore = cityDeliveryFee ?? (Number(selectedSpotData?.deliveryFee) || 0);
     const introductionBasketsForOrder = useMemo(
         () => buildIntroductionBasketSummaries(effectiveCartItems),
         [effectiveCartItems]
@@ -427,14 +435,28 @@ const OrderConfirmationDelayed = () => {
         setShowReusableCartonInfo(false);
     }, [resolvedPickupSpot, reusableCartonAvailable, reusableCartonConfig]);
 
+    const shippingSyncInFlight = useRef(false);
+
     // Ensure shipping product is in cart when homeDelivery is selected; remove otherwise
     useEffect(() => {
         const syncShippingItem = async () => {
+            if (shippingSyncInFlight.current) return;
+            shippingSyncInFlight.current = true;
             try {
                 const shippingItemsInCart = cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID);
                 const hasShippingInCart = shippingItemsInCart.length > 0;
+                const cityFee = cityDeliveryFee;
+                if (deliveryOption === 'homeDelivery' && cityFee !== null) {
+                    const priceMatches = shippingItemsInCart.length === 1
+                        && Number(shippingItemsInCart[0].price) === cityFee
+                        && Number(shippingItemsInCart[0].quantity) === 1;
+                    if (cityFee === 0 || !priceMatches) {
+                        shippingItemsInCart.forEach(si => removeItem(si.uid));
+                    }
+                    if (cityFee === 0 || priceMatches) return;
+                }
                 if (deliveryOption === 'homeDelivery') {
-                    if (!hasShippingInCart) {
+                    if (cityFee !== null || !hasShippingInCart) {
                         // Attach shipping to the first existing order in cart
                         const orderIds = Object.keys(itemsByOrder);
                         if (orderIds.length === 0) return; // nothing to attach to
@@ -448,7 +470,7 @@ const OrderConfirmationDelayed = () => {
                             const productToAdd = {
                                 id: SHIPPING_PRODUCT_ID,
                                 name: shipData.name || 'משלוח עד הבית',
-                                price: Number(shipData.price) || 0,
+                                price: cityFee ?? (Number(shipData.price) || 0),
                                 selectedOption: shipData.options && shipData.options.length > 0 ? shipData.options[0] : '',
                                 quantity: 1,
                                 images: shipData.images || [],
@@ -470,10 +492,12 @@ const OrderConfirmationDelayed = () => {
                 }
             } catch (e) {
                 console.error('Error syncing shipping item:', e);
+            } finally {
+                shippingSyncInFlight.current = false;
             }
         };
         syncShippingItem();
-    }, [deliveryOption, itemsByOrder, cartItems, addItem, removeItem]);
+    }, [deliveryOption, itemsByOrder, cartItems, addItem, removeItem, cityDeliveryFee]);
 
     useEffect(() => {
         const orderIds = Object.keys(itemsByOrder);
@@ -519,9 +543,11 @@ const OrderConfirmationDelayed = () => {
                 }
             }
 
+            const orderMetaWithLinked = await attachGoLiveLinkedOrdersById(orderMeta);
+
             if (!isActive) return;
             
-            setCartOrderMeta(orderMeta);
+            setCartOrderMeta(orderMetaWithLinked);
             setCartOrderMetaError(metadataError);
             setCartOrderMetaLoading(false);
             
@@ -596,7 +622,8 @@ const OrderConfirmationDelayed = () => {
                 const scheduleData = scheduleSnap.data();
                 setDeliverySchedule(scheduleData);
                 const alwaysOnOrders = Object.values(cartOrderMeta).filter(
-                    (orderData) => isAlwaysOnGroceryOrder(orderData) && isAlwaysOnGroceryOrderEnabled(orderData)
+                    (orderData) => isAlwaysOnGroceryOrder(orderData)
+                        && isAlwaysOnGroceryOrderLive(orderData, communityKey)
                 );
                 const scheduleDates = generateSharedAvailableDeliveryDates(
                     scheduleData,
@@ -747,7 +774,7 @@ const OrderConfirmationDelayed = () => {
         const hasUnavailableAlwaysOnOrder = Object.values(cartOrderMeta)
             .filter((orderData) => (
                 isAlwaysOnGroceryOrder(orderData)
-                && isAlwaysOnGroceryOrderEnabled(orderData)
+                && isAlwaysOnGroceryOrderLive(orderData, communityKey)
                 && orderServesCommunity(orderData, communityKey)
             ))
             .some((orderData) => !isDeliveryDateOrderable(
@@ -987,7 +1014,7 @@ const OrderConfirmationDelayed = () => {
                     type: deliveryOption,
                     boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
                     // Avoid writing undefined if selectedSpotData is missing.
-                    deliveryFee: deliveryOption === 'homeDelivery' ? (Number(selectedSpotData?.deliveryFee) || 0) : 0,
+                    deliveryFee: deliveryOption === 'homeDelivery' ? homeDeliveryFeeToStore : 0,
                 },
                 packagingPreference: {
                     useReusableFarmerCartons: Boolean(reusableCartonAvailable && useReusableFarmerCartons),
@@ -1294,7 +1321,7 @@ const OrderConfirmationDelayed = () => {
                     deliveryDetails: {
                         type: deliveryOption,
                         boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                        deliveryFee: deliveryOption === 'homeDelivery' ? (Number(selectedSpotData?.deliveryFee) || 0) : 0,
+                        deliveryFee: deliveryOption === 'homeDelivery' ? homeDeliveryFeeToStore : 0,
                     },
                     packagingPreference: {
                         useReusableFarmerCartons: Boolean(reusableCartonAvailable && useReusableFarmerCartons),
@@ -1902,8 +1929,19 @@ const OrderConfirmationDelayed = () => {
                                                 }`}
                                             >
                                                 <span className="font-medium text-sm">משלוח עד הבית (באזור {selectedPickupSpot})</span>
-                                                <span className={`font-bold text-sm ${deliveryOption === 'homeDelivery' ? 'text-white' : 'text-gray-900'}`}>{selectedSpotData.deliveryFee}₪</span>
+                                                {cityDeliveryFee === 0 ? (
+                                                    <span className={`font-bold text-sm ${deliveryOption === 'homeDelivery' ? 'text-white' : 'text-green-600'}`}>משלוח חינם</span>
+                                                ) : (
+                                                    <span className={`font-bold text-sm ${deliveryOption === 'homeDelivery' ? 'text-white' : 'text-gray-900'}`}>{cityDeliveryFee ?? selectedSpotData.deliveryFee}₪</span>
+                                                )}
                                             </button>
+                                        )}
+                                        {selectedIsCity && cityFreeShippingMinCart > 0 && (
+                                            <p className="text-xs text-gray-600">
+                                                {cityDeliveryFee === 0
+                                                    ? `הסל מעל ₪${cityFreeShippingMinCart}, המשלוח חינם`
+                                                    : `משלוח חינם מעל ₪${cityFreeShippingMinCart}. חסרים עוד ₪${Math.max(0, cityFreeShippingMinCart - productSubtotal).toFixed(2)}`}
+                                            </p>
                                         )}
                                         
                                         {selectedSpotData.options.includes('boxCollection') && (

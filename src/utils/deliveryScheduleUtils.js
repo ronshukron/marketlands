@@ -116,6 +116,83 @@ export function isAlwaysOnGroceryOrderEnabled(orderData = {}) {
     && orderData.fulfillmentConfig?.orderFormEnabled !== false;
 }
 
+export const GO_LIVE_MODES = {
+  IMMEDIATE: 'immediate',
+  AT_TIME: 'at_time',
+  AFTER_ORDER: 'after_order',
+};
+
+// Classic one-time forms leave the store an hour before their ending time,
+// so a form linked to them opens at that same moment.
+export const LINKED_ORDER_CLOSE_BUFFER_MS = 60 * 60 * 1000;
+
+// Non-persisted field holding the live linked Orders doc, attached by loaders.
+export const GO_LIVE_LINKED_ORDER_FIELD = '_goLiveLinkedOrder';
+
+export function getOrderGoLive(orderData = {}) {
+  const goLive = orderData?.goLive || {};
+  const mode = Object.values(GO_LIVE_MODES).includes(goLive.mode) ? goLive.mode : GO_LIVE_MODES.IMMEDIATE;
+  return {
+    mode,
+    opensAt: parseDateSafe(goLive.opensAt),
+    linkedOrderId: String(goLive.linkedOrderId || '').trim(),
+    linkedOrderName: goLive.linkedOrderName || '',
+    linkedBusinessName: goLive.linkedBusinessName || '',
+    linkedEndsAtByCommunity: goLive.linkedEndsAtByCommunity || {},
+    linkedEndsAt: parseDateSafe(goLive.linkedEndsAt),
+  };
+}
+
+export function getLinkedOrderEndForCommunity(linkedOrderData, communityName) {
+  if (!linkedOrderData) return null;
+  const byCommunity = linkedOrderData.endingTimeByPickupSpot || {};
+  const direct = parseDateSafe(byCommunity[communityName]);
+  if (direct) return direct;
+  const resolved = communityName ? resolveCommunityName(communityName) : '';
+  const viaAlias = resolved ? parseDateSafe(byCommunity[resolved]) : null;
+  if (viaAlias) return viaAlias;
+  return parseDateSafe(linkedOrderData.endingTime || linkedOrderData.Ending_Time);
+}
+
+/** When the form opens for a community, or null when that cannot be known yet. */
+export function getGoLiveOpensAtForCommunity(orderData = {}, communityName = '') {
+  const goLive = getOrderGoLive(orderData);
+  if (goLive.mode === GO_LIVE_MODES.IMMEDIATE) return new Date(0);
+  if (goLive.mode === GO_LIVE_MODES.AT_TIME) return goLive.opensAt;
+
+  const linkedOrder = orderData?.[GO_LIVE_LINKED_ORDER_FIELD];
+  let linkedEnd = null;
+  if (linkedOrder) {
+    linkedEnd = getLinkedOrderEndForCommunity(linkedOrder, communityName);
+  } else {
+    const resolved = communityName ? resolveCommunityName(communityName) : '';
+    linkedEnd = parseDateSafe(goLive.linkedEndsAtByCommunity[communityName])
+      || parseDateSafe(goLive.linkedEndsAtByCommunity[resolved])
+      || goLive.linkedEndsAt;
+  }
+  if (!linkedEnd) return null;
+  return new Date(linkedEnd.getTime() - LINKED_ORDER_CLOSE_BUFFER_MS);
+}
+
+export function isOrderGoLiveReached(orderData = {}, communityName = '', now = new Date()) {
+  const goLive = getOrderGoLive(orderData);
+  if (goLive.mode === GO_LIVE_MODES.IMMEDIATE) return true;
+  const community = communityName && communityName !== 'הכל' ? communityName : '';
+  if (!community && goLive.mode === GO_LIVE_MODES.AFTER_ORDER) {
+    const spots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];
+    return spots.some((spot) => isOrderGoLiveReached(orderData, spot, now));
+  }
+  const opensAt = getGoLiveOpensAtForCommunity(orderData, community);
+  return Boolean(opensAt) && now >= opensAt;
+}
+
+/** Customer-facing check: manually enabled and past its go-live moment for the community. */
+export function isAlwaysOnGroceryOrderLive(orderData = {}, communityName = '', now = new Date()) {
+  if (!isAlwaysOnGroceryOrderEnabled(orderData)) return false;
+  if (!isAlwaysOnGroceryOrder(orderData)) return true;
+  return isOrderGoLiveReached(orderData, communityName, now);
+}
+
 export function getEffectiveCutoffAt(deliveryDate, scheduleDoc = {}) {
   const dateKey = toLocalDateKey(deliveryDate);
   if (!dateKey) return null;
@@ -247,7 +324,7 @@ function getOrderWeeklyDeliveryDays(orderData = {}, communityName = '') {
 
 export function isDeliveryDateOrderable(deliveryDate, scheduleDoc = {}, now = new Date(), orderData = null, communityName = '') {
   if (!scheduleDoc || scheduleDoc.active === false) return false;
-  if (orderData && !isAlwaysOnGroceryOrderEnabled(orderData)) return false;
+  if (orderData && !isAlwaysOnGroceryOrderLive(orderData, communityName, now)) return false;
 
   const dateKey = toLocalDateKey(deliveryDate);
   if (!dateKey) return false;
@@ -323,7 +400,7 @@ export function generateSharedAvailableDeliveryDates(
 ) {
   const eligibleOrders = orderDataList.filter(
     (orderData) => isAlwaysOnGroceryOrder(orderData)
-      && isAlwaysOnGroceryOrderEnabled(orderData)
+      && isAlwaysOnGroceryOrderLive(orderData, options.communityName, options.now || new Date())
       && orderServesCommunity(orderData, options.communityName)
   );
 
@@ -353,7 +430,7 @@ export function findDeliveryDateBlockers(scheduleDoc, ordersById = {}, options =
   const { communityName, now = new Date() } = options;
   const eligible = Object.entries(ordersById || {}).filter(
     ([, orderData]) => isAlwaysOnGroceryOrder(orderData)
-      && isAlwaysOnGroceryOrderEnabled(orderData)
+      && isAlwaysOnGroceryOrderLive(orderData, communityName, now)
       && orderServesCommunity(orderData, communityName)
   );
   if (!scheduleDoc || eligible.length < 2) return null;

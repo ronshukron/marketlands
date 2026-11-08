@@ -18,6 +18,7 @@ import {
   setMarketplaceCommunityIdentity,
 } from '../utils/marketplaceCommunityIdentity';
 import { compareCommunitiesForDelivery } from '../utils/communityDeliveryOrder';
+import { normalizeFreeShippingMinCart, normalizePlaceType, PLACE_TYPE_CITY } from '../utils/cityDeliveryFee';
 
 export { compareCommunitiesForDelivery } from '../utils/communityDeliveryOrder';
 
@@ -150,6 +151,8 @@ function normalizeCommunityRecord(input) {
     region: data.region || 'אחר',
     options: Array.isArray(data.options) ? data.options : ['pickup'],
     deliveryFee: Number(data.deliveryFee) || 0,
+    placeType: normalizePlaceType(data.placeType),
+    freeShippingMinCart: normalizeFreeShippingMinCart(data.freeShippingMinCart),
     color: data.color || getDeterministicCommunityColor(name),
     sortOrder: Number(data.sortOrder) || 0,
     active: data.active !== false,
@@ -175,6 +178,8 @@ function toCatalogRecord(community) {
     region: record.region,
     options: record.options,
     deliveryFee: record.deliveryFee,
+    placeType: record.placeType,
+    freeShippingMinCart: record.freeShippingMinCart,
     color: record.color,
     sortOrder: record.sortOrder,
     active: record.active !== false,
@@ -321,6 +326,8 @@ function applyCommunityRecords(records, source = 'catalog', options = {}) {
       name: community.name,
       options: community.options,
       deliveryFee: community.deliveryFee,
+      placeType: community.placeType,
+      freeShippingMinCart: community.freeShippingMinCart,
       region: community.region,
       color: community.color,
       sortOrder: community.sortOrder,
@@ -646,11 +653,16 @@ export async function saveCommunity(community) {
   const ref = doc(db, 'communities', name);
   const existingSnap = await getDoc(ref);
   const isNew = !existingSnap.exists();
-  await setDoc(ref, {
+  const placeType = normalizePlaceType(community.placeType);
+  const record = {
     name,
     region: community.region || 'אחר',
-    options: community.options || ['pickup'],
+    options: placeType === PLACE_TYPE_CITY ? ['homeDelivery'] : (community.options || ['pickup']),
     deliveryFee: Number(community.deliveryFee) || 0,
+    placeType,
+    freeShippingMinCart: placeType === PLACE_TYPE_CITY
+      ? normalizeFreeShippingMinCart(community.freeShippingMinCart)
+      : 0,
     color: community.color || getDeterministicCommunityColor(name),
     sortOrder: Number(community.sortOrder) || 0,
     active: community.active !== false,
@@ -660,7 +672,8 @@ export async function saveCommunity(community) {
     broadcastDeliveryNote: String(community.broadcastDeliveryNote || '').trim(),
     deliveryGroup: String(community.deliveryGroup || '').trim(),
     updatedAt: new Date().toISOString(),
-  }, { merge: true });
+  };
+  await setDoc(ref, record, { merge: true });
   await deleteDuplicateCommunityDocs(name);
 
   const { addNewCommunityToPaymentConfig, readPaymentConfigSnapshot } = await import('./paymentConfigService');
@@ -670,22 +683,7 @@ export async function saveCommunity(community) {
     await addNewCommunityToPaymentConfig(name);
   }
   markCommunitiesAuthoritative();
-  mergeCommunityRecord({
-    id: name,
-    name,
-    region: community.region || 'אחר',
-    options: community.options || ['pickup'],
-    deliveryFee: Number(community.deliveryFee) || 0,
-    color: community.color || getDeterministicCommunityColor(name),
-    sortOrder: Number(community.sortOrder) || 0,
-    active: community.active !== false,
-    aliases: Array.isArray(community.aliases) ? community.aliases : [],
-    whatsappGroupLink: String(community.whatsappGroupLink || '').trim(),
-    storeLink: String(community.storeLink || '').trim(),
-    broadcastDeliveryNote: String(community.broadcastDeliveryNote || '').trim(),
-    deliveryGroup: String(community.deliveryGroup || '').trim(),
-    updatedAt: new Date().toISOString(),
-  });
+  mergeCommunityRecord({ id: name, ...record });
   await publishCommunitiesCatalog();
 }
 

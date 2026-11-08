@@ -6,8 +6,9 @@ import { applyCartPricing, applyQuantityPricing, getEstimatedLineTotal } from '.
 import { trackAddToCart } from '../utils/metaPixel';
 import {
   isAlwaysOnGroceryOrder,
-  isAlwaysOnGroceryOrderEnabled,
+  isAlwaysOnGroceryOrderLive,
 } from '../utils/deliveryScheduleUtils';
+import { attachGoLiveLinkedOrders } from '../services/orderGoLiveService';
 import CommunityWeeklyPromotionContext from './CommunityWeeklyPromotionContext';
 import { useWeightBuffer } from './WeightBufferContext';
 
@@ -105,7 +106,10 @@ export const CartProvider = ({ children }) => {
           if (orderSnap.exists()) {
             const orderData = orderSnap.data();
             if (isAlwaysOnGroceryOrder(orderData)) {
-              if (!isAlwaysOnGroceryOrderEnabled(orderData)) {
+              // eslint-disable-next-line no-await-in-loop
+              const [withLinked] = await attachGoLiveLinkedOrders([orderData]);
+              const community = localStorage.getItem('selectedPickupSpot') || '';
+              if (!isAlwaysOnGroceryOrderLive(withLinked, community, now)) {
                 idsToRemove.push(orderId);
               }
               continue;

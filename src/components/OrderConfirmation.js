@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { doc, updateDoc, getDoc, setDoc, collection, serverTimestamp, arrayUnion, runTransaction } from "firebase/firestore";
@@ -9,7 +9,8 @@ import LoadingSpinnerPayment from './LoadingSpinnerPayment';
 import Swal from 'sweetalert2';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
-import { pickupSpots, pickupSpotsData } from '../data/pickupSpots';
+import usePickupSpots from '../hooks/usePickupSpots';
+import { computeCityDeliveryFee, getProductSubtotal, isCityPlace, normalizeFreeShippingMinCart } from '../utils/cityDeliveryFee';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
 import { isDelayedPaymentSpot } from '../services/paymentConfigService';
 import {
@@ -71,8 +72,19 @@ const OrderConfirmation = () => {
     // Get pickup spots from the order
     const [availablePickupSpots, setAvailablePickupSpots] = useState([]);
 
+    const { pickupSpots, pickupSpotsData } = usePickupSpots();
+
     // Get the selected pickup spot's data
     const selectedSpotData = selectedPickupSpot ? pickupSpotsData[selectedPickupSpot] : null;
+    const selectedSpotOptionsKey = (selectedSpotData?.options || []).join('|');
+    const selectedIsCity = isCityPlace(selectedSpotData);
+    const cityFreeShippingMinCart = normalizeFreeShippingMinCart(selectedSpotData?.freeShippingMinCart);
+    const productSubtotal = getProductSubtotal(cartItems);
+    const cityDeliveryFee = computeCityDeliveryFee(selectedSpotData, productSubtotal);
+    const shippingLineTotal = cartItems
+        .filter(ci => ci.id === SHIPPING_PRODUCT_ID)
+        .reduce((sum, i) => sum + (i.price * i.quantity), 0);
+    const homeDeliveryFeeToStore = cityDeliveryFee ?? selectedSpotData?.deliveryFee ?? 0;
 
     const [deliveryOption, setDeliveryOption] = useState(() => {
         // If selectedSpotData exists and has homeDelivery option, default to it
@@ -103,7 +115,8 @@ const OrderConfirmation = () => {
         } else {
             setDeliveryOption('pickup');
         }
-    }, [selectedPickupSpot, selectedSpotData]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedPickupSpot, selectedSpotOptionsKey]);
 
 
     // Add this near your other state declarations
@@ -119,14 +132,28 @@ const OrderConfirmation = () => {
         setTotalWithDelivery(newTotal);
     }, [deliveryOption, selectedSpotData, cartTotal]);
 
+    const shippingSyncInFlight = useRef(false);
+
     // Ensure shipping product is in cart when homeDelivery is selected; remove otherwise
     useEffect(() => {
         const syncShippingItem = async () => {
+            if (shippingSyncInFlight.current) return;
+            shippingSyncInFlight.current = true;
             try {
                 const shippingItemsInCart = cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID);
                 const hasShippingInCart = shippingItemsInCart.length > 0;
+                const cityFee = cityDeliveryFee;
+                if (deliveryOption === 'homeDelivery' && cityFee !== null) {
+                    const priceMatches = shippingItemsInCart.length === 1
+                        && Number(shippingItemsInCart[0].price) === cityFee
+                        && Number(shippingItemsInCart[0].quantity) === 1;
+                    if (cityFee === 0 || !priceMatches) {
+                        shippingItemsInCart.forEach(si => removeItem(si.uid));
+                    }
+                    if (cityFee === 0 || priceMatches) return;
+                }
                 if (deliveryOption === 'homeDelivery') {
-                    if (!hasShippingInCart) {
+                    if (cityFee !== null || !hasShippingInCart) {
                         // Attach shipping to the first existing order in cart
                         const orderIds = Object.keys(itemsByOrder);
                         if (orderIds.length === 0) return; // nothing to attach to
@@ -140,7 +167,7 @@ const OrderConfirmation = () => {
                             const productToAdd = {
                                 id: SHIPPING_PRODUCT_ID,
                                 name: shipData.name || 'משלוח עד הבית',
-                                price: Number(shipData.price) || 0,
+                                price: cityFee ?? (Number(shipData.price) || 0),
                                 selectedOption: shipData.options && shipData.options.length > 0 ? shipData.options[0] : '',
                                 quantity: 1,
                                 images: shipData.images || [],
@@ -162,10 +189,12 @@ const OrderConfirmation = () => {
                 }
             } catch (e) {
                 console.error('Error syncing shipping item:', e);
+            } finally {
+                shippingSyncInFlight.current = false;
             }
         };
         syncShippingItem();
-    }, [deliveryOption, itemsByOrder, cartItems, addItem, removeItem]);
+    }, [deliveryOption, itemsByOrder, cartItems, addItem, removeItem, cityDeliveryFee]);
 
     // Move the updateOrdersWithReference function to component level so it can be used everywhere
     const updateOrdersWithReference = async (orderIds, customerOrderDocId) => {
@@ -514,7 +543,7 @@ const OrderConfirmation = () => {
                     deliveryDetails: {
                         type: deliveryOption,
                         boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                        deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 0,
+                        deliveryFee: deliveryOption === 'homeDelivery' ? homeDeliveryFeeToStore : 0,
                     }
                 },
                 businessIds: businessIds,
@@ -776,7 +805,7 @@ const OrderConfirmation = () => {
                     deliveryDetails: {
                         type: deliveryOption,
                         boxCollectionName: deliveryOption === 'boxCollection' ? userName : null,
-                        deliveryFee: deliveryOption === 'homeDelivery' ? selectedSpotData.deliveryFee : 0,
+                        deliveryFee: deliveryOption === 'homeDelivery' ? homeDeliveryFeeToStore : 0,
                     }
                 },
                 businessIds: businessIds,
@@ -1158,8 +1187,19 @@ const OrderConfirmation = () => {
                                                 }`}
                                             >
                                                 <span className="font-medium text-sm">משלוח עד הבית (באזור {selectedPickupSpot})</span>
-                                                <span className={`font-bold text-sm ${deliveryOption === 'homeDelivery' ? 'text-white' : 'text-gray-900'}`}>{selectedSpotData.deliveryFee}₪</span>
+                                                {cityDeliveryFee === 0 ? (
+                                                    <span className={`font-bold text-sm ${deliveryOption === 'homeDelivery' ? 'text-white' : 'text-green-600'}`}>משלוח חינם</span>
+                                                ) : (
+                                                    <span className={`font-bold text-sm ${deliveryOption === 'homeDelivery' ? 'text-white' : 'text-gray-900'}`}>{cityDeliveryFee ?? selectedSpotData.deliveryFee}₪</span>
+                                                )}
                                             </button>
+                                        )}
+                                        {selectedIsCity && cityFreeShippingMinCart > 0 && (
+                                            <p className="text-xs text-gray-600">
+                                                {cityDeliveryFee === 0
+                                                    ? `הסל מעל ₪${cityFreeShippingMinCart}, המשלוח חינם`
+                                                    : `משלוח חינם מעל ₪${cityFreeShippingMinCart}. חסרים עוד ₪${Math.max(0, cityFreeShippingMinCart - productSubtotal).toFixed(2)}`}
+                                            </p>
                                         )}
                                         
                                         {selectedSpotData.options.includes('boxCollection') && (
@@ -1185,14 +1225,14 @@ const OrderConfirmation = () => {
                                                 <span className="font-medium">
                                                     {/* Calculate subtotal by subtracting shipping cost from cartTotal if shipping is included */}
                                                     {(deliveryOption === 'homeDelivery' 
-                                                        ? (cartTotal - (cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID).reduce((sum, i) => sum + (i.price * i.quantity), 0)))
+                                                        ? (cartTotal - shippingLineTotal)
                                                         : cartTotal).toFixed(2)} ₪
                                                 </span>
                                             </div>
                                             {deliveryOption !== 'pickup' && (
                                                 <div className="flex justify-between text-sm mt-2">
                                                     <span className="text-gray-600">דמי משלוח:</span>
-                                                    <span className="font-medium">{deliveryOption === 'homeDelivery' ? (cartItems.filter(ci => ci.id === SHIPPING_PRODUCT_ID).reduce((sum, i) => sum + (i.price * i.quantity), 0)) : 0} ₪</span>
+                                                    <span className="font-medium">{deliveryOption === 'homeDelivery' ? shippingLineTotal : 0} ₪</span>
                                                 </div>
                                             )}
                                             <div className="flex justify-between text-lg font-small mt-2 pt-2 border-t border-gray-200">

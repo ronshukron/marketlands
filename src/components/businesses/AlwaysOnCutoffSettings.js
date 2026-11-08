@@ -6,9 +6,14 @@ import { useAuth } from '../../contexts/authContext';
 import {
   generateAvailableDeliveryDates,
   getEffectiveOrderCutoffAt,
+  getOrderGoLive,
+  GO_LIVE_MODES,
   isAlwaysOnGroceryOrderEnabled,
+  isOrderGoLiveReached,
 } from '../../utils/deliveryScheduleUtils';
 import LoadingSpinner from '../LoadingSpinner';
+import AlwaysOnGoLiveFields, { toDateTimeLocal } from './AlwaysOnGoLiveFields';
+import { attachGoLiveLinkedOrders, buildGoLivePayload } from '../../services/orderGoLiveService';
 
 const WEEK_DAYS = [
   { value: 0, label: 'ראשון' },
@@ -47,11 +52,43 @@ const AlwaysOnCutoffSettings = () => {
   const [bulkSaving, setBulkSaving] = useState(false);
   const [orderStatusSaving, setOrderStatusSaving] = useState(false);
   const [businessWeeklyDays, setBusinessWeeklyDays] = useState([]);
+  const [goLiveDraft, setGoLiveDraft] = useState({ mode: GO_LIVE_MODES.IMMEDIATE, opensAtLocal: '', linkedOrder: null });
+  const [goLiveSaving, setGoLiveSaving] = useState(false);
+  const [goLiveStatusOrder, setGoLiveStatusOrder] = useState(null);
 
   const selectedOrder = useMemo(
     () => orders.find((order) => order.id === selectedOrderId) || null,
     [orders, selectedOrderId]
   );
+  const selectedGoLive = useMemo(() => getOrderGoLive(selectedOrder || {}), [selectedOrder]);
+
+  useEffect(() => {
+    setGoLiveDraft((prev) => ({
+      mode: selectedGoLive.mode,
+      opensAtLocal: toDateTimeLocal(selectedGoLive.opensAt),
+      linkedOrder: prev.linkedOrder?.id && prev.linkedOrder.id === selectedGoLive.linkedOrderId
+        ? prev.linkedOrder
+        : null,
+    }));
+  }, [selectedOrderId, selectedGoLive]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setGoLiveStatusOrder(null);
+    if (!selectedOrder) return undefined;
+    attachGoLiveLinkedOrders([selectedOrder]).then(([withLinked]) => {
+      if (!cancelled) setGoLiveStatusOrder(withLinked);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrder]);
+
+  const goLiveOpenCommunities = useMemo(() => {
+    if (!goLiveStatusOrder) return null;
+    const now = new Date();
+    return (goLiveStatusOrder.pickupSpots || []).filter((spot) => isOrderGoLiveReached(goLiveStatusOrder, spot, now));
+  }, [goLiveStatusOrder]);
 
   useEffect(() => {
     const loadBusinessAndOrders = async () => {
@@ -311,6 +348,34 @@ const AlwaysOnCutoffSettings = () => {
     }
   };
 
+  const handleSaveGoLive = async () => {
+    if (!selectedOrder) return;
+    const { goLive, error } = buildGoLivePayload({
+      ...goLiveDraft,
+      pickupSpots: selectedOrder.pickupSpots || [],
+    });
+    if (error) {
+      Swal.fire('שגיאה', error, 'error');
+      return;
+    }
+    setGoLiveSaving(true);
+    try {
+      await updateDoc(doc(db, 'Orders', selectedOrder.id), {
+        goLive,
+        updatedAt: new Date(),
+      });
+      setOrders((prev) => prev.map((order) => (
+        order.id === selectedOrder.id ? { ...order, goLive } : order
+      )));
+      Swal.fire('נשמר', 'מועד הפתיחה של הטופס נשמר', 'success');
+    } catch (saveError) {
+      console.error('Error saving always-on go-live:', saveError);
+      Swal.fire('שגיאה', 'שמירת מועד הפתיחה נכשלה', 'error');
+    } finally {
+      setGoLiveSaving(false);
+    }
+  };
+
   const handleBulkSave = async () => {
     if (!selectedOrder || bulkSelectedCommunities.length === 0 || !bulkDate) {
       Swal.fire('שגיאה', 'בחרו קהילות ותאריך משלוח', 'error');
@@ -460,6 +525,47 @@ const AlwaysOnCutoffSettings = () => {
               </div>
             )}
           </div>
+
+          {selectedOrder && (
+            <div className="bg-white rounded-lg shadow p-5 mb-6 space-y-4">
+              <div>
+                <h2 className="text-xl font-semibold mb-1">פתיחת הטופס</h2>
+                {selectedGoLive.mode === GO_LIVE_MODES.IMMEDIATE ? (
+                  <p className="text-sm text-gray-600">הטופס פתוח מיד.</p>
+                ) : goLiveOpenCommunities === null ? (
+                  <p className="text-sm text-gray-600">בודק מצב פתיחה...</p>
+                ) : (
+                  <p className="text-sm text-gray-600">
+                    {goLiveOpenCommunities.length === (selectedOrder.pickupSpots || []).length
+                      ? 'הטופס כבר פתוח בכל הקהילות.'
+                      : goLiveOpenCommunities.length === 0
+                        ? 'הטופס עדיין לא נפתח באף קהילה.'
+                        : `פתוח כרגע ב: ${goLiveOpenCommunities.join(', ')}`}
+                  </p>
+                )}
+                {selectedGoLive.mode === GO_LIVE_MODES.AFTER_ORDER && selectedGoLive.linkedOrderName && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    מקושר לטופס: {selectedGoLive.linkedOrderName}
+                    {selectedGoLive.linkedBusinessName ? ` · ${selectedGoLive.linkedBusinessName}` : ''}
+                  </p>
+                )}
+              </div>
+              <AlwaysOnGoLiveFields
+                value={goLiveDraft}
+                onChange={setGoLiveDraft}
+                excludeOrderId={selectedOrder.id}
+                initialLinkedOrderId={selectedGoLive.linkedOrderId}
+              />
+              <button
+                type="button"
+                onClick={handleSaveGoLive}
+                disabled={goLiveSaving}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-bold py-2.5 px-4 rounded-lg"
+              >
+                {goLiveSaving ? 'שומר...' : 'שמור מועד פתיחה'}
+              </button>
+            </div>
+          )}
 
           <div className="bg-white rounded-lg shadow p-5 mb-6 space-y-4">
             <div>

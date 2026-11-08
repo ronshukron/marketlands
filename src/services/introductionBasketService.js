@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEstimatedLineTotal } from '../utils/pricing';
-import { isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderEnabled } from '../utils/deliveryScheduleUtils';
+import { isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderLive } from '../utils/deliveryScheduleUtils';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../utils/orderUtils';
 
 export const INTRODUCTION_BASKETS_COLLECTION = 'introductionBaskets';
@@ -208,7 +208,7 @@ const toDate = (value) => {
 
 const isOrderCurrentlyActive = (orderData = {}) => {
   if (orderData.archived === true) return false;
-  if (isAlwaysOnGroceryOrder(orderData)) return isAlwaysOnGroceryOrderEnabled(orderData);
+  if (isAlwaysOnGroceryOrder(orderData)) return isAlwaysOnGroceryOrderLive(orderData);
 
   const endingTimeByPickupSpot = orderData.endingTimeByPickupSpot || {};
   const pickupSpots = Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [];

@@ -201,6 +201,34 @@ describe('pickup spots catalog loading', () => {
     expect(getPickupSpotsSync().pickupSpots).toEqual(expect.arrayContaining(['אור הנר', 'יישוב חדש']));
   });
 
+  test('exposes city place type and free shipping threshold from the catalog', async () => {
+    const city = {
+      ...catalogCommunity,
+      id: 'באר שבע',
+      name: 'באר שבע',
+      options: ['homeDelivery'],
+      deliveryFee: 30,
+      placeType: 'city',
+      freeShippingMinCart: 250,
+    };
+    getDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({ communities: [catalogCommunity, city] }),
+    });
+
+    const snapshot = await loadPickupSpots({ force: true });
+
+    expect(snapshot.pickupSpotsData['באר שבע']).toEqual(expect.objectContaining({
+      placeType: 'city',
+      freeShippingMinCart: 250,
+      deliveryFee: 30,
+    }));
+    expect(snapshot.pickupSpotsData['אור הנר']).toEqual(expect.objectContaining({
+      placeType: 'community',
+      freeShippingMinCart: 0,
+    }));
+  });
+
   test('does not download the communities collection when the catalog is missing', async () => {
     getDoc.mockResolvedValue({
       exists: () => false,

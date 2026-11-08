@@ -32,6 +32,12 @@ import {
   buildWhatsAppShareUrl,
   DEFAULT_BROADCAST_TEMPLATE,
 } from '../../utils/communityBroadcastMessage';
+import { isCityPlace, PLACE_TYPE_CITY, PLACE_TYPE_COMMUNITY } from '../../utils/cityDeliveryFee';
+
+const PLACE_TYPE_CHOICES = [
+  { value: PLACE_TYPE_COMMUNITY, label: 'יישוב' },
+  { value: PLACE_TYPE_CITY, label: 'עיר' },
+];
 
 const REGION_OPTIONS = ['צפון', 'מרכז', 'דרום', 'שומרון', 'שפלה', 'אשקלון אשדוד', 'חבל תקומה', 'אחר'];
 const OPTION_CHOICES = [
@@ -49,8 +55,10 @@ const formatFirestoreError = (err) => {
 const emptyForm = {
   name: '',
   region: 'אחר',
+  placeType: PLACE_TYPE_COMMUNITY,
   options: ['pickup'],
   deliveryFee: 25,
+  freeShippingMinCart: '',
   color: '#4F46E5',
   sortOrder: 0,
   active: true,
@@ -133,8 +141,10 @@ const CommunityAdmin = () => {
     setForm({
       name: editingName,
       region: data.region || 'אחר',
+      placeType: isCityPlace(data) ? PLACE_TYPE_CITY : PLACE_TYPE_COMMUNITY,
       options: data.options || ['pickup'],
       deliveryFee: data.deliveryFee || 0,
+      freeShippingMinCart: data.freeShippingMinCart || '',
       color: data.color || getDeterministicCommunityColor(editingName),
       sortOrder: data.sortOrder || 0,
       active: data.active !== false,
@@ -147,6 +157,7 @@ const CommunityAdmin = () => {
     setPreviewCommunity(editingName);
   }, [editingName, pickupSpotsData]);
 
+  const formIsCity = form.placeType === PLACE_TYPE_CITY;
   const previewName = previewCommunity || editingName;
   const previewCommunityData = useMemo(() => {
     if (!previewName) return {};
@@ -205,6 +216,10 @@ const CommunityAdmin = () => {
   const handleSave = async () => {
     if (!form.name.trim()) {
       Swal.fire('שגיאה', 'שם יישוב חובה', 'error');
+      return;
+    }
+    if (!formIsCity && form.options.length === 0) {
+      Swal.fire('שגיאה', 'יש לבחור לפחות אפשרות משלוח אחת', 'error');
       return;
     }
     setBusy(true);
@@ -304,6 +319,14 @@ const CommunityAdmin = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const setPlaceType = (placeType) => {
+    setForm((prev) => ({
+      ...prev,
+      placeType,
+      options: placeType === PLACE_TYPE_CITY ? ['homeDelivery'] : (prev.options.length ? prev.options : ['pickup']),
+    }));
   };
 
   const toggleOption = (value) => {
@@ -614,27 +637,63 @@ const CommunityAdmin = () => {
             <span className="text-sm text-gray-600">שם יישוב</span>
             <input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} className="w-full border rounded px-3 py-2 mt-1" disabled={!!editingName} />
           </label>
+          <div>
+            <span className="text-sm text-gray-600">סוג מקום</span>
+            <div className="flex gap-4 mt-2">
+              {PLACE_TYPE_CHOICES.map((choice) => (
+                <label key={choice.value} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="placeType"
+                    value={choice.value}
+                    checked={form.placeType === choice.value}
+                    onChange={() => setPlaceType(choice.value)}
+                  />
+                  <span>{choice.label}</span>
+                </label>
+              ))}
+            </div>
+            {formIsCity && (
+              <p className="text-xs text-gray-500 mt-1">עיר: משלוח עד הבית בלבד, לפי לוח המשלוחים השבועי של העיר.</p>
+            )}
+          </div>
           <label className="block">
             <span className="text-sm text-gray-600">אזור</span>
             <select value={form.region} onChange={(e) => setForm((p) => ({ ...p, region: e.target.value }))} className="w-full border rounded px-3 py-2 mt-1">
               {REGION_OPTIONS.map((region) => <option key={region} value={region}>{region}</option>)}
             </select>
           </label>
-          <div>
-            <span className="text-sm text-gray-600">אפשרויות משלוח</span>
-            <div className="flex gap-4 mt-2">
-              {OPTION_CHOICES.map((opt) => (
-                <label key={opt.value} className="flex items-center gap-2">
-                  <input type="checkbox" checked={form.options.includes(opt.value)} onChange={() => toggleOption(opt.value)} />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
+          {!formIsCity && (
+            <div>
+              <span className="text-sm text-gray-600">אפשרויות משלוח</span>
+              <div className="flex gap-4 mt-2">
+                {OPTION_CHOICES.map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-2">
+                    <input type="checkbox" checked={form.options.includes(opt.value)} onChange={() => toggleOption(opt.value)} />
+                    <span>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+          {formIsCity && (
+            <label className="block">
+              <span className="text-sm text-gray-600">משלוח חינם מעל סכום סל (₪)</span>
+              <input
+                type="number"
+                min="0"
+                value={form.freeShippingMinCart}
+                onChange={(e) => setForm((p) => ({ ...p, freeShippingMinCart: e.target.value }))}
+                className="w-full border rounded px-3 py-2 mt-1"
+                placeholder="ריק = תמיד בתשלום"
+              />
+              <span className="text-xs text-gray-500">מתחת לסכום הזה הלקוח משלם את דמי המשלוח.</span>
+            </label>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="text-sm text-gray-600">דמי משלוח (₪)</span>
-              <input type="number" value={form.deliveryFee} onChange={(e) => setForm((p) => ({ ...p, deliveryFee: e.target.value }))} className="w-full border rounded px-3 py-2 mt-1" />
+              <input type="number" min="0" value={form.deliveryFee} onChange={(e) => setForm((p) => ({ ...p, deliveryFee: e.target.value }))} className="w-full border rounded px-3 py-2 mt-1" />
             </label>
             <label className="block">
               <span className="text-sm text-gray-600">צבע (V7)</span>
@@ -704,8 +763,21 @@ const CommunityAdmin = () => {
                     >
                       <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: pickupSpotsData[name]?.color || getDeterministicCommunityColor(name) }} />
                       <div className="min-w-0">
-                        <div className="font-medium truncate">{name}</div>
-                        <div className="text-xs text-gray-500">{pickupSpotsData[name]?.region || 'אחר'}</div>
+                        <div className="font-medium truncate flex items-center gap-2">
+                          <span className="truncate">{name}</span>
+                          {isCityPlace(pickupSpotsData[name]) && (
+                            <span className="shrink-0 px-1.5 py-0.5 text-[11px] rounded bg-sky-100 text-sky-800">עיר</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {pickupSpotsData[name]?.region || 'אחר'}
+                          {isCityPlace(pickupSpotsData[name]) && (
+                            <>
+                              {' · '}משלוח ₪{Number(pickupSpotsData[name]?.deliveryFee) || 0}
+                              {Number(pickupSpotsData[name]?.freeShippingMinCart) > 0 && `, חינם מעל ₪${pickupSpotsData[name].freeShippingMinCart}`}
+                            </>
+                          )}
+                        </div>
                       </div>
                     </button>
                     <div className="flex gap-1 shrink-0">
