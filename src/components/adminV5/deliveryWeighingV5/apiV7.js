@@ -40,6 +40,7 @@ import {
   getCommunityPromotionUnlockId,
 } from '../../../services/communityWeeklyPromotionService';
 import { buildWeeklyPromotionFingerprint, weeklyPromotionUnlockKey } from './v7/weeklyPromotionSettlementV7';
+import { findEarlyPickEntry, getExtraWeekKeysForEntries } from './v7/earlyPickV7';
 
 async function getIdTokenIfAvailable() {
   try {
@@ -164,7 +165,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
   };
 }
 
-function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = '', endDate = '') {
+function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = '', endDate = '', earlyPickEntries = []) {
   const window = normalizeDateRange(startDate, endDate) || weekWindowFromKey(weekKey);
   if (!window) return { pendingOrders: [], completedOrders: [], allOrders: [] };
 
@@ -180,13 +181,19 @@ function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = 
 
     const deliveryDate = getOrderDeliveryDate(data);
     if (!deliveryDate) return;
-    if (deliveryDate < window.start || deliveryDate > window.end) return;
-
     const pickupSpot = getOrderCommunity(data);
+    let earlyPick = null;
+    if (deliveryDate < window.start || deliveryDate > window.end) {
+      const entry = findEarlyPickEntry(earlyPickEntries, pickupSpot, toLocalDateKey(deliveryDate));
+      if (!entry) return;
+      earlyPick = { originalDeliveryDate: entry.originalDeliveryDate, procureOnDate: entry.procureOnDate };
+    }
+
     if (hasCommunityFilter && !allowedCommunities.includes(pickupSpot)) return;
 
     const normalized = normalizeDelayedOrder(docSnap, weekKey);
     if (normalized.items.length === 0) return;
+    if (earlyPick) normalized.earlyPick = earlyPick;
 
     const isPending = data.paymentStatus === 'held' && data.delayedOrderStatus === 'pending_weighing';
     const isCompleted = !isPending && (
@@ -231,6 +238,7 @@ export function subscribeDelayedOrdersForWeekV7({
   communities = [],
   startDate = '',
   endDate = '',
+  earlyPickEntries = [],
   onOrders,
   onError,
 }) {
@@ -242,10 +250,14 @@ export function subscribeDelayedOrdersForWeekV7({
   };
 
   if (weekKey) {
+    const extraWeekKeys = getExtraWeekKeysForEntries(earlyPickEntries, weekKey);
+    const weekConstraint = extraWeekKeys.length > 0
+      ? where('deliveryWeekKey', 'in', [weekKey, ...extraWeekKeys])
+      : where('deliveryWeekKey', '==', weekKey);
     return onSnapshot(
-      query(ordersRef, where('deliveryWeekKey', '==', weekKey)),
+      query(ordersRef, weekConstraint),
       (snapshot) => {
-        const next = classifyDelayedOrders(snapshot, weekKey, communities, startDate, endDate);
+        const next = classifyDelayedOrders(snapshot, weekKey, communities, startDate, endDate, earlyPickEntries);
         if (typeof onOrders === 'function') onOrders(next);
       },
       handleError,

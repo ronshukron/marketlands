@@ -100,6 +100,7 @@ export const TR8 = {
     pkgLbl: 'מארז',
     batchCharge: 'חיוב קבוצתי',
     reusableCarton: 'קרטון חוזר',
+    earlyPick: (day) => `ליקוט מוקדם · משלוח ${day} · למקרר`,
     cardError: 'כרטיס זה נתקע. המשיכו עם שאר הארגזים.',
   },
   th: {
@@ -203,6 +204,7 @@ export const TR8 = {
     pkgLbl: 'แพ็ก',
     batchCharge: 'เรียกเก็บแบบกลุ่ม',
     reusableCarton: 'กล่องใช้ซ้ำ',
+    earlyPick: (day) => `จัดล่วงหน้า · ส่ง ${day} · เข้าตู้เย็น`,
     cardError: 'การ์ดนี้มีปัญหา ทำกล่องอื่นต่อได้',
   },
 };

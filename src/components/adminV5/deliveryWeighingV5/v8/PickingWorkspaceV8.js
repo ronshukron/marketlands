@@ -15,6 +15,7 @@ export const EMPTY_BOX_INFO = {
   color: '#9ca3af',
   name: '',
   wantsReusableCartons: false,
+  earlyPickLabel: '',
 };
 
 function safeBoxInfo(info) {
@@ -470,6 +471,9 @@ function BoxesStep({
                     {info.wantsReusableCartons && (
                       <span className="text-[11px] font-black rounded-full px-2 py-0.5 bg-emerald-600 text-white">🌱 {t8.reusableCarton}</span>
                     )}
+                    {info.earlyPickLabel && (
+                      <span className="text-[11px] font-black rounded-full px-2 py-0.5 bg-teal-600 text-white">{info.earlyPickLabel}</span>
+                    )}
                     {lock && (
                       <span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-700">🔒 {lock.stationId}</span>
                     )}
@@ -583,6 +587,11 @@ function OrderPickCardInner({
             </span>
           ) : null}
         </span>
+        {box.earlyPickLabel && (
+          <span className="mt-1 inline-block rounded-full bg-teal-600 px-2 py-0.5 text-[11px] font-black text-white">
+            {box.earlyPickLabel}
+          </span>
+        )}
         <span className="mt-1.5 flex items-center gap-2">
           <span className="text-base font-black text-gray-800">{orderedLabel}</span>
           {showQtyBadge && (
@@ -756,6 +765,9 @@ function WeighPanel({
               <div className="text-sm font-bold truncate" style={{ color: box.color }}>{box.community}</div>
               {box.wantsReusableCartons && (
                 <span className="inline-block mt-1 text-[11px] font-black rounded-full px-2 py-0.5 bg-emerald-600 text-white">🌱 {t8.reusableCarton}</span>
+              )}
+              {box.earlyPickLabel && (
+                <span className="inline-block mt-1 text-[11px] font-black rounded-full px-2 py-0.5 bg-teal-600 text-white">{box.earlyPickLabel}</span>
               )}
             </div>
           </div>

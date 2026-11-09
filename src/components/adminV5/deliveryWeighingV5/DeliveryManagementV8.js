@@ -109,6 +109,15 @@ import {
   saveShowCommunityNumbering,
 } from './v7/communityOrderNumbering';
 import {
+  buildPickedElsewhereMap,
+  formatEarlyPickDayLabel,
+  getEarlyPickCommunities,
+  isEarlyPickOrder,
+  loadEarlyPickForDay,
+  sortCommunitiesEarlyPickLast,
+  withoutEarlyPickOrders,
+} from './v7/earlyPickV7';
+import {
   getOrderDeliveryDate,
   getWeekKey,
   normalizeDateRange,
@@ -158,6 +167,7 @@ const LANG_STORAGE_KEY = 'deliveryV7::lang';
 // Shared with V7 on purpose: after picking in V8, switching to V7 for charging
 // must open the same week / day / communities.
 const LAST_SETUP_KEY = 'deliveryV7::lastSetup';
+const NO_EARLY_PICK_ENTRIES = [];
 
 function isBrowserOffline() {
   return typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -225,6 +235,8 @@ const TR = {
     deliveryGroup: 'קבוצת משלוח',
     resetOrder: 'סדר ברירת מחדל',
     todayAutoLoaded: 'נטען אוטומטית להיום',
+    earlyPickBadge: (day) => `ליקוט מוקדם · משלוח ${day}`,
+    pickedEarlyOnBadge: (day) => `נלקט מוקדם ב${day} · לבדוק חוסרים`,
     orders: 'הזמנות',
     total: 'סה"כ',
     noOrders: 'אין הזמנות להצגה.',
@@ -450,6 +462,8 @@ const TR = {
     deliveryGroup: 'กลุ่มจัดส่ง',
     resetOrder: 'รีเซ็ตลำดับ',
     todayAutoLoaded: 'โหลดวันนี้โดยอัตโนมัติ',
+    earlyPickBadge: (day) => `จัดล่วงหน้า · ส่ง ${day}`,
+    pickedEarlyOnBadge: (day) => `จัดล่วงหน้าแล้ว ${day} · ตรวจของที่ขาด`,
     orders: 'คำสั่งซื้อ',
     total: 'รวม',
     noOrders: 'ไม่มีคำสั่งซื้อ',
@@ -819,6 +833,7 @@ function filterOrdersByDeliveryDates(orders = [], startStr, endStr) {
   const range = normalizeDateRange(startStr, endStr);
   if (!range) return orders;
   return (orders || []).filter((order) => {
+    if (isEarlyPickOrder(order)) return true;
     const deliveryDate = parseOrderDeliveryDate(order);
     if (!deliveryDate) return false;
     return deliveryDate >= range.start && deliveryDate <= range.end;
@@ -1114,6 +1129,42 @@ export default function DeliveryManagementV8() {
   const communityDropdownRef = useRef(null);
   const [tempSelectedCommunities, setTempSelectedCommunities] = useState(new Set(Array.isArray(initialSetup.communities) ? initialSetup.communities : []));
   const [selectedCommunities, setSelectedCommunities] = useState(new Set(Array.isArray(initialSetup.communities) ? initialSetup.communities : []));
+  const earlyPickDayKey = selectedSpecificStartDate && selectedSpecificStartDate === selectedSpecificEndDate
+    ? selectedSpecificStartDate
+    : '';
+  const [earlyPickReloadToken, setEarlyPickReloadToken] = useState(0);
+  const [earlyPickState, setEarlyPickState] = useState({ dayKey: '', pulledIn: [], pickedElsewhere: [] });
+  const earlyPickReady = earlyPickState.dayKey === earlyPickDayKey;
+  const earlyPickEntries = earlyPickReady && earlyPickState.pulledIn.length > 0
+    ? earlyPickState.pulledIn
+    : NO_EARLY_PICK_ENTRIES;
+  const pickedElsewhereByCommunity = useMemo(
+    () => buildPickedElsewhereMap(earlyPickReady ? earlyPickState.pickedElsewhere : NO_EARLY_PICK_ENTRIES),
+    [earlyPickReady, earlyPickState.pickedElsewhere],
+  );
+
+  useEffect(() => {
+    if (!earlyPickDayKey) {
+      setEarlyPickState((prev) => (
+        prev.dayKey === '' && prev.pulledIn.length === 0 && prev.pickedElsewhere.length === 0
+          ? prev
+          : { dayKey: '', pulledIn: [], pickedElsewhere: [] }
+      ));
+      return undefined;
+    }
+    let cancelled = false;
+    loadEarlyPickForDay({ dayKey: earlyPickDayKey }).then((result) => {
+      if (cancelled) return;
+      setEarlyPickState((prev) => (
+        prev.dayKey === earlyPickDayKey
+        && JSON.stringify(prev.pulledIn) === JSON.stringify(result.pulledIn)
+        && JSON.stringify(prev.pickedElsewhere) === JSON.stringify(result.pickedElsewhere)
+          ? prev
+          : { dayKey: earlyPickDayKey, ...result }
+      ));
+    });
+    return () => { cancelled = true; };
+  }, [earlyPickDayKey, earlyPickReloadToken]);
 
   const [orders, setOrders] = useState([]);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -1787,6 +1838,7 @@ export default function DeliveryManagementV8() {
     }
     setLoading(true);
     setError(null);
+    if (!earlyPickReady) return () => {};
     // Snapshots are processed async; a slow older snapshot (or one from a scope
     // that was already left) must not overwrite newer orders on screen.
     let disposed = false;
@@ -1796,6 +1848,7 @@ export default function DeliveryManagementV8() {
       communities: Array.from(selectedCommunities),
       startDate: selectedSpecificStartDate,
       endDate: selectedSpecificEndDate,
+      earlyPickEntries,
       onOrders: async ({ allOrders }) => {
         latestSnapshotSeq += 1;
         const snapshotSeq = latestSnapshotSeq;
@@ -1902,6 +1955,8 @@ export default function DeliveryManagementV8() {
     selectedCommunities,
     selectedSpecificStartDate,
     selectedSpecificEndDate,
+    earlyPickReady,
+    earlyPickEntries,
     applyCachedScopeToScreen,
     fetchPermanentCustomerNumbers,
     currentScopeKey,
@@ -2227,6 +2282,8 @@ export default function DeliveryManagementV8() {
       || '';
   }, [pickupSpotsSnap.pickupSpotsData]);
 
+  const earlyPickCommunities = useMemo(() => getEarlyPickCommunities(orders), [orders]);
+
   const orderCommunities = useMemo(() => {
     const set = new Set();
     orders.forEach((o) => {
@@ -2250,12 +2307,19 @@ export default function DeliveryManagementV8() {
       if (ra !== rb) return ra - rb;
       return a.localeCompare(b);
     });
-    return all;
-  }, [orders, communityOrderOverride, defaultRankByName]);
+    return sortCommunitiesEarlyPickLast(all, earlyPickCommunities);
+  }, [orders, communityOrderOverride, defaultRankByName, earlyPickCommunities]);
+
+  const batchChargeCommunities = useMemo(
+    () => orderCommunities.filter((name) => !earlyPickCommunities.has(name)),
+    [orderCommunities, earlyPickCommunities],
+  );
+
+  const batchChargeOrders = useMemo(() => withoutEarlyPickOrders(orders), [orders]);
 
   const batchChargeModalCommunityList = useMemo(
-    () => orderCommunities.filter((name) => batchChargeModalCommunities.has(name)),
-    [orderCommunities, batchChargeModalCommunities],
+    () => batchChargeCommunities.filter((name) => batchChargeModalCommunities.has(name)),
+    [batchChargeCommunities, batchChargeModalCommunities],
   );
 
   useEffect(() => {
@@ -2378,7 +2442,7 @@ export default function DeliveryManagementV8() {
 
   const loadingOrderNumbers = useMemo(() => (
     computeLoadingOrderNumbers({
-      orders,
+      orders: withoutEarlyPickOrders(orders),
       communities: orderCommunities,
       customerNumbersMap: permanentNumbersMap,
     })
@@ -3324,7 +3388,7 @@ export default function DeliveryManagementV8() {
   }[reason] || reason), []);
 
   const batchChargeLivePlan = useMemo(() => collectMultiCommunityBatchChargePlan({
-    orders,
+    orders: batchChargeOrders,
     communityNames: batchChargeModalCommunityList,
     sessionId: session.sessionId,
     getContext: getOrderChargeContext,
@@ -3341,7 +3405,7 @@ export default function DeliveryManagementV8() {
     claimsByOrder,
     effectiveDraftsByOrder,
     getOrderChargeContext,
-    orders,
+    batchChargeOrders,
     pendingOps,
     session.sessionId,
     syncConflicts,
@@ -3515,7 +3579,7 @@ export default function DeliveryManagementV8() {
 
   const openBatchChargeModal = () => {
     if (!isAdmin || batchChargeProgress) return;
-    const names = defaultBatchChargeCommunities(selectedCommunities, orderCommunities);
+    const names = defaultBatchChargeCommunities(selectedCommunities, batchChargeCommunities);
     setBatchChargeModalCommunities(new Set(names));
     setBatchApplyWeeklyPromotion(autoApplyWeeklyPromotion);
     weeklyPromotionSettlement.refresh();
@@ -3697,7 +3761,7 @@ export default function DeliveryManagementV8() {
 
     const live = chargeLiveRef.current || {};
     const plan = collectMultiCommunityBatchChargePlan({
-      orders: live.orders || orders,
+      orders: withoutEarlyPickOrders(live.orders || orders),
       communityNames: batchChargeModalCommunityList,
       sessionId: session.sessionId,
       getContext: getOrderChargeContext,
@@ -3770,6 +3834,7 @@ export default function DeliveryManagementV8() {
     setTempSpecificEndDate(endDate);
     setSelectedSpecificStartDate(startDate);
     setSelectedSpecificEndDate(endDate);
+    setEarlyPickReloadToken((prev) => prev + 1);
   };
 
   useEffect(() => {
@@ -4131,6 +4196,9 @@ export default function DeliveryManagementV8() {
         color: getEffectiveCommunityColor(community),
         name: order?.customerDetails?.name || t.customer,
         wantsReusableCartons: order?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true,
+        earlyPickLabel: isEarlyPickOrder(order)
+          ? t8.earlyPick(formatEarlyPickDayLabel(order.earlyPick.originalDeliveryDate, lang))
+          : '',
       };
     } catch (error) {
       console.error('[v8] getPickBoxInfo', order?.id, error);
@@ -4145,7 +4213,7 @@ export default function DeliveryManagementV8() {
         wantsReusableCartons: false,
       };
     }
-  }, [computedCommunityOrderNumbers, getEffectiveCommunityColor, loadingOrderNumbers, orderCommunities, permanentNumbersMap, t.customer]);
+  }, [computedCommunityOrderNumbers, getEffectiveCommunityColor, lang, loadingOrderNumbers, orderCommunities, permanentNumbersMap, t.customer, t8]);
 
   const pickBoxInfoByOrderId = useMemo(() => {
     const map = {};
@@ -5085,6 +5153,16 @@ export default function DeliveryManagementV8() {
                             <span className="inline-block w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: getEffectiveCommunityColor(o.customerDetails?.pickupSpot || o.pickupSpot) }} />
                             <span className="truncate">{o.customerDetails?.pickupSpot || o.pickupSpot || ''} {o.customerDetails?.phone ? `• ${o.customerDetails.phone}` : ''}</span>
                           </div>
+                          {isEarlyPickOrder(o) && (
+                            <div className="mt-1 inline-flex items-center rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-black text-white shadow">
+                              {t.earlyPickBadge(formatEarlyPickDayLabel(o.earlyPick.originalDeliveryDate, lang))}
+                            </div>
+                          )}
+                          {!isEarlyPickOrder(o) && pickedElsewhereByCommunity[o.customerDetails?.pickupSpot || o.pickupSpot] && (
+                            <div className="mt-1 inline-flex items-center rounded-full border border-teal-300 bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-800">
+                              {t.pickedEarlyOnBadge(formatEarlyPickDayLabel(pickedElsewhereByCommunity[o.customerDetails?.pickupSpot || o.pickupSpot], lang))}
+                            </div>
+                          )}
                           {wantsReusableCartons && (
                             <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black text-white shadow">
                               <span>🌱</span>
@@ -5174,6 +5252,16 @@ export default function DeliveryManagementV8() {
                           {t.community}: <span className="font-bold">{selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot}</span>
                           {selectedOrder.customerDetails?.phone && <> • {t.phone}: <span className="font-bold">{selectedOrder.customerDetails.phone}</span></>}
                         </div>
+                        {isEarlyPickOrder(selectedOrder) && (
+                          <div className="mt-1 inline-flex items-center rounded-full bg-teal-600 px-2.5 py-0.5 text-xs font-black text-white shadow">
+                            {t.earlyPickBadge(formatEarlyPickDayLabel(selectedOrder.earlyPick.originalDeliveryDate, lang))}
+                          </div>
+                        )}
+                        {!isEarlyPickOrder(selectedOrder) && pickedElsewhereByCommunity[selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot] && (
+                          <div className="mt-1 inline-flex items-center rounded-full border border-teal-300 bg-teal-50 px-2.5 py-0.5 text-xs font-bold text-teal-800">
+                            {t.pickedEarlyOnBadge(formatEarlyPickDayLabel(pickedElsewhereByCommunity[selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot], lang))}
+                          </div>
+                        )}
                         {(() => {
                           const selCid = selectedOrder?.customerDetails?.phone || selectedOrder?.customerDetails?.email || null;
                           const selProfile = selCid ? customerProfilesMap[selCid] : null;
@@ -6355,10 +6443,10 @@ export default function DeliveryManagementV8() {
         open={batchChargeModalOpen}
         t={t}
         isRTL={isRTL}
-        communities={orderCommunities}
+        communities={batchChargeCommunities}
         selectedCommunityNames={batchChargeModalCommunityList}
         onToggleCommunity={toggleBatchChargeModalCommunity}
-        onSelectAllCommunities={() => setBatchChargeModalCommunities(new Set(orderCommunities))}
+        onSelectAllCommunities={() => setBatchChargeModalCommunities(new Set(batchChargeCommunities))}
         onClearCommunities={() => setBatchChargeModalCommunities(new Set())}
         plans={batchChargeLivePlan.plans}
         excludedOrderIds={batchChargeExcludedOrderIds}

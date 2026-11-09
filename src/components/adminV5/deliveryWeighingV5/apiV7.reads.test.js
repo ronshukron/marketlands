@@ -123,4 +123,64 @@ describe('delayed order subscription', () => {
     unsubscribe();
     onSnapshot.mock.results.forEach((result) => expect(result.value).toHaveBeenCalled());
   });
+
+  describe('early-pick communities', () => {
+    const orderDoc = (id, community, deliveryDate) => ({
+      id,
+      data: () => ({
+        isDelayedOrder: true,
+        paymentStatus: 'held',
+        delayedOrderStatus: 'pending_weighing',
+        deliveryDate,
+        customerDetails: { name: id, pickupSpot: community },
+        orderBreakdown: {
+          b1: { businessName: 'Farm', items: [{ productId: 'p1', productName: 'Tomato', quantity: 1, price: 10 }] },
+        },
+      }),
+    });
+    const docs = [
+      orderDoc('tue', 'A', '2026-11-10'),
+      orderDoc('thu-k', 'K', '2026-11-12'),
+      orderDoc('thu-m', 'M', '2026-11-12'),
+    ];
+    const subscribeTuesday = (earlyPickEntries) => {
+      require('firebase/firestore').updateDoc.mockResolvedValue();
+      onSnapshot.mockImplementation((watched, onNext) => {
+        onNext({ forEach: (callback) => docs.forEach(callback) });
+        return jest.fn();
+      });
+      const onOrders = jest.fn();
+      subscribeDelayedOrdersForWeekV7({
+        weekKey: '2026-11-08',
+        startDate: '2026-11-10',
+        endDate: '2026-11-10',
+        earlyPickEntries,
+        onOrders,
+      });
+      return onOrders.mock.calls[0][0].allOrders;
+    };
+
+    test('without entries only the selected day is returned', () => {
+      expect(subscribeTuesday(undefined).map((order) => order.id)).toEqual(['tue']);
+    });
+
+    test('pulled-in communities are kept and tagged, delivery date unchanged', () => {
+      const orders = subscribeTuesday([
+        { community: 'K', originalDeliveryDate: '2026-11-12', procureOnDate: '2026-11-10' },
+      ]);
+      expect(orders.map((order) => order.id).sort()).toEqual(['thu-k', 'tue']);
+      const early = orders.find((order) => order.id === 'thu-k');
+      expect(early.earlyPick).toEqual({ originalDeliveryDate: '2026-11-12', procureOnDate: '2026-11-10' });
+      expect(early.deliveryDateKey).toBe('2026-11-12');
+      expect(orders.find((order) => order.id === 'tue').earlyPick).toBeUndefined();
+      expect(where).toHaveBeenCalledWith('deliveryWeekKey', '==', '2026-11-08');
+    });
+
+    test('an entry from the next week widens the week query', () => {
+      subscribeTuesday([
+        { community: 'S', originalDeliveryDate: '2026-11-15', procureOnDate: '2026-11-12' },
+      ]);
+      expect(where).toHaveBeenCalledWith('deliveryWeekKey', 'in', ['2026-11-08', '2026-11-15']);
+    });
+  });
 });
