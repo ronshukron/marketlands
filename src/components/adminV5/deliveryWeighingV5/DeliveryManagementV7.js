@@ -2370,9 +2370,8 @@ export default function DeliveryManagementV7() {
     computeLoadingOrderNumbers({
       orders: withoutEarlyPickOrders(orders),
       communities: orderCommunities,
-      customerNumbersMap: permanentNumbersMap,
     })
-  ), [orders, orderCommunities, permanentNumbersMap]);
+  ), [orders, orderCommunities]);
 
   const toggleCommunityNumbering = useCallback(() => {
     setShowCommunityNumbering((prev) => {
@@ -2762,6 +2761,7 @@ export default function DeliveryManagementV7() {
       const image = renderQl800Label({
         customerNumber,
         name: selectedOrder.customerDetails?.name || t.customer,
+        phone: selectedOrder.customerDetails?.phone || '',
         community: selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot || '',
         crateIndex: printUses.index,
         loadingOrder: loadingOrderNumbers[selectedOrder.id] || null,

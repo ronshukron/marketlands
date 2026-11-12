@@ -67,34 +67,50 @@ export function computeCommunityOrderNumbers({
 }
 
 /**
- * One loading sequence for the whole delivery. The route visits `communities`
- * in order and, inside a community, customers by customer number. Boxes are
- * loaded in reverse, so 1 = loaded first = last stop. Numbers run 1, 2, 3…
- * across every community, including across delivery groups.
+ * Loading priority per community. The route visits `communities` in order and
+ * the truck is loaded in reverse, so the last community on the route is loaded
+ * first and gets 1, the one before it 2, and so on. Every box of a community
+ * carries the same number. Communities without orders are skipped, so the
+ * numbers stay 1, 2, 3… with no gaps, in one sequence across delivery groups.
+ * Returns { [community]: loadingNumber }.
+ */
+export function computeCommunityLoadingNumbers({
+  orders = [],
+  communities = [],
+  getCommunity = (order) => order?.customerDetails?.pickupSpot || order?.pickupSpot || '',
+}) {
+  const withOrders = new Set(orders.map(getCommunity).filter(Boolean));
+  const route = [];
+  communities.forEach((community) => {
+    if (withOrders.has(community) && !route.includes(community)) route.push(community);
+  });
+  // Communities missing from the route list go last on the route (loaded first).
+  withOrders.forEach((community) => {
+    if (!route.includes(community)) route.push(community);
+  });
+
+  const result = {};
+  route.forEach((community, index) => {
+    result[community] = route.length - index;
+  });
+  return result;
+}
+
+/**
+ * Same numbers as computeCommunityLoadingNumbers, keyed by order id.
  * Returns { [orderId]: loadingNumber }.
  */
 export function computeLoadingOrderNumbers({
   orders = [],
   communities = [],
-  customerNumbersMap = {},
   getCommunity = (order) => order?.customerDetails?.pickupSpot || order?.pickupSpot || '',
 }) {
-  const communityList = communities.length > 0
-    ? communities
-    : Array.from(new Set(orders.map(getCommunity).filter(Boolean)));
-
-  const route = [];
-  communityList.forEach((community) => {
-    const communityOrders = orders
-      .filter((order) => getCommunity(order) === community)
-      .sort((a, b) => compareOrdersByCustomerNumber(a, b, customerNumbersMap));
-    route.push(...communityOrders);
-  });
-
+  const byCommunity = computeCommunityLoadingNumbers({ orders, communities, getCommunity });
   const result = {};
-  route.forEach((order, index) => {
+  orders.forEach((order) => {
     const orderId = order?.id || order?.order?.id;
-    if (orderId) result[orderId] = route.length - index;
+    const number = byCommunity[getCommunity(order)];
+    if (orderId && number) result[orderId] = number;
   });
   return result;
 }

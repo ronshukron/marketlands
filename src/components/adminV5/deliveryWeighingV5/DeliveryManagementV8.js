@@ -2444,9 +2444,8 @@ export default function DeliveryManagementV8() {
     computeLoadingOrderNumbers({
       orders: withoutEarlyPickOrders(orders),
       communities: orderCommunities,
-      customerNumbersMap: permanentNumbersMap,
     })
-  ), [orders, orderCommunities, permanentNumbersMap]);
+  ), [orders, orderCommunities]);
 
   const toggleCommunityNumbering = useCallback(() => {
     setShowCommunityNumbering((prev) => {
@@ -2836,6 +2835,7 @@ export default function DeliveryManagementV8() {
       const image = renderQl800Label({
         customerNumber,
         name: selectedOrder.customerDetails?.name || t.customer,
+        phone: selectedOrder.customerDetails?.phone || '',
         community: selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot || '',
         crateIndex: printUses.index,
         loadingOrder: loadingOrderNumbers[selectedOrder.id] || null,
@@ -4195,6 +4195,7 @@ export default function DeliveryManagementV8() {
         community,
         color: getEffectiveCommunityColor(community),
         name: order?.customerDetails?.name || t.customer,
+        phone: order?.customerDetails?.phone || '',
         wantsReusableCartons: order?.customerDetails?.packagingPreference?.useReusableFarmerCartons === true,
         earlyPickLabel: isEarlyPickOrder(order)
           ? t8.earlyPick(formatEarlyPickDayLabel(order.earlyPick.originalDeliveryDate, lang))
@@ -4210,6 +4211,7 @@ export default function DeliveryManagementV8() {
         community: order?.customerDetails?.pickupSpot || order?.pickupSpot || '',
         color: '#9ca3af',
         name: order?.customerDetails?.name || t.customer,
+        phone: order?.customerDetails?.phone || '',
         wantsReusableCartons: false,
       };
     }
@@ -4491,6 +4493,7 @@ export default function DeliveryManagementV8() {
       const image = renderQl800Label({
         customerNumber: info.customerNumber,
         name: info.name,
+        phone: info.phone,
         community: info.community,
         crateIndex: printUses.index,
         loadingOrder: info.loadingOrder,
