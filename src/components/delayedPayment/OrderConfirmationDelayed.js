@@ -11,7 +11,7 @@ import { useAuth } from '../../contexts/authContext';
 import { useCart } from '../../contexts/CartContext';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import { createDelayedPaymentCheckout } from '../../services/delayedPaymentGatewayService';
-import { buildGrowSuccessUrl, storeDelayedCustomerOrderId } from '../../utils/growReturnParams';
+import { buildGrowSuccessUrl, getGrowReturnOrigin, storeDelayedCustomerOrderId } from '../../utils/growReturnParams';
 import { getEndingTimeForSpot } from '../../utils/orderUtils';
 import { functionsEndpoint } from '../../utils/functionsClient';
 import { getReusableCartonConfig, isDelayedPaymentSpot, readPaymentConfigSnapshot, resolveWeightBufferPercent } from '../../services/paymentConfigService';
@@ -47,6 +47,7 @@ import {
   recordReferralUse,
 } from '../../services/referralService';
 import { INTRODUCTION_BASKET_CATALOG_NUMBER } from '../../services/introductionBasketService';
+import useIntroductionBasketGuard from '../../hooks/useIntroductionBasketGuard';
 import { persistCustomerOrderWithCompensation } from '../../services/compensationService';
 import { rememberPendingPurchase, trackPurchase } from '../../utils/metaPixel';
 import CheckoutAccountModal from '../CheckoutAccountModal';
@@ -218,6 +219,7 @@ const OrderConfirmationDelayed = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems, applyCommercialRefresh, orderInfoMap } = useCart();
+    const ensureIntroductionBasketsOrderable = useIntroductionBasketGuard();
     const { configuredPercent: displayWeightBufferPercent } = useWeightBuffer();
     const promotionOrderAttribution = buildCommunityWeeklyPromotionOrderAttribution(localStorage);
     
@@ -1072,8 +1074,8 @@ const OrderConfirmationDelayed = () => {
         try {
             // Call backend to create Grow (J5) payment process.
             // Backend MUST be the one calling Grow.
-            // Grow rejects localhost return URLs, so local testing can point them at an HTTPS tunnel.
-            const returnOrigin = process.env.REACT_APP_GROW_RETURN_ORIGIN || window.location.origin;
+            // Return the customer to the same host they ordered from (www or not).
+            const returnOrigin = getGrowReturnOrigin();
             const paymentData = {
                 mode: 'weekly_delayed',
                 amount: holdAmount,
@@ -1514,6 +1516,17 @@ const OrderConfirmationDelayed = () => {
                 return;
             }
             checkoutUid = accountResolution.uid;
+        }
+
+        // A basket that was switched off, or that passes the per-customer limit,
+        // is removed here, before stock is reserved and before payment.
+        const basketsOrderable = await ensureIntroductionBasketsOrderable({
+            phone: userPhone,
+            email: userEmail,
+            uid: checkoutUid,
+        });
+        if (!basketsOrderable) {
+            return;
         }
 
         try {

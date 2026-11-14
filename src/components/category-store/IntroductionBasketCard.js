@@ -46,6 +46,11 @@ const IntroductionBasketCard = ({ basket, onAdd }) => {
               במקום {formatMoney(basket.componentSubtotal)}
             </p>
           )}
+          {basket.maxPerCustomer > 0 && (
+            <p className="text-xs text-emerald-800 font-semibold mt-1">
+              {basket.maxPerCustomer === 1 ? 'מוגבל לסל אחד ללקוח' : `מוגבל ל-${basket.maxPerCustomer} סלים ללקוח`}
+            </p>
+          )}
         </div>
 
         <div className="text-xs text-gray-600 mb-4 flex-1">

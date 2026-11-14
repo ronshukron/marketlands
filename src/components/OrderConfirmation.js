@@ -7,6 +7,7 @@ import './OrderConfirmation.css';
 import LoadingSpinner from './LoadingSpinner';
 import LoadingSpinnerPayment from './LoadingSpinnerPayment';
 import Swal from 'sweetalert2';
+import useIntroductionBasketGuard from '../hooks/useIntroductionBasketGuard';
 import { useAuth } from '../contexts/authContext';
 import { useCart } from '../contexts/CartContext';
 import usePickupSpots from '../hooks/usePickupSpots';
@@ -42,6 +43,7 @@ const OrderConfirmation = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems, applyCommercialRefresh, orderInfoMap } = useCart();
+    const ensureIntroductionBasketsOrderable = useIntroductionBasketGuard();
     
     const [loading, setLoading] = useState(false);
     const [userName, setUserName] = useState(() => {
@@ -927,6 +929,17 @@ const OrderConfirmation = () => {
                 return;
             }
             checkoutUid = accountResolution.uid;
+        }
+
+        // A basket that was switched off, or that passes the per-customer limit,
+        // is removed here, before stock is reserved and before payment.
+        const basketsOrderable = await ensureIntroductionBasketsOrderable({
+            phone: userPhone,
+            email: userEmail,
+            uid: checkoutUid,
+        });
+        if (!basketsOrderable) {
+            return;
         }
         
         try {

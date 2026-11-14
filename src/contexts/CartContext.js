@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useMemo, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { getEndingTimeForSpot } from '../utils/orderUtils';
@@ -512,7 +512,11 @@ export const CartProvider = ({ children }) => {
     mergeCart,
     applyCommercialRefresh,
   };
-  const actionsValue = useMemo(() => ({ addItem }), [addItem]);
+  // Lets action-only consumers read the current cart without re-rendering on every cart change.
+  const cartItemsRef = useRef(cartItems);
+  cartItemsRef.current = cartItems;
+  const getCartItems = useCallback(() => cartItemsRef.current, []);
+  const actionsValue = useMemo(() => ({ addItem, getCartItems }), [addItem, getCartItems]);
 
   // Render the CartContext.Provider, passing the 'value' object down
   // to all descendant components wrapped by CartProvider.

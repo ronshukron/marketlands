@@ -24,8 +24,10 @@ export default function LabelPrinterPanel({ t, className = '' }) {
     const image = renderQl800Label({
       customerNumber: '345',
       name: 'רון ביטר',
+      phone: '0501234567',
       community: 'ניצנים',
       crateIndex: 1,
+      loadingOrder: 2,
     });
     await printImage(image);
   };

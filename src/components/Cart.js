@@ -8,10 +8,13 @@ import Swal from 'sweetalert2';
 import { evaluateOrderMinimum, formatOrderMinimumFailure, getBufferedDisplayQuantity, getEstimatedChargeableQuantity } from '../utils/pricing';
 import { trackInitiateCheckout } from '../utils/metaPixel';
 import { useWeightBuffer } from '../contexts/WeightBufferContext';
+import useIntroductionBasketGuard from '../hooks/useIntroductionBasketGuard';
+import CityShippingNotice from './CityShippingNotice';
 
 const Cart = ({ isOpen, onClose }) => {
   const { cartItems, removeItem, removeBasketInstance, updateQuantity, cartTotal, cartHoldTotal, totalItems, getCartSnapshot, itemsByOrder } = useCart();
   const { bufferPercent } = useWeightBuffer();
+  const ensureIntroductionBasketsOrderable = useIntroductionBasketGuard();
   const displayTotal = bufferPercent > 0 ? cartHoldTotal : cartTotal;
   const { userLoggedIn, currentUser } = useAuth();
   const navigate = useNavigate();
@@ -111,6 +114,21 @@ const Cart = ({ isOpen, onClose }) => {
       });
       return;
     }
+
+    // Remove introduction baskets that were switched off (or pass the per-customer
+    // limit) since they were added. The checkout page checks again before payment.
+    setCheckingRoute(true);
+    let basketsOrderable = true;
+    try {
+      basketsOrderable = await ensureIntroductionBasketsOrderable({
+        uid: currentUser?.uid || '',
+        phone: localStorage.getItem('orderUserPhone') || '',
+        blockOnCheckFailure: false,
+      });
+    } finally {
+      setCheckingRoute(false);
+    }
+    if (!basketsOrderable) return;
 
     trackInitiateCheckout({
       value: cartTotal,
@@ -350,6 +368,12 @@ const Cart = ({ isOpen, onClose }) => {
                 החיוב הסופי לפי המשקל בפועל.
               </p>
             )}
+            <CityShippingNotice
+              community={localStorage.getItem('selectedPickupSpot') || ''}
+              cartItems={cartItems}
+              className="mb-2 !text-xs"
+            />
+
             {Object.values(itemsByOrder).map((orderData) => {
               const evaluation = evaluateOrderMinimum(orderData);
               if (evaluation.amountRequired <= 0 && evaluation.itemsRequired <= 0) return null;

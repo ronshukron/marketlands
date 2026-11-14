@@ -19,6 +19,25 @@ export const storeDelayedCustomerOrderId = (customerOrderId) => {
   }
 };
 
+const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]'];
+
+/**
+ * Origin Grow sends the customer back to after paying or cancelling.
+ * Grow needs a full https URL, so "relative" means: the exact site the customer
+ * is on right now (www.bastabasket.com or bastabasket.com). That keeps the cart
+ * and the stored order id, which the browser keeps per origin.
+ * REACT_APP_GROW_RETURN_ORIGIN is only for local development, where Grow
+ * rejects localhost. It is ignored on a real host even if it got into the build.
+ */
+export const getGrowReturnOrigin = (
+  location = window.location,
+  devOverride = process.env.REACT_APP_GROW_RETURN_ORIGIN,
+) => {
+  const override = String(devOverride || '').trim().replace(/\/$/, '');
+  if (override && LOCAL_HOSTNAMES.includes(location.hostname)) return override;
+  return location.origin;
+};
+
 export const buildGrowSuccessUrl = (origin, customerOrderId) => {
   const base = `${String(origin || '').replace(/\/$/, '')}/payment-success/`;
   if (!customerOrderId) return base;

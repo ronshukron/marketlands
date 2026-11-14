@@ -7,6 +7,7 @@ import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
 import ProductGrid from './ProductGrid';
 import IntroductionBasketCard from './IntroductionBasketCard';
+import CityShippingNotice from '../CityShippingNotice';
 import SearchBar from './SearchBar';
 import './CategoryStore.css';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -28,6 +29,7 @@ import {
   INTRODUCTION_BASKET_ADJUSTMENT_PREFIX,
   listActiveIntroductionBasketsForCommunity,
 } from '../../services/introductionBasketService';
+import { countCartBaskets, normalizeMaxPerCustomer } from '../../utils/introductionBasketLimit';
 import CommunityDiscountWidget from '../communityHub/widgets/CommunityDiscountWidget';
 import CommunityWeeklyPromotionSummary from './CommunityWeeklyPromotionSummary';
 import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromotionContext';
@@ -120,7 +122,7 @@ const buildCartItemFromProduct = (product) => {
 };
 
 const CategoryStore = () => {
-  const { addItem } = useCartActions();
+  const { addItem, getCartItems } = useCartActions();
   const { pickupSpots, loaded: communitiesLoaded } = usePickupSpots();
   const { updatePickupSpot } = usePickupSpot();
   const {
@@ -892,6 +894,21 @@ const CategoryStore = () => {
       return;
     }
 
+    // Per-customer limit set by the admin. Earlier orders are checked at checkout,
+    // where the customer's phone and email are known.
+    const maxPerCustomer = normalizeMaxPerCustomer(basket.maxPerCustomer);
+    if (maxPerCustomer > 0 && countCartBaskets(getCartItems(), basket.id) >= maxPerCustomer) {
+      Swal.fire({
+        title: 'הגעתם למגבלה',
+        text: maxPerCustomer === 1
+          ? `אפשר להזמין סל אחד של "${basket.title}" ללקוח, והוא כבר בעגלה.`
+          : `אפשר להזמין עד ${maxPerCustomer} סלים של "${basket.title}" ללקוח, והם כבר בעגלה.`,
+        icon: 'info',
+        confirmButtonText: 'הבנתי',
+      });
+      return;
+    }
+
     const basketInstanceId = `${basket.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const componentSubtotal = componentLines.reduce((sum, line) => sum + getEstimatedLineTotal(line), 0);
     const displayPrice = Number(basket.displayPrice) || 0;
@@ -960,7 +977,7 @@ const CategoryStore = () => {
       timer: 1800,
       showConfirmButton: false,
     });
-  }, [addItem, selectedCommunity]);
+  }, [addItem, getCartItems, selectedCommunity]);
 
   const handleClearMultiSearch = useCallback(() => {
     setMultiSearchSections(null);
@@ -1141,6 +1158,10 @@ const CategoryStore = () => {
               checkingAccess={signedInOnly && !promotionAccessReady}
             />
           </div>
+        )}
+
+        {selectedCommunity && (
+          <CityShippingNotice community={selectedCommunity} className="mb-3 mx-1" />
         )}
 
         {selectedCommunity && !deliveryDatesLoading && availableDeliveryDates.length === 0 && (

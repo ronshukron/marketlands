@@ -146,7 +146,16 @@ export const PaymentSuccessStatusView = ({ view, onBackToHome }) => {
             </svg>
           </div>
           <h1 className="text-3xl font-bold text-gray-800 mb-4">תודה רבה!</h1>
-          <p className="text-xl text-gray-700 mb-8">התשלום בוצע בהצלחה</p>
+          <p className="text-xl font-bold text-green-700 mb-3">ההזמנה התקבלה בהצלחה</p>
+          <p className="text-base text-gray-700 mb-3">
+            ההזמנה נרשמה אצלנו ואין צורך לעשות דבר נוסף.
+          </p>
+          {view.orderId ? (
+            <p className="text-sm text-gray-500 mb-3">מספר הזמנה: {view.orderId}</p>
+          ) : null}
+          <p className="text-sm text-gray-500 mb-8">
+            גם אם לא הגיע אליכם אישור במייל, ההזמנה תקפה.
+          </p>
           <button
             onClick={onBackToHome}
             className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-8 rounded-lg transition-colors duration-200 shadow-md"

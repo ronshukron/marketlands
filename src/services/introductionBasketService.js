@@ -10,7 +10,10 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
+import axios from 'axios';
 import { db } from '../firebase/firebase';
+import { functionsEndpoint } from '../utils/functionsClient';
+import { normalizeMaxPerCustomer } from '../utils/introductionBasketLimit';
 import { getEstimatedLineTotal } from '../utils/pricing';
 import { isAlwaysOnGroceryOrder, isAlwaysOnGroceryOrderLive } from '../utils/deliveryScheduleUtils';
 import { getEndingTimeForSpot, isOrderActiveNow } from '../utils/orderUtils';
@@ -92,6 +95,8 @@ const normalizeBasketDoc = (basketDoc) => {
     description: data.description || '',
     image: data.image || '',
     active: data.active !== false,
+    // How many of this basket one customer may order in total. 0 = no limit.
+    maxPerCustomer: normalizeMaxPerCustomer(data.maxPerCustomer),
     sortOrder: safeNumber(data.sortOrder, 0),
     communities: Array.isArray(data.communities) ? data.communities.filter(Boolean) : [],
     displayPrice: safeNumber(data.displayPrice, 0),
@@ -113,6 +118,7 @@ const prepareBasketPayload = (payload = {}, updatedBy = '') => {
     description: String(payload.description || '').trim(),
     image: String(payload.image || '').trim(),
     active: payload.active !== false,
+    maxPerCustomer: normalizeMaxPerCustomer(payload.maxPerCustomer),
     sortOrder: safeNumber(payload.sortOrder, 0),
     communities: Array.isArray(payload.communities)
       ? [...new Set(payload.communities.map((name) => String(name || '').trim()).filter(Boolean))]
@@ -174,6 +180,61 @@ export async function listActiveIntroductionBasketsForCommunity(communityName) {
     .map(normalizeBasketDoc)
     .filter((basket) => basket.componentLines.length > 0)
     .sort((a, b) => (a.sortOrder - b.sortOrder) || a.title.localeCompare(b.title, 'he'));
+}
+
+/**
+ * Current state of the baskets a customer is about to order:
+ *   { [basketId]: { active, maxPerCustomer, remaining } }
+ * - active is read straight from Firestore. A basket that was switched off or
+ *   deleted is not readable by customers (permission-denied), which counts as
+ *   not active.
+ * - remaining comes from the checkIntroductionBasketLimit Cloud Function, which
+ *   counts the customer's earlier orders by phone, email or account. If that
+ *   call fails, remaining stays null and only the cart itself is checked
+ *   against the limit, so a server hiccup never blocks an order.
+ * Throws only when Firestore itself cannot be reached.
+ */
+export async function getIntroductionBasketStates({ basketIds = [], phone = '', email = '', uid = '' } = {}) {
+  const ids = [...new Set((basketIds || []).filter(Boolean))];
+  const states = {};
+
+  await Promise.all(ids.map(async (basketId) => {
+    try {
+      const snap = await getDoc(doc(db, INTRODUCTION_BASKETS_COLLECTION, basketId));
+      const data = snap.exists() ? (snap.data() || {}) : null;
+      states[basketId] = {
+        active: Boolean(data) && data.active !== false,
+        maxPerCustomer: data ? normalizeMaxPerCustomer(data.maxPerCustomer) : 0,
+        remaining: null,
+      };
+    } catch (error) {
+      if (error?.code !== 'permission-denied') throw error;
+      states[basketId] = { active: false, maxPerCustomer: 0, remaining: null };
+    }
+  }));
+
+  const limitedIds = ids.filter((basketId) => states[basketId].active && states[basketId].maxPerCustomer > 0);
+  if (limitedIds.length === 0 || !(phone || email || uid)) return states;
+
+  try {
+    const { data } = await axios.post(
+      functionsEndpoint('checkIntroductionBasketLimit'),
+      { basketIds: limitedIds, phone: phone || '', email: email || '', uid: uid || '' },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 15000 },
+    );
+    limitedIds.forEach((basketId) => {
+      const serverState = data?.baskets?.[basketId];
+      if (!serverState) return;
+      if (serverState.active === false) states[basketId].active = false;
+      if (serverState.remaining != null && Number.isFinite(Number(serverState.remaining))) {
+        states[basketId].remaining = Number(serverState.remaining);
+      }
+    });
+  } catch (error) {
+    console.error('Introduction basket order-history check failed; checking the cart only', error);
+  }
+
+  return states;
 }
 
 export async function saveIntroductionBasket(basketId, payload, updatedBy = '') {

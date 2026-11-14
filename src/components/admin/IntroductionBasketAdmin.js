@@ -11,6 +11,7 @@ import {
   listIntroductionBaskets,
   saveIntroductionBasket,
 } from '../../services/introductionBasketService';
+import { MAX_BASKETS_PER_CUSTOMER_CAP, parseMaxPerCustomerInput } from '../../utils/introductionBasketLimit';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
@@ -19,6 +20,8 @@ const emptyForm = {
   description: '',
   image: '',
   active: true,
+  // Empty = no limit. Otherwise how many of this basket one customer may order.
+  maxPerCustomer: '',
   sortOrder: 0,
   communities: [],
   displayPrice: '',
@@ -148,6 +151,7 @@ const IntroductionBasketAdmin = () => {
       description: basket.description || '',
       image: basket.image || '',
       active: basket.active !== false,
+      maxPerCustomer: basket.maxPerCustomer > 0 ? String(basket.maxPerCustomer) : '',
       sortOrder: basket.sortOrder || 0,
       communities: basket.communities || [],
       displayPrice: String(basket.displayPrice || ''),
@@ -212,6 +216,11 @@ const IntroductionBasketAdmin = () => {
       Swal.fire('שגיאה', 'מחיר הסל חייב להיות מספר חיובי או אפס', 'error');
       return;
     }
+    const maxPerCustomer = parseMaxPerCustomerInput(form.maxPerCustomer);
+    if (maxPerCustomer === null) {
+      Swal.fire('שגיאה', `מגבלה ללקוח חייבת להיות מספר שלם בין 1 ל-${MAX_BASKETS_PER_CUSTOMER_CAP}, או ריקה ללא הגבלה`, 'error');
+      return;
+    }
 
     const unavailableLines = form.componentLines
       .map((line) => ({ line, warning: getLineCommunityWarning(line) }))
@@ -241,6 +250,7 @@ const IntroductionBasketAdmin = () => {
       const basketId = await saveIntroductionBasket(editingId, {
         ...form,
         displayPrice,
+        maxPerCustomer,
         componentLines: form.componentLines.map((line) => ({
           ...line,
           quantity: Number(line.quantity) || 0,
@@ -333,6 +343,7 @@ const IntroductionBasketAdmin = () => {
                       </p>
                       <p className={`text-xs mt-1 ${basket.active ? 'text-green-700' : 'text-gray-500'}`}>
                         {basket.active ? 'פעיל בחנות' : 'כבוי'}
+                        {basket.maxPerCustomer > 0 ? ` · עד ${basket.maxPerCustomer} ללקוח` : ''}
                       </p>
                     </div>
                     {basket.image && (
@@ -413,6 +424,23 @@ const IntroductionBasketAdmin = () => {
                   onChange={(event) => setForm((prev) => ({ ...prev, sortOrder: Number(event.target.value) || 0 }))}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">מגבלה ללקוח (כמה סלים)</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={MAX_BASKETS_PER_CUSTOMER_CAP}
+                  step="1"
+                  inputMode="numeric"
+                  value={form.maxPerCustomer}
+                  onChange={(event) => setForm((prev) => ({ ...prev, maxPerCustomer: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="ללא הגבלה"
+                />
+                <span className="mt-1 block text-xs text-gray-500">
+                  1, 2, 3... נספר לפי טלפון, אימייל או חשבון, כולל הזמנות קודמות. ריק = ללא הגבלה.
+                </span>
               </label>
             </div>
 

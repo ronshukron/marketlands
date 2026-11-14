@@ -101,13 +101,42 @@ function mirrorHorizontal(data, width, height) {
   return out;
 }
 
+export const LABEL_NAME_MAX_CHARS = 16;
+export const LABEL_COMMUNITY_MAX_CHARS = 12;
+
+// Cut by characters (not UTF-16 units) so a name is never split mid-character.
+function cutText(value, maxChars) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return Array.from(text).slice(0, maxChars).join('').trim();
+}
+
+export function labelNameText(name) {
+  return cutText(name, LABEL_NAME_MAX_CHARS) || '-';
+}
+
+export function labelCommunityText(community) {
+  return cutText(community, LABEL_COMMUNITY_MAX_CHARS) || '-';
+}
+
+/** 0501234567 / +972501234567 -> 050-1234567. Anything else is printed as typed. */
+export function labelPhoneText(phone) {
+  const raw = String(phone || '').trim();
+  if (!raw) return '';
+  let digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('972') && digits.length >= 11) digits = `0${digits.slice(3)}`;
+  if (/^0\d{9}$/.test(digits)) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  if (/^0\d{8}$/.test(digits)) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  return raw.slice(0, 20);
+}
+
 /**
  * 62 mm QL-800 label:
- *   [order number huge]     [community]
- *   קרטון 1#
- *   [N]  (black strip with the loading number, only when loadingOrder is set)
+ *   [order number huge]          [קרטון 1#]
+ *   [community, medium, up to 12 chars]
+ *   [N]  (black strip with the community loading number, only when loadingOrder is set)
  *   [crate size symbol, recycle symbol when reused]
- *   [name huge, white on red]
+ *   [name huge, white on red, up to 16 chars]
+ *   [phone, small]
  */
 function drawLoadingOrderStrip(ctx, x, y, w, h, loadingOrder) {
   ctx.save();
@@ -126,6 +155,7 @@ function drawLoadingOrderStrip(ctx, x, y, w, h, loadingOrder) {
 export function renderQl800Label({
   customerNumber,
   name,
+  phone = '',
   community,
   crateIndex,
   crateMark = null,
@@ -133,19 +163,24 @@ export function renderQl800Label({
 } = {}) {
   const width = QL800_PRINT_WIDTH;
   const pad = 12;
-  const communityColW = 220;
+  const contentW = width - pad * 2;
   const numberText = String(customerNumber == null || customerNumber === '' ? '-' : customerNumber);
-  const nameText = String(name || '-');
-  const communityText = String(community || '-');
+  const nameText = labelNameText(name);
+  const communityText = labelCommunityText(community);
+  const phoneText = labelPhoneText(phone);
   const cartonText = cartonLabelText(crateIndex);
   const showMarks = crateMark && typeof crateMark === 'object';
-  const typeH = showMarks ? 78 : 0;
   const showLoadingOrder = Number.isFinite(Number(loadingOrder)) && Number(loadingOrder) > 0;
+
+  const topH = 166;
+  const communityH = 104;
   const loadH = showLoadingOrder ? 92 : 0;
+  const typeH = showMarks ? 78 : 0;
+  const phoneH = phoneText ? 52 : 0;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
-  canvas.height = 560 + (showMarks ? 88 : 0) + loadH;
+  canvas.height = pad * 2 + topH + communityH + loadH + typeH + 220 + phoneH;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     throw new Error('Canvas 2D is not available');
@@ -154,51 +189,67 @@ export function renderQl800Label({
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, canvas.height);
   ctx.textBaseline = 'middle';
-
-  const topH = 190;
-  const cartonH = 78;
-  const nameMaxW = width - pad * 2;
-
   ctx.fillStyle = '#000000';
-  ctx.textAlign = 'left';
-  const numberSize = fitFontSize(ctx, numberText, width - communityColW - pad * 2, 176, 80);
-  ctx.font = `900 ${numberSize}px ${FONT_STACK}`;
-  ctx.fillText(numberText, pad, pad + topH / 2);
 
-  ctx.textAlign = 'right';
-  const communitySize = fitFontSize(ctx, communityText, communityColW, 64, 36, '700');
-  ctx.font = `700 ${communitySize}px ${FONT_STACK}`;
-  ctx.fillText(ellipsize(ctx, communityText, communityColW), width - pad, pad + topH / 2);
-
-  const cartonY = topH + cartonH / 2;
-  ctx.textAlign = 'center';
-  const cartonSize = fitFontSize(ctx, cartonText, nameMaxW, 72, 40, '800');
+  // Row 1: customer number (left) and carton counter (right).
+  let y = pad;
+  ctx.font = `800 64px ${FONT_STACK}`;
+  const cartonSize = fitFontSize(ctx, cartonText, 250, 64, 40, '800');
   ctx.font = `800 ${cartonSize}px ${FONT_STACK}`;
-  ctx.fillStyle = '#000000';
-  ctx.fillText(cartonText, width / 2, cartonY);
+  const cartonW = ctx.measureText(cartonText).width;
+  ctx.textAlign = 'right';
+  ctx.fillText(cartonText, width - pad, y + topH / 2);
+
+  ctx.textAlign = 'left';
+  const numberSize = fitFontSize(ctx, numberText, contentW - cartonW - 24, 176, 80);
+  ctx.font = `900 ${numberSize}px ${FONT_STACK}`;
+  ctx.fillText(numberText, pad, y + topH / 2);
+  y += topH;
+
+  // Row 2: community on its own line so it can be read from a distance.
+  ctx.textAlign = 'center';
+  const communitySize = fitFontSize(ctx, communityText, contentW, 92, 48, '800');
+  ctx.font = `800 ${communitySize}px ${FONT_STACK}`;
+  ctx.fillText(ellipsize(ctx, communityText, contentW), width / 2, y + communityH / 2);
+  y += communityH;
 
   if (showLoadingOrder) {
-    drawLoadingOrderStrip(ctx, pad, topH + cartonH + 4, nameMaxW, loadH - 12, Math.floor(Number(loadingOrder)));
+    drawLoadingOrderStrip(ctx, pad, y + 4, contentW, loadH - 12, Math.floor(Number(loadingOrder)));
+    y += loadH;
   }
 
   if (showMarks) {
-    drawCrateMarks(ctx, width / 2, topH + cartonH + loadH + typeH / 2, crateMark);
+    drawCrateMarks(ctx, width / 2, y + typeH / 2, crateMark);
+    y += typeH;
   }
 
+  // Name: as large as the 16-character cap allows, white on red.
   ctx.textAlign = 'center';
-  const nameSize = fitFontSize(ctx, nameText, nameMaxW - 20, 118, 52);
+  const nameSize = fitFontSize(ctx, nameText, contentW - 24, 148, 60);
   ctx.font = `900 ${nameSize}px ${FONT_STACK}`;
-  const fittedName = ellipsize(ctx, nameText, nameMaxW - 20);
-  const nameW = Math.min(nameMaxW, Math.max(ctx.measureText(fittedName).width + 40, width * 0.88));
-  const nameH = nameSize + 40;
-  const nameBoxX = pad + (nameMaxW - nameW) / 2;
-  const nameBoxY = topH + cartonH + loadH + typeH + 8;
+  const fittedName = ellipsize(ctx, nameText, contentW - 24);
+  const nameH = nameSize + 36;
+  const nameBoxY = y + 8;
   ctx.fillStyle = '#E00000';
-  fillRoundRect(ctx, nameBoxX, nameBoxY, nameW, nameH, 16);
+  fillRoundRect(ctx, pad, nameBoxY, contentW, nameH, 16);
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(fittedName, nameBoxX + nameW / 2, nameBoxY + nameH / 2 + 2);
+  ctx.fillText(fittedName, width / 2, nameBoxY + nameH / 2 + 2);
+  y = nameBoxY + nameH;
 
-  const height = Math.min(canvas.height, nameBoxY + nameH + pad);
+  if (phoneText) {
+    ctx.save();
+    // Digits must stay left-to-right even when the page direction is RTL.
+    ctx.direction = 'ltr';
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'center';
+    const phoneSize = fitFontSize(ctx, phoneText, contentW, 40, 28, '700');
+    ctx.font = `700 ${phoneSize}px ${FONT_STACK}`;
+    ctx.fillText(phoneText, width / 2, y + phoneH / 2 + 2);
+    ctx.restore();
+    y += phoneH;
+  }
+
+  const height = Math.min(canvas.height, Math.ceil(y + pad));
   const imageData = ctx.getImageData(0, 0, width, height);
   const mirrored = mirrorHorizontal(imageData.data, width, height);
   return {
