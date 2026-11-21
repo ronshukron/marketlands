@@ -54,6 +54,7 @@ import {
   weekKeyToRangeLabel,
 } from './v7/orderDraftUtils';
 import {
+  buildChargeCeilingConfirmText,
   buildCompletedOrderStatePatch,
   settleAndChargeOrderV7,
 } from './v7/chargeOrderV7';
@@ -3458,6 +3459,11 @@ export default function DeliveryManagementV7() {
         weekKey: selectedWeek,
         communityDiscount: appliedSettlementDiscount,
         communityWeeklyPromotion: selectedWeeklyPromotion,
+        confirmSubscriptionAboveCeiling: (amounts) => biConfirm({
+          ...buildChargeCeilingConfirmText(amounts),
+          title: 'warning',
+          confirmButtonDelay: 2000,
+        }),
       });
       applySuccessfulChargeToState(selectedOrder.id, result);
       if (selectedClaim?.sessionId === session.sessionId) {
@@ -4444,6 +4450,11 @@ export default function DeliveryManagementV7() {
                                 {loadingOrderNumbers[o.id]}
                               </span>
                             )}
+                            {o.isSubscriptionOrder && (
+                              <span className="shrink-0 rounded bg-amber-500 px-1 py-0 text-[10px] font-black text-white" title="מנוי - חיוב בכרטיס שמור">
+                                מנוי
+                              </span>
+                            )}
                           </div>
                           <div className={`text-[11px] truncate flex items-center gap-1 ${isDone ? 'text-green-600' : isActive ? 'text-blue-700' : 'text-gray-500'}`}>
                             <span className="inline-block w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: getEffectiveCommunityColor(o.customerDetails?.pickupSpot || o.pickupSpot) }} />
@@ -4540,7 +4551,14 @@ export default function DeliveryManagementV7() {
                         );
                       })()}
                       <div>
-                        <div className="text-lg font-black text-gray-900">{selectedOrder.customerDetails?.name}</div>
+                        <div className="text-lg font-black text-gray-900">
+                          {selectedOrder.customerDetails?.name}
+                          {selectedOrder.isSubscriptionOrder && (
+                            <span className="ms-2 align-middle rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-black text-white">
+                              מנוי · חיוב בכרטיס שמור
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[9px] text-gray-400 font-mono leading-tight mt-0.5 select-all" title="Order ID">
                           {selectedOrder.id}
                         </div>

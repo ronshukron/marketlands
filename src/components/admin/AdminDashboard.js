@@ -113,6 +113,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'סלי מנוי',
+    description: 'סל קבוע שבועי או דו-שבועי, נבנה ממוצרי חקלאים ומחויב בכרטיס השמור לפי שקילה',
+    to: '/admin/subscription-baskets',
+    featured: true
+  },
+  {
     title: 'רשימת המתנה לשוק',
     description: 'עסקים מקומיים שנרשמו לפיילוט השוק (שם, טלפון, אימייל, סוג עסק וקהילה)',
     to: '/admin/marketplace-waitlist',

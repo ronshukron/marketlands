@@ -90,6 +90,19 @@ describe('findBlockedCartBaskets', () => {
       .map((b) => b.basketInstanceId)).toEqual(['i2']);
   });
 
+  it('blocks a basket that is not sold in the community chosen at checkout', () => {
+    const cart = [...basketLines('b1', 'i1'), ...basketLines('b2', 'i2'), ...basketLines('b3', 'i3')];
+    const states = {
+      b1: { active: true, maxPerCustomer: 0, communities: ['שדרות', 'נתיבות'] },
+      b2: { active: true, maxPerCustomer: 0, communities: ['אופקים'] },
+      b3: { active: true, maxPerCustomer: 0, communities: [] },
+    };
+    expect(findBlockedCartBaskets(cart, states, { community: 'נתיבות' })
+      .map((b) => [b.basketInstanceId, b.reason])).toEqual([['i2', 'community']]);
+    expect(findBlockedCartBaskets(cart, states, { community: '' })).toEqual([]);
+    expect(findBlockedCartBaskets(cart, states)).toEqual([]);
+  });
+
   it('ignores carts without baskets', () => {
     expect(findBlockedCartBaskets([plainItem], {})).toEqual([]);
     expect(findBlockedCartBaskets([], {})).toEqual([]);
@@ -103,11 +116,13 @@ describe('describeBlockedBasketsHtml', () => {
       { basketId: 'b1', title: 'סל <b>ירוק</b>', reason: 'inactive' },
       { basketId: 'b2', title: 'סל פירות', reason: 'limit', maxPerCustomer: 1 },
       { basketId: 'b3', title: 'סל ירקות', reason: 'limit', maxPerCustomer: 3 },
+      { basketId: 'b4', title: 'סל שדרות', reason: 'community' },
     ]);
     expect(html).toBe([
       '"סל &lt;b&gt;ירוק&lt;/b&gt;" כבר לא זמין להזמנה.',
-      '"סל פירות" מוגבל לסל אחד ללקוח.',
-      '"סל ירקות" מוגבל ל-3 סלים ללקוח.',
+      '"סל פירות" מוגבל לסל אחד ללקוח בשבוע.',
+      '"סל ירקות" מוגבל ל-3 סלים ללקוח בשבוע.',
+      '"סל שדרות" לא זמין בקהילה שבחרתם.',
     ].join('<br>'));
   });
 });

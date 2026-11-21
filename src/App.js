@@ -132,6 +132,10 @@ const EditOrderCommunities = lazy(() => import('./components/businesses/EditOrde
 const MarketplaceTermsOfService = lazy(() => import('./components/marketplace/MarketplaceTermsOfService'));
 const AdminPwaInstall = lazy(() => import('./components/admin/AdminPwaInstall'));
 const IntroductionBasketAdmin = lazy(() => import('./components/admin/IntroductionBasketAdmin'));
+const SubscriptionBasketAdmin = lazy(() => import('./components/admin/SubscriptionBasketAdmin'));
+const SubscribeBasketPage = lazy(() => import('./components/subscriptions/SubscribeBasketPage'));
+const SubscriptionSuccess = lazy(() => import('./components/subscriptions/SubscriptionSuccess'));
+const MySubscriptions = lazy(() => import('./components/subscriptions/MySubscriptions'));
 const SupplierPriceImportAdmin = lazy(() => import('./components/admin/SupplierPriceImportAdmin'));
 const ProductFeedbackAdmin = lazy(() => import('./components/admin/ProductFeedbackAdmin'));
 const CopyProductsAdmin = lazy(() => import('./components/admin/CopyProductsAdmin'));
@@ -202,6 +206,9 @@ const App = () => {
                   <Route path="/my-orders" element={<MyOrders />} />
                   <Route path="/refund-request" element={<RefundRequestPage />} />
                   <Route path="/my-orders/:orderId" element={<CustomerOrderDetail />} />
+                  <Route path="/subscribe/:basketId" element={<SubscribeBasketPage />} />
+                  <Route path="/subscription-success" element={<SubscriptionSuccess />} />
+                  <Route path="/my-subscriptions" element={<MySubscriptions />} />
                   <Route path="/saved-carts" element={<SavedCarts />} />
                   <Route path="/ongoing-orders" element={<OngoingOrders />} />
                   <Route path="/business-register" element={<BusinessRegister />} />
@@ -280,6 +287,7 @@ const App = () => {
                   <Route path="/admin/community-hub" element={<CommunityHubAdmin />} />
                   <Route path="/admin/communities" element={<CommunityAdmin />} />
                   <Route path="/admin/introduction-baskets" element={<IntroductionBasketAdmin />} />
+                  <Route path="/admin/subscription-baskets" element={<SubscriptionBasketAdmin />} />
                   <Route path="/admin/referral-config" element={<ReferralConfigAdmin />} />
                   <Route path="/admin/community-weekly-promotions" element={<CommunityWeeklyPromotionsAdmin />} />
                   <Route path="/admin/pwa-install" element={<AdminPwaInstall />} />

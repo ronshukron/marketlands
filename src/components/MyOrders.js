@@ -367,7 +367,10 @@ const MyOrders = () => {
 
     return (
         <div dir="rtl" className="container mx-auto max-w-4xl px-4 py-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-8 text-center">ההזמנות שלי</h1>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">ההזמנות שלי</h1>
+            <p className="mb-8 text-center">
+                <Link to="/my-subscriptions" className="text-sm text-emerald-700 hover:underline">ניהול סלי המנוי שלי</Link>
+            </p>
 
             {orders.length === 0 ? (
                 <div className="text-center py-8">

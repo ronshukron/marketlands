@@ -7,6 +7,9 @@ import { db } from '../../firebase/firebase';
 import LoadingSpinner from '../LoadingSpinner';
 import ProductGrid from './ProductGrid';
 import IntroductionBasketCard from './IntroductionBasketCard';
+import SubscriptionBasketCard from './SubscriptionBasketCard';
+import { canSeeSubscriptionBaskets, listActiveSubscriptionBasketsForCommunity } from '../../services/subscriptionBasketService';
+import { useAuth } from '../../contexts/authContext';
 import CityShippingNotice from '../CityShippingNotice';
 import SearchBar from './SearchBar';
 import './CategoryStore.css';
@@ -147,6 +150,8 @@ const CategoryStore = () => {
   });
   const location = useLocation();
   const navigate = useNavigate();
+  const { currentUser } = useAuth() || {};
+  const showSubscriptionBaskets = canSeeSubscriptionBaskets(currentUser);
   const sliderRef = useRef(null);
   const storeTopRef = useRef(null);
   const communityDropdownRef = useRef(null);
@@ -158,6 +163,7 @@ const CategoryStore = () => {
   const [deliveryDatesLoading, setDeliveryDatesLoading] = useState(false);
   const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
   const [introductionBaskets, setIntroductionBaskets] = useState([]);
+  const [subscriptionBaskets, setSubscriptionBaskets] = useState([]);
   const [basketsLoading, setBasketsLoading] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [farmerBadgeBusinessIds, setFarmerBadgeBusinessIds] = useState([]);
@@ -398,6 +404,25 @@ const CategoryStore = () => {
       active = false;
     };
   }, [selectedCommunity]);
+
+  useEffect(() => {
+    let active = true;
+    if (!showSubscriptionBaskets || !selectedCommunity || !deliverySchedule || deliverySchedule.active === false) {
+      setSubscriptionBaskets([]);
+      return undefined;
+    }
+    listActiveSubscriptionBasketsForCommunity(resolveCommunityName(selectedCommunity) || selectedCommunity)
+      .then((baskets) => {
+        if (active) setSubscriptionBaskets(baskets);
+      })
+      .catch((error) => {
+        console.error('Error loading subscription baskets:', error);
+        if (active) setSubscriptionBaskets([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedCommunity, deliverySchedule, showSubscriptionBaskets]);
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 60 * 1000);
@@ -901,8 +926,8 @@ const CategoryStore = () => {
       Swal.fire({
         title: 'הגעתם למגבלה',
         text: maxPerCustomer === 1
-          ? `אפשר להזמין סל אחד של "${basket.title}" ללקוח, והוא כבר בעגלה.`
-          : `אפשר להזמין עד ${maxPerCustomer} סלים של "${basket.title}" ללקוח, והם כבר בעגלה.`,
+          ? `אפשר להזמין סל אחד של "${basket.title}" ללקוח בשבוע, והוא כבר בעגלה.`
+          : `אפשר להזמין עד ${maxPerCustomer} סלים של "${basket.title}" ללקוח בשבוע, והם כבר בעגלה.`,
         icon: 'info',
         confirmButtonText: 'הבנתי',
       });
@@ -1325,6 +1350,26 @@ const CategoryStore = () => {
                   key={basket.id}
                   basket={basket}
                   onAdd={handleAddIntroductionBasket}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {!isSearchActive && selectedCommunity && subscriptionBaskets.length > 0 && (
+          <section className="mb-8">
+            <div className="mb-3">
+              <h3 className="text-xl font-black text-amber-900">סל קבוע עד אליכם</h3>
+              <p className="text-sm text-gray-600">
+                סל שמגיע כל שבוע או שבועיים. לפני כל משלוח אפשר להסיר ולהוסיף פריטים.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {subscriptionBaskets.map((basket) => (
+                <SubscriptionBasketCard
+                  key={basket.id}
+                  basket={basket}
+                  community={resolveCommunityName(selectedCommunity) || selectedCommunity}
                 />
               ))}
             </div>

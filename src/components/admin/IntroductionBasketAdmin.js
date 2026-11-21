@@ -343,7 +343,7 @@ const IntroductionBasketAdmin = () => {
                       </p>
                       <p className={`text-xs mt-1 ${basket.active ? 'text-green-700' : 'text-gray-500'}`}>
                         {basket.active ? 'פעיל בחנות' : 'כבוי'}
-                        {basket.maxPerCustomer > 0 ? ` · עד ${basket.maxPerCustomer} ללקוח` : ''}
+                        {basket.maxPerCustomer > 0 ? ` · עד ${basket.maxPerCustomer} ללקוח בשבוע` : ''}
                       </p>
                     </div>
                     {basket.image && (
@@ -426,7 +426,7 @@ const IntroductionBasketAdmin = () => {
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">מגבלה ללקוח (כמה סלים)</span>
+                <span className="text-sm font-medium text-gray-700">מגבלה ללקוח לשבוע (כמה סלים)</span>
                 <input
                   type="number"
                   min="1"
@@ -439,7 +439,7 @@ const IntroductionBasketAdmin = () => {
                   placeholder="ללא הגבלה"
                 />
                 <span className="mt-1 block text-xs text-gray-500">
-                  1, 2, 3... נספר לפי טלפון, אימייל או חשבון, כולל הזמנות קודמות. ריק = ללא הגבלה.
+                  1, 2, 3... נספר לפי טלפון, אימייל או חשבון, רק בהזמנות של אותו שבוע משלוח. שבוע חדש מתחיל מחדש. ריק = ללא הגבלה.
                 </span>
               </label>
             </div>

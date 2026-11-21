@@ -161,6 +161,7 @@ function normalizeDelayedOrder(docSnap, weekKey) {
     businessIds: Array.isArray(data.businessIds) ? data.businessIds : [],
     grandTotal: safeNumber(data.grandTotal, computedGrandTotal),
     packedCartonCount: Math.max(0, Math.floor(Number(data.packedCartonCount) || 0)),
+    isSubscriptionOrder: data.isSubscriptionOrder === true,
     rawData: data,
   };
 }
@@ -1008,6 +1009,44 @@ export async function handleSuspendedPaymentV7({
     {
       headers: getMutationHeaders(token),
       timeout: 30000,
+    },
+  );
+  return data;
+}
+
+export function isSubscriptionOrderV7(order) {
+  return order?.rawData?.isSubscriptionOrder === true || order?.isSubscriptionOrder === true;
+}
+
+// Subscription deliveries have no J5 hold; the weighed amount is charged on
+// the customer's saved card. Same payload as handleSuspendedPaymentV7.
+export async function chargeSubscriptionOrderV7({
+  orderId,
+  weightsByLineId,
+  removedLineIds = {},
+  finalInvoiceLines = [],
+  finalSum = 0,
+  productDataForGrow = {},
+  weighingAudit = null,
+  confirmedChargeTotal = null,
+}) {
+  const token = await getIdTokenIfAvailable();
+  const { data } = await axios.post(
+    functionsEndpoint('chargeSubscriptionOrder'),
+    {
+      orderId,
+      weightsByLineId,
+      removedLineIds,
+      finalInvoiceLines,
+      finalSum,
+      productDataForGrow,
+      ...(weighingAudit ? { weighingAudit } : {}),
+      ...(confirmedChargeTotal != null ? { confirmedChargeTotal } : {}),
+    },
+    {
+      headers: getMutationHeaders(token),
+      // The server may check an earlier attempt with Grow before charging.
+      timeout: 120000,
     },
   );
   return data;

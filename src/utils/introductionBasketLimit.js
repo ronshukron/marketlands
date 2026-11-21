@@ -2,6 +2,7 @@ export const MAX_BASKETS_PER_CUSTOMER_CAP = 99;
 
 export const BASKET_BLOCK_REASONS = {
   INACTIVE: 'inactive',
+  COMMUNITY: 'community',
   LIMIT: 'limit',
 };
 
@@ -50,20 +51,33 @@ export function countCartBaskets(cartItems = [], basketId) {
 
 /**
  * Baskets in the cart that may not be ordered.
- * basketStates: { [basketId]: { active, maxPerCustomer, remaining } }
- *   remaining = how many more this customer may order (already counts past
- *   orders); null/undefined when unknown, then the cart alone is checked.
+ * basketStates: { [basketId]: { active, maxPerCustomer, remaining, communities } }
+ *   remaining = how many more this customer may order this delivery week
+ *   (already counts this week's orders); null/undefined when unknown, then
+ *   the cart alone is checked.
+ *   communities = where the basket is sold; empty or missing means anywhere.
+ * community = the pickup community chosen at checkout, in the same naming as
+ *   communities. Empty skips the community check.
  * A basket with no known state is treated as not active.
  * When the cart holds more than allowed, the baskets added last are blocked.
  */
-export function findBlockedCartBaskets(cartItems = [], basketStates = {}) {
+export function findBlockedCartBaskets(cartItems = [], basketStates = {}, { community = '' } = {}) {
   const blocked = [];
   const keptByBasket = {};
+  const chosenCommunity = String(community || '').trim();
 
   listCartBasketInstances(cartItems).forEach((instance) => {
     const state = basketStates[instance.basketId];
     if (!state || state.active !== true) {
       blocked.push({ ...instance, reason: BASKET_BLOCK_REASONS.INACTIVE, maxPerCustomer: 0 });
+      return;
+    }
+
+    const communities = Array.isArray(state.communities)
+      ? state.communities.map((name) => String(name || '').trim()).filter(Boolean)
+      : [];
+    if (chosenCommunity && communities.length > 0 && !communities.includes(chosenCommunity)) {
+      blocked.push({ ...instance, reason: BASKET_BLOCK_REASONS.COMMUNITY, maxPerCustomer: 0 });
       return;
     }
 
@@ -102,8 +116,10 @@ export function describeBlockedBasketsHtml(blocked = []) {
     const title = escapeHtml(basket.title);
     if (basket.reason === BASKET_BLOCK_REASONS.LIMIT) {
       lines.push(basket.maxPerCustomer === 1
-        ? `"${title}" מוגבל לסל אחד ללקוח.`
-        : `"${title}" מוגבל ל-${basket.maxPerCustomer} סלים ללקוח.`);
+        ? `"${title}" מוגבל לסל אחד ללקוח בשבוע.`
+        : `"${title}" מוגבל ל-${basket.maxPerCustomer} סלים ללקוח בשבוע.`);
+    } else if (basket.reason === BASKET_BLOCK_REASONS.COMMUNITY) {
+      lines.push(`"${title}" לא זמין בקהילה שבחרתם.`);
     } else {
       lines.push(`"${title}" כבר לא זמין להזמנה.`);
     }

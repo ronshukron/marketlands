@@ -40,7 +40,7 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const normalizeComponentLine = (line = {}) => {
+export const normalizeComponentLine = (line = {}) => {
   const rawMeasurementType = line.measurementType || 'kg';
   const measurementType = VALID_BASKET_MEASUREMENT_TYPES.includes(rawMeasurementType)
     ? rawMeasurementType
@@ -189,12 +189,19 @@ export async function listActiveIntroductionBasketsForCommunity(communityName) {
  *   deleted is not readable by customers (permission-denied), which counts as
  *   not active.
  * - remaining comes from the checkIntroductionBasketLimit Cloud Function, which
- *   counts the customer's earlier orders by phone, email or account. If that
- *   call fails, remaining stays null and only the cart itself is checked
- *   against the limit, so a server hiccup never blocks an order.
+ *   counts this delivery week's orders by phone, email or account. Orders from
+ *   other weeks do not count. If that call fails, remaining stays null and
+ *   only the cart itself is checked against the limit, so a server hiccup
+ *   never blocks an order.
  * Throws only when Firestore itself cannot be reached.
  */
-export async function getIntroductionBasketStates({ basketIds = [], phone = '', email = '', uid = '' } = {}) {
+export async function getIntroductionBasketStates({
+  basketIds = [],
+  phone = '',
+  email = '',
+  uid = '',
+  deliveryWeekKey = '',
+} = {}) {
   const ids = [...new Set((basketIds || []).filter(Boolean))];
   const states = {};
 
@@ -206,10 +213,11 @@ export async function getIntroductionBasketStates({ basketIds = [], phone = '', 
         active: Boolean(data) && data.active !== false,
         maxPerCustomer: data ? normalizeMaxPerCustomer(data.maxPerCustomer) : 0,
         remaining: null,
+        communities: Array.isArray(data?.communities) ? data.communities.filter(Boolean) : [],
       };
     } catch (error) {
       if (error?.code !== 'permission-denied') throw error;
-      states[basketId] = { active: false, maxPerCustomer: 0, remaining: null };
+      states[basketId] = { active: false, maxPerCustomer: 0, remaining: null, communities: [] };
     }
   }));
 
@@ -219,7 +227,7 @@ export async function getIntroductionBasketStates({ basketIds = [], phone = '', 
   try {
     const { data } = await axios.post(
       functionsEndpoint('checkIntroductionBasketLimit'),
-      { basketIds: limitedIds, phone: phone || '', email: email || '', uid: uid || '' },
+      { basketIds: limitedIds, phone: phone || '', email: email || '', uid: uid || '', deliveryWeekKey: deliveryWeekKey || '' },
       { headers: { 'Content-Type': 'application/json' }, timeout: 15000 },
     );
     limitedIds.forEach((basketId) => {

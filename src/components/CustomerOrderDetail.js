@@ -5,14 +5,17 @@ import { db } from '../firebase/firebase';
 import { useAuth } from '../contexts/authContext';
 import LoadingSpinner from './LoadingSpinner';
 import {
+  canCustomerRemoveSubscriptionLine,
   fetchOwnedCustomerOrderById,
   flattenCustomerOrderLines,
   getOrderDeliveryDateFromCustomerOrder,
   getOrderPickupSpot,
   isCustomerOrderEditable,
   isLineEditableForCustomer,
+  isSubscriptionCustomerOrder,
   toggleCustomerLineExclusion,
 } from '../services/customerOrderService';
+import SubscriptionAddItems from './subscriptions/SubscriptionAddItems';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 import { getDeliveryScheduleDocumentKeys } from '../utils/deliveryScheduleUtils';
 import ProductFeedbackSection from './ProductFeedbackSection';
@@ -49,6 +52,7 @@ const CustomerOrderDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [savingLineId, setSavingLineId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const load = async () => {
@@ -101,7 +105,7 @@ const CustomerOrderDetail = () => {
       }
     };
     load();
-  }, [orderId, currentUser, authLoading]);
+  }, [orderId, currentUser, authLoading, reloadKey]);
 
   const excludedLineIds = useMemo(() => order?.customerExcludedLineIds || {}, [order]);
   const lines = useMemo(() => (order ? flattenCustomerOrderLines(order) : []), [order]);
@@ -143,6 +147,9 @@ const CustomerOrderDetail = () => {
     }
   };
 
+  const isSubscription = order ? isSubscriptionCustomerOrder(order) : false;
+  const canAddSubscriptionItems = order ? canCustomerRemoveSubscriptionLine(order) : false;
+
   const isLineEditable = (line) => {
     if (!canEditOrder) return false;
     return isLineEditableForCustomer({
@@ -153,6 +160,10 @@ const CustomerOrderDetail = () => {
       customerOrder: order,
     });
   };
+
+  const isLineRemovable = (line) => (
+    canCustomerRemoveSubscriptionLine(order) || isLineEditable(line)
+  );
 
   if (loading) return <LoadingSpinner />;
   if (error) {
@@ -210,9 +221,24 @@ const CustomerOrderDetail = () => {
           </div>
         )}
 
-        {canEditOrder && (
+        {canEditOrder && !isSubscription && (
           <div className="mx-6 mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
             ניתן להסיר פריטים מההזמנה ולהחזירם עד זמן החיתוך. לא ניתן להוסיף פריטים חדשים.
+          </div>
+        )}
+
+        {canEditOrder && isSubscription && (
+          <div className="mx-6 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            זה הסל הקבוע שלך{order.subscription?.basketTitle ? ` (${order.subscription.basketTitle})` : ''}.
+            אפשר להסיר כל פריט עד השקילה. להוסיף מוצרים אפשר רק כל עוד ההזמנה מהחקלאי פתוחה.
+            החיוב בכרטיס השמור, לפי מה שנשאר ונשקל.
+            {' '}<Link to="/my-subscriptions" className="underline font-semibold">ניהול המנוי</Link>
+          </div>
+        )}
+
+        {isSubscription && order.subscription?.unavailableLines?.length > 0 && (
+          <div className="mx-6 mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+            לא זמינים במשלוח הזה: {order.subscription.unavailableLines.map((line) => line.productName).filter(Boolean).join(', ')}
           </div>
         )}
 
@@ -254,7 +280,7 @@ const CustomerOrderDetail = () => {
                           </p>
                         )}
                       </div>
-                      {isLineEditable(line) && (
+                      {isLineRemovable(line) && (
                         <button
                           type="button"
                           disabled={savingLineId === line.lineId}
@@ -298,6 +324,13 @@ const CustomerOrderDetail = () => {
                 ))}
               </ul>
             </section>
+          )}
+
+          {canAddSubscriptionItems && (
+            <SubscriptionAddItems
+              orderId={order.id}
+              onAdded={() => setReloadKey((key) => key + 1)}
+            />
           )}
         </div>
 

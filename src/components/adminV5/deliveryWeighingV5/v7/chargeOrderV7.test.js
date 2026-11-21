@@ -1,4 +1,5 @@
 jest.mock('../apiV7', () => ({
+  chargeSubscriptionOrderV7: jest.fn(),
   handleSuspendedPaymentV7: jest.fn(),
   prepareCommunityDiscountForSettlementV7: jest.fn(),
   setPackedCartonCountV7: jest.fn(),
@@ -15,7 +16,7 @@ jest.mock('../realtimeStateV7', () => ({
   saveOrderDraftV7: jest.fn(),
 }));
 
-import { settleAndChargeOrderV7, buildCompletedOrderStatePatch } from './chargeOrderV7';
+import { settleAndChargeOrderV7, buildCompletedOrderStatePatch, buildChargeCeilingConfirmText } from './chargeOrderV7';
 
 const order = {
   id: 'order-7',
@@ -200,6 +201,89 @@ describe('settleAndChargeOrderV7', () => {
     });
 
     expect(result.orderId).toBe('order-7');
+    expect(deps.handleSuspendedPayment).toHaveBeenCalledTimes(1);
+  });
+
+  test('charges subscription orders on the saved card instead of the J5 hold', async () => {
+    const subscriptionOrder = { ...order, isSubscriptionOrder: true };
+    const deps = buildDeps({ chargeSubscriptionOrder: jest.fn().mockResolvedValue({ ok: true }) });
+
+    await settleAndChargeOrderV7({
+      order: subscriptionOrder,
+      items,
+      draft,
+      session,
+      weekKey: '2026-08-09',
+      ...deps,
+    });
+
+    expect(deps.chargeSubscriptionOrder).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-7' }));
+    expect(deps.handleSuspendedPayment).not.toHaveBeenCalled();
+  });
+
+  describe('subscription charge ceiling', () => {
+    const ceilingError = () => Object.assign(new Error('Request failed with status code 422'), {
+      response: {
+        status: 422,
+        data: { status: 0, err: { code: 'amount_above_ceiling', message: 'above', total: 61.5, estimate: 40, ceiling: 60 } },
+      },
+    });
+    const subscriptionOrder = { ...order, isSubscriptionOrder: true };
+    const run = (deps) => settleAndChargeOrderV7({
+      order: subscriptionOrder, items, draft, session, weekKey: '2026-08-09', ...deps,
+    });
+
+    test('asks the admin and resends with the confirmed amount', async () => {
+      const chargeSubscriptionOrder = jest.fn()
+        .mockRejectedValueOnce(ceilingError())
+        .mockResolvedValueOnce({ status: 1 });
+      const confirmSubscriptionAboveCeiling = jest.fn().mockResolvedValue(true);
+      await run(buildDeps({ chargeSubscriptionOrder, confirmSubscriptionAboveCeiling }));
+
+      expect(confirmSubscriptionAboveCeiling).toHaveBeenCalledWith(expect.objectContaining({ total: 61.5, estimate: 40, ceiling: 60 }));
+      expect(chargeSubscriptionOrder).toHaveBeenCalledTimes(2);
+      expect(chargeSubscriptionOrder.mock.calls[0][0].confirmedChargeTotal).toBeUndefined();
+      expect(chargeSubscriptionOrder.mock.calls[1][0]).toEqual(expect.objectContaining({ orderId: 'order-7', confirmedChargeTotal: 61.5 }));
+    });
+
+    test('does not charge when the admin declines', async () => {
+      const chargeSubscriptionOrder = jest.fn().mockRejectedValue(ceilingError());
+      const deps = buildDeps({ chargeSubscriptionOrder, confirmSubscriptionAboveCeiling: jest.fn().mockResolvedValue(false) });
+      await expect(run(deps)).rejects.toThrow('422');
+      expect(chargeSubscriptionOrder).toHaveBeenCalledTimes(1);
+      expect(deps.clearOrderDraft).not.toHaveBeenCalled();
+    });
+
+    test('batch charging (no confirm callback) fails the order instead of charging it', async () => {
+      const chargeSubscriptionOrder = jest.fn().mockRejectedValue(ceilingError());
+      await expect(run(buildDeps({ chargeSubscriptionOrder }))).rejects.toThrow('422');
+      expect(chargeSubscriptionOrder).toHaveBeenCalledTimes(1);
+    });
+
+    test('the confirmation says how far above the estimate the charge is', () => {
+      const text = buildChargeCeilingConfirmText({ total: 46.5, estimate: 40 });
+      expect(text.heText).toContain('₪46.50');
+      expect(text.heText).toContain('גבוה ב-16% מההערכה');
+      expect(text.heText).toContain('₪40.00');
+      expect(text.thText).toContain('16%');
+      expect(buildChargeCeilingConfirmText({ total: 10, estimate: 0 }).heText).toContain('גבוה מההערכה');
+    });
+
+    test('other charge errors are not turned into a confirmation', async () => {
+      const declined = Object.assign(new Error('402'), { response: { status: 402, data: { err: { code: 'declined' } } } });
+      const confirmSubscriptionAboveCeiling = jest.fn();
+      await expect(run(buildDeps({
+        chargeSubscriptionOrder: jest.fn().mockRejectedValue(declined),
+        confirmSubscriptionAboveCeiling,
+      }))).rejects.toThrow('402');
+      expect(confirmSubscriptionAboveCeiling).not.toHaveBeenCalled();
+    });
+  });
+
+  test('regular delayed orders never use the subscription charge', async () => {
+    const deps = buildDeps({ chargeSubscriptionOrder: jest.fn() });
+    await settleAndChargeOrderV7({ order, items, draft, session, weekKey: '2026-08-09', ...deps });
+    expect(deps.chargeSubscriptionOrder).not.toHaveBeenCalled();
     expect(deps.handleSuspendedPayment).toHaveBeenCalledTimes(1);
   });
 });

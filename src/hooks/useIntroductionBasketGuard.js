@@ -2,31 +2,42 @@ import { useCallback } from 'react';
 import Swal from 'sweetalert2';
 import { useCart } from '../contexts/CartContext';
 import { getIntroductionBasketStates } from '../services/introductionBasketService';
+import { resolveCommunityName } from '../services/pickupSpotsService';
 import {
   describeBlockedBasketsHtml,
   findBlockedCartBaskets,
   getCartBasketIds,
 } from '../utils/introductionBasketLimit';
 
+const toCommunityKey = (name) => String(resolveCommunityName(String(name || '').trim()) || '').trim();
+
 /**
  * Returns an async check to run before letting the customer pay.
  * It re-reads every introduction basket in the cart, so a basket that was
- * switched off after it was added, or that passes the per-customer limit,
- * is removed from the cart with an explanation. Resolves true when the cart
- * can be ordered as it is, false when something was removed (the customer
- * then sees the updated cart and total and can continue).
+ * switched off after it was added, that is not sold in the pickup community
+ * chosen at checkout, or that passes the per-customer limit, is removed from
+ * the cart with an explanation. Resolves true when the cart can be ordered as
+ * it is, false when something was removed (the customer then sees the updated
+ * cart and total and can continue).
  */
 export default function useIntroductionBasketGuard() {
   const { cartItems, removeBasketInstance } = useCart();
 
-  return useCallback(async ({ phone = '', email = '', uid = '', blockOnCheckFailure = true } = {}) => {
+  return useCallback(async ({
+    phone = '',
+    email = '',
+    uid = '',
+    community = '',
+    deliveryWeekKey = '',
+    blockOnCheckFailure = true,
+  } = {}) => {
     const basketIds = getCartBasketIds(cartItems);
     const hasBasketLines = (cartItems || []).some((item) => item?.basketInstanceId);
     if (!hasBasketLines) return true;
 
     let states = {};
     try {
-      states = await getIntroductionBasketStates({ basketIds, phone, email, uid });
+      states = await getIntroductionBasketStates({ basketIds, phone, email, uid, deliveryWeekKey });
     } catch (error) {
       console.error('Could not verify introduction baskets:', error);
       if (!blockOnCheckFailure) return true;
@@ -39,7 +50,11 @@ export default function useIntroductionBasketGuard() {
       return false;
     }
 
-    const blocked = findBlockedCartBaskets(cartItems, states);
+    const resolvedStates = Object.fromEntries(Object.entries(states).map(([basketId, state]) => [
+      basketId,
+      { ...state, communities: (state.communities || []).map(toCommunityKey).filter(Boolean) },
+    ]));
+    const blocked = findBlockedCartBaskets(cartItems, resolvedStates, { community: toCommunityKey(community) });
     if (blocked.length === 0) return true;
 
     blocked.forEach((basket) => removeBasketInstance(basket.basketInstanceId));

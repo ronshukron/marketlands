@@ -167,8 +167,20 @@ export function isLineEditableForCustomer({
   });
 }
 
+export function isSubscriptionCustomerOrder(order = {}) {
+  return order?.isSubscriptionOrder === true;
+}
+
+// Subscription baskets are sent to the customer, not chosen by them, so a line
+// can always be dropped until weighing starts. Putting it back counts as adding
+// and still needs the farmer's form to be open.
+export function canCustomerRemoveSubscriptionLine(order = {}) {
+  return isSubscriptionCustomerOrder(order) && isCustomerOrderStatusEditable(order);
+}
+
 export function isCustomerOrderEditable(order, deliverySchedule, businessOrdersByKey = {}) {
   if (!order || !isCustomerOrderStatusEditable(order)) return false;
+  if (isSubscriptionCustomerOrder(order)) return true;
 
   const deliveryDate = getOrderDeliveryDateFromCustomerOrder(order);
   const pickupSpot = getOrderPickupSpot(order);
@@ -234,26 +246,31 @@ export async function toggleCustomerLineExclusion({
     const line = flattenOrderBreakdown(breakdown).find((item) => item.lineId === lineId);
     if (!line) throw new Error('פריט לא נמצא בהזמנה');
 
-    const businessOrderRef = doc(db, 'Orders', line.businessOrderKey);
-    const businessOrderSnap = await transaction.get(businessOrderRef);
-    if (!businessOrderSnap.exists()) throw new Error('הזמנת העסק לא נמצאה');
-    const businessOrderData = businessOrderSnap.data();
+    const skipFormCheck = exclude && canCustomerRemoveSubscriptionLine(data);
+    if (!skipFormCheck) {
+      const businessOrderRef = doc(db, 'Orders', line.businessOrderKey);
+      const businessOrderSnap = await transaction.get(businessOrderRef);
+      if (!businessOrderSnap.exists()) throw new Error('הזמנת העסק לא נמצאה');
+      const businessOrderData = businessOrderSnap.data();
 
-    const deliveryDate = getOrderDeliveryDateFromCustomerOrder(data);
-    const pickupSpot = getOrderPickupSpot(data);
-    const deliverySchedule = pickupSpot
-      ? await readCommunityDeliverySchedule(pickupSpot, (ref) => transaction.get(ref))
-      : null;
+      const deliveryDate = getOrderDeliveryDateFromCustomerOrder(data);
+      const pickupSpot = getOrderPickupSpot(data);
+      const deliverySchedule = pickupSpot
+        ? await readCommunityDeliverySchedule(pickupSpot, (ref) => transaction.get(ref))
+        : null;
 
-    if (!isCustomerBusinessLineEditable({
-      customerOrder: data,
-      businessOrderData,
-      deliveryDate,
-      deliverySchedule,
-      pickupSpot,
-      now: new Date(),
-    })) {
-      throw new Error('זמן העריכה של פריט זה הסתיים');
+      if (!isCustomerBusinessLineEditable({
+        customerOrder: data,
+        businessOrderData,
+        deliveryDate,
+        deliverySchedule,
+        pickupSpot,
+        now: new Date(),
+      })) {
+        throw new Error(isSubscriptionCustomerOrder(data)
+          ? 'ההזמנה מהחקלאי נסגרה, אי אפשר להחזיר את הפריט'
+          : 'זמן העריכה של פריט זה הסתיים');
+      }
     }
 
     const customerExcludedLineIds = normalizeCustomerExcludedLineIds(data.customerExcludedLineIds);

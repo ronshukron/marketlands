@@ -931,12 +931,14 @@ const OrderConfirmation = () => {
             checkoutUid = accountResolution.uid;
         }
 
-        // A basket that was switched off, or that passes the per-customer limit,
-        // is removed here, before stock is reserved and before payment.
+        // A basket that was switched off, is not sold in the chosen community, or
+        // passes the per-customer limit is removed here, before stock is reserved
+        // and before payment.
         const basketsOrderable = await ensureIntroductionBasketsOrderable({
             phone: userPhone,
             email: userEmail,
             uid: checkoutUid,
+            community: selectedPickupSpot,
         });
         if (!basketsOrderable) {
             return;

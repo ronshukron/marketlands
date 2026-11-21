@@ -499,6 +499,27 @@ service cloud.firestore {
       allow read: if resource.data.active == true || isAdmin();
       allow write: if isAdmin();
     }
+
+    match /subscriptionBaskets/{basketId} {
+      allow read: if resource.data.active == true || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Written only by Cloud Functions (signup, card webhook, generation, charge).
+    match /basketSubscriptions/{subscriptionId} {
+      allow read: if isAdmin()
+        || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow write: if false;
+    }
+
+    // Grow card tokens and process ids. Server only.
+    match /subscriptionPaymentSecrets/{subscriptionId} {
+      allow read, write: if false;
+    }
+
+    match /subscriptionCounters/{counterId} {
+      allow read, write: if false;
+    }
     
     match /blogPosts/{slug} {
       allow read: if resource.data.status == 'published' || isAdmin();

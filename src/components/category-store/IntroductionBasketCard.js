@@ -48,7 +48,7 @@ const IntroductionBasketCard = ({ basket, onAdd }) => {
           )}
           {basket.maxPerCustomer > 0 && (
             <p className="text-xs text-emerald-800 font-semibold mt-1">
-              {basket.maxPerCustomer === 1 ? 'מוגבל לסל אחד ללקוח' : `מוגבל ל-${basket.maxPerCustomer} סלים ללקוח`}
+              {basket.maxPerCustomer === 1 ? 'מוגבל לסל אחד ללקוח בשבוע' : `מוגבל ל-${basket.maxPerCustomer} סלים ללקוח בשבוע`}
             </p>
           )}
         </div>
