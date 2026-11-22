@@ -6,6 +6,7 @@ import Swal from 'sweetalert2';
 import {
   attachCommunityWeeklyPromotionFields,
   attachGroupPromotionFields,
+  formatWeeklyPromotionLimit,
   getBufferedDisplayQuantity,
   getEffectiveUnitPrice,
   getGroupPromotionLabel,
@@ -106,6 +107,7 @@ const ProductCard = ({
   addItem,
   openUnlockModal,
   communityUnlocked = false,
+  subscriberMode = false,
 }) => {
   const measurementType = product.measurementType || 'kg';
   const unitSize = product.unitSize || 1;
@@ -122,6 +124,9 @@ const ProductCard = ({
   const weeklyPromotion = getItemCommunityWeeklyPromotion(product);
   const weeklyPromotionApplied = hasEligibleCommunityWeeklyPromotion(product);
   const hasWeeklyPromotion = Boolean(weeklyPromotion);
+  const weeklyPromotionLimit = hasWeeklyPromotion
+    ? formatWeeklyPromotionLimit(weeklyPromotion.maxQuantity, measurementType)
+    : '';
   const showUnlockShare = hasWeeklyPromotion && !weeklyPromotionApplied && !communityUnlocked;
   const { bufferPercent } = useWeightBuffer();
   const showWeightBuffer = isKgItem && bufferPercent > 0;
@@ -248,19 +253,23 @@ const ProductCard = ({
       ...attachGroupPromotionFields({}, groupPromotion),
     }, weeklyPromotion);
 
-    addItem(
+    const added = addItem(
       productToAdd,
       product.orderId,
       product.businessId,
       product.minimumOrderAmount || 0,
       product.minimumOrderItemCount || 0,
     );
+    // In subscriber mode addItem returns false when it could not add (and said why).
+    if (added === false) return;
 
     setQuantity(isKgItem ? unitSize : 1);
 
     Swal.fire({
       title: 'נוסף לסל!',
-      text: `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף לסל הקניות שלך`,
+      text: subscriberMode
+        ? `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף למשלוח הקרוב שלך`
+        : `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף לסל הקניות שלך`,
       icon: 'success',
       timer: 1500,
       showConfirmButton: false
@@ -378,6 +387,9 @@ const ProductCard = ({
                   ? `מחיר קהילתי: ₪${weeklyPromotion.price.toFixed(2)}`
                   : `מחיר שבועי נעול: ₪${weeklyPromotion.price.toFixed(2)}`}
               </p>
+              {weeklyPromotionLimit && (
+                <p className="text-xs text-blue-700">{weeklyPromotionLimit} להזמנה במחיר הזה, מעבר לזה מחיר רגיל</p>
+              )}
               {showUnlockShare && (
                 <button
                   type="button"
@@ -544,6 +556,9 @@ const ProductCard = ({
                   ? `מחיר קהילתי ₪${weeklyPromotion.price.toFixed(2)}`
                   : `מחיר נעול ₪${weeklyPromotion.price.toFixed(2)}`}
               </p>
+              {weeklyPromotionLimit && (
+                <p className="text-[10px] text-blue-700">{weeklyPromotionLimit} להזמנה במחיר הזה</p>
+              )}
               {showUnlockShare && (
                 <button
                   type="button"

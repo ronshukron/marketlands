@@ -69,6 +69,7 @@ export default function useWeeklyPromotionSettlementV7({ selectedWeek, orders = 
       weekKey: selectedWeek,
       communityCode,
       unlocksByKey,
+      isSubscriptionOrder: order.isSubscriptionOrder === true,
     });
     return resolveWeeklyPromotionForOrder({
       items,

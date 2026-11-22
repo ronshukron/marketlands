@@ -38,7 +38,10 @@ service cloud.firestore {
     function validCustomerEdit(data) {
       let delayed = data.get('delayedOrderStatus', '') != '';
 
+      // Subscription orders change only through Cloud Functions, which also
+      // check farmer cutoffs and move stock.
       return isOrderCustomer(data)
+        && data.get('isSubscriptionOrder', false) != true
         && (
           (!delayed && data.get('paymentStatus', '') in ['completed', 'paid']) ||
           (delayed &&
@@ -53,6 +56,15 @@ service cloud.firestore {
         && request.resource.data.customerExcludedLineIds is map
         && request.resource.data.customerExcludedLineIds.size() <= 500
         && request.resource.data.customerEditedBy == request.auth.uid;
+    }
+
+    // A customer in subscriber mode shops for their upcoming delivery, so a
+    // regular order from their logged-in account is refused. subscriberStatus
+    // is written only by Cloud Functions.
+    function isStorefrontSubscriber() {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/subscriberStatus/$(request.auth.uid))
+        && get(/databases/$(database)/documents/subscriberStatus/$(request.auth.uid)).data.get('storefrontMode', false) == true;
     }
 
     // admin function
@@ -274,7 +286,7 @@ service cloud.firestore {
     
     
     match /customerOrders/{orderId} {
-      allow create: if true;
+      allow create: if isAdmin() || !isStorefrontSubscriber();
       allow read: if isAdmin() || isOrderCustomer(resource.data)
         || isOrderBusiness(resource.data);
       allow update: if isAdmin() || validCustomerEdit(resource.data);
@@ -360,7 +372,7 @@ service cloud.firestore {
     
     // Delayed orders collection (J5/J4 flow)
     match /customerOrdersDelayed/{orderId} {
-      allow create: if true;
+      allow create: if isAdmin() || !isStorefrontSubscriber();
       allow read: if isAdmin() || isOrderCustomer(resource.data)
         || isOrderBusiness(resource.data);
       allow update: if isAdmin() || validCustomerEdit(resource.data);
@@ -467,6 +479,19 @@ service cloud.firestore {
 
     }
     
+    // Set once when a customer signs up with email and password: this account
+    // must verify a phone number by SMS. Accounts from before have no record and
+    // are never asked. The customer can create it (only as required) but never
+    // change or delete it.
+    match /accountVerification/{userId} {
+      allow read: if isUserOwned(userId) || isAdmin();
+      allow create: if isUserOwned(userId)
+        && request.resource.data.keys().hasOnly(['required', 'createdAt'])
+        && request.resource.data.required == true
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
     // Settings collection - for app-wide configuration
     match /settings/{settingId} {
       // Anyone can read settings (needed for payment routing)
@@ -519,6 +544,12 @@ service cloud.firestore {
 
     match /subscriptionCounters/{counterId} {
       allow read, write: if false;
+    }
+
+    // Subscriber mode switch, one doc per customer. Written only by functions.
+    match /subscriberStatus/{uid} {
+      allow read: if isAdmin() || (isAuthenticated() && request.auth.uid == uid);
+      allow write: if false;
     }
     
     match /blogPosts/{slug} {

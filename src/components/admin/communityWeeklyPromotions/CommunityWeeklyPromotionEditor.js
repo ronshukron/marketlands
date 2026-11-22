@@ -57,8 +57,13 @@ const normalizeProduct = (product, businessById = {}) => {
       'עסק לא משויך',
     basePrice: basePriceOf(product),
     promotionalPrice: product?.promotionPrice ?? product?.promotionalPrice ?? '',
+    maxQuantity: product?.maxQuantity ?? '',
   };
 };
+
+// The limit is in the unit the product is ordered in.
+const LIMIT_UNIT_LABELS = { kg: 'ק"ג', unit: "יח'", package: 'מארזים' };
+const limitUnitOf = (product) => LIMIT_UNIT_LABELS[product?.measurementType] || LIMIT_UNIT_LABELS.kg;
 
 const initialForm = (promotion) => {
   const now = new Date();
@@ -84,7 +89,31 @@ const initialForm = (promotion) => {
     endsAtTime: asTimeInput(promotion?.endsAt) || '22:00',
     products: (promotion?.productSnapshots || promotion?.products || promotion?.items || []).map(normalizeProduct),
     signedInOnly: promotion?.signedInOnly === true,
+    subscribersOnly: promotion?.subscribersOnly === true,
   };
+};
+
+const AUDIENCE_OPTIONS = [
+  {
+    value: 'all',
+    label: 'כולם',
+    hint: 'כל מי שנכנס לחנות של הקהילה.',
+  },
+  {
+    value: 'signed_in',
+    label: 'רק למשתמשים מחוברים',
+    hint: 'אורחים יראו שהמבצע קיים. מחיר המבצע נפתח רק אחרי התחברות.',
+  },
+  {
+    value: 'subscribers',
+    label: 'רק למנויים',
+    hint: 'מנויים קיימים ומי שמצטרף עכשיו. כל השאר רואים את המחירים כהזמנה להצטרף למנוי, ובהזמנה רגילה המחיר לא חל.',
+  },
+];
+
+const audienceOf = (form) => {
+  if (form.subscribersOnly === true) return 'subscribers';
+  return form.signedInOnly === true ? 'signed_in' : 'all';
 };
 
 const combineLocalDateTime = (date, time) => (date && time ? `${date}T${time}:00` : '');
@@ -214,7 +243,7 @@ const CommunityWeeklyPromotionEditor = ({
     patch({
       products: selectedById.has(id)
         ? form.products.filter((item) => productIdOf(item) !== id)
-        : [...form.products, { ...normalizeProduct(product), promotionalPrice: '' }],
+        : [...form.products, { ...normalizeProduct(product), promotionalPrice: '', maxQuantity: '' }],
     });
   };
 
@@ -222,6 +251,14 @@ const CommunityWeeklyPromotionEditor = ({
     patch({
       products: form.products.map((product) =>
         productIdOf(product) === id ? { ...product, promotionalPrice: value } : product
+      ),
+    });
+  };
+
+  const setMaxQuantity = (id, value) => {
+    patch({
+      products: form.products.map((product) =>
+        productIdOf(product) === id ? { ...product, maxQuantity: value } : product
       ),
     });
   };
@@ -251,6 +288,10 @@ const CommunityWeeklyPromotionEditor = ({
       } else if (basePrice > 0 && price >= basePrice) {
         next[`product-${productIdOf(product)}`] = 'מחיר המבצע חייב להיות נמוך ממחיר הבסיס.';
       }
+      const limit = String(product.maxQuantity ?? '').trim();
+      if (limit !== '' && !(Number(limit) > 0)) {
+        next[`product-limit-${productIdOf(product)}`] = 'ההגבלה חייבת להיות מספר חיובי, או ריקה ללא הגבלה.';
+      }
     });
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -279,6 +320,7 @@ const CommunityWeeklyPromotionEditor = ({
         measurementType: product.measurementType || '',
         regularPrice: basePriceOf(product),
         promotionPrice: Number(product.promotionalPrice),
+        maxQuantity: String(product.maxQuantity ?? '').trim() === '' ? null : Number(product.maxQuantity),
         imageUrl: product.imageUrl || product.image || product.images?.[0] || '',
       })),
       shareConfig: {
@@ -286,7 +328,9 @@ const CommunityWeeklyPromotionEditor = ({
         headline: form.title.trim(),
         message: form.message.trim(),
       },
-      signedInOnly: form.signedInOnly === true,
+      // Subscribers are always signed in, and the unlock rules check signedInOnly.
+      signedInOnly: form.signedInOnly === true || form.subscribersOnly === true,
+      subscribersOnly: form.subscribersOnly === true,
       schemaVersion: 1,
       pricingVersion: 'community-weekly-v1',
     });
@@ -327,21 +371,36 @@ const CommunityWeeklyPromotionEditor = ({
             />
             <span className="mt-1 block text-xs text-gray-500">השבוע נשמר לפי יום ראשון.</span>
           </label>
-          <label className="flex min-h-11 items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 text-sm sm:col-span-2">
-            <input
-              type="checkbox"
-              checked={form.signedInOnly === true}
-              onChange={(event) => patch({ signedInOnly: event.target.checked })}
-              disabled={readOnly}
-              className="mt-0.5 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span>
-              <span className="block font-medium text-gray-800">רק למשתמשים מחוברים</span>
-              <span className="mt-1 block text-xs leading-5 text-gray-500">
-                אורחים יראו שהמבצע קיים. מחיר המבצע נפתח רק אחרי התחברות.
-              </span>
-            </span>
-          </label>
+          <fieldset className="sm:col-span-2">
+            <legend className="text-sm font-medium text-gray-700">למי המבצע</legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {AUDIENCE_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm ${
+                    audienceOf(form) === option.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="promotion-audience"
+                    value={option.value}
+                    checked={audienceOf(form) === option.value}
+                    onChange={() => patch({
+                      signedInOnly: option.value !== 'all',
+                      subscribersOnly: option.value === 'subscribers',
+                    })}
+                    disabled={readOnly}
+                    className="mt-0.5 h-5 w-5 border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>
+                    <span className="block font-medium text-gray-800">{option.label}</span>
+                    <span className="mt-1 block text-xs leading-5 text-gray-500">{option.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </div>
       </section>
 
@@ -544,8 +603,9 @@ const CommunityWeeklyPromotionEditor = ({
           {form.products.map((product) => {
             const id = productIdOf(product);
             const productError = errors[`product-${id}`];
+            const limitError = errors[`product-limit-${id}`];
             return (
-              <div key={id} className="grid gap-3 rounded-xl border border-gray-200 p-4 sm:grid-cols-[1fr_180px_auto] sm:items-end">
+              <div key={id} className="grid gap-3 rounded-xl border border-gray-200 p-4 sm:grid-cols-[1fr_160px_180px_auto] sm:items-end">
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-gray-900">{productNameOf(product)}</p>
                   <p className="text-sm text-gray-500">{businessNameOf(product)} · בסיס ₪{basePriceOf(product).toFixed(2)}</p>
@@ -564,6 +624,23 @@ const CommunityWeeklyPromotionEditor = ({
                     aria-invalid={Boolean(productError)}
                   />
                   {productError && <span className="mt-1 block text-xs text-red-600">{productError}</span>}
+                </label>
+                <label className="block text-sm font-medium text-gray-700">
+                  הגבלה להזמנה ({limitUnitOf(product)})
+                  <input
+                    type="number"
+                    min="0"
+                    step={product.measurementType === 'kg' || !product.measurementType ? '0.5' : '1'}
+                    value={product.maxQuantity ?? ''}
+                    onChange={(event) => setMaxQuantity(id, event.target.value)}
+                    placeholder="ללא הגבלה"
+                    className={inputClass}
+                    disabled={readOnly}
+                    aria-invalid={Boolean(limitError)}
+                  />
+                  {limitError
+                    ? <span className="mt-1 block text-xs text-red-600">{limitError}</span>
+                    : <span className="mt-1 block text-xs text-gray-500">מעבר לזה, מחיר רגיל</span>}
                 </label>
                 {!readOnly && (
                   <button

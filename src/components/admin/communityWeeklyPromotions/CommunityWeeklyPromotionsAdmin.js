@@ -384,7 +384,9 @@ const CommunityWeeklyPromotionsAdmin = () => {
                           <h2 className="truncate text-lg font-bold text-gray-900">{promotion.title || 'מבצע ללא כותרת'}</h2>
                           <p className="mt-1 text-sm text-gray-500">
                             {weekLabel(promotion.weekKey || promotion.deliveryWeekKey)}
-                            {promotion.signedInOnly === true ? ' · מחוברים בלבד' : ''}
+                            {promotion.subscribersOnly === true
+                              ? ' · מנויים בלבד'
+                              : (promotion.signedInOnly === true ? ' · מחוברים בלבד' : '')}
                           </p>
                         </div>
                         <StatusBadge status={status} />

@@ -41,6 +41,7 @@ export const cardConsentPayload = () => ({
 const ERROR_MESSAGES = {
   UNAUTHENTICATED: 'יש להתחבר כדי להמשיך',
   CARD_CONSENT_REQUIRED: 'יש לאשר את שמירת פרטי הכרטיס לחיובים עתידיים',
+  PHONE_NOT_VERIFIED: 'יש לאמת את מספר הטלפון לפני ההצטרפות למנוי',
   SUBSCRIPTIONS_NOT_OPEN: 'ההרשמה למנויים עוד לא נפתחה. נעדכן ממש בקרוב',
   CUSTOMER_DETAILS_REQUIRED: 'יש למלא שם וטלפון',
   BASKET_UNAVAILABLE: 'הסל אינו זמין כרגע',
@@ -59,6 +60,9 @@ const ERROR_MESSAGES = {
   NO_DELIVERY_DATE: 'לא נמצא תאריך משלוח פנוי',
   INVALID_DATE: 'תאריך לא תקין',
   TOO_LATE_TO_SKIP: 'מועד העריכה של משלוח זה עבר',
+  TOO_LATE_TO_RESTORE: 'מועד העריכה של משלוח זה עבר, ולכן אי אפשר להחזיר אותו',
+  CANNOT_RESTORE: 'את המשלוח הזה אי אפשר להחזיר',
+  ITEMS_SOLD_OUT: 'כל המוצרים של המשלוח הזה אזלו בינתיים, ולכן אי אפשר להחזיר אותו',
   CANCELED: 'המנוי בוטל',
   ORDER_LOCKED: 'ההזמנה כבר בטיפול ולא ניתן לערוך אותה',
   FORM_CLOSED: 'ההזמנה מהחקלאי נסגרה, אי אפשר להוסיף את המוצר',
@@ -66,6 +70,14 @@ const ERROR_MESSAGES = {
   PRODUCT_MISSING: 'המוצר לא נמצא',
   NO_ITEMS: 'לא נבחרו מוצרים',
   NOT_FOUND: 'לא נמצא',
+  INVALID_QUANTITY: 'הכמות אינה תקינה',
+  ORDER_CHANGED: 'ההזמנה התעדכנה בינתיים, נסו שוב',
+  EMPTY_BASKET: 'הסל הקבוע צריך לכלול לפחות מוצר אחד',
+  TOO_MANY_LINES: 'יש יותר מדי מוצרים בסל הקבוע',
+  DUPLICATE_LINE: 'מוצר מופיע פעמיים בסל',
+  NO_UPCOMING_ORDER: 'הסל למשלוח הקרוב עוד לא נפתח לעריכה',
+  DELIVERY_SKIPPED: 'דילגתם על המשלוח הזה',
+  ORDER_CLOSED: 'המשלוח הקרוב כבר נסגר לעריכה',
 };
 
 export const describeSubscriptionError = (error) => {
@@ -111,6 +123,26 @@ export const listSubscriptionAddableProducts = (orderId) => postAuthed(
 export const addSubscriptionOrderItems = (orderId, items) => postAuthed(
   'addSubscriptionOrderItems',
   { orderId, items },
+);
+
+// Sets how much of one product the upcoming delivery holds (0 removes it).
+export const setSubscriptionOrderItem = ({ orderId, productId, formId = '', selectedOption = '', quantity }) => postAuthed(
+  'setSubscriptionOrderItem',
+  { orderId, productId, formId, selectedOption, quantity },
+);
+
+// Saves the customer's own recurring basket; only orders created later use it.
+export const updateRecurringBasket = (subscriptionId, lines) => postAuthed(
+  'updateRecurringBasket',
+  { subscriptionId, lines },
+);
+
+// Asks the server to rebuild this customer's subscriberStatus record.
+export const syncMySubscriberStatus = () => postAuthed('syncMySubscriberStatus', {});
+
+export const listRecurringBasketProducts = (subscriptionId) => postAuthed(
+  'listRecurringBasketProducts',
+  { subscriptionId },
 );
 
 const toMillis = (value) => {

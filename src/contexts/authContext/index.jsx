@@ -1,8 +1,12 @@
-import React, { useContext, useState, useEffect } from "react";
+import React, { useCallback, useContext, useState, useEffect } from "react";
 import { auth, db } from "../../firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { doSignOut } from "../../firebase/auth";
+import {
+  ACCOUNT_VERIFICATION_COLLECTION,
+  ACCOUNT_VERIFICATION_REQUIRED_EVENT,
+  doSignOut,
+} from "../../firebase/auth";
 import { isDeliveryDriverAccount } from "../../utils/accountRoles";
 import { LOCAL_BUSINESS_COLLECTION } from "../../constants/accountCollections";
 import {
@@ -23,10 +27,54 @@ export function AuthProvider({ children }) {
   const [isGoogleUser, setIsGoogleUser] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Only customer accounts that signed up after SMS verification was introduced
+  // (accountVerification/{uid}) must verify their phone. Everyone else: false.
+  const [verificationRequired, setVerificationRequired] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, initializeUser);
     return unsubscribe;
+  }, []);
+
+  // The signup writes the record right after the account exists, so the
+  // first check on sign-in can miss it.
+  useEffect(() => {
+    const onRequired = (event) => {
+      if (auth.currentUser && event?.detail?.uid === auth.currentUser.uid && !auth.currentUser.phoneNumber) {
+        setVerificationRequired(true);
+      }
+    };
+    window.addEventListener(ACCOUNT_VERIFICATION_REQUIRED_EVENT, onRequired);
+    return () => window.removeEventListener(ACCOUNT_VERIFICATION_REQUIRED_EVENT, onRequired);
+  }, []);
+
+  async function checkVerificationRequired(user) {
+    if (!user || user.phoneNumber) {
+      setVerificationRequired(false);
+      return;
+    }
+    try {
+      const snap = await getDoc(doc(db, ACCOUNT_VERIFICATION_COLLECTION, user.uid));
+      if (auth.currentUser?.uid !== user.uid) return;
+      setVerificationRequired(snap.exists() && snap.data()?.required === true);
+    } catch (error) {
+      // Unreadable (e.g. rules not deployed yet): never lock a customer out.
+      console.warn("Account verification lookup failed", error);
+      setVerificationRequired(false);
+    }
+  }
+
+  // After the phone was linked: refresh the token so the server sees it too.
+  const completePhoneVerification = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) return false;
+    await user.reload();
+    const fresh = auth.currentUser;
+    if (!fresh?.phoneNumber) return false;
+    await fresh.getIdToken(true);
+    setCurrentUser({ ...fresh });
+    setVerificationRequired(false);
+    return true;
   }, []);
 
   async function fetchMarketplaceCustomerRole(uid) {
@@ -63,6 +111,7 @@ export function AuthProvider({ children }) {
         (provider) => provider.providerId === "google.com"
       );
       setIsGoogleUser(isGoogle);
+      checkVerificationRequired(user);
       setLoading(false);
 
       // Fetch user role from Firestore after the store is already visible.
@@ -107,6 +156,7 @@ export function AuthProvider({ children }) {
       setCurrentUser(null);
       setUserLoggedIn(false);
       setUserRole(null);
+      setVerificationRequired(false);
     }
     setLoading(false);
   }
@@ -131,7 +181,9 @@ export function AuthProvider({ children }) {
     userRole,
     loading,
     signOut,
-    setCurrentUser
+    setCurrentUser,
+    verificationRequired,
+    completePhoneVerification,
   };
 
   return (

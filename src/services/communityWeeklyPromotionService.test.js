@@ -215,6 +215,43 @@ describe('community weekly promotion service', () => {
     auth.currentUser = null;
   });
 
+  test('checks the mixed price of a line above the promotion limit', async () => {
+    auth.currentUser = { uid: 'customer-1' };
+    const limited = validPromotion({
+      status: 'active',
+      startsAt: { toMillis: () => Date.now() - 1000 },
+      endsAt: { toMillis: () => Date.now() + 60_000 },
+      productSnapshots: [{ ...validPromotion().productSnapshots[0], maxQuantity: 1 }],
+    });
+    getDoc.mockImplementation(async (ref = {}) => (ref.name === 'communityWeeklyPromotions'
+      ? { id: 'promo-1', exists: () => true, data: () => limited }
+      : { id: ref.id, exists: () => true, data: () => ({ unlocked: true, promotionId: 'promo-1', communityCode: 'north' }) }));
+    const check = (items) => validateCommunityWeeklyCartPricing({
+      promotionId: 'promo-1',
+      communityCode: 'north',
+      pricingVersion: 'prices-2026-08-23',
+      items,
+    });
+
+    // 3 kg: 1 at 9 + 2 at 12 = 33, so 11 per kg.
+    await expect(check([{ productId: 'product-1', quantity: 3, basePrice: 12, promotionQuantity: 1, unitPrice: 11 }]))
+      .resolves.toMatchObject({ valid: true });
+    await expect(check([{ productId: 'product-1', quantity: 3, basePrice: 12, promotionQuantity: 3, unitPrice: 9 }]))
+      .rejects.toMatchObject({ details: { invalidItems: [{ reason: 'over-promotion-limit' }] } });
+    await expect(check([{ productId: 'product-1', quantity: 3, basePrice: 12, promotionQuantity: 1, unitPrice: 9 }]))
+      .rejects.toMatchObject({ details: { invalidItems: [{ reason: 'unit-price-mismatch' }] } });
+    auth.currentUser = null;
+  });
+
+  test('keeps a valid limit and refuses a bad one', () => {
+    const withLimit = (maxQuantity) => validateCommunityWeeklyPromotion(validPromotion({
+      productSnapshots: [{ ...validPromotion().productSnapshots[0], maxQuantity }],
+    }));
+    expect(withLimit(2).productSnapshots[0].maxQuantity).toBe(2);
+    expect(withLimit(null).productSnapshots[0].maxQuantity).toBeNull();
+    expect(() => withLimit(-1)).toThrow('maxQuantity');
+  });
+
   test('reads a promotion without writing to Firestore', async () => {
     getDoc.mockResolvedValue({
       id: 'promo-1',

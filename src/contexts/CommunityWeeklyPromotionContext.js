@@ -12,6 +12,7 @@ import { db } from '../firebase/firebase';
 import CommunityWeeklyPromotionUnlockModal from '../components/category-store/CommunityWeeklyPromotionUnlockModal';
 import { useAuth } from './authContext';
 import { usePickupSpot } from './PickupSpotContext';
+import SubscriberContext from './SubscriberContext';
 import {
   COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION,
   getActivePromotionForCommunity,
@@ -82,6 +83,7 @@ export const decorateCommunityWeeklyPromotionProduct = ({
     pricingVersion: promotion.pricingVersion,
     productId,
     orderId: cleanId(snapshot.orderId) || orderId,
+    maxQuantity: snapshot.maxQuantity ?? null,
   });
 };
 
@@ -98,6 +100,8 @@ export const useCommunityWeeklyPromotion = () => {
 export const CommunityWeeklyPromotionProvider = ({ children }) => {
   const { selectedPickupSpot, hasLoadedFromStorage } = usePickupSpot();
   const { userLoggedIn, loading: authLoading } = useAuth();
+  // Read directly: tests and pages outside SubscriberProvider simply have no subscriptions.
+  const subscriber = useContext(SubscriberContext);
   const [promotion, setPromotion] = useState(null);
   const [unlock, setUnlock] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -197,9 +201,17 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
     && (!unlock.promotionId || unlock.promotionId === promotion.id)
     && (!unlock.communityCode || unlock.communityCode === communityCode),
   );
-  const signedInOnly = promotion?.signedInOnly === true;
-  const promotionAccessReady = !signedInOnly || authLoading !== true;
-  const canUsePromotion = !signedInOnly || userLoggedIn === true;
+  const subscribersOnly = promotion?.subscribersOnly === true;
+  const signedInOnly = promotion?.signedInOnly === true || subscribersOnly;
+  // A customer with an active basket subscription, including one who just joined.
+  const subscriptionsLoaded = !userLoggedIn || !subscriber || subscriber.subscriptionsLoaded !== false;
+  const isSubscriber = Boolean(
+    userLoggedIn && (subscriber?.subscriptions || []).some((sub) => sub?.status === 'active'),
+  );
+  const promotionAccessReady = !signedInOnly || (
+    authLoading !== true && (!subscribersOnly || subscriptionsLoaded)
+  );
+  const canUsePromotion = (!signedInOnly || userLoggedIn === true) && (!subscribersOnly || isSubscriber);
 
   const decorateProduct = useCallback((product) => (
     decorateCommunityWeeklyPromotionProduct({
@@ -237,6 +249,7 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
     unlock,
     unlocked,
     signedInOnly,
+    subscribersOnly,
     canUsePromotion,
     promotionAccessReady,
     loading,
@@ -255,6 +268,7 @@ export const CommunityWeeklyPromotionProvider = ({ children }) => {
     promotionAccessReady,
     refresh,
     signedInOnly,
+    subscribersOnly,
     unlock,
     unlocked,
   ]);

@@ -222,6 +222,8 @@ export const COMMUNITY_WEEKLY_PROMOTION_FIELDS = [
   'communityWeeklyPromotionUnlocked',
   'communityWeeklyPromotionSchemaVersion',
   'communityWeeklyPromotionPricingVersion',
+  'communityWeeklyPromotionMaxQuantity',
+  'communityWeeklyPromotionQuantity',
 ];
 
 const getComparableTime = (value) => {
@@ -338,7 +340,69 @@ export const normalizeCommunityWeeklyPromotion = (promotion = {}) => {
       ?? source.orderId
       ?? '',
     ).trim(),
+    maxQuantity: normalizeWeeklyPromotionMaxQuantity(
+      source.communityWeeklyPromotionMaxQuantity ?? source.maxQuantity,
+    ),
   };
+};
+
+// Weekly promotion limit: the most of a product, per order, sold at the
+// promotion price (kg, units or packages, as the product is ordered). Beyond
+// it the regular price applies. null = no limit.
+export const normalizeWeeklyPromotionMaxQuantity = (value) => {
+  if (!hasValue(value)) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric * 1000) / 1000 : null;
+};
+
+const WEEKLY_PROMOTION_LIMIT_UNITS = { kg: 'ק"ג', unit: "יח'", package: 'מארזים' };
+
+// 'עד 1 ק"ג', "עד 2 יח'"; '' without a limit.
+export const formatWeeklyPromotionLimit = (maxQuantity, measurementType = 'kg') => {
+  const max = normalizeWeeklyPromotionMaxQuantity(maxQuantity);
+  if (max === null) return '';
+  const unit = WEEKLY_PROMOTION_LIMIT_UNITS[measurementType] || WEEKLY_PROMOTION_LIMIT_UNITS.kg;
+  if (measurementType === 'package' && max === 1) return 'עד מארז אחד';
+  return `עד ${max} ${unit}`;
+};
+
+/**
+ * Unit price of a line where only `promotionQuantity` of `quantity` gets the
+ * promotion price and the rest the regular price. Kept to 4 decimals so the
+ * line total stays exact to the agora.
+ */
+export const blendWeeklyPromotionPrice = ({
+  promotionPrice,
+  basePrice,
+  quantity,
+  promotionQuantity,
+}) => {
+  const qty = Number(quantity) || 0;
+  const promo = Number(promotionPrice) || 0;
+  const promoQty = Math.max(0, Math.min(qty, Number(promotionQuantity) || 0));
+  if (qty <= 0 || promoQty >= qty) return promo;
+  const blended = ((promoQty * promo) + ((qty - promoQty) * (Number(basePrice) || 0))) / qty;
+  return Math.round(blended * 10000) / 10000;
+};
+
+/**
+ * Splits the promotion limit over the order's lines of each product, in order.
+ * @param {Array<{key: string, quantity: number, maxQuantity: number|null}>} lines
+ *   key identifies the promotion and product
+ * @return {Array<number>} the quantity of each line at the promotion price
+ */
+export const allocateWeeklyPromotionQuantities = (lines = []) => {
+  const used = {};
+  return (Array.isArray(lines) ? lines : []).map((line) => {
+    const quantity = Math.max(0, Number(line?.quantity) || 0);
+    const max = normalizeWeeklyPromotionMaxQuantity(line?.maxQuantity);
+    if (max === null) return quantity;
+    const key = String(line?.key || '');
+    const remaining = Math.max(0, max - (used[key] || 0));
+    const promoQty = Math.round(Math.min(quantity, remaining) * 1000) / 1000;
+    used[key] = (used[key] || 0) + promoQty;
+    return promoQty;
+  });
 };
 
 export const clearCommunityWeeklyPromotionFields = (item = {}) => ({
@@ -357,6 +421,8 @@ export const clearCommunityWeeklyPromotionFields = (item = {}) => ({
   communityWeeklyPromotionProductId: null,
   communityWeeklyPromotionProductIds: null,
   communityWeeklyPromotionOrderId: null,
+  communityWeeklyPromotionMaxQuantity: null,
+  communityWeeklyPromotionQuantity: null,
 });
 
 export const attachCommunityWeeklyPromotionFields = (item = {}, promotion) => {
@@ -386,6 +452,7 @@ export const attachCommunityWeeklyPromotionFields = (item = {}, promotion) => {
       ? normalized.productIds
       : null,
     communityWeeklyPromotionOrderId: normalized.orderId || item.orderId || null,
+    communityWeeklyPromotionMaxQuantity: normalized.maxQuantity,
   };
 };
 
@@ -671,24 +738,43 @@ export const applyCartPricing = (items = []) => {
     groupedQuantities[key] = (groupedQuantities[key] || 0) + (Number(item.quantity) || 0);
   });
 
-  return list.map((item) => {
-    const weeklyPromotion = getItemCommunityWeeklyPromotion(item);
-    const weeklyPromotionApplies = Boolean(
-      weeklyPromotion
-      && weeklyPromotion.unlocked
-      && isLineEligibleForCommunityWeeklyPromotion(item, weeklyPromotion)
-    );
-    if (weeklyPromotionApplies) {
+  // Weekly promotion limits count per product over the whole order.
+  const weeklyPromotions = list.map((item) => {
+    const promotion = getItemCommunityWeeklyPromotion(item);
+    return promotion && promotion.unlocked && isLineEligibleForCommunityWeeklyPromotion(item, promotion)
+      ? promotion
+      : null;
+  });
+  const weeklyPromotionQuantities = allocateWeeklyPromotionQuantities(list.map((item, index) => ({
+    key: `${weeklyPromotions[index]?.id || ''}|${getLineProductId(item)}`,
+    quantity: weeklyPromotions[index] ? Number(item.quantity) || 0 : 0,
+    maxQuantity: weeklyPromotions[index]?.maxQuantity ?? null,
+  })));
+
+  return list.map((item, index) => {
+    const weeklyPromotion = weeklyPromotions[index];
+    const weeklyPromotionQuantity = weeklyPromotionQuantities[index];
+    // A line past the limit (another line of the product used it up) is priced normally.
+    if (weeklyPromotion && weeklyPromotionQuantity > 0) {
       const basePrice = getBaseUnitPrice(item);
+      const quantity = Number(item.quantity) || 0;
+      const price = blendWeeklyPromotionPrice({
+        promotionPrice: weeklyPromotion.price,
+        basePrice,
+        quantity,
+        promotionQuantity: weeklyPromotionQuantity,
+      });
       return {
         ...item,
-        quantity: Number(item.quantity) || 0,
+        quantity,
         basePrice,
-        effectivePrice: weeklyPromotion.price,
-        price: weeklyPromotion.price,
+        effectivePrice: price,
+        price,
         quantityDiscountApplied: false,
         groupPromotionApplied: false,
         communityWeeklyPromotionApplied: true,
+        communityWeeklyPromotionMaxQuantity: weeklyPromotion.maxQuantity,
+        communityWeeklyPromotionQuantity: weeklyPromotionQuantity,
       };
     }
 

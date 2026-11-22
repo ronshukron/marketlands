@@ -32,7 +32,7 @@ const OrderFormBusiness = () => {
   const navigate = useNavigate();
 
   // Get cart functions from context
-  const { addItem, cartItems, cartTotal } = useCart(); 
+  const { addItem, cartItems, cartTotal, subscriberMode } = useCart(); 
 
   useEffect(() => {
     const fetchOrderDetails = async () => {
@@ -183,14 +183,15 @@ const OrderFormBusiness = () => {
         findActiveGroupPromotionForProduct(productPromotions, product),
       ),
     };
-    // Add to global cart only
-    addItem(
+    // Add to global cart only (in subscriber mode: the upcoming delivery; false means not added)
+    const added = addItem(
       productToAdd,
       orderId,
       businessInfo.id,
       minimumOrderAmount,
       minimumOrderItemCount
     );
+    if (added === false) return;
 
     // Reset product quantity to 0
     const updatedProducts = [...products];
@@ -200,7 +201,7 @@ const OrderFormBusiness = () => {
     // Show success message
     Swal.fire({
       title: 'נוסף לסל!',
-      text: `${product.name} נוסף לסל הקניות שלך`,
+      text: subscriberMode ? `${product.name} נוסף למשלוח הקרוב שלך` : `${product.name} נוסף לסל הקניות שלך`,
       icon: 'success',
       timer: 1500,
       showConfirmButton: false

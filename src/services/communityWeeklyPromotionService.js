@@ -21,6 +21,7 @@ import {
   promotionTargetCommunities,
 } from '../utils/communityWeeklyPromotionAnalytics';
 import { resolveCommunityName } from './pickupSpotsService';
+import { blendWeeklyPromotionPrice, normalizeWeeklyPromotionMaxQuantity } from '../utils/pricing';
 
 export const COMMUNITY_WEEKLY_PROMOTIONS_COLLECTION = 'communityWeeklyPromotions';
 export const COMMUNITY_WEEKLY_PROMOTION_UNLOCKS_COLLECTION = 'communityWeeklyPromotionUnlocks';
@@ -142,8 +143,14 @@ export const validateCommunityWeeklyPromotion = (input = {}) => {
     if (promotionPrice <= 0 || promotionPrice >= regularPrice) {
       throw new Error(`productSnapshots[${index}].promotionPrice must be below regularPrice`);
     }
+    const hasMaxQuantity = product?.maxQuantity !== undefined && product?.maxQuantity !== null && product?.maxQuantity !== '';
+    const maxQuantity = hasMaxQuantity ? normalizeWeeklyPromotionMaxQuantity(product.maxQuantity) : null;
+    if (hasMaxQuantity && maxQuantity === null) {
+      throw new Error(`productSnapshots[${index}].maxQuantity must be a positive number`);
+    }
     return {
       ...product,
+      maxQuantity,
       productId: requiredString(product?.productId || product?.id, `productSnapshots[${index}].productId`, 200),
       businessId: requiredString(product?.businessId, `productSnapshots[${index}].businessId`, 200),
       name: requiredString(product?.name, `productSnapshots[${index}].name`, 300),
@@ -177,11 +184,18 @@ export const validateCommunityWeeklyPromotion = (input = {}) => {
     },
     schemaVersion,
     pricingVersion,
-    signedInOnly: input.signedInOnly === true,
+    signedInOnly: input.signedInOnly === true || input.subscribersOnly === true,
+    subscribersOnly: input.subscribersOnly === true,
   };
 };
 
-export const promotionRequiresSignedIn = (promotion) => promotion?.signedInOnly === true;
+export const promotionRequiresSignedIn = (promotion) => (
+  promotion?.signedInOnly === true || promotion?.subscribersOnly === true
+);
+
+// Only customers with an active basket subscription get the price; the store
+// shows it to everyone else as a reason to subscribe.
+export const promotionRequiresSubscription = (promotion) => promotion?.subscribersOnly === true;
 
 export class CommunityWeeklyPromotionApiError extends Error {
   constructor(message, { status = 0, code = '', details = null } = {}) {
@@ -217,6 +231,7 @@ const toPromotionDocument = (input, { createdAt } = {}) => {
     schemaVersion: validated.schemaVersion,
     pricingVersion: validated.pricingVersion,
     signedInOnly: validated.signedInOnly === true,
+    subscribersOnly: validated.subscribersOnly === true,
     ...(validated.duplicatedFromPromotionId
       ? { duplicatedFromPromotionId: requiredString(validated.duplicatedFromPromotionId, 'duplicatedFromPromotionId', 200) }
       : {}),
@@ -592,6 +607,7 @@ export const validateCommunityWeeklyCartPricing = async ({
   }
 
   const snapshots = Array.isArray(promotion.productSnapshots) ? promotion.productSnapshots : [];
+  const promotionQuantityByProduct = {};
   (Array.isArray(items) ? items : []).forEach((item) => {
     const productId = String(item.productId || item.id || '').trim();
     const orderId = String(item.orderId || '').trim();
@@ -602,7 +618,25 @@ export const validateCommunityWeeklyCartPricing = async ({
       )))
       || snapshots.find((entry) => String(entry.productId || entry.id || '') === productId)
     );
-    const expected = Number(snapshot?.promotionPrice);
+    // With a limit, only part of the line is at the promotion price.
+    const maxQuantity = normalizeWeeklyPromotionMaxQuantity(snapshot?.maxQuantity);
+    const quantity = Number(item.quantity) || 0;
+    const promotionQuantity = maxQuantity === null
+      ? quantity
+      : Math.min(quantity, Math.max(0, Number(item.promotionQuantity ?? quantity) || 0));
+    promotionQuantityByProduct[productId] = (promotionQuantityByProduct[productId] || 0) + promotionQuantity;
+    if (maxQuantity !== null && promotionQuantityByProduct[productId] > maxQuantity + 0.0005) {
+      throw pricingMismatch({
+        pricingVersion: promotion.pricingVersion,
+        invalidItems: [{ productId, reason: 'over-promotion-limit', maxQuantity }],
+      });
+    }
+    const expected = snapshot ? blendWeeklyPromotionPrice({
+      promotionPrice: Number(snapshot.promotionPrice),
+      basePrice: Number(item.basePrice),
+      quantity,
+      promotionQuantity,
+    }) : NaN;
     const actual = Number(item.unitPrice ?? item.effectivePrice ?? item.price);
     if (!snapshot || !Number.isFinite(expected) || Math.abs(expected - actual) > 0.009) {
       throw pricingMismatch({
@@ -648,6 +682,8 @@ export const validateAppliedCommunityWeeklyPricing = async (items = []) => {
       orderId: item.orderId || null,
       quantity: Number(item.quantity) || 0,
       unitPrice: Number(item.effectivePrice ?? item.price) || 0,
+      basePrice: Number(item.basePrice ?? item.price) || 0,
+      promotionQuantity: item.communityWeeklyPromotionQuantity ?? null,
       measurementType: item.measurementType || 'kg',
     });
   });

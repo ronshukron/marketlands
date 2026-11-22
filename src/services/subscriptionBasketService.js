@@ -27,7 +27,7 @@ export const SUBSCRIPTION_BASKETS_COLLECTION = 'subscriptionBaskets';
 
 // Flip together with GROW_TOKEN_ENV=secure in the functions once Grow approves
 // production. Until then the token page is Grow sandbox and only testers see baskets.
-export const SUBSCRIPTIONS_OPEN_TO_ALL = false;
+export const SUBSCRIPTIONS_OPEN_TO_ALL = true;
 const SUBSCRIPTION_TESTER_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
 export const canSeeSubscriptionBaskets = (user) => (

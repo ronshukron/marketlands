@@ -1,15 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import SecureCardProgress from './SecureCardProgress';
+import { useSubscriber } from '../../contexts/SubscriberContext';
 import {
   confirmBasketSubscriptionCard,
   describeSubscriptionError,
 } from '../../services/basketSubscriptionService';
 import { parseDateSafe } from '../../utils/deliveryScheduleUtils';
 
-const MAX_ATTEMPTS = 6;
+// The card is saved by Grow's server update, which usually arrives before the
+// customer is back. If it is late, the server asks Grow directly a minute
+// after the first check, so keep checking a little past that.
+const MAX_ATTEMPTS = 27;
 const RETRY_DELAY_MS = 3000;
 
 const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
@@ -22,6 +26,17 @@ const SubscriptionSuccess = () => {
     [location.search]
   );
   const [state, setState] = useState({ phase: 'checking', result: null, error: '' });
+  const navigate = useNavigate();
+  const subscriber = useSubscriber();
+  const subscriberActive = Boolean(subscriber?.active);
+
+  // Once the card is saved and subscriber mode is on, the store becomes the
+  // upcoming delivery: go there right away.
+  useEffect(() => {
+    if (state.phase === 'done' && subscriberActive) {
+      navigate('/', { replace: true, state: { subscriptionActivated: true } });
+    }
+  }, [navigate, state.phase, subscriberActive]);
 
   useEffect(() => {
     if (authLoading || !currentUser || !subscriptionId) return undefined;

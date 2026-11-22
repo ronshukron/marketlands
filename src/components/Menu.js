@@ -11,9 +11,14 @@ import './Menu.css';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { isDeliveryDriverAccount, isIndependentBusinessAccount } from '../utils/accountRoles';
+import { useSubscriber } from '../contexts/SubscriberContext';
 const Menu = () => {
   const { userLoggedIn, userRole, currentUser } = useAuth();
   const { totalItems } = useCart();
+  const subscriber = useSubscriber();
+  // Customers with a subscription manage it from the menu; /admin/subscription-baskets stays admin-only.
+  const showSubscriptionsLink = Boolean(subscriber?.hasSubscriptions);
+  const cartOpenSignal = subscriber?.cartOpenSignal || 0;
   const { setSaleMode } = useSaleMode();
   const [isOpen, setIsOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -22,6 +27,16 @@ const Menu = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const menuRef = useRef(null);
+  // The header is fixed, so a spacer keeps pages from starting under it. On
+  // desktop, long menus (admin, farmer) wrap and the bar gets taller than the
+  // spacer's default; measure the bar row so the spacer always matches. The
+  // mobile dropdown is not measured: it is meant to cover the page. The
+  // header's padding shrinks on scroll, so the largest padding seen is kept
+  // and the page never jumps while scrolling.
+  const headerRef = useRef(null);
+  const barRef = useRef(null);
+  const maxPaddingRef = useRef(0);
+  const [spacerHeight, setSpacerHeight] = useState(0);
   const [isIndependent, setIsIndependent] = useState(false);
   const [isDriver, setIsDriver] = useState(false);
 
@@ -55,6 +70,23 @@ const Menu = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    const header = headerRef.current;
+    const bar = barRef.current;
+    if (!header || !bar || typeof ResizeObserver === 'undefined') return undefined;
+    const update = () => {
+      const style = window.getComputedStyle(header);
+      const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+      maxPaddingRef.current = Math.max(maxPaddingRef.current, padding);
+      setSpacerHeight(Math.ceil(bar.getBoundingClientRect().height + maxPaddingRef.current));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(bar);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -71,6 +103,17 @@ const Menu = () => {
   useEffect(() => {
     setIsOpen(false);
   }, [location.pathname]);
+
+  // Subscriber mode: open the upcoming-delivery cart when asked (the store
+  // banner, or a regular checkout page sending the subscriber back).
+  useEffect(() => {
+    if (cartOpenSignal > 0) setIsCartOpen(true);
+  }, [cartOpenSignal]);
+  useEffect(() => {
+    if (!location.state?.openSubscriptionCart) return;
+    setIsCartOpen(true);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
 
   // Detect business account sub-types
   useEffect(() => {
@@ -134,14 +177,15 @@ const Menu = () => {
 
   return (
     <>
-      <header 
+      <header
+        ref={headerRef}
         className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${
           isScrolled ? 'bg-white shadow-md py-2' : 'bg-white/90 py-3'
         }`}
         dir="rtl"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center">
+          <div ref={barRef} className="flex justify-between items-center">
             {/* Logo and brand */}
             <div className="flex items-center">
               <Link to="/" className="flex items-center gap-2">
@@ -171,6 +215,14 @@ const Menu = () => {
                     </svg>
                     ההזמנות שלי
                   </Link>
+                  {showSubscriptionsLink && (
+                    <Link to="/my-subscriptions" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/my-subscriptions') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      ניהול מנויים
+                    </Link>
+                  )}
                   <Link to="/saved-carts" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/saved-carts') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -498,6 +550,11 @@ const Menu = () => {
                   <Link to="/my-orders" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-orders') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                     ההזמנות שלי
                   </Link>
+                  {showSubscriptionsLink && (
+                    <Link to="/my-subscriptions" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-subscriptions') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
+                      ניהול מנויים
+                    </Link>
+                  )}
                   <Link to="/saved-carts" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/saved-carts') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
                     סלים שמורים
                   </Link>
@@ -644,8 +701,12 @@ const Menu = () => {
         </div>
       </header>
       
-      {/* Spacer to prevent content from being hidden under fixed header */}
-      <div className="h-16 md:h-20"></div>
+      {/* Spacer to prevent content from being hidden under fixed header.
+          At least the default height; taller when the bar wraps. */}
+      <div
+        className="h-16 md:h-20"
+        style={spacerHeight ? { minHeight: spacerHeight } : undefined}
+      ></div>
       
       <Cart isOpen={isCartOpen} onClose={toggleCart} />
     </>

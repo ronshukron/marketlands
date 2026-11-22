@@ -82,7 +82,7 @@ Subscription statuses: `pending_card`, `active`, `paused`, `payment_failed`, `ca
 | `/admin/subscription-baskets` | admin | Create and edit baskets. Card on `/admin` titled "סלי מנוי". |
 | community store | testers only, until the flag flips | `SubscriptionBasketCard` when the selected community has an active delivery schedule and an active basket that includes it. |
 | `/subscribe/:basketId` | logged-in tester | Community, delivery option, first date, frequency, details, required consent checkbox, then redirect to Grow. |
-| `/subscription-success` | customer | Polls `confirmBasketSubscriptionCard` up to 6 times, every 3 seconds. |
+| `/subscription-success` | customer | Polls `confirmBasketSubscriptionCard` up to 27 times, every 3 seconds, until Grow's server update has saved the card. |
 | `/my-subscriptions` | owner | Pause, resume, skip, unskip, frequency, cancel, replace card. Linked from "ההזמנות שלי". |
 | `/my-orders/:orderId` | owner | Remove any line; add products only while the farmer form is open. |
 
@@ -94,9 +94,9 @@ Weighing is the existing V7 and V8 screens. A subscription order shows an amber 
 
 The customer types the card on Grow's hosted page (CreditGuard iframe). The card number and CVV never reach our code. The token is written only to `subscriptionPaymentSecrets`. `basketSubscriptions.card` stores last4, brand, and expiry so the customer can see which card is on file. Last4 is not PAN data under PCI; the token is the sensitive value and is blocked by rules.
 
-The webhook `handleSubscriptionCardNotification` always returns 200. It does not trust the posted body for the token. It calls `getPaymentProcessInfo` with the process id and process token stored when the page was opened. It accepts the webhook's token only if `processId` matches the pending process. `extractCardDetails` accepts several field spellings because Grow's docs did not name them. The sandbox later showed the real shape (below).
+The webhook `handleSubscriptionCardNotification` always returns 200. Grow (2026-11-22): save the card from the server update, and call `getPaymentProcessInfo` only in edge cases. The update has no signature, so it is used only when its `processId` and `processToken` both match the pending process (`matchesPendingProcess`). `createPaymentProcess` returns both to our server only, and they sit in `subscriptionPaymentSecrets`, which clients cannot read. The card-save `transactionId` and `asmachta` are kept in `subscriptionPaymentSecrets.cardSaveTransaction`. `extractCardDetails` accepts several field spellings. Grow documents `cardToken`, `processId`, `processToken` and `customFields` in the server update.
 
-`confirmBasketSubscriptionCard` does the same read from the success page, so a missed webhook still saves the card.
+`confirmBasketSubscriptionCard` does not read from Grow in the normal case. The first call records `pending.returnedAt`, and later calls just report status and `cardPending`. Only if the update is still missing 60 seconds after the customer came back does it call `getPaymentProcessInfo`, at most once every 20 seconds (`planCardConfirm`).
 
 ### Consent
 
@@ -109,13 +109,11 @@ The client sends `cardSaveConsent: true` and `cardSaveConsentVersion`. The serve
 
 The signup page also says payment is credit card only. Grow's sandbox page for these credentials shows card number, expiry, and ID, and no wallet buttons. We did not add our own card form.
 
-### Approve once
+### No approve
 
-Grow: "a server update is sent only for the first transaction, and approve only that first transaction."
+We do not call `approveTransaction` at all. Grow (2026-11-22): approve is not needed for the card-save step. Its docs also say not to send it for save-token-only flows or for `createTransactionWithToken`. Earlier we approved the card-save transaction, and Grow answered 722 every time: "לא ניתן לבצע אישור לעסקה שלא בוצעה או בוטלה". That code is removed. Old secrets docs may still hold `approvedTransactionIds` and `lastApproveError` from those tests.
 
-`approveFirstTransactionOnce` claims `approvedTransactionIds` in a transaction before calling `approveTransaction`, so a second webhook or the success page does not approve twice. On failure it removes the claim so a retry can try again. Token charges are never approved.
-
-This is the one Grow behavior we could not prove. Calling `approveTransaction` ourselves, with data from `getPaymentProcessInfo` after a sandbox card save, returned error 722: "לא ניתן לבצע אישור לעסקה שלא בוצעה או בוטלה" ("cannot approve a transaction that was not performed or was cancelled"). The card-save transaction stayed `statusCode` 11, "עסקה מושהית" (suspended). The ₪1 was not captured. Approve may only succeed when Grow posts the real webhook. The first live signup's function logs are the check: a 722 there means approve still does not work.
+Token charges do not send `pageCode`, as Grow asked on 2026-11-22.
 
 ## Generation
 
@@ -197,7 +195,7 @@ Functions (`npm test`, node:test), 112 passing after this work, including:
 
 Frontend Jest: `chargeOrderV7.test.js` asserts a subscription order calls `chargeSubscriptionOrder` and a normal order calls `handleSuspendedPayment`. Existing delayed-flow tests still pass (52 in the last targeted run).
 
-Not covered by automated tests: the HTTP handlers themselves (they need Firestore and Grow), the webhook, approve, the scheduler's stock transaction, and any browser flow on the deployed site.
+Not covered by automated tests: the HTTP handlers themselves (they need Firestore and Grow), the webhook itself (its decisions are tested in `subscriptionCardNotification.test.js`), the scheduler's stock transaction, and any browser flow on the deployed site.
 
 ## Grow checklist
 
@@ -211,7 +209,9 @@ Not covered by automated tests: the HTTP handlers themselves (they need Firestor
 | `transactionGroupIdentifier` is not unique and does not reject | Used only as a lookup key, one per order. Sandbox confirmed it does **not** block a second charge. |
 | Lookup `getTokenTransactionsByExternalIdentifiers` with exactly one identifier | `findTokenTransactionByUniqueIdentifier`. Both identifiers together return 1012. |
 | Never charge customer A's token for customer B | `checkTokenOwnership`, and the token is keyed by subscription id. |
-| Notify and approve only the first transaction | Approve is only called from the card webhook and the success-page confirm, once per transaction id. **Not confirmed**: sandbox approve returned 722. |
+| No approve on the card save or token charges | Grow confirmed on 2026-11-22 that it isn't needed. We never call `approveTransaction`. |
+| Save the card from the server update; `getPaymentProcessInfo` for edge cases only | The webhook saves the card. Confirm calls Grow only 60s after the customer returned without an update. |
+| No `pageCode` on a token charge | `buildTokenChargePayload`, covered by a test. |
 | No special characters | `plainText` / `cleanProductData`. |
 
 ## Reviewer checklist
@@ -219,7 +219,7 @@ Not covered by automated tests: the HTTP handlers themselves (they need Firestor
 Things worth challenging, in order:
 
 1. **Double charge after a crash.** Trace `chargeSubscriptionOrder` from the lock transaction through `attemptTokenCharge` for: timeout before any Grow response, timeout after Grow paid but before we saved, 1010 with a paid lookup, 1010 with an empty lookup, 1010 with a failed lookup, and a card replaced between the two attempts. The pending id and `orderCharges[orderId].cardToken` are the whole mechanism.
-2. **Approve 722.** Read `approveFirstTransactionOnce` and `approveCardTransaction`. Decide whether error 722 is expected for a `chargeType=3` suspended ₪1, and whether a failed approve blocks the subscription (it should not: the card is saved first, approve errors are logged).
+2. **Forged card webhook.** The server update has no signature. Check that `matchesPendingProcess` (processId and processToken against `subscriptionPaymentSecrets.pending`) is the only path to `saveSubscriptionCard` from the webhook, and that no client can read `pending`.
 3. **Public create on `customerOrdersDelayed`.** Confirm the `orderIds` membership check is the only thing standing between a forged order and a token charge, and that the order's `userId` is also checked.
 4. **Stock.** `processSubscriptionCycle` decrements stock inside the order-create transaction. Skip/cancel of a generated order should put it back. Check the restore path in `subscriptionManage.js` (`cancelGeneratedOrder`) for a partial failure.
 5. **Delivery fee.** `buildChargePlan` recomputes the fee from the weighed product total and appends a line. The weighing UI drops shipping lines for delayed orders; subscriptions must not depend on the UI to keep the fee. A city order that crosses `freeShippingMinCart` after weighing should charge 0.

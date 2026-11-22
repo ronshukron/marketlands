@@ -1,4 +1,8 @@
-import { getEstimatedChargeableQuantity } from '../../../../utils/pricing';
+import {
+  blendWeeklyPromotionPrice,
+  getEstimatedChargeableQuantity,
+  normalizeWeeklyPromotionMaxQuantity,
+} from '../../../../utils/pricing';
 import { BUFFER_LINE_CATALOG_NUMBER, roundTo, safeNumber } from './orderDraftUtils';
 
 /**
@@ -15,18 +19,21 @@ export function weeklyPromotionUnlockKey(promotionId, communityCode) {
 
 /**
  * Picks the promotion of `weekKey` that targets `communityCode` and whose
- * community unlock is confirmed.
+ * community unlock is confirmed. A subscribers-only promotion applies only to
+ * basket-subscription orders.
  */
 export function findUnlockedWeeklyPromotion({
   promotions = [],
   weekKey = '',
   communityCode = '',
   unlocksByKey = {},
+  isSubscriptionOrder = false,
 } = {}) {
   if (!communityCode) return null;
   return (promotions || []).find((promotion) => (
     promotion?.id
     && SETTLEABLE_PROMOTION_STATUSES.has(promotion.status)
+    && (promotion.subscribersOnly !== true || isSubscriptionOrder === true)
     && (!weekKey || promotion.weekKey === weekKey)
     && (promotion.targetCommunityCodes || []).includes(communityCode)
     && unlocksByKey[weeklyPromotionUnlockKey(promotion.id, communityCode)]?.unlocked === true
@@ -58,9 +65,13 @@ function isPromotionCandidateLine(item, removedLineIds = {}) {
 }
 
 /**
+ * A product's promotion limit (snapshot.maxQuantity) counts over the whole
+ * order, including lines that already got the promotion at checkout; the
+ * rest of a line keeps its price. A line's promotionPrice is then the mixed
+ * unit price of that line.
  * @returns {null | {
  *   promotionId, communityCode, weekKey, pricingVersion, title,
- *   lines: [{ lineId, productId, originalPrice, promotionPrice, estimatedSavings }],
+ *   lines: [{ lineId, productId, originalPrice, promotionPrice, promotionQuantity, maxQuantity, estimatedSavings }],
  *   estimatedSavings,
  * }}
  */
@@ -73,25 +84,53 @@ export function resolveWeeklyPromotionForOrder({
   if (!promotion?.id || !communityCode) return null;
   const snapshots = Array.isArray(promotion.productSnapshots) ? promotion.productSnapshots : [];
   const lines = [];
+  const lineQuantity = (item) => safeNumber(item.requestedQuantity ?? item.quantity, 0);
+
+  // Lines priced with this promotion at checkout already used part of the limit.
+  const usedByProduct = {};
+  (items || []).forEach((item) => {
+    if (!item?.productId || item.communityWeeklyPromotionApplied !== true || removedLineIds?.[item.lineId]) return;
+    if (item.communityWeeklyPromotionId && item.communityWeeklyPromotionId !== promotion.id) return;
+    const productId = String(item.productId);
+    usedByProduct[productId] = (usedByProduct[productId] || 0)
+      + safeNumber(item.communityWeeklyPromotionQuantity ?? lineQuantity(item), 0);
+  });
 
   (items || []).forEach((item) => {
     if (!isPromotionCandidateLine(item, removedLineIds)) return;
-    const snapshot = pickProductSnapshot(snapshots, String(item.productId), String(item.businessOrderKey || ''));
+    const productId = String(item.productId);
+    const snapshot = pickProductSnapshot(snapshots, productId, String(item.businessOrderKey || ''));
     if (!snapshot) return;
-    const promotionPrice = Number(snapshot.promotionPrice);
+    const unitPromotionPrice = Number(snapshot.promotionPrice);
     const originalPrice = safeNumber(item.pricePerUnit ?? item.price, 0);
-    if (!Number.isFinite(promotionPrice) || promotionPrice < 0 || promotionPrice >= originalPrice) return;
+    if (!Number.isFinite(unitPromotionPrice) || unitPromotionPrice < 0 || unitPromotionPrice >= originalPrice) return;
+    const quantity = lineQuantity(item);
+    const maxQuantity = normalizeWeeklyPromotionMaxQuantity(snapshot.maxQuantity);
+    const promotionQuantity = maxQuantity === null
+      ? quantity
+      : roundTo(Math.min(quantity, Math.max(0, maxQuantity - (usedByProduct[productId] || 0))), 3);
+    if (promotionQuantity <= 0) return;
+    usedByProduct[productId] = (usedByProduct[productId] || 0) + promotionQuantity;
+    const promotionPrice = blendWeeklyPromotionPrice({
+      promotionPrice: unitPromotionPrice,
+      basePrice: originalPrice,
+      quantity,
+      promotionQuantity,
+    });
     const estimatedQuantity = getEstimatedChargeableQuantity({
       measurementType: item.measurementType || 'kg',
-      quantity: safeNumber(item.requestedQuantity ?? item.quantity, 0),
+      quantity,
       averageWeightKg: safeNumber(item.averageWeightKg, 1),
     });
     lines.push({
       lineId: item.lineId,
-      productId: String(item.productId),
+      productId,
       businessOrderKey: String(item.businessOrderKey || ''),
       originalPrice,
       promotionPrice,
+      unitPromotionPrice,
+      promotionQuantity,
+      maxQuantity,
       estimatedSavings: roundTo((originalPrice - promotionPrice) * estimatedQuantity, 2),
     });
   });

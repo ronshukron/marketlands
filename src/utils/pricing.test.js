@@ -1,6 +1,10 @@
 import {
+  allocateWeeklyPromotionQuantities,
   applyCartPricing,
   applyQuantityPricing,
+  blendWeeklyPromotionPrice,
+  formatWeeklyPromotionLimit,
+  normalizeWeeklyPromotionMaxQuantity,
   attachCommunityWeeklyPromotionFields,
   attachGroupPromotionFields,
   buildDefaultGroupPromotionLabel,
@@ -669,5 +673,88 @@ describe('weight buffer', () => {
     expect(getEstimatedLineTotal(kg(1))).toBe(10);
     expect(getEstimatedLineTotal(kg(1), { bufferPercent: 5 })).toBe(10.5);
     expect(getEstimatedLineTotal(kg(0.5), { bufferPercent: 5 })).toBe(5.5);
+  });
+});
+
+describe('weekly promotion quantity limit', () => {
+  const line = (quantity, extra = {}) => attachWeekly({
+    id: 'tomato',
+    orderId: 'o1',
+    communityCode: 'community-a',
+    deliveryWeekKey: '2026-08-23',
+    measurementType: 'kg',
+    price: 10,
+    quantity,
+    ...extra,
+  }, { startsAt: null, endsAt: null, maxQuantity: 1 });
+
+  test('up to the limit the whole line gets the promotion price', () => {
+    const [priced] = applyCartPricing([line(0.5)]);
+    expect(priced).toMatchObject({
+      effectivePrice: 4,
+      communityWeeklyPromotionApplied: true,
+      communityWeeklyPromotionQuantity: 0.5,
+      communityWeeklyPromotionMaxQuantity: 1,
+    });
+  });
+
+  test('above the limit the rest is at the regular price', () => {
+    // 1 kg at 4 + 2 kg at 10 = 24 for 3 kg.
+    const [priced] = applyCartPricing([line(3)]);
+    expect(priced.effectivePrice).toBe(8);
+    expect(priced.communityWeeklyPromotionQuantity).toBe(1);
+    expect(getEstimatedLineTotal(priced)).toBe(24);
+  });
+
+  test('the limit counts over every line of the product in the order', () => {
+    const [first, second, third] = applyCartPricing([
+      line(0.5, { selectedOption: 'אדום' }),
+      line(1, { selectedOption: 'צהוב' }),
+      line(1, { selectedOption: 'ירוק' }),
+    ]);
+    expect(first.effectivePrice).toBe(4);
+    expect(second.effectivePrice).toBe(7); // 0.5 at 4 + 0.5 at 10
+    expect(second.communityWeeklyPromotionQuantity).toBe(0.5);
+    expect(third.effectivePrice).toBe(10);
+    expect(third.communityWeeklyPromotionApplied).toBe(false);
+  });
+
+  test('without a limit nothing changes', () => {
+    const [priced] = applyCartPricing([attachWeekly({
+      id: 'tomato',
+      orderId: 'o1',
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+      measurementType: 'kg',
+      price: 10,
+      quantity: 3,
+    }, { startsAt: null, endsAt: null })]);
+    expect(priced.effectivePrice).toBe(4);
+    expect(priced.communityWeeklyPromotionMaxQuantity).toBeNull();
+  });
+
+  test('the order line keeps the limit and the quantity at the promotion price', () => {
+    const snapshot = buildPricingSnapshot(applyCartPricing([line(3)])[0]);
+    expect(snapshot).toMatchObject({
+      communityWeeklyPromotionMaxQuantity: 1,
+      communityWeeklyPromotionQuantity: 1,
+      effectivePrice: 8,
+    });
+  });
+
+  test('helpers', () => {
+    expect(blendWeeklyPromotionPrice({ promotionPrice: 5, basePrice: 8, quantity: 3, promotionQuantity: 2 })).toBe(6);
+    expect(blendWeeklyPromotionPrice({ promotionPrice: 5, basePrice: 8, quantity: 1, promotionQuantity: 2 })).toBe(5);
+    expect(allocateWeeklyPromotionQuantities([
+      { key: 'a', quantity: 2, maxQuantity: 3 },
+      { key: 'a', quantity: 2, maxQuantity: 3 },
+      { key: 'b', quantity: 2, maxQuantity: null },
+    ])).toEqual([2, 1, 2]);
+    expect(normalizeWeeklyPromotionMaxQuantity('')).toBeNull();
+    expect(normalizeWeeklyPromotionMaxQuantity(0)).toBeNull();
+    expect(normalizeWeeklyPromotionMaxQuantity('1.5')).toBe(1.5);
+    expect(formatWeeklyPromotionLimit(1, 'kg')).toBe('עד 1 ק"ג');
+    expect(formatWeeklyPromotionLimit(2, 'unit')).toBe("עד 2 יח'");
+    expect(formatWeeklyPromotionLimit(null, 'kg')).toBe('');
   });
 });

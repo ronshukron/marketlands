@@ -4,6 +4,10 @@ import ScrollToTop from './components/ScrollToTop';
 import MetaPixelTracker from './components/MetaPixelTracker';
 import { AuthProvider } from "./contexts/authContext";
 import { CartProvider } from './contexts/CartContext';
+import { SubscriberProvider } from './contexts/SubscriberContext';
+import RegularCheckoutGuard from './components/subscriptions/RegularCheckoutGuard';
+import SubscriberOrderBar from './components/subscriptions/SubscriberOrderBar';
+import AccountVerificationGate from './components/auth/AccountVerificationGate';
 import { MarketplaceCartProvider } from './contexts/MarketplaceCartContext';
 import AppMenu from './components/AppMenu';
 import Home from './components/Home';
@@ -136,6 +140,7 @@ const SubscriptionBasketAdmin = lazy(() => import('./components/admin/Subscripti
 const SubscribeBasketPage = lazy(() => import('./components/subscriptions/SubscribeBasketPage'));
 const SubscriptionSuccess = lazy(() => import('./components/subscriptions/SubscriptionSuccess'));
 const MySubscriptions = lazy(() => import('./components/subscriptions/MySubscriptions'));
+const RecurringBasketEditor = lazy(() => import('./components/subscriptions/RecurringBasketEditor'));
 const SupplierPriceImportAdmin = lazy(() => import('./components/admin/SupplierPriceImportAdmin'));
 const ProductFeedbackAdmin = lazy(() => import('./components/admin/ProductFeedbackAdmin'));
 const CopyProductsAdmin = lazy(() => import('./components/admin/CopyProductsAdmin'));
@@ -156,8 +161,9 @@ const AppFrame = ({ children }) => {
   return (
     <div className="App min-h-screen flex flex-col">
       {!hideSiteChrome && <AppMenu />}
-      <main className="flex-grow">{children}</main>
+      <main className="flex-grow"><AccountVerificationGate>{children}</AccountVerificationGate></main>
       {!hideSiteChrome && <Footer />}
+      {!hideSiteChrome && <SubscriberOrderBar />}
       <AccessibilityButton />
     </div>
   );
@@ -166,6 +172,7 @@ const AppFrame = ({ children }) => {
 const App = () => {
   return (
     <AuthProvider>
+      <SubscriberProvider>
       <PickupSpotProvider>
         <CommunityWeeklyPromotionProvider>
           <WeightBufferProvider>
@@ -191,8 +198,8 @@ const App = () => {
                   <Route path="/login" element={<Login />} />
                   <Route path="/order-form/:orderId" element={<OrderForm />} />
                   <Route path="/order-summary/:orderId" element={<OrderSummary />} />
-                  <Route path="/order-confirmation" element={<OrderConfirmation />} />
-                  <Route path="/order-confirmation-delayed" element={<OrderConfirmationDelayed />} />
+                  <Route path="/order-confirmation" element={<RegularCheckoutGuard><OrderConfirmation /></RegularCheckoutGuard>} />
+                  <Route path="/order-confirmation-delayed" element={<RegularCheckoutGuard><OrderConfirmationDelayed /></RegularCheckoutGuard>} />
                   <Route path="/order-confirmation-success" element={<OrderConfirmationSuccess />} />
                   <Route path="/order-details/:orderId/:memberId" element={<OrderDetails />} />
                   <Route path="/contact" element={<Contact />} />
@@ -209,6 +216,7 @@ const App = () => {
                   <Route path="/subscribe/:basketId" element={<SubscribeBasketPage />} />
                   <Route path="/subscription-success" element={<SubscriptionSuccess />} />
                   <Route path="/my-subscriptions" element={<MySubscriptions />} />
+                  <Route path="/my-subscriptions/:subscriptionId/basket" element={<RecurringBasketEditor />} />
                   <Route path="/saved-carts" element={<SavedCarts />} />
                   <Route path="/ongoing-orders" element={<OngoingOrders />} />
                   <Route path="/business-register" element={<BusinessRegister />} />
@@ -227,7 +235,7 @@ const App = () => {
                   <Route path="/business/always-on-cutoffs" element={<AlwaysOnCutoffSettings />} />
                   <Route path="/order-form-business/:orderId" element={<OrderFormBusiness />} /> 
                   <Route path="/business-order-summary/:orderId" element={<BusinessOrderSummary />} />
-                  <Route path="/order-confirmation-free" element={<OrderConfirmationFree />} />
+                  <Route path="/order-confirmation-free" element={<RegularCheckoutGuard><OrderConfirmationFree /></RegularCheckoutGuard>} />
                   <Route path="/payment-instructions" element={<PaymentInstructions />} />
                   <Route path="/store/:businessId" element={<MyStore />} />
                   <Route path="/product/:productId" element={<ProductDetail />} />
@@ -338,6 +346,7 @@ const App = () => {
           </WeightBufferProvider>
         </CommunityWeeklyPromotionProvider>
       </PickupSpotProvider>
+      </SubscriberProvider>
     </AuthProvider>
 );
 };

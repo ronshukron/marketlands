@@ -17,6 +17,13 @@ import {
   saveSubscriptionBasket,
 } from '../../services/subscriptionBasketService';
 import { BASKET_SUBSCRIPTIONS_COLLECTION } from '../../services/basketSubscriptionService';
+import { uploadBasketImage } from '../../utils/basketImageUpload';
+
+const IMAGE_UPLOAD_ERRORS = {
+  NOT_AN_IMAGE: 'הקובץ שנבחר אינו תמונה',
+  IMAGE_FILE_TOO_LARGE: 'התמונה גדולה מדי (עד 15MB)',
+  UNAUTHENTICATED: 'יש להתחבר מחדש',
+};
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2', 'Q0bohhVCdmeMhgBbDknvLxbEzW53'];
 
@@ -68,6 +75,7 @@ const SubscriptionBasketAdmin = () => {
   const [loading, setLoading] = useState(true);
   const [productsLoading, setProductsLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [productQuery, setProductQuery] = useState('');
   const [error, setError] = useState('');
 
@@ -211,7 +219,29 @@ const SubscriptionBasketAdmin = () => {
     return missing.length > 0 ? `לא זמין ב: ${missing.join(', ')}` : '';
   };
 
+  const handleImageFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setUploadingImage(true);
+    try {
+      const url = await uploadBasketImage(file, currentUser?.uid);
+      setForm((prev) => ({ ...prev, image: url }));
+    } catch (error) {
+      console.error('Basket image upload failed:', error);
+      const message = IMAGE_UPLOAD_ERRORS[error?.message]
+        || (error?.code === 'storage/unauthorized' ? 'אין הרשאה להעלות תמונה' : 'העלאת התמונה נכשלה');
+      Swal.fire('שגיאה', message, 'error');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (uploadingImage) {
+      Swal.fire('רגע', 'התמונה עדיין עולה', 'info');
+      return;
+    }
     if (!form.title.trim()) {
       Swal.fire('שגיאה', 'שם סל חובה', 'error');
       return;
@@ -430,15 +460,52 @@ const SubscriptionBasketAdmin = () => {
                   placeholder="מה הלקוח מקבל בכל משלוח?"
                 />
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">כתובת תמונה</span>
-                <input
-                  value={form.image}
-                  onChange={(event) => setForm((prev) => ({ ...prev, image: event.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://..."
-                />
-              </label>
+              <div className="block">
+                <span className="text-sm font-medium text-gray-700">תמונת הסל</span>
+                <div className="mt-1 flex items-start gap-3">
+                  {form.image ? (
+                    <img src={form.image} alt="" className="h-20 w-20 shrink-0 rounded-lg border border-gray-200 object-cover" />
+                  ) : (
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 text-xs text-gray-400">
+                      אין תמונה
+                    </div>
+                  )}
+                  <div className="flex flex-1 flex-col gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white ${uploadingImage ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                        {uploadingImage && (
+                          <span className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin" aria-hidden="true" />
+                        )}
+                        {uploadingImage ? 'מעלה…' : (form.image ? 'החלפת תמונה' : 'העלאת תמונה')}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageFile}
+                          disabled={uploadingImage}
+                          className="sr-only"
+                        />
+                      </label>
+                      {form.image && !uploadingImage && (
+                        <button
+                          type="button"
+                          onClick={() => setForm((prev) => ({ ...prev, image: '' }))}
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          הסרה
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      value={form.image}
+                      onChange={(event) => setForm((prev) => ({ ...prev, image: event.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-left text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="או הדביקו כתובת תמונה https://..."
+                      dir="ltr"
+                      aria-label="כתובת תמונה"
+                    />
+                  </div>
+                </div>
+              </div>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">סדר תצוגה</span>
                 <input
@@ -633,7 +700,7 @@ const SubscriptionBasketAdmin = () => {
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || uploadingImage}
               className="px-6 py-2.5 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold"
             >
               {saving ? 'שומר...' : 'שמור סל מנוי'}

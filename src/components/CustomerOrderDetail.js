@@ -16,6 +16,7 @@ import {
   toggleCustomerLineExclusion,
 } from '../services/customerOrderService';
 import SubscriptionAddItems from './subscriptions/SubscriptionAddItems';
+import { describeSubscriptionError, setSubscriptionOrderItem } from '../services/basketSubscriptionService';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 import { getDeliveryScheduleDocumentKeys } from '../utils/deliveryScheduleUtils';
 import ProductFeedbackSection from './ProductFeedbackSection';
@@ -126,6 +127,22 @@ const CustomerOrderDetail = () => {
     if (!order || !currentUser?.uid) return;
     setSavingLineId(lineId);
     try {
+      if (isSubscriptionCustomerOrder(order)) {
+        // Subscription orders change only on the server, which also checks the
+        // farmer's cutoff and moves stock. Removing sets the product to 0;
+        // restoring an older browser-side removal puts its quantity back.
+        const line = lines.find((entry) => entry.lineId === lineId);
+        if (!line) throw new Error('פריט לא נמצא בהזמנה');
+        await setSubscriptionOrderItem({
+          orderId: order.id,
+          productId: line.productId,
+          formId: line.businessOrderKey,
+          selectedOption: line.selectedOption && line.selectedOption !== 'None' ? line.selectedOption : '',
+          quantity: exclude ? 0 : Number(line.quantity) || 0,
+        });
+        setReloadKey((key) => key + 1);
+        return;
+      }
       const result = await toggleCustomerLineExclusion({
         orderId: order.id,
         customerOrderSource: order.customerOrderSource,
@@ -141,7 +158,7 @@ const CustomerOrderDetail = () => {
         grandTotal: result.grandTotal,
       }));
     } catch (err) {
-      alert(err.message || 'אירעה שגיאה בעדכון ההזמנה');
+      alert(err?.response ? describeSubscriptionError(err) : (err.message || 'אירעה שגיאה בעדכון ההזמנה'));
     } finally {
       setSavingLineId(null);
     }

@@ -10,6 +10,8 @@ import IntroductionBasketCard from './IntroductionBasketCard';
 import SubscriptionBasketCard from './SubscriptionBasketCard';
 import { canSeeSubscriptionBaskets, listActiveSubscriptionBasketsForCommunity } from '../../services/subscriptionBasketService';
 import { useAuth } from '../../contexts/authContext';
+import { useSubscriber } from '../../contexts/SubscriberContext';
+import SubscriberStoreBanner from '../subscriptions/SubscriberStoreBanner';
 import CityShippingNotice from '../CityShippingNotice';
 import SearchBar from './SearchBar';
 import './CategoryStore.css';
@@ -133,6 +135,7 @@ const CategoryStore = () => {
     unlocked,
     openUnlockModal,
     signedInOnly,
+    subscribersOnly,
     canUsePromotion,
     promotionAccessReady,
   } = useCommunityWeeklyPromotion();
@@ -151,7 +154,19 @@ const CategoryStore = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { currentUser } = useAuth() || {};
-  const showSubscriptionBaskets = canSeeSubscriptionBaskets(currentUser);
+  // Subscriber mode: the store is pinned to the subscription's community and
+  // upcoming delivery date, and the cart is that delivery.
+  const subscriber = useSubscriber();
+  const subscriberActive = Boolean(subscriber?.active);
+  const subscriberCommunity = subscriberActive ? (subscriber.community || '') : '';
+  const subscriberDelivery = subscriber?.delivery;
+  const subscriberDeliveryDate = subscriberActive
+    ? (subscriberDelivery?.nextDeliveryDate && subscriberDelivery?.state === 'skipped'
+      ? subscriberDelivery.nextDeliveryDate
+      : subscriberDelivery?.deliveryDate || '')
+    : '';
+  const justActivated = Boolean(location.state?.subscriptionActivated);
+  const showSubscriptionBaskets = canSeeSubscriptionBaskets(currentUser) && !subscriberActive;
   const sliderRef = useRef(null);
   const storeTopRef = useRef(null);
   const communityDropdownRef = useRef(null);
@@ -377,6 +392,25 @@ const CategoryStore = () => {
       localStorage.setItem(`selectedDeliveryDate:${selectedCommunity}`, selectedDeliveryDate);
     }
   }, [selectedCommunity, selectedDeliveryDate]);
+
+  // Subscriber mode: show what can be ordered for the subscription's community
+  // and delivery date, whatever was selected before.
+  useEffect(() => {
+    if (!subscriberActive || !subscriberCommunity) return;
+    const resolved = resolveCommunityName(subscriberCommunity) || subscriberCommunity;
+    if (selectedCommunity !== resolved) {
+      setSelectedCommunity(resolved);
+      updatePickupSpot(resolved);
+    }
+  }, [subscriberActive, subscriberCommunity, selectedCommunity, updatePickupSpot]);
+
+  useEffect(() => {
+    if (!subscriberActive || !subscriberDeliveryDate || deliveryDatesLoading) return;
+    setAvailableDeliveryDates((current) => (
+      current.length === 1 && current[0] === subscriberDeliveryDate ? current : [subscriberDeliveryDate]
+    ));
+    setSelectedDeliveryDate(subscriberDeliveryDate);
+  }, [subscriberActive, subscriberDeliveryDate, deliveryDatesLoading, deliverySchedule]);
 
   useEffect(() => {
     let active = true;
@@ -1004,6 +1038,10 @@ const CategoryStore = () => {
     });
   }, [addItem, getCartItems, selectedCommunity]);
 
+  const scrollToSubscriptionBaskets = useCallback(() => {
+    document.getElementById('subscription-baskets')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   const handleClearMultiSearch = useCallback(() => {
     setMultiSearchSections(null);
   }, []);
@@ -1118,7 +1156,10 @@ const CategoryStore = () => {
     <ProductFeedbackProvider>
     <div className="category-store-container" dir="rtl" id="category-store" ref={storeTopRef}>
       <div className="w-full max-w-full mx-auto">
-        {/* Community Selector - small list above search */}
+        <SubscriberStoreBanner justActivated={justActivated} />
+
+        {/* Community Selector - small list above search (subscribers shop for their own delivery) */}
+        {!subscriberActive && (
         <div className="mt-2 mb-3 px-1 max-w-xs" ref={communityDropdownRef}>
           <label className="block text-gray-700 text-sm font-medium mb-2 text-right">אזור איסוף:</label>
           <div className="relative">
@@ -1172,6 +1213,7 @@ const CategoryStore = () => {
             )}
           </div>
         </div>
+        )}
 
         {selectedCommunity && activePromotion && (
           <div className="mb-3 px-1">
@@ -1179,7 +1221,9 @@ const CategoryStore = () => {
               promotion={activePromotion}
               unlocked={canUsePromotion && unlocked}
               onUnlock={openUnlockModal}
-              requiresSignIn={signedInOnly && promotionAccessReady && !canUsePromotion}
+              requiresSignIn={signedInOnly && !subscribersOnly && promotionAccessReady && !canUsePromotion}
+              requiresSubscription={subscribersOnly && promotionAccessReady && !canUsePromotion}
+              onSubscribe={subscriptionBaskets.length > 0 ? scrollToSubscriptionBaskets : null}
               checkingAccess={signedInOnly && !promotionAccessReady}
             />
           </div>
@@ -1189,7 +1233,7 @@ const CategoryStore = () => {
           <CityShippingNotice community={selectedCommunity} className="mb-3 mx-1" />
         )}
 
-        {selectedCommunity && !deliveryDatesLoading && availableDeliveryDates.length === 0 && (
+        {!subscriberActive && selectedCommunity && !deliveryDatesLoading && availableDeliveryDates.length === 0 && (
           <div className="mb-3 px-1">
             <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-right">
               אין תאריכי משלוח זמינים לקהילה זו כרגע.
@@ -1197,7 +1241,7 @@ const CategoryStore = () => {
           </div>
         )}
 
-        {selectedCommunity && availableDeliveryDates.length > 0 && (
+        {!subscriberActive && selectedCommunity && availableDeliveryDates.length > 0 && (
           <div className="mb-3 px-1">
             {isShowingNextDeliveryWeek(availableDeliveryDates) && (
               <p className="text-lg font-black text-amber-900 bg-amber-100 border-2 border-amber-400 rounded-lg p-3 mb-3 text-right">
@@ -1334,7 +1378,7 @@ const CategoryStore = () => {
           </div>
         )}
 
-        {!isSearchActive && selectedCommunity && !basketsLoading && introductionBaskets.length > 0 && (
+        {!subscriberActive && !isSearchActive && selectedCommunity && !basketsLoading && introductionBaskets.length > 0 && (
           <section className="mb-8">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
@@ -1357,7 +1401,7 @@ const CategoryStore = () => {
         )}
 
         {!isSearchActive && selectedCommunity && subscriptionBaskets.length > 0 && (
-          <section className="mb-8">
+          <section className="mb-8 scroll-mt-24" id="subscription-baskets">
             <div className="mb-3">
               <h3 className="text-xl font-black text-amber-900">סל קבוע עד אליכם</h3>
               <p className="text-sm text-gray-600">

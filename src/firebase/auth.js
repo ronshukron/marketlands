@@ -15,6 +15,9 @@ import {
   serverTimestamp 
 } from "firebase/firestore";
 
+export const ACCOUNT_VERIFICATION_COLLECTION = 'accountVerification';
+export const ACCOUNT_VERIFICATION_REQUIRED_EVENT = 'bb:account-verification-required';
+
 export const doCreateUserWithEmailAndPassword = async (email, password, userData, collection) => {
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
@@ -24,6 +27,20 @@ export const doCreateUserWithEmailAndPassword = async (email, password, userData
     ...userData,
     createdAt: new Date()
   });
+
+  // New customer accounts must verify their phone by SMS. Accounts created
+  // before this have no record and are never asked. Guest ordering is unchanged.
+  if (collection === 'users') {
+    try {
+      await setDoc(doc(db, ACCOUNT_VERIFICATION_COLLECTION, user.uid), {
+        required: true,
+        createdAt: serverTimestamp(),
+      });
+      window.dispatchEvent(new CustomEvent(ACCOUNT_VERIFICATION_REQUIRED_EVENT, { detail: { uid: user.uid } }));
+    } catch (error) {
+      console.warn('Could not record the account verification requirement', error);
+    }
+  }
 
   return userCredential;
 };
@@ -89,8 +106,17 @@ export const doPasswordChange = (password) => {
   return updatePassword(auth.currentUser, password);
 };
 
-export const doSendEmailVerification = () => {
-  return sendEmailVerification(auth.currentUser, {
-    url: `${window.location.origin}/home`,
-  });
+export const doSendEmailVerification = async () => {
+  if (!auth.currentUser) throw new Error('UNAUTHENTICATED');
+  auth.languageCode = 'he';
+  try {
+    // The link in the email brings the customer back to the store.
+    return await sendEmailVerification(auth.currentUser, { url: `${window.location.origin}/` });
+  } catch (error) {
+    // A site address not listed in Firebase's authorized domains: send without the return link.
+    if (error?.code === 'auth/unauthorized-continue-uri' || error?.code === 'auth/invalid-continue-uri') {
+      return sendEmailVerification(auth.currentUser);
+    }
+    throw error;
+  }
 };

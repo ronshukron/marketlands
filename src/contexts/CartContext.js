@@ -11,6 +11,7 @@ import {
 import { attachGoLiveLinkedOrders } from '../services/orderGoLiveService';
 import CommunityWeeklyPromotionContext from './CommunityWeeklyPromotionContext';
 import { useWeightBuffer } from './WeightBufferContext';
+import { useSubscriber } from './SubscriberContext';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -36,6 +37,11 @@ export const CartProvider = ({ children }) => {
   const weeklyPromotion = useContext(CommunityWeeklyPromotionContext);
   const decorateProduct = weeklyPromotion?.decorateProduct || ((item) => item);
   const { bufferPercent } = useWeightBuffer();
+  // Subscriber mode: the cart is the upcoming subscription delivery. Items come
+  // from that order and every change is saved to it; the regular cart in
+  // localStorage is left alone until the customer leaves subscriber mode.
+  const subscriber = useSubscriber();
+  const subscriberMode = Boolean(subscriber?.active);
   // State variable to store the array of items currently in the cart.
   // Each item is an object with details like id, name, price, quantity, orderId, businessId, and a unique uid.
   const [cartItems, setCartItems] = useState([]);
@@ -435,24 +441,30 @@ export const CartProvider = ({ children }) => {
     }
   };
 
+  const subscriberItems = subscriber?.items;
+  const effectiveItems = useMemo(
+    () => (subscriberMode ? subscriberItems || [] : cartItems),
+    [cartItems, subscriberItems, subscriberMode],
+  );
+
   // Calculate the total monetary value of all items in the cart.
   // useMemo ensures this calculation is only re-run when cartItems changes.
   const cartTotal = useMemo(() => {
     // For unit-based weighed items, estimate by averageWeightKg.
-    return cartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0);
-  }, [cartItems]); // Dependency array: recalculate only if cartItems changes
+    return effectiveItems.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0);
+  }, [effectiveItems]); // Dependency array: recalculate only if cartItems changes
 
   // Shown/held total: kg lines include the weight buffer for delayed-payment spots.
   const cartHoldTotal = useMemo(() => (
-    cartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item, { bufferPercent }), 0)
-  ), [bufferPercent, cartItems]);
+    effectiveItems.reduce((sum, item) => sum + getEstimatedLineTotal(item, { bufferPercent }), 0)
+  ), [bufferPercent, effectiveItems]);
 
   // Calculate the total number of individual items in the cart (sum of quantities).
   // useMemo ensures this calculation is only re-run when cartItems changes.
   const totalItems = useMemo(() => {
     // Sum the quantity for each item.
-    return cartItems.reduce((sum, item) => sum + (item.isBasketAdjustment ? 0 : item.quantity), 0);
-  }, [cartItems]); // Dependency array: recalculate only if cartItems changes
+    return effectiveItems.reduce((sum, item) => sum + (item.isBasketAdjustment ? 0 : item.quantity), 0);
+  }, [effectiveItems]); // Dependency array: recalculate only if cartItems changes
 
   // Group cart items by their orderId. Also calculates the total for each order.
   // This is useful for displaying the cart separated by orders or for processing checkouts per order.
@@ -461,7 +473,7 @@ export const CartProvider = ({ children }) => {
     const grouped = {}; // Initialize an empty object to store grouped items
 
     // Iterate over each item in the cart.
-    cartItems.forEach(item => {
+    effectiveItems.forEach(item => {
       // If this orderId hasn't been seen yet, initialize its entry in the grouped object.
       if (!grouped[item.orderId]) {
         grouped[item.orderId] = {
@@ -488,35 +500,57 @@ export const CartProvider = ({ children }) => {
 
     // Return the final object containing items grouped by orderId, along with order totals and metadata.
     return grouped;
-  }, [bufferPercent, cartItems, orderInfoMap]); // Dependencies: recalculate if items or order info change
+  }, [bufferPercent, effectiveItems, orderInfoMap]); // Dependencies: recalculate if items or order info change
+
+  // In subscriber mode every cart action is saved to the upcoming delivery.
+  // Actions that only make sense for a regular cart do nothing there.
+  const subscriberAddToOrder = subscriber?.addToOrder;
+  const subscriberSetQuantityByUid = subscriber?.setQuantityByUid;
+  // Returns false when the item could not be added (the customer was told why).
+  const subscriberAddItem = useCallback((item, orderId) => (
+    subscriberAddToOrder ? subscriberAddToOrder(item, orderId) : false
+  ), [subscriberAddToOrder]);
+  const subscriberRemoveItem = useCallback((uid) => {
+    if (subscriberSetQuantityByUid) subscriberSetQuantityByUid(uid, 0);
+  }, [subscriberSetQuantityByUid]);
+  const subscriberUpdateQuantity = useCallback((uid, quantity) => {
+    if (subscriberSetQuantityByUid) subscriberSetQuantityByUid(uid, Math.max(0, quantity));
+  }, [subscriberSetQuantityByUid]);
+  const ignoreInSubscriberMode = useCallback(() => {}, []);
+  const emptySnapshot = useCallback(() => ({ cartItems: [], orderInfoMap: {} }), []);
 
   // The value object provided to consumers of the CartContext.
   // It includes the cart state (cartItems, orderInfoMap) and the functions to modify it,
   // as well as the memoized derived values (cartTotal, totalItems, itemsByOrder).
   const value = {
-    cartItems,
-    addItem,
-    removeItem,
-    updateQuantity,
-    clearCart,
-    clearOrderItems,
-    removeOrderFromCart, // Add this line
-    removeBasketInstance,
+    cartItems: effectiveItems,
+    addItem: subscriberMode ? subscriberAddItem : addItem,
+    removeItem: subscriberMode ? subscriberRemoveItem : removeItem,
+    updateQuantity: subscriberMode ? subscriberUpdateQuantity : updateQuantity,
+    clearCart: subscriberMode ? ignoreInSubscriberMode : clearCart,
+    clearOrderItems: subscriberMode ? ignoreInSubscriberMode : clearOrderItems,
+    removeOrderFromCart: subscriberMode ? ignoreInSubscriberMode : removeOrderFromCart, // Add this line
+    removeBasketInstance: subscriberMode ? ignoreInSubscriberMode : removeBasketInstance,
     cartTotal,
     cartHoldTotal,
     totalItems,
     itemsByOrder,
     orderInfoMap,
-    getCartSnapshot,
-    replaceCart,
-    mergeCart,
-    applyCommercialRefresh,
+    getCartSnapshot: subscriberMode ? emptySnapshot : getCartSnapshot,
+    replaceCart: subscriberMode ? ignoreInSubscriberMode : replaceCart,
+    mergeCart: subscriberMode ? ignoreInSubscriberMode : mergeCart,
+    applyCommercialRefresh: subscriberMode ? ignoreInSubscriberMode : applyCommercialRefresh,
+    subscriberMode,
   };
   // Lets action-only consumers read the current cart without re-rendering on every cart change.
-  const cartItemsRef = useRef(cartItems);
-  cartItemsRef.current = cartItems;
+  const cartItemsRef = useRef(effectiveItems);
+  cartItemsRef.current = effectiveItems;
   const getCartItems = useCallback(() => cartItemsRef.current, []);
-  const actionsValue = useMemo(() => ({ addItem, getCartItems }), [addItem, getCartItems]);
+  const effectiveAddItem = subscriberMode ? subscriberAddItem : addItem;
+  const actionsValue = useMemo(
+    () => ({ addItem: effectiveAddItem, getCartItems, subscriberMode }),
+    [effectiveAddItem, getCartItems, subscriberMode],
+  );
 
   // Render the CartContext.Provider, passing the 'value' object down
   // to all descendant components wrapped by CartProvider.

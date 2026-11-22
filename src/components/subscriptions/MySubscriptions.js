@@ -4,6 +4,8 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
 import LoadingSpinner from '../LoadingSpinner';
 import SecureCardProgress, { useResetOnPageRestore } from './SecureCardProgress';
+import SubscriptionBusyOverlay from './SubscriptionBusyOverlay';
+import { useSubscriber } from '../../contexts/SubscriberContext';
 import {
   CARD_CONSENT_TEXT,
   FREQUENCY_LABELS,
@@ -17,6 +19,10 @@ import {
 } from '../../services/basketSubscriptionService';
 import { getCustomerOrderDisplayTotal, getCustomerOrderStatusInfo, STATUS_BADGE_CLASSES } from '../../utils/customerOrderDisplay';
 import { parseDateSafe } from '../../utils/deliveryScheduleUtils';
+
+// After replacing a card: how long to wait for Grow's server update.
+const REPLACE_CARD_CHECKS = 8;
+const REPLACE_CARD_CHECK_DELAY_MS = 2500;
 
 const DELIVERY_OPTION_LABELS = {
   pickup: 'איסוף מנקודת החלוקה',
@@ -38,6 +44,9 @@ const formatDateKey = (dateKey) => {
 };
 
 const SubscriptionCard = ({ subscription, onChanged }) => {
+  const subscriber = useSubscriber();
+  // In subscriber mode the upcoming delivery is edited in the store itself.
+  const editInStore = Boolean(subscriber?.active) && subscriber?.delivery?.subscription?.id === subscription.id;
   const [orders, setOrders] = useState([]);
   const [busy, setBusy] = useState('');
   // '' | 'preparing' | 'redirecting', while opening Grow's card page
@@ -111,8 +120,39 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
   const skipDates = Array.isArray(subscription.skipDates) ? subscription.skipDates : [];
   const nextDate = subscription.nextDeliveryDate;
   const nextIsSkipped = nextDate && skipDates.includes(nextDate);
-  const upcomingOrders = orders.filter((order) => order.paymentStatus === 'held' && order.delayedOrderStatus === 'pending_weighing');
-  const pastOrders = orders.filter((order) => !upcomingOrders.includes(order));
+  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+  const byDateAsc = (a, b) => String(a.deliveryDate || '').localeCompare(String(b.deliveryDate || ''));
+  const upcomingOrders = orders
+    .filter((order) => order.paymentStatus === 'held' && order.delayedOrderStatus === 'pending_weighing')
+    .sort(byDateAsc);
+  // Deliveries the customer skipped that have not happened yet: still "upcoming", with an undo.
+  const skippedOrders = orders.filter((order) => order.paymentStatus === 'canceled'
+    && order.cancelReason === 'customer_skip' && String(order.deliveryDate || '') >= todayKey);
+  const pastOrders = orders.filter((order) => !upcomingOrders.includes(order) && !skippedOrders.includes(order));
+  const skippedDates = [...new Set(skipDates.filter((date) => date >= todayKey && date !== nextDate))].sort();
+
+  const restore = async (deliveryDate) => {
+    setBusy('unskip');
+    try {
+      const result = await updateBasketSubscription(subscription.id, 'unskip', { deliveryDate });
+      await onChanged();
+      const dropped = Array.isArray(result?.droppedProductNames) ? result.droppedProductNames : [];
+      if (result?.restored) {
+        Swal.fire({
+          title: 'המשלוח חזר',
+          text: dropped.length > 0
+            ? `חלק מהמוצרים אזלו בינתיים ולא נכנסו: ${dropped.join(', ')}`
+            : 'הסל חזר בדיוק כמו שהיה.',
+          icon: 'success',
+          confirmButtonText: 'הבנתי',
+        });
+      }
+    } catch (error) {
+      Swal.fire('הפעולה נכשלה', describeSubscriptionError(error), 'error');
+    } finally {
+      setBusy('');
+    }
+  };
 
   return (
     <article className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-5">
@@ -156,12 +196,12 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
             {nextIsSkipped ? ' (מדלגים)' : ''}
           </span>
           {nextIsSkipped ? (
-            <button type="button" disabled={Boolean(busy)} onClick={() => run('unskip', { deliveryDate: nextDate })}
-              className="px-3 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold disabled:opacity-50">
-              בטל דילוג
+            <button type="button" disabled={Boolean(busy)} onClick={() => restore(nextDate)}
+              className="px-3 py-1 rounded-md bg-emerald-700 text-white hover:bg-emerald-800 text-xs font-semibold disabled:opacity-50">
+              ביטול הדילוג
             </button>
           ) : (
-            <button type="button" disabled={Boolean(busy)} onClick={() => run('skip', { deliveryDate: nextDate })}
+            <button type="button" disabled={Boolean(busy)} onClick={() => run('skip', { deliveryDate: nextDate }, 'לדלג על המשלוח הזה? אפשר לבטל את הדילוג עד מועד הסגירה.')}
               className="px-3 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-semibold disabled:opacity-50">
               דלג על משלוח זה
             </button>
@@ -169,9 +209,35 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
         </div>
       )}
 
-      {upcomingOrders.length > 0 && (
+      {isOpen && status !== 'pending_card' && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-emerald-900">הסל הקבוע שלי</h3>
+              <p className="text-xs text-emerald-800">
+                {subscription.recurringLines?.length > 0
+                  ? `${subscription.recurringLines.length} מוצרים שבחרתם`
+                  : 'הסל כפי שהוגדר במנוי'}
+                {' · השינוי יחול על משלוחים שעדיין לא נוצרו'}
+              </p>
+            </div>
+            <span className="flex flex-wrap gap-2">
+              <Link to={`/my-subscriptions/${subscription.id}/basket`} className="px-3 py-1.5 rounded-md bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800">
+                עריכת הסל הקבוע
+              </Link>
+              {editInStore && upcomingOrders.length > 0 && (
+                <Link to="/" className="px-3 py-1.5 rounded-md bg-white text-emerald-800 border border-emerald-300 text-xs font-semibold hover:bg-emerald-100">
+                  לעריכת המשלוח הקרוב
+                </Link>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {(upcomingOrders.length > 0 || skippedOrders.length > 0 || skippedDates.length > 0) && (
         <div className="mt-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">סל שמחכה לך</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">המשלוחים הקרובים</h3>
           <ul className="space-y-2">
             {upcomingOrders.map((order) => (
               <li key={order.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
@@ -179,15 +245,39 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
                   {formatDateKey(order.deliveryDate)} · כ-₪{getCustomerOrderDisplayTotal(order).amount.toFixed(2)}
                 </span>
                 <span className="flex gap-2">
-                  <Link to={`/my-orders/${order.id}`} className="px-3 py-1 rounded-md bg-amber-600 text-white text-xs font-semibold">
+                  <Link to={editInStore ? '/' : `/my-orders/${order.id}`} className="px-3 py-1 rounded-md bg-amber-600 text-white text-xs font-semibold">
                     עריכת הסל
                   </Link>
                   <button type="button" disabled={Boolean(busy)}
-                    onClick={() => run('skip', { deliveryDate: order.deliveryDate }, 'לבטל את המשלוח הזה?')}
+                    onClick={() => run('skip', { deliveryDate: order.deliveryDate }, 'לדלג על המשלוח הזה? אפשר לבטל את הדילוג עד מועד הסגירה.')}
                     className="px-3 py-1 rounded-md bg-white text-gray-700 border border-gray-300 text-xs font-semibold disabled:opacity-50">
                     דלג
                   </button>
                 </span>
+              </li>
+            ))}
+            {skippedOrders.map((order) => (
+              <li key={order.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+                <span className="text-gray-600">
+                  <span className="line-through">{formatDateKey(order.deliveryDate)}</span>
+                  <span className="mr-2 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">דילגתם</span>
+                </span>
+                <button type="button" disabled={Boolean(busy)} onClick={() => restore(order.deliveryDate)}
+                  className="px-3 py-1 rounded-md bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800 disabled:opacity-50">
+                  ביטול הדילוג
+                </button>
+              </li>
+            ))}
+            {skippedDates.map((date) => (
+              <li key={`skip-${date}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+                <span className="text-gray-600">
+                  <span className="line-through">{formatDateKey(date)}</span>
+                  <span className="mr-2 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">דילגתם</span>
+                </span>
+                <button type="button" disabled={Boolean(busy)} onClick={() => restore(date)}
+                  className="px-3 py-1 rounded-md bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800 disabled:opacity-50">
+                  ביטול הדילוג
+                </button>
               </li>
             ))}
           </ul>
@@ -246,6 +336,7 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
           </button>
         </div>
       )}
+      <SubscriptionBusyOverlay action={busy} />
       <SecureCardProgress
         step={cardStep}
         purpose={status === 'pending_card' ? 'signup' : 'replace'}
@@ -290,7 +381,12 @@ const MySubscriptions = () => {
       if (returnedId && cardResult === 'saved') {
         setConfirmingCard(true);
         try {
-          await confirmBasketSubscriptionCard(returnedId);
+          // Wait briefly for Grow's server update to save the new card.
+          for (let attempt = 0; attempt < REPLACE_CARD_CHECKS; attempt += 1) {
+            const result = await confirmBasketSubscriptionCard(returnedId);
+            if (!result?.cardPending) break;
+            await new Promise((resolve) => { setTimeout(resolve, REPLACE_CARD_CHECK_DELAY_MS); });
+          }
         } catch (err) {
           console.warn('Card confirmation after replace failed; the webhook will finish it', err);
         } finally {

@@ -30,6 +30,16 @@ const item = (overrides = {}) => ({
 });
 
 describe('findUnlockedWeeklyPromotion', () => {
+  it('gives a subscribers-only promotion to subscription orders only', () => {
+    const unlocksByKey = { [weeklyPromotionUnlockKey('promo-1', 'north')]: { unlocked: true } };
+    const subscribersPromotion = { ...promotion, subscribersOnly: true };
+    const base = {
+      promotions: [subscribersPromotion], weekKey: '2026-10-04', communityCode: 'north', unlocksByKey,
+    };
+    expect(findUnlockedWeeklyPromotion(base)).toBeNull();
+    expect(findUnlockedWeeklyPromotion({ ...base, isSubscriptionOrder: true })).toBe(subscribersPromotion);
+  });
+
   it('requires a matching week, target community and confirmed unlock', () => {
     const unlocksByKey = { [weeklyPromotionUnlockKey('promo-1', 'north')]: { unlocked: true } };
     expect(findUnlockedWeeklyPromotion({
@@ -137,5 +147,43 @@ describe('buildCommunityWeeklyPromotionOrderPatch', () => {
       weeklyPromotion: { promotionId: 'p', lines: [{ lineId: 'x', promotionPrice: 1 }] },
       fingerprint: 'f',
     })).toBeNull();
+  });
+});
+
+describe('weekly promotion limit at charge time', () => {
+  const limited = {
+    ...promotion,
+    productSnapshots: [{ productId: 'tomato', orderId: 'sale-1', promotionPrice: 6, maxQuantity: 1 }],
+  };
+
+  it('gives the promotion price up to the limit and the regular price for the rest', () => {
+    // 3 kg: 1 at 6 + 2 at 10 = 26, so 8.6667 per kg.
+    const resolved = resolveWeeklyPromotionForOrder({
+      items: [item({ requestedQuantity: 3 })],
+      promotion: limited,
+      communityCode: 'north',
+    });
+    expect(resolved.lines[0]).toMatchObject({
+      promotionPrice: 8.6667,
+      unitPromotionPrice: 6,
+      promotionQuantity: 1,
+      maxQuantity: 1,
+    });
+    expect(applyWeeklyPromotionToItems([item({ requestedQuantity: 3 })], resolved)[0].price).toBe(8.6667);
+  });
+
+  it('counts lines priced at checkout and skips lines past the limit', () => {
+    const resolved = resolveWeeklyPromotionForOrder({
+      items: [
+        item({ lineId: 'paid-at-checkout', communityWeeklyPromotionApplied: true, communityWeeklyPromotionId: 'promo-1', communityWeeklyPromotionQuantity: 0.5 }),
+        item({ lineId: 'second', requestedQuantity: 1 }),
+        item({ lineId: 'third', requestedQuantity: 1 }),
+      ],
+      promotion: limited,
+      communityCode: 'north',
+    });
+    expect(resolved.lines.map((line) => [line.lineId, line.promotionQuantity, line.promotionPrice])).toEqual([
+      ['second', 0.5, 8],
+    ]);
   });
 });

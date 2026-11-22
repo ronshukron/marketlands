@@ -5,12 +5,25 @@ import { useAuth } from '../contexts/authContext';
 import { getCheckoutRoute } from '../services/paymentConfigService';
 import { saveCart } from '../services/savedCartService';
 import Swal from 'sweetalert2';
-import { evaluateOrderMinimum, formatOrderMinimumFailure, getBufferedDisplayQuantity, getEstimatedChargeableQuantity } from '../utils/pricing';
+import {
+  evaluateOrderMinimum,
+  formatOrderMinimumFailure,
+  formatWeeklyPromotionLimit,
+  getBufferedDisplayQuantity,
+  getEstimatedChargeableQuantity,
+} from '../utils/pricing';
 import { trackInitiateCheckout } from '../utils/metaPixel';
 import { useWeightBuffer } from '../contexts/WeightBufferContext';
 import CityShippingNotice from './CityShippingNotice';
+import SubscriptionCart from './subscriptions/SubscriptionCart';
 
-const Cart = ({ isOpen, onClose }) => {
+// Subscribers' cart is their upcoming subscription delivery, with no checkout.
+const Cart = (props) => {
+  const { subscriberMode } = useCart();
+  return subscriberMode ? <SubscriptionCart {...props} /> : <RegularCart {...props} />;
+};
+
+const RegularCart = ({ isOpen, onClose }) => {
   const { cartItems, removeItem, removeBasketInstance, updateQuantity, cartTotal, cartHoldTotal, totalItems, getCartSnapshot, itemsByOrder } = useCart();
   const { bufferPercent } = useWeightBuffer();
   const displayTotal = bufferPercent > 0 ? cartHoldTotal : cartTotal;
@@ -244,6 +257,13 @@ const Cart = ({ isOpen, onClose }) => {
                           {Number(item.basePrice) > Number(item.effectivePrice) && (
                             <span className="text-gray-400 font-normal mr-1 line-through">
                               ₪{Number(item.basePrice).toFixed(2)}
+                            </span>
+                          )}
+                          {Number(item.communityWeeklyPromotionMaxQuantity) > 0
+                            && Number(item.communityWeeklyPromotionQuantity) < Number(item.quantity) && (
+                            <span className="block font-normal text-gray-600">
+                              {formatWeeklyPromotionLimit(item.communityWeeklyPromotionQuantity, item.measurementType || 'kg')}
+                              {' '}במחיר המבצע (₪{Number(item.communityWeeklyPromotionPrice).toFixed(2)}), השאר במחיר רגיל
                             </span>
                           )}
                         </p>

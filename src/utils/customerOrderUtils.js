@@ -7,6 +7,7 @@ const COMPLETED_PAYMENT_STATUSES = new Set(['completed', 'paid', 'charged', 'set
 const COMPLETED_DELAYED_STATUSES = new Set(['completed', 'charged', 'settled']);
 const TERMINAL_FAILURE_STATUSES = new Set([
   'abandoned',
+  'canceled',
   'cancelled',
   'cancelled_by_admin',
   'failed',

@@ -669,7 +669,11 @@ export function buildCommunityWeeklyPromotionOrderPatch({
         communityWeeklyPromotionUnlocked: true,
         communityWeeklyPromotionRetroactive: true,
         communityWeeklyPromotionId: weeklyPromotion.promotionId,
-        communityWeeklyPromotionPrice: promotionPrice,
+        communityWeeklyPromotionPrice: safeNumber(line.unitPromotionPrice, promotionPrice),
+        ...(line.maxQuantity ? {
+          communityWeeklyPromotionMaxQuantity: line.maxQuantity,
+          communityWeeklyPromotionQuantity: line.promotionQuantity,
+        } : {}),
         communityWeeklyPromotionCommunityCode: weeklyPromotion.communityCode || '',
         communityWeeklyPromotionWeekKey: weeklyPromotion.weekKey || '',
         communityWeeklyPromotionFingerprint: fingerprint,

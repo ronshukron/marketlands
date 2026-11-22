@@ -5,7 +5,7 @@ import { useCart } from '../../contexts/CartContext';
 
 const ProductGrid = ({ products, calculateTimeRemaining, selectedCommunity }) => {
   const { decorateProduct, openUnlockModal, unlocked } = useCommunityWeeklyPromotion();
-  const { addItem, cartItems } = useCart();
+  const { addItem, cartItems, subscriberMode } = useCart();
   const decoratedProducts = useMemo(
     () => products.map(decorateProduct),
     [decorateProduct, products],
@@ -40,6 +40,7 @@ const ProductGrid = ({ products, calculateTimeRemaining, selectedCommunity }) =>
           selectedCommunity={selectedCommunity}
           quantityInCart={quantitiesByProduct.get(product.id) || 0}
           addItem={addItem}
+          subscriberMode={Boolean(subscriberMode)}
           openUnlockModal={openUnlockModal}
           communityUnlocked={unlocked}
         />
