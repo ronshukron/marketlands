@@ -28,6 +28,7 @@ import {
   applyProcurementOverrides,
   buildSupplierOrderText,
   formatNativeQuantity,
+  getProcurementCutoffGroups,
   getProcurementOverrideCandidates,
   getSupplierProgressStatus,
 } from '../../utils/supplierOrderProgressUtils';
@@ -37,11 +38,13 @@ import {
   fetchProgressForBusinesses,
   getSafeDocId,
   removeSupplierOrderBatch,
+  setProcurementCutoff,
   setProcurementOverride,
 } from '../../services/supplierOrderProgressService';
 import LoadingSpinner from '../LoadingSpinner';
 import CustomerOrderDeliveryTransferControl from './CustomerOrderDeliveryTransferControl';
 import ContinuousSupplierOrderModal from './ContinuousSupplierOrderModal';
+import ProcurementCutoffPanel from './ProcurementCutoffPanel';
 import { buildWhatsappLink } from '../../constants/marketplaceStoreContent';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -138,6 +141,8 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
   const [orders, setOrders] = useState([]);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [hasLoadedOrders, setHasLoadedOrders] = useState(false);
+  // When the orders on screen were read. Later orders are not on screen.
+  const [ordersLoadedAt, setOrdersLoadedAt] = useState(null);
   const [loadRequestId, setLoadRequestId] = useState(0);
   const [activeView, setActiveView] = useState('suppliers');
   const [orderMessageName, setOrderMessageName] = useState('');
@@ -237,6 +242,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
 
   const fetchOrders = async () => {
     const requestId = ++fetchRequestRef.current;
+    const loadStartedAt = new Date();
     setLoading(true);
     setError('');
     try {
@@ -296,6 +302,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
       nextOrders.sort((a, b) => b.deliveryDate - a.deliveryDate);
       if (requestId !== fetchRequestRef.current) return;
       setOrders(nextOrders);
+      setOrdersLoadedAt(loadStartedAt);
       setHasLoadedOrders(true);
     } catch (err) {
       if (requestId !== fetchRequestRef.current) return;
@@ -322,6 +329,11 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
 
   const overrideCandidates = useMemo(
     () => getProcurementOverrideCandidates(orders, procurementOverrides, selectedDeliveryDate),
+    [orders, procurementOverrides, selectedDeliveryDate]
+  );
+
+  const cutoffGroups = useMemo(
+    () => getProcurementCutoffGroups(orders, procurementOverrides, selectedDeliveryDate),
     [orders, procurementOverrides, selectedDeliveryDate]
   );
 
@@ -402,6 +414,7 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
         community: candidate.community,
         originalDeliveryDate: candidate.originalDeliveryDate,
         procureOnDate: selectedDeliveryDate,
+        cutoffAt: (ordersLoadedAt || new Date()).toISOString(),
         setBy: currentUser?.uid || null,
       });
       setProcurementOverrides((prev) => [
@@ -415,6 +428,31 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
     } catch (err) {
       console.error('Failed to save procurement override:', err);
       alert('שגיאה בשמירת הקהילה ליום הרכש');
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
+
+  const handleSaveProcurementCutoff = async (group, cutoffAt) => {
+    setOverrideSaving(true);
+    try {
+      const weekKey = getWeekKey(group.originalDeliveryDate);
+      const saved = await setProcurementCutoff(weekKey, {
+        originalDeliveryDate: group.originalDeliveryDate,
+        procureOnDate: group.procureOnDate,
+        communities: group.entries.map((entry) => entry.community),
+        cutoffAt,
+        setBy: currentUser?.uid || null,
+      });
+      setProcurementOverrides((prev) => [
+        ...prev.filter((entry) => entry.weekKey !== weekKey),
+        ...saved.map((entry) => ({ ...entry, weekKey })),
+      ]);
+      return true;
+    } catch (err) {
+      console.error('Failed to save procurement cutoff:', err);
+      alert('שגיאה בשמירת שעת הסגירה');
+      return false;
     } finally {
       setOverrideSaving(false);
     }
@@ -937,6 +975,14 @@ const WeeklyDeliveryOrderSummaryWorkspace = () => {
                   )).join(', ')}
                 </div>
               )}
+              <ProcurementCutoffPanel
+                groups={cutoffGroups}
+                formatDayLabel={formatDayLabel}
+                ordersLoadedAt={ordersLoadedAt}
+                selectedDeliveryDate={selectedDeliveryDate}
+                saving={overrideSaving}
+                onSave={handleSaveProcurementCutoff}
+              />
             </>
           )}
         </div>

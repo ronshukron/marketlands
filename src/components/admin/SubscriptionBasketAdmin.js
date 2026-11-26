@@ -5,15 +5,16 @@ import { db } from '../../firebase/firebase';
 import { useAuth } from '../../contexts/authContext';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
-import { getEstimatedLineTotal } from '../../utils/pricing';
-import { getIntroductionBasketComponentSubtotal } from '../../services/introductionBasketService';
+import { estimateRecurringLine, getRecurringUnitPricing } from '../../utils/recurringBasket';
 import {
   DEFAULT_OPEN_LEAD_HOURS,
   MAX_OPEN_LEAD_HOURS,
   deleteSubscriptionBasket,
+  getSubscriptionBasketSubtotal,
   listCommunitiesWithDeliverySchedule,
   listSubscriptionBasketProductCandidates,
   listSubscriptionBaskets,
+  refreshBasketLinePrice,
   saveSubscriptionBasket,
 } from '../../services/subscriptionBasketService';
 import { BASKET_SUBSCRIPTIONS_COLLECTION } from '../../services/basketSubscriptionService';
@@ -84,7 +85,7 @@ const SubscriptionBasketAdmin = () => {
   );
 
   const componentSubtotal = useMemo(
-    () => getIntroductionBasketComponentSubtotal(form.componentLines),
+    () => getSubscriptionBasketSubtotal(form.componentLines),
     [form.componentLines]
   );
 
@@ -177,7 +178,8 @@ const SubscriptionBasketAdmin = () => {
       sortOrder: basket.sortOrder || 0,
       communities: basket.communities || [],
       openLeadHours: String(basket.openLeadHours || DEFAULT_OPEN_LEAD_HOURS),
-      componentLines: basket.componentLines || [],
+      // Today's price and quantity discount, as the deliveries will be priced.
+      componentLines: (basket.componentLines || []).map((line) => refreshBasketLinePrice(line, productCandidates)),
     });
     setProductQuery('');
   };
@@ -256,8 +258,20 @@ const SubscriptionBasketAdmin = () => {
       return;
     }
     if (form.componentLines.length === 0) {
-      Swal.fire('שגיאה', 'בחרו לפחות מוצר אחד לסל', 'error');
-      return;
+      const following = editingId && (subscriberCounts[editingId]?.active || 0) > 0
+        && (baskets.find((basket) => basket.id === editingId)?.componentLines.length || 0) > 0;
+      const confirmEmpty = await Swal.fire({
+        title: 'לשמור סל ריק?',
+        html: 'הלקוחות יבנו את הסל בעצמם בעמוד ההרשמה, מהמוצרים שזמינים ביישוב שלהם.'
+          + (following
+            ? '<br/><br/>שימו לב: מנויים קיימים שלא בחרו סל משלהם ידלגו על משלוחים עד שיוסיפו מוצרים בעמוד "הסל הקבוע".'
+            : ''),
+        icon: following ? 'warning' : 'question',
+        showCancelButton: true,
+        confirmButtonText: 'שמירת סל ריק',
+        cancelButtonText: 'ביטול',
+      });
+      if (!confirmEmpty.isConfirmed) return;
     }
     const openLeadHours = Number(form.openLeadHours);
     if (!Number.isFinite(openLeadHours) || openLeadHours < 1 || openLeadHours > MAX_OPEN_LEAD_HOURS) {
@@ -293,7 +307,7 @@ const SubscriptionBasketAdmin = () => {
       const basketId = await saveSubscriptionBasket(editingId, {
         ...form,
         openLeadHours,
-        componentLines: form.componentLines.map((line) => ({
+        componentLines: form.componentLines.map((line) => refreshBasketLinePrice(line, productCandidates)).map((line) => ({
           ...line,
           quantity: Number(line.quantity) || 0,
           price: Number(line.price ?? line.priceSnapshot) || 0,
@@ -386,7 +400,9 @@ const SubscriptionBasketAdmin = () => {
                       <div>
                         <p className="font-semibold text-gray-900">{basket.title}</p>
                         <p className="text-xs text-gray-500">
-                          כ-{formatMoney(basket.componentSubtotal)} · {basket.communities.length} קהילות · {basket.componentLines.length} פריטים
+                          {basket.componentLines.length > 0
+                            ? `כ-${formatMoney(basket.componentSubtotal)} · ${basket.communities.length} קהילות · ${basket.componentLines.length} פריטים`
+                            : `סל ריק, הלקוח בונה · ${basket.communities.length} קהילות`}
                         </p>
                         <p className={`text-xs mt-1 ${basket.active ? 'text-green-700' : 'text-gray-500'}`}>
                           {basket.active ? 'פעיל בחנות' : 'כבוי'}
@@ -592,7 +608,7 @@ const SubscriptionBasketAdmin = () => {
 
             {form.componentLines.length === 0 ? (
               <div className="rounded-lg border border-dashed border-gray-300 p-5 text-center text-gray-500">
-                בחרו מוצרים מהרשימה למטה כדי לבנות את הסל.
+                בחרו מוצרים מהרשימה למטה כדי לבנות את הסל, או השאירו אותו ריק כדי שכל לקוח יבנה סל משלו בהרשמה.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -628,8 +644,28 @@ const SubscriptionBasketAdmin = () => {
                               className="w-24 rounded border border-gray-300 px-2 py-1 text-right"
                             />
                           </td>
-                          <td className="px-3 py-2 text-gray-700">{formatMoney(line.price)}</td>
-                          <td className="px-3 py-2 font-semibold">{formatMoney(getEstimatedLineTotal(line))}</td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {(() => {
+                              const pricing = getRecurringUnitPricing(line, line.quantity);
+                              return (
+                                <>
+                                  {pricing.applied ? (
+                                    <>
+                                      <span className="line-through text-gray-400">{formatMoney(pricing.basePrice)}</span>
+                                      {' '}
+                                      <span className="font-semibold text-emerald-700">{formatMoney(pricing.unitPrice)}</span>
+                                    </>
+                                  ) : formatMoney(pricing.basePrice)}
+                                  {pricing.discount && (
+                                    <div className={`text-xs mt-0.5 ${pricing.applied ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                      מבצע: {pricing.discount.label}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </td>
+                          <td className="px-3 py-2 font-semibold">{formatMoney(estimateRecurringLine(line, line.quantity, line.measurementType))}</td>
                           <td className="px-3 py-2">
                             <button
                               type="button"

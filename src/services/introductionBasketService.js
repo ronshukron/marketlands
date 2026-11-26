@@ -297,7 +297,13 @@ const isOrderCurrentlyActive = (orderData = {}) => {
   return orderData.orderType === 'recurring';
 };
 
-export async function listIntroductionBasketProductCandidates() {
+/**
+ * Products admins can put in a basket.
+ * @param {{includeQuantityDiscount?: boolean}} [options] subscription baskets
+ *   also keep the product's quantity discount; introduction baskets do not,
+ *   because their cart adjustment is priced without it.
+ */
+export async function listIntroductionBasketProductCandidates({ includeQuantityDiscount = false } = {}) {
   const ordersSnap = await getDocs(collection(db, 'Orders'));
   const activeOrders = ordersSnap.docs
     .map((orderDoc) => ({ id: orderDoc.id, data: orderDoc.data() || {} }))
@@ -328,7 +334,12 @@ export async function listIntroductionBasketProductCandidates() {
         const product = productDoc.data() || {};
         const business = businessById[orderData.businessId] || {};
         const measurementType = product.measurementType || 'kg';
-        candidates.push(normalizeComponentLine({
+        const discountFields = includeQuantityDiscount ? {
+          quantityDiscountThreshold: product.quantityDiscountThreshold ?? null,
+          quantityDiscountPrice: product.quantityDiscountPrice ?? null,
+          quantityDiscountLabel: product.quantityDiscountLabel || '',
+        } : {};
+        candidates.push({ ...normalizeComponentLine({
           productId: productDoc.id,
           productName: product.name || '',
           orderId,
@@ -349,7 +360,7 @@ export async function listIntroductionBasketProductCandidates() {
           pickupSpots: Array.isArray(orderData.pickupSpots) ? orderData.pickupSpots : [],
           orderType: isAlwaysOnGroceryOrder(orderData) ? 'always_on_grocery' : (orderData.orderType || ''),
           orderMode: orderData.orderMode || '',
-        }));
+        }), ...discountFields });
       });
     }
   }

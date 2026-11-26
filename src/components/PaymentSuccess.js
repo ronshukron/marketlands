@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
@@ -172,7 +172,16 @@ const PaymentSuccess = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { clearCart } = useCart();
+  // clearCart changes whenever the cart does (and clearing it is exactly that),
+  // so it is read through a ref: the check below must run once per return from
+  // Grow, not again after the cart empties.
+  const clearCartRef = useRef(clearCart);
+  clearCartRef.current = clearCart;
   const [view, setView] = useState({ kind: 'loading', orderId: null });
+  // A confirmed order stays confirmed on screen, whatever a later check says.
+  const showView = (next) => setView((prev) => (
+    prev.kind === 'success' && prev.orderId === next.orderId ? prev : next
+  ));
 
   useEffect(() => {
     let cancelled = false;
@@ -189,23 +198,23 @@ const PaymentSuccess = () => {
         isCancelled: () => cancelled,
       });
       if (cancelled || !next) return;
-      if (next.kind === 'success') clearCart();
-      setView(next);
+      if (next.kind === 'success') clearCartRef.current();
+      showView(next);
     };
 
     run().catch((error) => {
       if (cancelled) return;
       if (isFirestorePermissionError(error) && orderId) {
-        setView({ kind: 'pending', orderId, growResponse });
+        showView({ kind: 'pending', orderId, growResponse });
         return;
       }
-      setView({ kind: 'error', orderId, message: error?.message || 'confirm failed' });
+      showView({ kind: 'error', orderId, message: error?.message || 'confirm failed' });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [clearCart, location]);
+  }, [location]);
 
   useEffect(() => {
     if (view.kind === 'success') {

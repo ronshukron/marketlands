@@ -119,6 +119,12 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'מנויים',
+    description: 'כל לקוחות המנוי: פרטים, משלוחים, השהיה, דילוג, תדירות, עריכת הסל וביטול',
+    to: '/admin/subscriptions',
+    featured: true
+  },
+  {
     title: 'רשימת המתנה לשוק',
     description: 'עסקים מקומיים שנרשמו לפיילוט השוק (שם, טלפון, אימייל, סוג עסק וקהילה)',
     to: '/admin/marketplace-waitlist',

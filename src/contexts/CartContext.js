@@ -372,6 +372,26 @@ export const CartProvider = ({ children }) => {
     });
   };
 
+  // Removes several items in one update (by uid) and forgets orders left empty.
+  const removeCartItems = (uids = []) => {
+    const remove = new Set((uids || []).filter(Boolean));
+    if (remove.size === 0) return;
+    setCartItems((prevItems) => {
+      const newItems = prevItems.filter((item) => !remove.has(item.uid));
+      const remainingOrderIds = new Set(newItems.map((item) => item.orderId));
+      setOrderInfoMap((prev) => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach((orderId) => {
+          if (!remainingOrderIds.has(orderId)) {
+            delete updated[orderId];
+          }
+        });
+        return updated;
+      });
+      return applyCartPricing(newItems);
+    });
+  };
+
   const generateCartItemUid = (orderId, itemId, selectedOption) =>
     `${orderId}_${itemId}_${selectedOption || 'default'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -531,6 +551,7 @@ export const CartProvider = ({ children }) => {
     clearOrderItems: subscriberMode ? ignoreInSubscriberMode : clearOrderItems,
     removeOrderFromCart: subscriberMode ? ignoreInSubscriberMode : removeOrderFromCart, // Add this line
     removeBasketInstance: subscriberMode ? ignoreInSubscriberMode : removeBasketInstance,
+    removeCartItems: subscriberMode ? ignoreInSubscriberMode : removeCartItems,
     cartTotal,
     cartHoldTotal,
     totalItems,

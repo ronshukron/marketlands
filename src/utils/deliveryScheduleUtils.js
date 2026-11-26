@@ -352,13 +352,14 @@ export function generateAvailableDeliveryDates(scheduleDoc, options = {}) {
   if (!scheduleDoc || scheduleDoc.active === false) return [];
 
   const {
-    fromDate = new Date(),
-    horizonWeeks = scheduleDoc.horizonWeeks || 8,
     now = new Date(),
+    fromDate = now,
+    horizonWeeks = scheduleDoc.horizonWeeks || 8,
     includePastCutoff = false,
   } = options;
 
-  const start = parseDateSafe(fromDate) || new Date();
+  // A copy: fromDate is often the caller's (or this call's) `now`.
+  const start = new Date((parseDateSafe(fromDate) || new Date()).getTime());
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setDate(start.getDate() + Math.max(1, Number(horizonWeeks) || 8) * 7);

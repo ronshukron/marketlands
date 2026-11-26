@@ -53,3 +53,32 @@ describe('checkout customer validation', () => {
     });
   });
 });
+
+describe('full name', () => {
+  test.each([
+    'ישראל ישראלי',
+    'דנה בן-דוד',
+    "ז'אן ד'ארק",
+    "Mary O'Neil",
+    '  רון   כהן  ',
+    'אנה מריה לופז',
+  ])('accepts %s', (name) => {
+    expect(validateCustomerName(name)).toEqual({ valid: true, message: '' });
+  });
+
+  test.each([
+    ['רון', 'נא לכתוב שם פרטי ושם משפחה, למשל: דנה כהן'],
+    ['רון -', 'נא לכתוב שם פרטי ושם משפחה, למשל: דנה כהן'],
+    ['ר כהן', 'נא לכתוב את השם המלא, בלי ראשי תיבות. למשל: דנה כהן'],
+    ['רון כהן 2', 'השם יכול להכיל רק אותיות, בלי מספרים או סימנים'],
+    ['רון@כהן', 'השם יכול להכיל רק אותיות, בלי מספרים או סימנים'],
+  ])('rejects %s', (name, message) => {
+    expect(validateCustomerName(name)).toEqual({ valid: false, message });
+  });
+
+  test('a one-word name fails the whole checkout check', () => {
+    const result = validateCheckoutCustomer({ name: 'רון', phone: '0501234567', email: 'ron@example.com' });
+    expect(result.valid).toBe(false);
+    expect(result.errors.name).toBe('נא לכתוב שם פרטי ושם משפחה, למשל: דנה כהן');
+  });
+});

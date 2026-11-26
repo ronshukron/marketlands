@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/authContext';
 import usePickupSpots from '../../hooks/usePickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
 import SecureCardProgress, { useResetOnPageRestore } from './SecureCardProgress';
+import RecurringLinesEditor from './RecurringLinesEditor';
 import { getSubscriptionBasket } from '../../services/subscriptionBasketService';
 import {
   CARD_CONSENT_TEXT,
@@ -14,14 +15,24 @@ import {
   cardConsentPayload,
   createBasketSubscription,
   describeSubscriptionError,
+  listMySubscriptions,
+  listSignupBasketProducts,
+  loadProductsInfo,
 } from '../../services/basketSubscriptionService';
 import {
   generateAvailableDeliveryDates,
   getDeliveryScheduleDocumentKeys,
   parseDateSafe,
 } from '../../utils/deliveryScheduleUtils';
-import { getEstimatedLineTotal } from '../../utils/pricing';
+import {
+  estimateRecurringLines,
+  initialRecurringLines,
+  isRecurringBasketChanged,
+  toProductInfo,
+  toRecurringPayload,
+} from '../../utils/recurringBasket';
 import { computeCityDeliveryFee, formatShekels, isCityPlace } from '../../utils/cityDeliveryFee';
+import { validateCustomerEmail, validateCustomerName, validateCustomerPhone } from '../../utils/marketplaceCustomerValidation';
 
 const DELIVERY_OPTION_LABELS = {
   pickup: 'איסוף מנקודת החלוקה',
@@ -30,6 +41,16 @@ const DELIVERY_OPTION_LABELS = {
 };
 
 const MAX_FIRST_DATE_OPTIONS = 8;
+const DETAIL_FIELDS = ['name', 'phone', 'email', 'address'];
+
+// Grow's card page needs a full name and a valid mobile number, so they are
+// checked here, with the reason shown under the field.
+const detailErrors = (details, addressRequired) => ({
+  name: validateCustomerName(details.name).message,
+  phone: validateCustomerPhone(details.phone).message,
+  email: details.email.trim() ? validateCustomerEmail(details.email).message : '',
+  address: addressRequired && !details.address.trim() ? 'יש למלא כתובת למשלוח עד הבית' : '',
+});
 
 const formatDateLabel = (dateKey) => {
   const date = parseDateSafe(dateKey);
@@ -54,11 +75,20 @@ const SubscribeBasketPage = () => {
   const [firstDeliveryDate, setFirstDeliveryDate] = useState('');
   const [frequency, setFrequency] = useState('weekly');
   const [details, setDetails] = useState({ name: '', phone: '', email: '', address: '', directions: '' });
+  const [touched, setTouched] = useState({});
+  const [detailsAttempted, setDetailsAttempted] = useState(false);
   // '' | 'preparing' (creating the subscription) | 'redirecting' (leaving for Grow)
   const [cardStep, setCardStep] = useState('');
   const [growUrl, setGrowUrl] = useState('');
   const submitting = cardStep !== '';
   const [cardConsent, setCardConsent] = useState(false);
+  // The basket as the customer changes it here; sent only when it differs from the admin basket.
+  const [basketStart, setBasketStart] = useState([]);
+  const [lines, setLines] = useState([]);
+  const [productInfo, setProductInfo] = useState({});
+  const [restored, setRestored] = useState(false);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
   useResetOnPageRestore(() => setCardStep(''));
 
   useEffect(() => {
@@ -79,6 +109,60 @@ const SubscribeBasketPage = () => {
       active = false;
     };
   }, [basketId]);
+
+  useEffect(() => {
+    if (!basket) return undefined;
+    const { lines: start } = initialRecurringLines(null, basket);
+    setBasketStart(start);
+    setLines(start);
+    setRestored(false);
+    setProductInfo(Object.fromEntries(basket.componentLines.map((line) => [line.productId, toProductInfo(line)])));
+    // The basket keeps the price from when the admin saved it; deliveries are
+    // priced from the product (with its quantity discount), so show that.
+    let active = true;
+    loadProductsInfo(start.map((line) => line.productId))
+      .then((products) => {
+        if (!active) return;
+        setProductInfo((prev) => {
+          const next = { ...prev };
+          Object.entries(products).forEach(([productId, data]) => {
+            next[productId] = { ...toProductInfo(data), businessName: prev[productId]?.businessName || '' };
+          });
+          return next;
+        });
+      })
+      .catch((error) => console.error('Failed to load current product prices:', error));
+    return () => { active = false; };
+  }, [basket]);
+
+  // Back from Grow without finishing: bring back the basket chosen last time.
+  useEffect(() => {
+    if (!basket || !currentUser) return undefined;
+    let active = true;
+    (async () => {
+      try {
+        const pending = (await listMySubscriptions(currentUser.uid)).find((sub) => (
+          sub.basketId === basket.id && sub.status === 'pending_card' && sub.recurringLines?.length > 0
+        ));
+        if (!pending || !active) return;
+        const { lines: previous } = initialRecurringLines(pending, null);
+        const products = await loadProductsInfo(previous.map((line) => line.productId));
+        if (!active) return;
+        const start = initialRecurringLines(null, basket).lines;
+        setProductInfo((prev) => ({
+          ...Object.fromEntries(Object.entries(products).map(([id, data]) => [id, toProductInfo(data)])),
+          ...prev,
+        }));
+        // Only when the customer has not started changing the basket on this visit.
+        if (isRecurringBasketChanged(start, linesRef.current)) return;
+        setLines(previous);
+        setRestored(true);
+      } catch (error) {
+        console.error('Failed to load the earlier basket choice:', error);
+      }
+    })();
+    return () => { active = false; };
+  }, [basket, currentUser]);
 
   useEffect(() => {
     if (!basket) return;
@@ -167,10 +251,9 @@ const SubscribeBasketPage = () => {
     if (!deliveryDates.includes(firstDeliveryDate)) setFirstDeliveryDate(deliveryDates[0] || '');
   }, [deliveryDates, firstDeliveryDate]);
 
-  const estimate = useMemo(
-    () => (basket ? basket.componentLines.reduce((sum, line) => sum + getEstimatedLineTotal(line), 0) : 0),
-    [basket]
-  );
+  const estimate = useMemo(() => estimateRecurringLines(lines, productInfo), [lines, productInfo]);
+  const basketEdited = useMemo(() => isRecurringBasketChanged(basketStart, lines), [basketStart, lines]);
+  const emptyBasket = Boolean(basket) && basket.componentLines.length === 0;
   const deliveryFee = useMemo(() => {
     if (deliveryOption !== 'homeDelivery' || !spotData) return 0;
     const cityFee = computeCityDeliveryFee(spotData, estimate);
@@ -178,19 +261,38 @@ const SubscribeBasketPage = () => {
   }, [deliveryOption, spotData, estimate]);
 
   const updateDetail = (field) => (event) => setDetails((prev) => ({ ...prev, [field]: event.target.value }));
+  const errors = detailErrors(details, deliveryOption === 'homeDelivery');
+  const shownError = (field) => ((detailsAttempted || touched[field]) ? errors[field] : '');
+  const detailProps = (field) => ({
+    id: `sub-detail-${field}`,
+    value: details[field],
+    onChange: updateDetail(field),
+    onBlur: () => setTouched((prev) => ({ ...prev, [field]: true })),
+    'aria-invalid': Boolean(shownError(field)),
+    'aria-describedby': shownError(field) ? `sub-detail-${field}-error` : undefined,
+    className: `mt-1 w-full rounded-lg border px-3 py-2 ${shownError(field) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`,
+  });
+  const fieldError = (field) => (shownError(field) ? (
+    <span id={`sub-detail-${field}-error`} className="mt-1 block text-sm font-medium text-red-700" role="alert">{shownError(field)}</span>
+  ) : null);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!details.name.trim() || !details.phone.trim()) {
-      Swal.fire('חסרים פרטים', 'יש למלא שם וטלפון', 'warning');
-      return;
-    }
-    if (deliveryOption === 'homeDelivery' && !details.address.trim()) {
-      Swal.fire('חסרה כתובת', 'יש למלא כתובת למשלוח עד הבית', 'warning');
+    const firstInvalid = DETAIL_FIELDS.find((field) => errors[field]);
+    if (firstInvalid) {
+      setDetailsAttempted(true);
+      await Swal.fire({ icon: 'warning', title: 'צריך לתקן פרט אחד', text: errors[firstInvalid], confirmButtonText: 'לתיקון' });
+      const input = document.getElementById(`sub-detail-${firstInvalid}`);
+      input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input?.focus({ preventScroll: true });
       return;
     }
     if (!firstDeliveryDate) {
       Swal.fire('אין תאריך', 'בחרו תאריך למשלוח הראשון', 'warning');
+      return;
+    }
+    if (lines.length === 0) {
+      Swal.fire('הסל ריק', 'הוסיפו לפחות מוצר אחד לסל', 'warning');
       return;
     }
     if (!cardConsent) {
@@ -206,6 +308,7 @@ const SubscribeBasketPage = () => {
         firstDeliveryDate,
         frequency,
         customerDetails: details,
+        ...(basketEdited ? { recurringLines: toRecurringPayload(lines) } : {}),
         ...cardConsentPayload(),
       });
       if (!result?.url) throw new Error('PAYMENT_PAGE_FAILED');
@@ -221,7 +324,10 @@ const SubscribeBasketPage = () => {
         navigate('/my-subscriptions');
         return;
       }
-      Swal.fire('ההרשמה נכשלה', describeSubscriptionError(error), 'error');
+      const productId = error?.response?.data?.productId;
+      const productName = productId ? (productInfo[productId]?.productName || '') : '';
+      const message = describeSubscriptionError(error);
+      Swal.fire('ההרשמה נכשלה', productName ? `${message}: ${productName}` : message, 'error');
     }
   };
 
@@ -269,35 +375,77 @@ const SubscribeBasketPage = () => {
         <div className="p-4 sm:p-5">
           <h1 className="text-2xl font-black text-gray-900">{basket.title}</h1>
           {basket.description && <p className="text-gray-600 mt-1">{basket.description}</p>}
-          <ul className="mt-3 text-sm text-gray-700 grid grid-cols-1 sm:grid-cols-2 gap-1">
-            {basket.componentLines.map((line) => (
-              <li key={`${line.orderId}:${line.productId}`}>
-                {line.productName} · {line.quantity} {line.measurementType === 'kg' ? 'ק״ג' : line.measurementType === 'unit' ? 'יח׳' : 'מארז'}
-                <span className="text-gray-400"> ({line.businessName})</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-sm text-gray-700">
+          <div className="mt-4 max-w-sm">
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sub-community">יישוב</label>
+            <select
+              id="sub-community"
+              value={community}
+              onChange={(event) => setCommunity(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            >
+              <option value="">בחרו יישוב</option>
+              {basket.communities.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <section className="mb-5 space-y-3" aria-labelledby="sub-basket-heading">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 id="sub-basket-heading" className="text-lg font-bold text-gray-900">
+              {emptyBasket ? 'בונים את הסל' : 'הסל שלכם'}
+            </h2>
+            <p className="text-sm text-gray-600">
+              {emptyBasket
+                ? 'בחרו את המוצרים שיגיעו אליכם בכל משלוח.'
+                : 'אפשר להוסיף ולהסיר מוצרים ולשנות כמויות.'}
+              {' '}כל משלוח יתחיל מהסל הזה, ואפשר לשנות אותו גם אחרי ההרשמה.
+            </p>
+          </div>
+          {basketEdited && !emptyBasket && (
+            <button
+              type="button"
+              onClick={() => {
+                setLines(basketStart);
+                setRestored(false);
+              }}
+              className="text-sm font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              חזרה לסל המקורי
+            </button>
+          )}
+        </div>
+        {restored && (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            החזרנו את הסל שבחרתם בפעם הקודמת.
+          </p>
+        )}
+        <RecurringLinesEditor
+          lines={lines}
+          setLines={setLines}
+          productInfo={productInfo}
+          setProductInfo={setProductInfo}
+          loadCatalog={() => listSignupBasketProducts({ basketId, community, firstDeliveryDate })
+            .then((result) => result.products)}
+          catalogKey={`signup|${community}|${firstDeliveryDate}`}
+          addDisabledText={!community ? 'בחרו יישוב כדי להוסיף מוצרים' : scheduleLoading ? 'טוענים את המוצרים ליישוב...' : ''}
+          emptyText={emptyBasket ? 'עוד לא בחרתם מוצרים.' : 'הסל ריק. הוסיפו לפחות מוצר אחד.'}
+          emphasizeAdd={emptyBasket}
+        />
+        {lines.length > 0 && (
+          <p className="text-sm text-gray-700">
             הערכה לכל משלוח: <strong>{formatShekels(estimate)}</strong>
             {deliveryFee > 0 ? ` + משלוח ${formatShekels(deliveryFee)}` : ''}.
             המחיר הסופי לפי המחירים של אותו שבוע ולפי שקילה.
           </p>
-        </div>
-      </div>
+        )}
+      </section>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-5">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sub-community">יישוב</label>
-          <select
-            id="sub-community"
-            value={community}
-            onChange={(event) => setCommunity(event.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2"
-          >
-            <option value="">בחרו יישוב</option>
-            {basket.communities.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
-        </div>
+        {!community && (
+          <p className="text-sm text-gray-600">בחרו יישוב למעלה כדי לראות את אפשרויות המשלוח.</p>
+        )}
 
         {community && (
           <>
@@ -371,24 +519,24 @@ const SubscribeBasketPage = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="block">
             <span className="text-sm font-medium text-gray-700">שם מלא</span>
-            <input value={details.name} onChange={updateDetail('name')} required autoComplete="name"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input {...detailProps('name')} placeholder="שם פרטי ושם משפחה" autoComplete="name" />
+            {fieldError('name')}
           </label>
           <label className="block">
-            <span className="text-sm font-medium text-gray-700">טלפון</span>
-            <input value={details.phone} onChange={updateDetail('phone')} required type="tel" autoComplete="tel"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <span className="text-sm font-medium text-gray-700">טלפון נייד</span>
+            <input {...detailProps('phone')} type="tel" inputMode="tel" placeholder="0501234567" autoComplete="tel" dir="ltr" />
+            {fieldError('phone')}
           </label>
           <label className="block">
             <span className="text-sm font-medium text-gray-700">אימייל</span>
-            <input value={details.email} onChange={updateDetail('email')} type="email" autoComplete="email"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input {...detailProps('email')} type="email" autoComplete="email" dir="ltr" />
+            {fieldError('email')}
           </label>
           {deliveryOption === 'homeDelivery' && (
             <label className="block">
               <span className="text-sm font-medium text-gray-700">כתובת</span>
-              <input value={details.address} onChange={updateDetail('address')} required autoComplete="street-address"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
+              <input {...detailProps('address')} autoComplete="street-address" />
+              {fieldError('address')}
             </label>
           )}
           <label className="block sm:col-span-2">
@@ -421,7 +569,7 @@ const SubscribeBasketPage = () => {
 
         <button
           type="submit"
-          disabled={submitting || !community || !firstDeliveryDate || !cardConsent}
+          disabled={submitting || !community || !firstDeliveryDate || !cardConsent || lines.length === 0}
           className="w-full py-3 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 text-white font-bold"
         >
           {submitting ? 'מעבירים לשמירת כרטיס...' : 'המשך לשמירת כרטיס'}

@@ -109,17 +109,43 @@ const isSameOverride = (entry, community, originalDeliveryDate) => (
   entry.community === community && entry.originalDeliveryDate === originalDeliveryDate
 );
 
-export function setProcurementOverride(weekKey, { community, originalDeliveryDate, procureOnDate, setBy = null }) {
+// cutoffAt: orders that entered later are purchased on their own delivery day. It is
+// the moment the orders on screen were loaded, so no order can fall between the days.
+export function setProcurementOverride(weekKey, {
+  community,
+  originalDeliveryDate,
+  procureOnDate,
+  cutoffAt = new Date().toISOString(),
+  setBy = null,
+}) {
   return updateOverrides(weekKey, (current) => [
     ...current.filter((entry) => !isSameOverride(entry, community, originalDeliveryDate)),
     {
       community,
       originalDeliveryDate,
       procureOnDate,
+      cutoffAt,
       setAt: new Date().toISOString(),
       setBy,
     },
   ]);
+}
+
+// Moves the closing time of an early purchase, for all of its communities.
+export function setProcurementCutoff(weekKey, {
+  originalDeliveryDate,
+  procureOnDate,
+  communities = [],
+  cutoffAt,
+  setBy = null,
+}) {
+  return updateOverrides(weekKey, (current) => current.map((entry) => (
+    entry.originalDeliveryDate === originalDeliveryDate
+    && entry.procureOnDate === procureOnDate
+    && communities.includes(entry.community)
+      ? { ...entry, cutoffAt, cutoffSetAt: new Date().toISOString(), cutoffSetBy: setBy }
+      : entry
+  )));
 }
 
 export function clearProcurementOverride(weekKey, { community, originalDeliveryDate }) {

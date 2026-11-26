@@ -9,6 +9,8 @@ const SubscriptionBasketCard = ({ basket, community }) => {
     .slice(0, 4)
     .map((line) => line.productName)
     .filter(Boolean);
+  // An empty admin basket: each customer builds their own on the signup page.
+  const buildYourOwn = componentCount === 0;
   const signupPath = `/subscribe/${encodeURIComponent(basket.id)}?community=${encodeURIComponent(community || '')}`;
 
   return (
@@ -38,31 +40,42 @@ const SubscriptionBasketCard = ({ basket, community }) => {
           <p className="text-sm text-gray-600 mb-3 line-clamp-3">{basket.description}</p>
         )}
 
-        <div className="mb-3 rounded-lg bg-amber-50 border border-amber-100 p-3 text-sm text-amber-900">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="font-medium">בערך לכל משלוח</span>
-            <span className="text-xl font-black">{formatMoney(basket.componentSubtotal)}</span>
-          </div>
-          <p className="text-xs mt-1">
-            משלמים רק על מה שנשאר בסל, לפי שקילה. אפשר להסיר פריטים, לדלג על שבוע או לבטל מתי שרוצים.
-          </p>
-        </div>
-
-        <div className="text-xs text-gray-600 mb-4 flex-1">
-          <p className="font-semibold text-gray-700 mb-1">{componentCount} פריטים מחקלאים שונים:</p>
-          {componentNames.length > 0 && (
-            <p className="line-clamp-2">
-              {componentNames.join(', ')}
-              {componentCount > componentNames.length ? ' ועוד...' : ''}
+        {buildYourOwn ? (
+          <div className="mb-4 flex-1 rounded-lg bg-amber-50 border border-amber-100 p-3 text-sm text-amber-900">
+            <p className="font-bold">בונים את הסל בעצמכם</p>
+            <p className="text-xs mt-1">
+              בוחרים מוצרים מהחקלאים, והם מגיעים בכל משלוח. משלמים רק על מה שנשקל. אפשר לשנות, לדלג על שבוע או לבטל מתי שרוצים.
             </p>
-          )}
-        </div>
+          </div>
+        ) : (
+          <>
+            <div className="mb-3 rounded-lg bg-amber-50 border border-amber-100 p-3 text-sm text-amber-900">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-medium">בערך לכל משלוח</span>
+                <span className="text-xl font-black">{formatMoney(basket.componentSubtotal)}</span>
+              </div>
+              <p className="text-xs mt-1">
+                משלמים רק על מה שנשאר בסל, לפי שקילה. אפשר להסיר פריטים, לדלג על שבוע או לבטל מתי שרוצים.
+              </p>
+            </div>
+
+            <div className="text-xs text-gray-600 mb-4 flex-1">
+              <p className="font-semibold text-gray-700 mb-1">{componentCount} פריטים מחקלאים שונים:</p>
+              {componentNames.length > 0 && (
+                <p className="line-clamp-2">
+                  {componentNames.join(', ')}
+                  {componentCount > componentNames.length ? ' ועוד...' : ''}
+                </p>
+              )}
+            </div>
+          </>
+        )}
 
         <Link
           to={signupPath}
           className="w-full text-center bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-lg text-sm font-bold transition-colors"
         >
-          להירשם למנוי
+          {buildYourOwn ? 'לבנות סל ולהירשם' : 'להירשם למנוי'}
         </Link>
       </div>
     </div>

@@ -137,6 +137,7 @@ const MarketplaceTermsOfService = lazy(() => import('./components/marketplace/Ma
 const AdminPwaInstall = lazy(() => import('./components/admin/AdminPwaInstall'));
 const IntroductionBasketAdmin = lazy(() => import('./components/admin/IntroductionBasketAdmin'));
 const SubscriptionBasketAdmin = lazy(() => import('./components/admin/SubscriptionBasketAdmin'));
+const SubscriptionCustomersAdmin = lazy(() => import('./components/admin/SubscriptionCustomersAdmin'));
 const SubscribeBasketPage = lazy(() => import('./components/subscriptions/SubscribeBasketPage'));
 const SubscriptionSuccess = lazy(() => import('./components/subscriptions/SubscriptionSuccess'));
 const MySubscriptions = lazy(() => import('./components/subscriptions/MySubscriptions'));
@@ -296,6 +297,7 @@ const App = () => {
                   <Route path="/admin/communities" element={<CommunityAdmin />} />
                   <Route path="/admin/introduction-baskets" element={<IntroductionBasketAdmin />} />
                   <Route path="/admin/subscription-baskets" element={<SubscriptionBasketAdmin />} />
+                  <Route path="/admin/subscriptions" element={<SubscriptionCustomersAdmin />} />
                   <Route path="/admin/referral-config" element={<ReferralConfigAdmin />} />
                   <Route path="/admin/community-weekly-promotions" element={<CommunityWeeklyPromotionsAdmin />} />
                   <Route path="/admin/pwa-install" element={<AdminPwaInstall />} />

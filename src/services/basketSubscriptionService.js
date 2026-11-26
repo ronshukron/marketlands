@@ -47,6 +47,7 @@ const ERROR_MESSAGES = {
   BASKET_UNAVAILABLE: 'הסל אינו זמין כרגע',
   COMMUNITY_UNAVAILABLE: 'היישוב אינו זמין',
   BASKET_NOT_IN_COMMUNITY: 'הסל אינו זמין ביישוב שנבחר',
+  INVALID_REQUEST: 'הבקשה אינה תקינה',
   DELIVERY_OPTION_UNAVAILABLE: 'אפשרות המשלוח אינה זמינה ביישוב',
   ADDRESS_REQUIRED: 'יש למלא כתובת למשלוח עד הבית',
   NO_DELIVERY_SCHEDULE: 'אין ליישוב לוח משלוחים קבוע',
@@ -72,12 +73,14 @@ const ERROR_MESSAGES = {
   NOT_FOUND: 'לא נמצא',
   INVALID_QUANTITY: 'הכמות אינה תקינה',
   ORDER_CHANGED: 'ההזמנה התעדכנה בינתיים, נסו שוב',
-  EMPTY_BASKET: 'הסל הקבוע צריך לכלול לפחות מוצר אחד',
+  EMPTY_BASKET: 'הסל צריך לכלול לפחות מוצר אחד',
   TOO_MANY_LINES: 'יש יותר מדי מוצרים בסל הקבוע',
   DUPLICATE_LINE: 'מוצר מופיע פעמיים בסל',
   NO_UPCOMING_ORDER: 'הסל למשלוח הקרוב עוד לא נפתח לעריכה',
   DELIVERY_SKIPPED: 'דילגתם על המשלוח הזה',
   ORDER_CLOSED: 'המשלוח הקרוב כבר נסגר לעריכה',
+  CUSTOMER_ONLY: 'רק הלקוח יכול לשמור או להחליף כרטיס, כי זה דורש את האישור שלו',
+  UNKNOWN_ACTION: 'פעולה לא מוכרת',
 };
 
 export const describeSubscriptionError = (error) => {
@@ -145,6 +148,26 @@ export const listRecurringBasketProducts = (subscriptionId) => postAuthed(
   { subscriptionId },
 );
 
+// The same list on the signup page, before the subscription exists.
+export const listSignupBasketProducts = ({ basketId, community, firstDeliveryDate = '' }) => postAuthed(
+  'listRecurringBasketProducts',
+  { basketId, community, firstDeliveryDate },
+);
+
+/** Name, picture and price of products, for the basket editors. */
+export async function loadProductsInfo(productIds) {
+  const ids = [...new Set((productIds || []).filter(Boolean))];
+  const entries = await Promise.all(ids.map(async (productId) => {
+    try {
+      const snap = await getDoc(doc(db, 'Products', productId));
+      return [productId, snap.exists() ? snap.data() : null];
+    } catch {
+      return [productId, null];
+    }
+  }));
+  return Object.fromEntries(entries.filter(([, data]) => data).map(([productId, data]) => [productId, data]));
+}
+
 const toMillis = (value) => {
   if (!value) return 0;
   if (typeof value.toMillis === 'function') return value.toMillis();
@@ -158,6 +181,14 @@ export async function listMySubscriptions(userId) {
     collection(db, BASKET_SUBSCRIPTIONS_COLLECTION),
     where('userId', '==', userId),
   ));
+  return snap.docs
+    .map((subDoc) => ({ id: subDoc.id, ...subDoc.data() }))
+    .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+}
+
+/** Every subscription, newest first (admins only; Firestore rules enforce it). */
+export async function listAllSubscriptions() {
+  const snap = await getDocs(collection(db, BASKET_SUBSCRIPTIONS_COLLECTION));
   return snap.docs
     .map((subDoc) => ({ id: subDoc.id, ...subDoc.data() }))
     .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));

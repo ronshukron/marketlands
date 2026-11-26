@@ -185,7 +185,7 @@ function classifyDelayedOrders(snapshot, weekKey, communities = [], startDate = 
     const pickupSpot = getOrderCommunity(data);
     let earlyPick = null;
     if (deliveryDate < window.start || deliveryDate > window.end) {
-      const entry = findEarlyPickEntry(earlyPickEntries, pickupSpot, toLocalDateKey(deliveryDate));
+      const entry = findEarlyPickEntry(earlyPickEntries, pickupSpot, toLocalDateKey(deliveryDate), data);
       if (!entry) return;
       earlyPick = { originalDeliveryDate: entry.originalDeliveryDate, procureOnDate: entry.procureOnDate };
     }

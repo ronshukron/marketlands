@@ -2,6 +2,8 @@ import {
   applyProcurementOverrides,
   buildSupplierOrderText,
   computeRemainingLines,
+  getOrderEnteredAt,
+  getProcurementCutoffGroups,
   getProcurementOverrideCandidates,
   getSupplierProgressStatus,
   sumOrderedByProductKey,
@@ -111,5 +113,59 @@ describe('procurement overrides', () => {
     expect(getProcurementOverrideCandidates(orders, overrides, '2026-11-10')).toEqual([
       { key: 'M__2026-11-11', community: 'M', originalDeliveryDate: '2026-11-11', count: 1 },
     ]);
+  });
+
+  describe('closing time', () => {
+    const closed = [{ ...overrides[0], cutoffAt: new Date(2026, 10, 9, 15, 30).toISOString() }];
+    const held = (id, hour, minute, extra = {}) => ({
+      id,
+      community: 'K',
+      deliveryDate: wednesday,
+      createdAt: new Date(2026, 10, 9, hour, minute - 1).toISOString(),
+      delayedPayment: { heldAt: { toDate: () => new Date(2026, 10, 9, hour, minute) } },
+      ...extra,
+    });
+    const early = held('early', 15, 11);
+    const late = held('late', 19, 17);
+    // Opened before the closing time but paid after it: it was not in the purchase.
+    const paidLate = held('paidLate', 15, 31);
+    const moved = held('moved', 10, 5, { adminDeliveryTransferredAt: new Date(2026, 10, 9, 18, 0).toISOString() });
+    const all = [early, late, paidLate, moved, orders[0], orders[3]];
+    const ids = (list) => list.map((order) => order.id);
+
+    test('every order is purchased on exactly one of the two days', () => {
+      const tuesdayView = applyProcurementOverrides(all, closed, '2026-11-10');
+      const wednesdayView = applyProcurementOverrides(all, closed, '2026-11-11');
+      expect(ids(tuesdayView.orders)).toEqual(['early', 'x1']);
+      expect(ids(wednesdayView.orders)).toEqual(['late', 'paidLate', 'moved', 'm1']);
+      expect(ids(wednesdayView.lateOrders)).toEqual(['late', 'paidLate', 'moved']);
+      expect(ids(tuesdayView.lateOrders)).toEqual(['late', 'paidLate', 'moved']);
+      expect(wednesdayView.pushedOut).toEqual([{ community: 'K', procureOnDate: '2026-11-10', count: 1 }]);
+    });
+
+    test('late orders are not offered as a community to add again', () => {
+      expect(getProcurementOverrideCandidates(all, closed, '2026-11-10').map((entry) => entry.community)).toEqual(['M']);
+    });
+
+    test('without a closing time every order stays in the early purchase', () => {
+      expect(ids(applyProcurementOverrides(all, overrides, '2026-11-11').orders)).toEqual(['m1']);
+    });
+
+    test('an order counts from when it was paid, or moved to this day', () => {
+      expect(getOrderEnteredAt(paidLate)).toEqual(new Date(2026, 10, 9, 15, 31));
+      expect(getOrderEnteredAt(moved)).toEqual(new Date(2026, 10, 9, 18, 0));
+      expect(getOrderEnteredAt({ createdAt: new Date(2026, 10, 9, 9, 0).toISOString() })).toEqual(new Date(2026, 10, 9, 9, 0));
+      expect(getOrderEnteredAt({})).toBeNull();
+    });
+
+    test('groups show the orders of the early purchase on both days, newest first', () => {
+      ['2026-11-10', '2026-11-11'].forEach((day) => {
+        const groups = getProcurementCutoffGroups(all, closed, day);
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toEqual(expect.objectContaining({ procureOnDate: '2026-11-10', originalDeliveryDate: '2026-11-11' }));
+        expect(groups[0].orders.map(({ order }) => order.id)).toEqual(['late', 'moved', 'paidLate', 'early']);
+      });
+      expect(getProcurementCutoffGroups(all, closed, '2026-11-12')).toEqual([]);
+    });
   });
 });

@@ -6,6 +6,7 @@ import { db } from '../../firebase/firebase';
 import '../OrderConfirmation.css';
 import LoadingSpinner from '../LoadingSpinner';
 import LoadingSpinnerPayment from '../LoadingSpinnerPayment';
+import { useResetOnPageRestore } from '../subscriptions/SecureCardProgress';
 import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/authContext';
 import { useCart } from '../../contexts/CartContext';
@@ -32,15 +33,17 @@ import { refreshCartCommercialTerms } from '../../services/productPromotionServi
 import { describeCommunityWeeklyCheckoutRefreshError } from '../../services/communityWeeklyPromotionService';
 import { buildCommunityWeeklyPromotionOrderAttribution } from '../../utils/communityWeeklyPromotionUrl';
 import {
-    findDeliveryDateBlockers,
-    generateSharedAvailableDeliveryDates,
+    getEffectiveOrderCutoffAt,
     getWeekKey,
     isAlwaysOnGroceryOrder,
     isAlwaysOnGroceryOrderLive,
-    isDeliveryDateOrderable,
     isShowingNextDeliveryWeek,
-    orderServesCommunity,
 } from '../../utils/deliveryScheduleUtils';
+import {
+    isCartOrderClosedOnDate,
+    planCartDeliveryDates,
+    splitCartForDeliveryDate,
+} from '../../utils/cartDeliveryDatePlan';
 import {
   getReferralConfig,
   getStoredReferralCode,
@@ -51,6 +54,7 @@ import useIntroductionBasketGuard from '../../hooks/useIntroductionBasketGuard';
 import { persistCustomerOrderWithCompensation } from '../../services/compensationService';
 import { rememberPendingPurchase, trackPurchase } from '../../utils/metaPixel';
 import CheckoutAccountModal from '../CheckoutAccountModal';
+import LeftOutItemsNotice from './LeftOutItemsNotice';
 import {
     buildOrderAccountPayload,
     CHECKOUT_ACCOUNT_ACTIONS,
@@ -58,6 +62,7 @@ import {
 } from '../../utils/checkoutAccountUtils';
 import { buildGrowInvoiceItem } from '../../utils/growInvoiceUtils';
 import { validateCheckoutCustomer } from '../../utils/marketplaceCustomerValidation';
+import { describePaymentPageError } from '../../utils/paymentPageErrors';
 import { computeCityDeliveryFee, getProductSubtotal, isCityPlace, normalizeFreeShippingMinCart } from '../../utils/cityDeliveryFee';
 import { attachGoLiveLinkedOrdersById } from '../../services/orderGoLiveService';
 
@@ -218,12 +223,13 @@ const buildIntroductionBasketSummaries = (items = []) => {
 const OrderConfirmationDelayed = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, addItem, removeItem, cartItems, applyCommercialRefresh, orderInfoMap } = useCart();
+    const { itemsByOrder, cartTotal, clearCart, removeOrderFromCart, removeCartItems, addItem, removeItem, cartItems, applyCommercialRefresh, orderInfoMap } = useCart();
     const ensureIntroductionBasketsOrderable = useIntroductionBasketGuard();
     const { configuredPercent: displayWeightBufferPercent } = useWeightBuffer();
     const promotionOrderAttribution = buildCommunityWeeklyPromotionOrderAttribution(localStorage);
     
     const [loading, setLoading] = useState(false);
+    useResetOnPageRestore(() => setLoading(false));
     const [userName, setUserName] = useState(() => {
         // Load from localStorage on first render
         return localStorage.getItem('orderUserName') || '';
@@ -236,6 +242,9 @@ const OrderConfirmationDelayed = () => {
     const [paymentUrl, setPaymentUrl] = useState('');
     const [formIsValid, setFormIsValid] = useState(false);
     const [detailsValidationAttempted, setDetailsValidationAttempted] = useState(false);
+    // A field the payment provider refused although it passed our checks; shown
+    // under that field until the customer changes it.
+    const [paymentFieldError, setPaymentFieldError] = useState({ field: '', message: '', value: '' });
     const [touchedDetails, setTouchedDetails] = useState({
         name: false,
         phone: false,
@@ -276,7 +285,6 @@ const OrderConfirmationDelayed = () => {
     const [availableDeliveryDates, setAvailableDeliveryDates] = useState([]);
     const [selectedDeliveryDate, setSelectedDeliveryDate] = useState('');
     const [deliveryDateError, setDeliveryDateError] = useState('');
-    const [deliveryDateBlockers, setDeliveryDateBlockers] = useState(null);
     const cartHasAlwaysOnGrocery = Object.values(cartOrderMeta).some(
         (orderData) => isAlwaysOnGroceryOrder(orderData)
             && isAlwaysOnGroceryOrderLive(orderData, resolveCommunityName(selectedPickupSpot))
@@ -341,46 +349,37 @@ const OrderConfirmationDelayed = () => {
     // Add this near your other state declarations
     const [totalWithDelivery, setTotalWithDelivery] = useState(cartTotal);
 
-    const isOrderUnavailableForSelectedDate = useCallback((orderId) => {
-        const orderData = cartOrderMeta[orderId];
-        if (!orderData || !isAlwaysOnGroceryOrder(orderData)) return false;
+    // Each farmer closes on its own. Products of a farmer that can no longer make the
+    // chosen date (and any basket holding one of them) are left out of the order and
+    // removed from the cart when the customer presses pay.
+    const isOrderUnavailableForSelectedDate = useCallback((orderId) => isCartOrderClosedOnDate(
+        cartOrderMeta[orderId],
+        selectedDeliveryDate,
+        {
+            scheduleDoc: deliverySchedule,
+            communityName: selectedPickupSpot ? resolveCommunityName(selectedPickupSpot) : '',
+        }
+    ), [cartOrderMeta, deliverySchedule, selectedDeliveryDate, selectedPickupSpot]);
+    const deliveryDateSplit = useMemo(
+        () => splitCartForDeliveryDate(itemsByOrder, isOrderUnavailableForSelectedDate),
+        [itemsByOrder, isOrderUnavailableForSelectedDate]
+    );
+    const cutoffCartItems = deliveryDateSplit.excludedItems;
+    const effectiveItemsByOrder = deliveryDateSplit.includedByOrder;
+    // When each left-out farmer stopped taking orders for the chosen date.
+    const leftOutClosures = useMemo(() => {
+        if (!deliverySchedule || !selectedDeliveryDate) return [];
         const communityKey = resolveCommunityName(selectedPickupSpot);
-        if (!isAlwaysOnGroceryOrderLive(orderData, communityKey)) return true;
-        if (selectedPickupSpot && !orderServesCommunity(orderData, communityKey)) return true;
-        if (!deliverySchedule || !selectedDeliveryDate || !selectedPickupSpot) return false;
-        return !isDeliveryDateOrderable(
-            selectedDeliveryDate,
-            deliverySchedule,
-            new Date(),
-            orderData,
-            communityKey
-        );
-    }, [cartOrderMeta, deliverySchedule, selectedDeliveryDate, selectedPickupSpot]);
-    const cutoffCartItems = useMemo(() => {
-        const items = [];
-        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
-            if (!isOrderUnavailableForSelectedDate(orderId)) return;
-            const businessName = orderData.items[0]?.businessName || 'Unknown Business';
-            orderData.items
-                .filter((item) => !item.isShipping)
-                .forEach((item) => items.push({ ...item, orderId, businessName }));
-        });
-        return items;
-    }, [itemsByOrder, isOrderUnavailableForSelectedDate]);
-    const effectiveItemsByOrder = useMemo(() => {
-        const next = {};
-        Object.entries(itemsByOrder).forEach(([orderId, orderData]) => {
-            if (isOrderUnavailableForSelectedDate(orderId)) return;
-            const items = orderData.items || [];
-            if (items.length === 0) return;
-            next[orderId] = {
-                ...orderData,
-                items,
-                total: items.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0),
-            };
-        });
-        return next;
-    }, [itemsByOrder, isOrderUnavailableForSelectedDate]);
+        const now = new Date();
+        return deliveryDateSplit.closedOrderIds
+            .map((orderId) => {
+                const closedAt = getEffectiveOrderCutoffAt(selectedDeliveryDate, deliverySchedule, cartOrderMeta[orderId] || {}, communityKey);
+                const items = itemsByOrder[orderId]?.items || [];
+                const businessName = (items.find((item) => !item.isShipping) || items[0] || {}).businessName || '';
+                return { orderId, businessName, closedAt };
+            })
+            .filter((closure) => closure.businessName && closure.closedAt && closure.closedAt <= now);
+    }, [deliveryDateSplit, deliverySchedule, selectedDeliveryDate, selectedPickupSpot, cartOrderMeta, itemsByOrder]);
     const effectiveCartItems = useMemo(() => (
         Object.values(effectiveItemsByOrder).flatMap((orderData) => orderData.items || [])
     ), [effectiveItemsByOrder]);
@@ -393,10 +392,7 @@ const OrderConfirmationDelayed = () => {
         () => buildIntroductionBasketSummaries(effectiveCartItems),
         [effectiveCartItems]
     );
-    const cutoffCartTotal = useMemo(
-        () => cutoffCartItems.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0),
-        [cutoffCartItems]
-    );
+    const cutoffCartTotal = deliveryDateSplit.excludedTotal;
     const effectiveTotalWithDelivery = Math.max(0, totalWithDelivery - cutoffCartTotal);
     const displayHoldTotal = roundMoney(
         effectiveTotalWithDelivery + sumHoldExtra(effectiveCartItems, displayWeightBufferPercent)
@@ -584,7 +580,6 @@ const OrderConfirmationDelayed = () => {
 
         const loadDeliverySchedule = async () => {
             setDeliveryDateError('');
-            setDeliveryDateBlockers(null);
 
             if (!cartOrderMetaReady) {
                 setDeliverySchedule(null);
@@ -623,22 +618,16 @@ const OrderConfirmationDelayed = () => {
 
                 const scheduleData = scheduleSnap.data();
                 setDeliverySchedule(scheduleData);
-                const alwaysOnOrders = Object.values(cartOrderMeta).filter(
-                    (orderData) => isAlwaysOnGroceryOrder(orderData)
-                        && isAlwaysOnGroceryOrderLive(orderData, communityKey)
-                );
-                const scheduleDates = generateSharedAvailableDeliveryDates(
-                    scheduleData,
-                    alwaysOnOrders,
-                    { communityName: communityKey }
-                );
-                const currentWeekKey = getWeekKey(new Date());
-                const currentWeekDates = scheduleDates.filter((dateKey) => getWeekKey(dateKey) === currentWeekKey);
-                const nextVisibleWeekKey = currentWeekDates.length > 0 ? currentWeekKey : getWeekKey(scheduleDates[0]);
-                const dates = scheduleDates.filter((dateKey) => getWeekKey(dateKey) === nextVisibleWeekKey);
+                // A farmer that already closed for this week does not push the order
+                // to next week; its products are left out instead.
+                const { dates, completeDates } = planCartDeliveryDates({
+                    scheduleDoc: scheduleData,
+                    ordersById: cartOrderMeta,
+                    itemsByOrder,
+                    communityName: communityKey,
+                });
 
                 setAvailableDeliveryDates(dates);
-                setDeliveryDateBlockers(findDeliveryDateBlockers(scheduleData, cartOrderMeta, { communityName: communityKey }));
                 if (dates.length === 0) {
                     setSelectedDeliveryDate('');
                     setDeliveryDateError('אין תאריכי משלוח זמינים לקהילה זו כרגע.');
@@ -649,7 +638,7 @@ const OrderConfirmationDelayed = () => {
                     const stored = localStorage.getItem(`selectedDeliveryDate:${communityKey}`);
                     if (dates.includes(current)) return current;
                     if (stored && dates.includes(stored)) return stored;
-                    return dates[0];
+                    return completeDates[0] || dates[0];
                 });
             } catch (error) {
                 if (!isActive) return;
@@ -666,7 +655,7 @@ const OrderConfirmationDelayed = () => {
         return () => {
             isActive = false;
         };
-    }, [cartHasAlwaysOnGrocery, cartOrderMetaReady, selectedPickupSpot, cartOrderMeta]);
+    }, [cartHasAlwaysOnGrocery, cartOrderMetaReady, selectedPickupSpot, cartOrderMeta, itemsByOrder]);
 
     // Save userName and userPhone to localStorage whenever they change
     useEffect(() => {
@@ -772,30 +761,8 @@ const OrderConfirmationDelayed = () => {
             return false;
         }
 
-        const communityKey = resolveCommunityName(selectedPickupSpot);
-        const hasUnavailableAlwaysOnOrder = Object.values(cartOrderMeta)
-            .filter((orderData) => (
-                isAlwaysOnGroceryOrder(orderData)
-                && isAlwaysOnGroceryOrderLive(orderData, communityKey)
-                && orderServesCommunity(orderData, communityKey)
-            ))
-            .some((orderData) => !isDeliveryDateOrderable(
-                selectedDeliveryDate,
-                deliverySchedule,
-                new Date(),
-                orderData,
-                communityKey
-            ));
-        if (hasUnavailableAlwaysOnOrder) {
-            Swal.fire({
-                icon: 'error',
-                title: 'תאריך המשלוח אינו זמין',
-                text: 'התאריך שנבחר אינו זמין לכל העסקים בהזמנה עבור הקהילה הזו. יש לבחור תאריך אחר.',
-                confirmButtonText: 'הבנתי'
-            });
-            return false;
-        }
-
+        // Farmers that cannot make the chosen date are simply left out (see
+        // deliveryDateSplit); only an order with nothing left is stopped.
         if (Object.keys(effectiveItemsByOrder).length === 0) {
             Swal.fire({
                 icon: 'error',
@@ -870,9 +837,12 @@ const OrderConfirmationDelayed = () => {
         checkExpiredOrders();
     }, [itemsByOrder, navigate, removeOrderFromCart]);
 
+    // Returns true once the browser is on its way to Grow's payment page; the
+    // spinner then stays up until that page loads.
     const handleSubmitOrder = async (checkoutUid = null) => {
+        let redirecting = false;
         if (!validateCustomerDetailsAndFocus()) {
-            return;
+            return redirecting;
         }
 
         if (!agreeToTerms) {
@@ -905,13 +875,10 @@ const OrderConfirmationDelayed = () => {
             const refreshed = await refreshCartCommercialTerms({ items: cartItems });
             applyCommercialRefresh(refreshed);
             refreshedOrdersById = refreshed.ordersById || null;
-            const refreshedEffectiveItems = refreshed.items.filter((item) => (
-                !isOrderUnavailableForSelectedDate(item.orderId)
-            ));
-            checkoutItemsByOrder = groupPricedItemsByOrder(refreshedEffectiveItems, {
-                ...orderInfoMap,
-                ...refreshed.orderMinimums,
-            });
+            checkoutItemsByOrder = splitCartForDeliveryDate(
+                groupPricedItemsByOrder(refreshed.items, { ...orderInfoMap, ...refreshed.orderMinimums }),
+                isOrderUnavailableForSelectedDate
+            ).includedByOrder;
         } catch (refreshError) {
             const weeklyError = describeCommunityWeeklyCheckoutRefreshError(refreshError);
             if (weeklyError) {
@@ -1153,6 +1120,7 @@ const OrderConfirmationDelayed = () => {
                     value: effectiveTotalWithDelivery,
                     items: checkoutItems,
                 });
+                redirecting = true;
                 window.location.href = url;
             } else {
                 console.error('Failed to create delayed payment checkout', checkoutResult);
@@ -1160,11 +1128,24 @@ const OrderConfirmationDelayed = () => {
             }
         } catch (error) {
             console.error("Failed to create delayed payment:", error);
-            const providerMessage = error?.response?.data?.err?.message;
-            Swal.fire('שגיאה', providerMessage || 'אירעה שגיאה בעת יצירת דף התשלום. נסו שוב מאוחר יותר.', 'error');
+            // Never show the provider's raw message or code; point to the field instead.
+            const problem = describePaymentPageError(error);
+            if (problem.field) {
+                setPaymentFieldError({ field: problem.field, message: problem.message, value: detailValues[problem.field] });
+                setDetailsValidationAttempted(true);
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'צריך לתקן פרט אחד',
+                    text: problem.message,
+                    confirmButtonText: 'לתיקון',
+                }).then(() => focusDetailField(problem.field));
+            } else {
+                Swal.fire({ icon: 'error', title: 'לא הצלחנו להמשיך לתשלום', text: problem.message, confirmButtonText: 'הבנתי' });
+            }
         } finally {
-            setLoading(false);
+            if (!redirecting) setLoading(false);
         }
+        return redirecting;
     };
     
     const handleCancel = () => {
@@ -1212,10 +1193,10 @@ const OrderConfirmationDelayed = () => {
             try {
                 const refreshed = await refreshCartCommercialTerms({ items: cartItems });
                 applyCommercialRefresh(refreshed);
-                checkoutItemsByOrder = groupPricedItemsByOrder(
-                    refreshed.items.filter((item) => !isOrderUnavailableForSelectedDate(item.orderId)),
-                    { ...orderInfoMap, ...refreshed.orderMinimums },
-                );
+                checkoutItemsByOrder = splitCartForDeliveryDate(
+                    groupPricedItemsByOrder(refreshed.items, { ...orderInfoMap, ...refreshed.orderMinimums }),
+                    isOrderUnavailableForSelectedDate
+                ).includedByOrder;
             } catch (refreshError) {
                 const weeklyError = describeCommunityWeeklyCheckoutRefreshError(refreshError);
                 if (weeklyError) {
@@ -1431,11 +1412,17 @@ const OrderConfirmationDelayed = () => {
         email: userEmail,
     });
     const addressIsRequired = requestAddress || deliveryOption === 'homeDelivery';
+    const detailValues = { name: userName, phone: userPhone, email: userEmail };
+    const paymentRefusal = (field) => (
+        paymentFieldError.field === field && detailValues[field] === paymentFieldError.value ? paymentFieldError.message : ''
+    );
     const customerDetailsErrors = {
-        ...customerDetailsValidation.errors,
+        name: customerDetailsValidation.errors.name || paymentRefusal('name'),
+        phone: customerDetailsValidation.errors.phone || paymentRefusal('phone'),
+        email: customerDetailsValidation.errors.email || paymentRefusal('email'),
         address: addressIsRequired && !userAddress.trim() ? 'כתובת למשלוח היא שדה חובה' : '',
     };
-    const customerDetailsAreValid = customerDetailsValidation.valid && !customerDetailsErrors.address;
+    const customerDetailsAreValid = !Object.values(customerDetailsErrors).some(Boolean);
 
     const markDetailTouched = (field) => {
         setTouchedDetails((current) => ({ ...current, [field]: true }));
@@ -1451,12 +1438,8 @@ const OrderConfirmationDelayed = () => {
                 : 'border-gray-300 bg-white focus:border-purple-500 focus:ring-purple-200'
         } ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`;
 
-    const validateCustomerDetailsAndFocus = () => {
-        setDetailsValidationAttempted(true);
-        if (customerDetailsAreValid) return true;
-
-        const firstInvalidField = ['name', 'phone', 'email', 'address']
-            .find((field) => customerDetailsErrors[field]);
+    // Scroll to a details field and put the cursor in it.
+    const focusDetailField = (field) => {
         const refs = {
             name: userNameRef,
             phone: userPhoneRef,
@@ -1464,10 +1447,19 @@ const OrderConfirmationDelayed = () => {
             address: userAddressRef,
         };
         window.requestAnimationFrame(() => {
-            const input = refs[firstInvalidField]?.current;
+            const input = refs[field]?.current;
             input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             input?.focus({ preventScroll: true });
         });
+    };
+
+    const validateCustomerDetailsAndFocus = () => {
+        setDetailsValidationAttempted(true);
+        if (customerDetailsAreValid) return true;
+
+        const firstInvalidField = ['name', 'phone', 'email', 'address']
+            .find((field) => customerDetailsErrors[field]);
+        focusDetailField(firstInvalidField);
         return false;
     };
 
@@ -1518,22 +1510,30 @@ const OrderConfirmationDelayed = () => {
             checkoutUid = accountResolution.uid;
         }
 
-        // A basket that was switched off, is not sold in the chosen community, or
-        // passes the per-customer limit is removed here, before stock is reserved
-        // and before payment.
-        const basketsOrderable = await ensureIntroductionBasketsOrderable({
-            phone: userPhone,
-            email: userEmail,
-            uid: checkoutUid,
-            community: selectedPickupSpot,
-            deliveryWeekKey: selectedDeliveryDate ? getWeekKey(selectedDeliveryDate) : '',
-        });
-        if (!basketsOrderable) {
-            return;
-        }
-
+        // From here on everything waits on the server, so the spinner shows right
+        // away. Any check that stops the order turns it off again (finally below).
+        setLoading(true);
+        // Products that cannot arrive on the chosen date were shown as left out;
+        // pressing pay takes them out of the cart. The order below is built from
+        // this render's snapshot, which already leaves them out.
+        const leftOutUids = cutoffCartItems.map((item) => item.uid).filter(Boolean);
+        if (leftOutUids.length > 0) removeCartItems(leftOutUids);
+        let redirecting = false;
         try {
-            setLoading(true);
+            // A basket that was switched off, is not sold in the chosen community, or
+            // passes the per-customer limit is removed here, before stock is reserved
+            // and before payment.
+            const basketsOrderable = await ensureIntroductionBasketsOrderable({
+                phone: userPhone,
+                email: userEmail,
+                uid: checkoutUid,
+                community: selectedPickupSpot,
+                deliveryWeekKey: selectedDeliveryDate ? getWeekKey(selectedDeliveryDate) : '',
+            });
+            if (!basketsOrderable) {
+                return;
+            }
+
             
             // Check stock before proceeding to payment
             const filteredForStock = Object.entries(effectiveItemsByOrder).reduce((acc, [oid, data]) => {
@@ -1567,12 +1567,12 @@ const OrderConfirmationDelayed = () => {
             
             // Check if the entire payable amount is 0 (considering shipping as well)
             if (effectiveTotalWithDelivery === 0) {
-                handleFreeOrder(checkoutUid);
+                await handleFreeOrder(checkoutUid);
                 return;
             }
 
             // Continue with payment processing
-            await handleSubmitOrder(checkoutUid);
+            redirecting = await handleSubmitOrder(checkoutUid);
         } catch (error) {
             console.error("Error proceeding to checkout:", error);
             Swal.fire({
@@ -1582,7 +1582,7 @@ const OrderConfirmationDelayed = () => {
                 confirmButtonText: 'אישור'
             });
         } finally {
-            setLoading(false);
+            if (!redirecting) setLoading(false);
         }
     };
 
@@ -1790,37 +1790,6 @@ const OrderConfirmationDelayed = () => {
 
                             {cartHasAlwaysOnGrocery && (
                                 <div className="form-group md:col-span-2 bg-green-50 rounded-lg p-3 border border-green-200">
-                                    {deliveryDateBlockers && (() => {
-                                        const earliestLabel = new Date(`${deliveryDateBlockers.earliestDate}T00:00:00`).toLocaleDateString('he-IL', {
-                                            weekday: 'long',
-                                            day: '2-digit',
-                                            month: '2-digit',
-                                        });
-                                        const names = deliveryDateBlockers.blockers.map((blocker) => blocker.businessName).filter(Boolean).join(', ');
-                                        return (
-                                            <div className="text-right rounded-lg border-2 border-amber-400 bg-amber-50 p-3 mb-3">
-                                                <p className="text-base font-bold text-amber-900">
-                                                    {`המוצרים של ${names || 'חלק מהעסקים בסל'} כבר לא יכולים להגיע ב${earliestLabel}, ולכן כל ההזמנה נדחתה.`}
-                                                </p>
-                                                <ul className="mt-1 text-sm text-amber-900">
-                                                    {deliveryDateBlockers.blockers
-                                                        .filter((blocker) => blocker.cutoffAt && blocker.cutoffAt <= new Date())
-                                                        .map((blocker) => (
-                                                            <li key={blocker.orderId}>
-                                                                {`ההזמנות אצל ${blocker.businessName} נסגרו ב-${blocker.cutoffAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`}
-                                                            </li>
-                                                        ))}
-                                                </ul>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => deliveryDateBlockers.blockers.forEach((blocker) => removeOrderFromCart(blocker.orderId))}
-                                                    className="mt-2 w-full rounded-md bg-amber-600 px-3 py-2 text-sm font-bold text-white hover:bg-amber-700"
-                                                >
-                                                    {`הסירו את המוצרים האלה וקבלו את ההזמנה ב${earliestLabel}`}
-                                                </button>
-                                            </div>
-                                        );
-                                    })()}
                                     {isShowingNextDeliveryWeek(availableDeliveryDates) && (
                                         <p className="text-lg font-black text-amber-900 bg-amber-100 border-2 border-amber-400 rounded-lg p-3 mb-3">
                                             שימו לב: אין משלוח השבוע — ההזמנה תישלח בשבוע הבא!
@@ -1896,20 +1865,12 @@ const OrderConfirmationDelayed = () => {
                                         </p>
                                     )}
 
-                                    {cutoffCartItems.length > 0 && (
-                                        <div className="mt-3 rounded-md border border-yellow-200 bg-yellow-50 p-2 text-xs text-yellow-800">
-                                            <p className="font-semibold mb-1">
-                                                הפריטים הבאים עברו את זמן החיתוך לתאריך הזה ולא יהיו חלק מההזמנה:
-                                            </p>
-                                            <ul className="list-disc list-inside space-y-0.5">
-                                                {cutoffCartItems.map((item, index) => (
-                                                    <li key={`${item.orderId}-${item.uid || item.id}-${index}`}>
-                                                        {item.name || item.productName} ({item.businessName})
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
+                                    <LeftOutItemsNotice
+                                        items={cutoffCartItems}
+                                        baskets={deliveryDateSplit.excludedBaskets}
+                                        closures={leftOutClosures}
+                                        deliveryDate={selectedDeliveryDate}
+                                    />
                                 </div>
                             )}
                             

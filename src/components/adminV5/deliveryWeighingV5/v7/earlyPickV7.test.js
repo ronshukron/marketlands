@@ -3,11 +3,11 @@ jest.mock('../../../../services/supplierOrderProgressService', () => ({
 }));
 
 import {
-  buildPickedElsewhereMap,
   findEarlyPickEntry,
   getEarlyPickCommunities,
   getEarlyPickWeekKeys,
   getExtraWeekKeysForEntries,
+  getPickedElsewhereDay,
   loadEarlyPickForDay,
   selectEarlyPickedElsewhere,
   selectEarlyPickEntries,
@@ -29,12 +29,24 @@ describe('early-pick selectors', () => {
 
   test('picked-elsewhere entries are this day\'s communities procured on another day', () => {
     expect(selectEarlyPickedElsewhere(overrides, '2026-11-10').map((entry) => entry.community)).toEqual(['M']);
-    expect(buildPickedElsewhereMap(selectEarlyPickedElsewhere(overrides, '2026-11-10'))).toEqual({ M: '2026-11-09' });
+    const entries = selectEarlyPickedElsewhere(overrides, '2026-11-10');
+    expect(getPickedElsewhereDay({ pickupSpot: 'M' }, entries)).toBe('2026-11-09');
+    expect(getPickedElsewhereDay({ pickupSpot: 'Z' }, entries)).toBe('');
   });
 
   test('matches an order by community and its real delivery date', () => {
     expect(findEarlyPickEntry(overrides, 'K', '2026-11-12')).toBe(overrides[0]);
     expect(findEarlyPickEntry(overrides, 'K', '2026-11-13')).toBeNull();
+  });
+
+  test('an order that entered after the early purchase closed stays on its own day', () => {
+    const closed = [{ ...overrides[0], cutoffAt: '2026-11-09T13:30:00.000Z' }];
+    const early = { delayedPayment: { heldAt: '2026-11-09T13:11:00.000Z' } };
+    const late = { delayedPayment: { heldAt: '2026-11-09T17:00:00.000Z' } };
+    expect(findEarlyPickEntry(closed, 'K', '2026-11-12', early)).toBe(closed[0]);
+    expect(findEarlyPickEntry(closed, 'K', '2026-11-12', late)).toBeNull();
+    expect(getPickedElsewhereDay({ pickupSpot: 'K', rawData: early }, closed)).toBe('2026-11-10');
+    expect(getPickedElsewhereDay({ pickupSpot: 'K', rawData: late }, closed)).toBe('');
   });
 });
 

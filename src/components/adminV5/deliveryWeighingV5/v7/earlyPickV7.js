@@ -1,5 +1,6 @@
 import { fetchProcurementOverrides } from '../../../../services/supplierOrderProgressService';
 import { getWeekKey, parseDateSafe, toLocalDateKey } from '../../../../utils/deliveryScheduleUtils';
+import { isOrderAfterProcurementCutoff } from '../../../../utils/supplierOrderProgressUtils';
 
 // Early pick = a community the admin pulled into another day's procurement
 // (procurementOverrides). Orders keep their real delivery date; V7/V8 only
@@ -69,11 +70,15 @@ export async function loadEarlyPickForDay({ dayKey = '', fetchOverrides = fetchP
   }
 }
 
-export function findEarlyPickEntry(entries = [], community = '', deliveryDateKey = '') {
+// With orderData, an order that entered after the early purchase closed is not part
+// of it: it is purchased and picked on its own delivery day.
+export function findEarlyPickEntry(entries = [], community = '', deliveryDateKey = '', orderData = null) {
   if (!community || !deliveryDateKey) return null;
-  return (entries || []).find((entry) => (
-    entry.community === community && entry.originalDeliveryDate === deliveryDateKey
-  )) || null;
+  const entry = (entries || []).find((candidate) => (
+    candidate.community === community && candidate.originalDeliveryDate === deliveryDateKey
+  ));
+  if (!entry || (orderData && isOrderAfterProcurementCutoff(orderData, entry))) return null;
+  return entry;
 }
 
 export function isEarlyPickOrder(order) {
@@ -106,12 +111,12 @@ export function sortCommunitiesEarlyPickLast(communities = [], earlyPickCommunit
   ];
 }
 
-export function buildPickedElsewhereMap(entries = []) {
-  const map = {};
-  (entries || []).forEach((entry) => {
-    if (entry?.community && entry?.procureOnDate) map[entry.community] = entry.procureOnDate;
-  });
-  return map;
+// The day this order's goods were purchased early, or '' when it belongs to its own day.
+export function getPickedElsewhereDay(order, entries = []) {
+  const community = order?.customerDetails?.pickupSpot || order?.pickupSpot || '';
+  const entry = (entries || []).find((candidate) => candidate?.community === community);
+  if (!entry || isOrderAfterProcurementCutoff(order.rawData || order, entry)) return '';
+  return entry.procureOnDate || '';
 }
 
 export function formatEarlyPickDayLabel(dateKey, lang = 'he') {

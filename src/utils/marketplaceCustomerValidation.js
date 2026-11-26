@@ -7,13 +7,29 @@ const EMAIL_LOCAL_PART_MAX_LENGTH = 64;
 export const normalizeCustomerPhone = (phone = '') =>
   String(phone).replace(/[\s().-]/g, '');
 
+// Letters (Hebrew, Latin, Arabic, Cyrillic), with ' ׳ " ״ - . inside names
+// such as ד'אן, בן-דוד or O'Neil.
+const NAME_ALLOWED_REGEX = /^[\p{L}'׳"״\-.\s]+$/u;
+const NAME_LETTERS_REGEX = /\p{L}/gu;
+
+/**
+ * Full name as the payment page (Grow) needs it: first and last name, at least
+ * two words of two letters or more.
+ */
 export const validateCustomerName = (name) => {
-  const trimmed = String(name || '').trim();
+  const trimmed = String(name || '').trim().replace(/\s+/g, ' ');
   if (!trimmed) {
     return { valid: false, message: 'שם הוא שדה חובה' };
   }
-  if (trimmed.length < 2) {
-    return { valid: false, message: 'השם חייב להכיל לפחות 2 תווים' };
+  if (!NAME_ALLOWED_REGEX.test(trimmed)) {
+    return { valid: false, message: 'השם יכול להכיל רק אותיות, בלי מספרים או סימנים' };
+  }
+  const words = trimmed.split(' ').filter((word) => (word.match(NAME_LETTERS_REGEX) || []).length > 0);
+  if (words.length < 2) {
+    return { valid: false, message: 'נא לכתוב שם פרטי ושם משפחה, למשל: דנה כהן' };
+  }
+  if (words.some((word) => (word.match(NAME_LETTERS_REGEX) || []).length < 2)) {
+    return { valid: false, message: 'נא לכתוב את השם המלא, בלי ראשי תיבות. למשל: דנה כהן' };
   }
   return { valid: true, message: '' };
 };

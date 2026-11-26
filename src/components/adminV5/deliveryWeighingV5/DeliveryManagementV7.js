@@ -109,9 +109,9 @@ import {
   saveShowCommunityNumbering,
 } from './v7/communityOrderNumbering';
 import {
-  buildPickedElsewhereMap,
   formatEarlyPickDayLabel,
   getEarlyPickCommunities,
+  getPickedElsewhereDay,
   isEarlyPickOrder,
   loadEarlyPickForDay,
   sortCommunitiesEarlyPickLast,
@@ -1111,10 +1111,7 @@ export default function DeliveryManagementV7() {
   const earlyPickEntries = earlyPickReady && earlyPickState.pulledIn.length > 0
     ? earlyPickState.pulledIn
     : NO_EARLY_PICK_ENTRIES;
-  const pickedElsewhereByCommunity = useMemo(
-    () => buildPickedElsewhereMap(earlyPickReady ? earlyPickState.pickedElsewhere : NO_EARLY_PICK_ENTRIES),
-    [earlyPickReady, earlyPickState.pickedElsewhere],
-  );
+  const pickedElsewhereEntries = earlyPickReady ? earlyPickState.pickedElsewhere : NO_EARLY_PICK_ENTRIES;
 
   useEffect(() => {
     if (!earlyPickDayKey) {
@@ -4465,9 +4462,9 @@ export default function DeliveryManagementV7() {
                               {t.earlyPickBadge(formatEarlyPickDayLabel(o.earlyPick.originalDeliveryDate, lang))}
                             </div>
                           )}
-                          {!isEarlyPickOrder(o) && pickedElsewhereByCommunity[orderCommunity] && (
+                          {!isEarlyPickOrder(o) && getPickedElsewhereDay(o, pickedElsewhereEntries) && (
                             <div className="mt-1 inline-flex items-center rounded-full border border-teal-300 bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-800">
-                              {t.pickedEarlyOnBadge(formatEarlyPickDayLabel(pickedElsewhereByCommunity[orderCommunity], lang))}
+                              {t.pickedEarlyOnBadge(formatEarlyPickDayLabel(getPickedElsewhereDay(o, pickedElsewhereEntries), lang))}
                             </div>
                           )}
                           {wantsReusableCartons && (
@@ -4571,9 +4568,9 @@ export default function DeliveryManagementV7() {
                             {t.earlyPickBadge(formatEarlyPickDayLabel(selectedOrder.earlyPick.originalDeliveryDate, lang))}
                           </div>
                         )}
-                        {!isEarlyPickOrder(selectedOrder) && pickedElsewhereByCommunity[selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot] && (
+                        {!isEarlyPickOrder(selectedOrder) && getPickedElsewhereDay(selectedOrder, pickedElsewhereEntries) && (
                           <div className="mt-1 inline-flex items-center rounded-full border border-teal-300 bg-teal-50 px-2.5 py-0.5 text-xs font-bold text-teal-800">
-                            {t.pickedEarlyOnBadge(formatEarlyPickDayLabel(pickedElsewhereByCommunity[selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot], lang))}
+                            {t.pickedEarlyOnBadge(formatEarlyPickDayLabel(getPickedElsewhereDay(selectedOrder, pickedElsewhereEntries), lang))}
                           </div>
                         )}
                         {(() => {

@@ -63,7 +63,7 @@ Going live requires both flips, plus a functions redeploy and a hosting deploy:
 
 | Collection | Who can read | Who can write | Contents |
 |---|---|---|---|
-| `subscriptionBaskets` | active docs, or an admin | admin | The template: title, communities, component lines, `openLeadHours` |
+| `subscriptionBaskets` | active docs, or an admin | admin | The template: title, communities, component lines (may be empty), `openLeadHours` |
 | `basketSubscriptions` | admin, or the owning `userId` | nobody (functions only) | Status, schedule, customer details, `card.last4` / brand / exp, `orderIds`, consent summary |
 | `subscriptionPaymentSecrets` | nobody | nobody | `cardToken`, pending Grow process, consent log, per-order charge identifiers |
 | `subscriptionCounters/growIdentifiers` | nobody | nobody | Monotonic counter for Grow identifiers, starts at 100000 |
@@ -79,9 +79,9 @@ Subscription statuses: `pending_card`, `active`, `paused`, `payment_failed`, `ca
 
 | Path | Who | What |
 |---|---|---|
-| `/admin/subscription-baskets` | admin | Create and edit baskets. Card on `/admin` titled "סלי מנוי". |
+| `/admin/subscription-baskets` | admin | Create and edit baskets. Card on `/admin` titled "סלי מנוי". A basket may be saved with no products: each customer then builds their own at signup. |
 | community store | testers only, until the flag flips | `SubscriptionBasketCard` when the selected community has an active delivery schedule and an active basket that includes it. |
-| `/subscribe/:basketId` | logged-in tester | Community, delivery option, first date, frequency, details, required consent checkbox, then redirect to Grow. |
+| `/subscribe/:basketId` | logged-in customer | Community, the basket (editable: add, remove, change quantities; built from zero when the admin basket is empty), delivery option, first date, frequency, details, required consent checkbox, then redirect to Grow. |
 | `/subscription-success` | customer | Polls `confirmBasketSubscriptionCard` up to 27 times, every 3 seconds, until Grow's server update has saved the card. |
 | `/my-subscriptions` | owner | Pause, resume, skip, unskip, frequency, cancel, replace card. Linked from "ההזמנות שלי". |
 | `/my-orders/:orderId` | owner | Remove any line; add products only while the farmer form is open. |
@@ -132,6 +132,16 @@ A customer skip of a date that already has an order, before cutoff, cancels that
 `canCustomerRemoveSubscriptionLine`: a subscription order that is still `held` / `pending_weighing` can exclude any line, even after the farmer form closed. Putting a line back, or adding a new one, still requires the form to be open. The server checks again in `addSubscriptionOrderItems` and in `toggleCustomerLineExclusion`. New lines get a `lineSeed` so their `lineId` does not collide with basket lines.
 
 `listSubscriptionAddableProducts` returns products whose farmer form is open for that delivery and whose stock is above zero. Forms are cached 60 seconds.
+
+### The customer's own basket (`recurringLines`)
+
+Each delivery is built from `basketSubscriptions.recurringLines` when it is non-empty, otherwise from the admin basket (`getSubscriptionRecurringSource`). The customer sets it on `/my-subscriptions/:id/basket` (`updateRecurringBasket`) or already at signup: `createBasketSubscription` takes an optional `recurringLines` and stores it only when it differs from the admin basket (`sameAsBasket`), so an unchanged basket keeps following admin edits. An empty admin basket requires `recurringLines` (`EMPTY_BASKET` otherwise). Both paths check lines with `resolveRecurringLines` (`functions/utils/recurringBasketLines.js`): at most 40 lines, no duplicates, a valid quantity, and a farmer form that sells the product.
+
+`listRecurringBasketProducts` takes `{subscriptionId}`, or on the signup page `{basketId, community, firstDeliveryDate}`, and returns products with stock whose farmer form is open for the community on that date or the next two delivery dates. If a customer leaves Grow without saving a card, the signup page restores their choice from the `pending_card` subscription.
+
+Prices: each delivery is priced from the product document with its own quantity discount (`getUnitPricing`: the discounted price from the threshold up, only when it is below the regular price). The basket editors show the same thing from live product data (`getRecurringUnitPricing` in `src/utils/recurringBasket.js`, tested against the same cases): the discount label, how much more is needed, and a struck-through price once it applies; the estimate uses it. Subscription basket lines also keep the discount (`normalizeSubscriptionBasketLine`), and the admin page refreshes price and discount when a basket is opened or saved, so the store card's estimate includes it. Introduction baskets are unchanged: their cart adjustment is priced without the discount. Group and weekly community promotions are not applied to subscription orders.
+
+If an admin empties a basket that existing subscribers still follow, their deliveries are skipped with `no_items_available` until they pick products; the admin page warns about this before saving.
 
 ## Charge — the bug
 

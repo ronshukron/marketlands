@@ -1,4 +1,4 @@
-import { toLocalDateKey } from './deliveryScheduleUtils';
+import { parseDateSafe, toLocalDateKey } from './deliveryScheduleUtils';
 
 const QUANTITY_EPSILON = 0.001;
 
@@ -109,23 +109,52 @@ const findOverrideForOrder = (order, overrides = []) => {
   )) || null;
 };
 
+// When an order started to count for purchasing: once its payment was held, or once
+// an admin moved it to this delivery day (whichever is later).
+export function getOrderEnteredAt(order = {}) {
+  const entered = parseDateSafe(order.delayedPayment?.heldAt)
+    || parseDateSafe(order.createdAt)
+    || parseDateSafe(order.createdAtIso);
+  const movedAt = parseDateSafe(order.adminDeliveryTransferredAt);
+  if (entered && movedAt) return movedAt > entered ? movedAt : entered;
+  return entered || movedAt || null;
+}
+
+// An override closes at cutoffAt: orders that entered later stay in the purchase of
+// their own delivery day. Overrides saved before closing times existed have none.
+export function isOrderAfterProcurementCutoff(order = {}, entry = null) {
+  const cutoff = parseDateSafe(entry?.cutoffAt);
+  if (!cutoff) return false;
+  const enteredAt = getOrderEnteredAt(order);
+  return Boolean(enteredAt) && enteredAt > cutoff;
+}
+
 export function getProcurementDateKey(order = {}, overrides = []) {
   const override = findOverrideForOrder(order, overrides);
-  return override ? override.procureOnDate : toLocalDateKey(order.deliveryDate);
+  return override && !isOrderAfterProcurementCutoff(order, override)
+    ? override.procureOnDate
+    : toLocalDateKey(order.deliveryDate);
 }
 
 // Procurement overrides move a community's purchasing to another day without
-// touching the customer orders' delivery date.
+// touching the customer orders' delivery date. lateOrders entered after the early
+// purchase closed, so they are purchased on their own delivery day.
 export function applyProcurementOverrides(orders = [], overrides = [], selectedDeliveryDate = '') {
-  if (!selectedDeliveryDate) return { orders, pulledIn: [], pushedOut: [] };
+  if (!selectedDeliveryDate) return { orders, pulledIn: [], pushedOut: [], lateOrders: [] };
 
   const pulledIn = {};
   const pushedOut = {};
+  const lateOrders = [];
   const visible = orders.filter((order) => {
     const ownDateKey = toLocalDateKey(order.deliveryDate);
-    const override = findOverrideForOrder(order, overrides);
+    const matched = findOverrideForOrder(order, overrides);
+    const isLate = isOrderAfterProcurementCutoff(order, matched);
+    const override = isLate ? null : matched;
     const procurementDateKey = override ? override.procureOnDate : ownDateKey;
 
+    if (isLate && [ownDateKey, matched.procureOnDate].includes(selectedDeliveryDate)) {
+      lateOrders.push(order);
+    }
     if (override && ownDateKey === selectedDeliveryDate && procurementDateKey !== selectedDeliveryDate) {
       const key = `${order.community}__${procurementDateKey}`;
       if (!pushedOut[key]) pushedOut[key] = { community: order.community, procureOnDate: procurementDateKey, count: 0 };
@@ -144,7 +173,37 @@ export function applyProcurementOverrides(orders = [], overrides = [], selectedD
     orders: visible,
     pulledIn: Object.values(pulledIn),
     pushedOut: Object.values(pushedOut),
+    lateOrders,
   };
+}
+
+// The early purchases that touch the selected day (as purchase day or delivery day),
+// with their orders (newest first), for setting the closing time.
+export function getProcurementCutoffGroups(orders = [], overrides = [], selectedDeliveryDate = '') {
+  if (!selectedDeliveryDate) return [];
+  const groups = {};
+  (overrides || []).forEach((entry) => {
+    if (!entry || entry.procureOnDate === entry.originalDeliveryDate) return;
+    if (![entry.procureOnDate, entry.originalDeliveryDate].includes(selectedDeliveryDate)) return;
+    const key = `${entry.procureOnDate}__${entry.originalDeliveryDate}`;
+    if (!groups[key]) {
+      groups[key] = {
+        key,
+        procureOnDate: entry.procureOnDate,
+        originalDeliveryDate: entry.originalDeliveryDate,
+        entries: [],
+        orders: [],
+      };
+    }
+    groups[key].entries.push(entry);
+  });
+  Object.values(groups).forEach((group) => {
+    group.orders = orders
+      .filter((order) => group.entries.includes(findOverrideForOrder(order, overrides)))
+      .map((order) => ({ order, enteredAt: getOrderEnteredAt(order) }))
+      .sort((a, b) => (b.enteredAt?.getTime() || 0) - (a.enteredAt?.getTime() || 0));
+  });
+  return Object.values(groups).sort((a, b) => a.key.localeCompare(b.key));
 }
 
 // Communities with orders on a different day that can be pulled into the selected procurement day.
@@ -154,6 +213,8 @@ export function getProcurementOverrideCandidates(orders = [], overrides = [], se
   orders.forEach((order) => {
     const ownDateKey = toLocalDateKey(order.deliveryDate);
     if (!ownDateKey || ownDateKey === selectedDeliveryDate) return;
+    // A closed early purchase is reopened by changing its closing time, not by adding it again.
+    if (isOrderAfterProcurementCutoff(order, findOverrideForOrder(order, overrides))) return;
     if (getProcurementDateKey(order, overrides) === selectedDeliveryDate) return;
     const key = `${order.community}__${ownDateKey}`;
     if (!candidates[key]) {

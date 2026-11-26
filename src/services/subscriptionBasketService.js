@@ -11,8 +11,8 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { estimateRecurringLine, getQuantityDiscount } from '../utils/recurringBasket';
 import {
-  getIntroductionBasketComponentSubtotal,
   listIntroductionBasketProductCandidates,
   normalizeComponentLine,
   MAX_BASKET_COMMUNITIES,
@@ -41,6 +41,28 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+/**
+ * A basket line plus the product's quantity discount, which subscription
+ * orders apply (unlike introduction baskets, which share normalizeComponentLine).
+ * @param {Object} line
+ * @return {Object}
+ */
+export const normalizeSubscriptionBasketLine = (line = {}) => {
+  const normalized = normalizeComponentLine(line);
+  const discount = getQuantityDiscount({ ...line, price: normalized.price });
+  return {
+    ...normalized,
+    quantityDiscountThreshold: discount ? discount.threshold : null,
+    quantityDiscountPrice: discount ? discount.price : null,
+    quantityDiscountLabel: discount ? String(line.quantityDiscountLabel || '').trim() : '',
+  };
+};
+
+/** Rough cost of the basket at the saved prices, after quantity discounts. */
+export const getSubscriptionBasketSubtotal = (componentLines = []) => (
+  componentLines.reduce((sum, line) => sum + estimateRecurringLine(line, line.quantity, line.measurementType), 0)
+);
+
 export const normalizeOpenLeadHours = (value) => {
   const hours = Math.round(safeNumber(value, DEFAULT_OPEN_LEAD_HOURS));
   if (hours < 1) return DEFAULT_OPEN_LEAD_HOURS;
@@ -50,7 +72,7 @@ export const normalizeOpenLeadHours = (value) => {
 const normalizeBasketDoc = (basketDoc) => {
   const data = basketDoc.data ? basketDoc.data() : basketDoc;
   const componentLines = Array.isArray(data.componentLines)
-    ? data.componentLines.map(normalizeComponentLine).filter((line) => line.productId && line.orderId)
+    ? data.componentLines.map(normalizeSubscriptionBasketLine).filter((line) => line.productId && line.orderId)
     : [];
   return {
     id: basketDoc.id || data.id || '',
@@ -62,7 +84,7 @@ const normalizeBasketDoc = (basketDoc) => {
     communities: Array.isArray(data.communities) ? data.communities.filter(Boolean) : [],
     openLeadHours: normalizeOpenLeadHours(data.openLeadHours),
     componentLines,
-    componentSubtotal: getIntroductionBasketComponentSubtotal(componentLines),
+    componentSubtotal: getSubscriptionBasketSubtotal(componentLines),
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null,
     updatedBy: data.updatedBy || '',
@@ -71,7 +93,7 @@ const normalizeBasketDoc = (basketDoc) => {
 
 const prepareBasketPayload = (payload = {}, updatedBy = '') => {
   const componentLines = Array.isArray(payload.componentLines)
-    ? payload.componentLines.map(normalizeComponentLine).filter((line) => line.productId && line.orderId)
+    ? payload.componentLines.map(normalizeSubscriptionBasketLine).filter((line) => line.productId && line.orderId)
     : [];
   return {
     title: String(payload.title || '').trim(),
@@ -84,7 +106,7 @@ const prepareBasketPayload = (payload = {}, updatedBy = '') => {
       : [],
     openLeadHours: normalizeOpenLeadHours(payload.openLeadHours),
     componentLines,
-    componentSubtotal: getIntroductionBasketComponentSubtotal(componentLines),
+    componentSubtotal: getSubscriptionBasketSubtotal(componentLines),
     updatedAt: serverTimestamp(),
     updatedBy,
   };
@@ -99,9 +121,8 @@ export function validatePreparedSubscriptionBasket(prepared = {}) {
     throw new Error('COMMUNITIES_REQUIRED');
   }
   if (prepared.communities.length > MAX_BASKET_COMMUNITIES) throw new Error('TOO_MANY_COMMUNITIES');
-  if (!Array.isArray(prepared.componentLines) || prepared.componentLines.length === 0) {
-    throw new Error('COMPONENTS_REQUIRED');
-  }
+  // An empty basket is allowed: customers build their own on the signup page.
+  if (!Array.isArray(prepared.componentLines)) throw new Error('COMPONENTS_REQUIRED');
   if (prepared.componentLines.length > MAX_BASKET_COMPONENT_LINES) throw new Error('TOO_MANY_COMPONENTS');
   prepared.componentLines.forEach((line) => {
     if (!line.productId || !line.orderId || !line.businessId) throw new Error('COMPONENT_REFERENCE_INVALID');
@@ -126,7 +147,6 @@ export async function listActiveSubscriptionBasketsForCommunity(communityName) {
   ));
   return snap.docs
     .map(normalizeBasketDoc)
-    .filter((basket) => basket.componentLines.length > 0)
     .sort((a, b) => (a.sortOrder - b.sortOrder) || a.title.localeCompare(b.title, 'he'));
 }
 
@@ -170,4 +190,28 @@ export async function listCommunitiesWithDeliverySchedule() {
   );
 }
 
-export const listSubscriptionBasketProductCandidates = listIntroductionBasketProductCandidates;
+export const listSubscriptionBasketProductCandidates = () => (
+  listIntroductionBasketProductCandidates({ includeQuantityDiscount: true })
+);
+
+/**
+ * The line with today's price and quantity discount from the product list,
+ * when the product is still offered through the same farmer form.
+ * @param {Object} line
+ * @param {Array<Object>} candidates listSubscriptionBasketProductCandidates()
+ * @return {Object}
+ */
+export const refreshBasketLinePrice = (line, candidates = []) => {
+  const current = candidates.find((candidate) => (
+    candidate.productId === line.productId && candidate.orderId === line.orderId
+  ));
+  if (!current) return line;
+  return {
+    ...line,
+    price: current.price,
+    priceSnapshot: current.price,
+    quantityDiscountThreshold: current.quantityDiscountThreshold ?? null,
+    quantityDiscountPrice: current.quantityDiscountPrice ?? null,
+    quantityDiscountLabel: current.quantityDiscountLabel || '',
+  };
+};

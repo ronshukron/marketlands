@@ -90,6 +90,23 @@ describe('PaymentSuccess confirm flow', () => {
     expect(confirmDelayedPayment).toHaveBeenCalledWith({ customerOrderId: 'ord-1' });
   });
 
+  test('success stays on screen after the cart clears (no second confirm turns it into pending)', async () => {
+    // Like CartContext: a new clearCart function on every render.
+    useCart.mockImplementation(() => ({ clearCart: jest.fn(() => clearCart()) }));
+    getDoc.mockRejectedValue({ code: 'permission-denied', message: 'Missing or insufficient permissions.' });
+    confirmDelayedPayment
+      .mockResolvedValueOnce({ ok: true, state: 'held', recovered: true, missingEndpoint: false })
+      .mockResolvedValue({ ok: false, missingEndpoint: false, status: 429 });
+
+    renderPage();
+    expect(await screen.findByText('תודה רבה!')).toBeInTheDocument();
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+    expect(screen.getByText('תודה רבה!')).toBeInTheDocument();
+    expect(screen.queryByText('מאשרים את התשלום')).not.toBeInTheDocument();
+    expect(confirmDelayedPayment).toHaveBeenCalledTimes(1);
+    expect(clearCart).toHaveBeenCalledTimes(1);
+  });
+
   test('not_paid preserves the cart and does not use webhook-loss copy', async () => {
     confirmDelayedPayment.mockResolvedValue({
       ok: true,
