@@ -4,7 +4,8 @@ import Swal from 'sweetalert2';
 import { FiCheckCircle, FiShoppingBag } from 'react-icons/fi';
 import { useSubscriber } from '../../contexts/SubscriberContext';
 import { getEstimatedLineTotal } from '../../utils/pricing';
-import { SUBSCRIBER_STATES, formatDeadline, formatDeliveryDay } from '../../utils/subscriberStorefront';
+import { SUBSCRIBER_STATES, formatDeadline } from '../../utils/subscriberStorefront';
+import { CHARGED_ON_SAVED_CARD, deliveryName } from './copy';
 
 // Subscriber mode: every change to the upcoming delivery is saved to the order
 // at once. "אישור ההזמנה" waits until all of them reached the server and then
@@ -41,9 +42,11 @@ export const useConfirmSubscriberOrder = () => {
         + (Number(order?.customerDetails?.deliveryDetails?.deliveryFee) || 0);
       const lines = [
         `<p style="margin:0 0 6px"><strong>${items.length} מוצרים</strong> · כ-₪${total.toFixed(2)}</p>`,
-        `<p style="margin:0 0 6px">המשלוח: ${formatDeliveryDay(delivery.deliveryDate)}</p>`,
+        `<p style="margin:0 0 6px">${deliveryName(delivery.deliveryDate)}</p>`,
         cutoffAt ? `<p style="margin:0 0 6px">אפשר להמשיך לשנות עד ${formatDeadline(cutoffAt)}</p>` : '',
-        '<p style="margin:0;color:#4b5563;font-size:13px">החיוב יתבצע אחרי השקילה, בכרטיס השמור במנוי.</p>',
+        '<p style="margin:0 0 6px;padding:6px 8px;border-radius:6px;background:#fffbeb;color:#78350f">'
+          + 'השינויים חלים על המשלוח הזה בלבד. הסל הקבוע לא השתנה.</p>',
+        `<p style="margin:0;color:#4b5563;font-size:13px">החיוב יתבצע אחרי השקילה, ${CHARGED_ON_SAVED_CARD}.</p>`,
       ].join('');
       await Swal.fire({
         title: 'ההזמנה שלך מעודכנת',
@@ -96,7 +99,7 @@ const SubscriberOrderBar = () => {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-bold text-gray-900">
-              <span className="hidden sm:inline">הסל ל{formatDeliveryDay(delivery.deliveryDate)} · </span>
+              <span className="hidden sm:inline">{deliveryName(delivery.deliveryDate)} · </span>
               {items.length} מוצרים · כ-₪{total.toFixed(0)}
             </span>
             <span className="block truncate text-xs text-gray-600" role="status" aria-live="polite">

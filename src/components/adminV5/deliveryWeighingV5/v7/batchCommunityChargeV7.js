@@ -9,6 +9,8 @@ export const BATCH_CHARGE_SKIP_REASONS = Object.freeze({
   pendingSync: 'pending_sync',
   offline: 'offline',
   stopped: 'stopped',
+  // Over its card hold while "charge the maximum" was turned off.
+  overHold: 'over_hold',
 });
 
 export function getOrderCommunityName(order) {

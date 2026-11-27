@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/authContext';
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
 import { normalizeQuantityDiscount, validateQuantityDiscount } from '../../utils/pricing';
+import ProductTypeSelect, { productTypeForCategory } from './ProductTypeSelect';
 
 // Predefined unit size options (in kg)
 const UNIT_SIZE_OPTIONS = [
@@ -66,6 +67,7 @@ const BulkEditProducts = () => {
             stockAmount: product.stockAmount || 0,
             merchantPrice: product.merchantPrice || '',
             category: product.category || '',
+            productType: product.productType || '',
             description: product.description || '',
             thaiName: product.thaiName || '',
             measurementType: product.measurementType || 'kg', // default to kg
@@ -111,6 +113,7 @@ const BulkEditProducts = () => {
         Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
         (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
         edited.category !== (product.category || '') ||
+        (edited.productType || '') !== (product.productType || '') ||
         (edited.description || '') !== (product.description || '') ||
         edited.thaiName !== (product.thaiName || '') ||
         edited.measurementType !== (product.measurementType || 'kg') ||
@@ -180,6 +183,7 @@ const BulkEditProducts = () => {
           Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
           (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
           edited.category !== (product.category || '') ||
+        (edited.productType || '') !== (product.productType || '') ||
           (edited.description || '') !== (product.description || '') ||
           edited.thaiName !== (product.thaiName || '') ||
           edited.measurementType !== (product.measurementType || 'kg') ||
@@ -220,6 +224,8 @@ const BulkEditProducts = () => {
           } else {
             updates.category = '';
           }
+          // Empty: detected from the name in the store.
+          updates.productType = productTypeForCategory(edited.productType, edited.category) || null;
 
           if (edited.thaiName !== '') {
             updates.thaiName = edited.thaiName;
@@ -279,6 +285,7 @@ const BulkEditProducts = () => {
         stockAmount: product.stockAmount || 0,
         merchantPrice: product.merchantPrice || '',
         category: product.category || '',
+        productType: product.productType || '',
         description: product.description || '',
         thaiName: product.thaiName || '',
         measurementType: product.measurementType || 'kg',
@@ -384,6 +391,9 @@ const BulkEditProducts = () => {
                     קטגוריה
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    סוג מוצר
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     נמדד לפי
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -412,6 +422,7 @@ const BulkEditProducts = () => {
                     Number(edited.stockAmount) !== Number(product.stockAmount || 0) ||
                     (edited.merchantPrice !== '' ? Number(edited.merchantPrice) : null) !== (product.merchantPrice != null ? Number(product.merchantPrice) : null) ||
                     edited.category !== (product.category || '') ||
+        (edited.productType || '') !== (product.productType || '') ||
                     (edited.description || '') !== (product.description || '') ||
                     edited.thaiName !== (product.thaiName || '') ||
                     edited.measurementType !== (product.measurementType || 'kg') ||
@@ -517,6 +528,16 @@ const BulkEditProducts = () => {
                           <option value="ירוקים">ירוקים</option>
                           <option value="אחר">אחר</option>
                         </select>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <ProductTypeSelect
+                          id={`productType-${product.id}`}
+                          compact
+                          category={edited.category}
+                          productName={product.name}
+                          value={edited.productType}
+                          onChange={(value) => handleFieldChange(product.id, 'productType', value)}
+                        />
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         <select

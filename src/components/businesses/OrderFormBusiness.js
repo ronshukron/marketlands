@@ -7,7 +7,7 @@ import LoadingSpinner from '../LoadingSpinner';
 import Slider from "react-slick";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
-import Swal from 'sweetalert2';
+import { announceCartAdd, announceCartProblem, tapFeedback } from '../../utils/cartAddFeedback';
 import { useCart } from '../../contexts/CartContext'; // Import useCart
 import {
   attachGroupPromotionFields,
@@ -32,7 +32,7 @@ const OrderFormBusiness = () => {
   const navigate = useNavigate();
 
   // Get cart functions from context
-  const { addItem, cartItems, cartTotal, subscriberMode } = useCart(); 
+  const { addItem, cartItems, cartTotal } = useCart(); 
 
   useEffect(() => {
     const fetchOrderDetails = async () => {
@@ -135,27 +135,17 @@ const OrderFormBusiness = () => {
     }));
   };
 
-  const addToCart = (productIndex) => {
+  const addToCart = (productIndex, sourceEl = null) => {
     const product = products[productIndex];
     
     if (product.quantity <= 0) {
-      Swal.fire({
-        title: 'אופס!',
-        text: 'אנא בחר כמות גדולה מאפס',
-        icon: 'warning',
-        confirmButtonText: 'אישור'
-      });
+      announceCartProblem({ message: 'בחרו כמות גדולה מאפס', sourceEl });
       return;
     }
 
     // Check if requested quantity exceeds available stock
     if (product.stockAmount !== undefined && product.quantity > product.stockAmount) {
-      Swal.fire({
-        title: 'מלאי לא מספיק',
-        text: `יש רק ${product.stockAmount} יחידות במלאי מתוך ${product.quantity} שביקשת`,
-        icon: 'warning',
-        confirmButtonText: 'אישור'
-      });
+      announceCartProblem({ message: `מלאי לא מספיק: יש רק ${product.stockAmount} במלאי מתוך ${product.quantity} שביקשת`, sourceEl });
       return;
     }
     
@@ -198,14 +188,14 @@ const OrderFormBusiness = () => {
     updatedProducts[productIndex].quantity = 0;
     setProducts(updatedProducts);
 
-    // Show success message
-    Swal.fire({
-      title: 'נוסף לסל!',
-      text: subscriberMode ? `${product.name} נוסף למשלוח הקרוב שלך` : `${product.name} נוסף לסל הקניות שלך`,
-      icon: 'success',
-      timer: 1500,
-      showConfirmButton: false
+    // No popup: the item flies into the cart icon and a bubble confirms, with undo.
+    announceCartAdd({
+      name: product.name,
+      quantityLabel: String(productToAdd.quantity),
+      sourceEl,
+      match: { orderId, id: productToAdd.id, selectedOption: productToAdd.selectedOption },
     });
+    tapFeedback();
   };
 
   const checkIfOrderEnded = async () => {
@@ -434,7 +424,7 @@ const OrderFormBusiness = () => {
                     </div>
                     
                     <button
-                      onClick={() => addToCart(index)}
+                      onClick={(event) => addToCart(index, event.currentTarget)}
                       disabled={product.stockAmount <= 0}
                       className={`flex-1 ${product.stockAmount > 0 ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-400 cursor-not-allowed'} text-white py-1.5 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-1`}
                     >

@@ -30,7 +30,7 @@ const SubscriptionBasketCard = ({ basket, community }) => {
           </div>
         )}
         <span className="absolute top-3 right-3 rounded-full bg-amber-600 text-white text-xs font-bold px-3 py-1 shadow">
-          מנוי שבועי
+          סל שבועי
         </span>
       </div>
 
@@ -75,7 +75,7 @@ const SubscriptionBasketCard = ({ basket, community }) => {
           to={signupPath}
           className="w-full text-center bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-lg text-sm font-bold transition-colors"
         >
-          {buildYourOwn ? 'לבנות סל ולהירשם' : 'להירשם למנוי'}
+          {buildYourOwn ? 'לבנות סל ולהירשם' : 'להירשם לסל שבועי'}
         </Link>
       </div>
     </div>

@@ -735,3 +735,112 @@ describe('weighing progress', () => {
     }, { status: 'in_progress' })).toBe('completed');
   });
 });
+
+describe('charge cap (the card hold is the maximum)', () => {
+  const line = (id, pricePerUnit, extra = {}) => ({
+    lineId: `order-9::${id}::biz::::s0`,
+    productId: id,
+    productName: id,
+    requestedQuantity: 1,
+    pricePerUnit,
+    measurementType: 'package',
+    catalogNumber: `C-${id}`,
+    vatType: 3,
+    ...extra,
+  });
+  const growSum = (payload) => Math.round(Object.keys(payload.productDataForGrow)
+    .filter((key) => key.endsWith('[price]'))
+    .reduce((sum, key) => sum + payload.productDataForGrow[key] * 100, 0)) / 100;
+  const cents = (value) => Math.round(value * 100);
+
+  test('a total above the cap becomes exactly the cap, on the lines and in the Grow data', () => {
+    const items = [line('a', 33.33), line('b', 21.07), line('c', 49.99)];
+    const payload = buildSettlementPayload({ selectedOrder: { id: 'order-9' }, items, chargeCap: 97.5 });
+
+    expect(payload.finalSum).toBe(97.5);
+    expect(growSum(payload)).toBe(97.5);
+    expect(cents(payload.finalInvoiceLines.reduce((sum, entry) => sum + entry.linePrice, 0))).toBe(9750);
+    expect(payload.holdCap).toEqual({ max: 97.5, originalSum: 104.39, reducedBy: 6.89 });
+    payload.finalInvoiceLines.forEach((entry) => {
+      expect(entry.linePrice).toBeGreaterThan(0);
+      expect(cents(entry.preCapLinePrice - entry.linePrice)).toBe(cents(entry.holdCapShare));
+    });
+    expect(payload.finalInvoiceLines.map((entry) => entry.preCapLinePrice)).toEqual([33.33, 21.07, 49.99]);
+    // Unit prices stay what the customer was quoted; the email shows the adjustment as its own line.
+    expect(payload.finalInvoiceLines.map((entry) => entry.pricePerUnit)).toEqual([33.33, 21.07, 49.99]);
+    // No field shared with the community discount (the weekly summaries read those).
+    expect(payload.communityDiscount).toBeUndefined();
+    payload.finalInvoiceLines.forEach((entry) => expect(entry.communityDiscountShare).toBeUndefined());
+  });
+
+  test('with a community discount: the discount is computed first and its audit is untouched', () => {
+    const items = [line('a', 50), line('b', 70)];
+    const payload = buildSettlementPayload({
+      selectedOrder: { id: 'order-9' },
+      items,
+      communityDiscount: { percent: 10 },
+      chargeCap: 100,
+    });
+    expect(payload.communityDiscount).toMatchObject({ preDiscountTotal: 120, amount: 12, finalTotal: 108 });
+    expect(payload.finalSum).toBe(100);
+    expect(growSum(payload)).toBe(100);
+    expect(payload.holdCap).toEqual({ max: 100, originalSum: 108, reducedBy: 8 });
+    expect(payload.finalInvoiceLines.map((entry) => entry.preCapLinePrice)).toEqual([45, 63]);
+  });
+
+  test('weekly-promotion lines are capped like any other line', () => {
+    const items = [
+      line('a', 30, { communityWeeklyPromotionApplied: true, communityWeeklyPromotionId: 'promo' }),
+      line('b', 30),
+    ];
+    const payload = buildSettlementPayload({ selectedOrder: { id: 'order-9' }, items, chargeCap: 45 });
+    expect(payload.finalSum).toBe(45);
+    expect(payload.finalInvoiceLines.map((entry) => entry.linePrice)).toEqual([22.5, 22.5]);
+    expect(payload.finalInvoiceLines[0].communityWeeklyPromotionApplied).toBe(true);
+  });
+
+  test('an introduction basket line is capped too', () => {
+    const items = [
+      line('basket-a', 18, { isBasketComponent: true, basketId: 'bp', basketInstanceId: 'b1', basketPrice: 30, basketComponentSubtotal: 35 }),
+      line('basket-b', 17, { isBasketComponent: true, basketId: 'bp', basketInstanceId: 'b1', basketPrice: 30, basketComponentSubtotal: 35 }),
+      line('x', 12.4),
+    ];
+    const payload = buildSettlementPayload({ selectedOrder: { id: 'order-9' }, items, chargeCap: 40 });
+    expect(payload.finalSum).toBe(40);
+    expect(growSum(payload)).toBe(40);
+    const basket = payload.finalInvoiceLines.find((entry) => entry.isIntroductionBasket);
+    expect(basket.preCapLinePrice).toBe(30);
+    expect(basket.linePrice).toBeLessThan(30);
+  });
+
+  test('a cap at or above the total changes nothing', () => {
+    const items = [line('a', 33.33), line('b', 21.07)];
+    const plain = buildSettlementPayload({ selectedOrder: { id: 'order-9' }, items });
+    [54.4, 100, null, 0].forEach((chargeCap) => {
+      const payload = buildSettlementPayload({ selectedOrder: { id: 'order-9' }, items, chargeCap });
+      expect(payload).toEqual(plain);
+      expect(payload.holdCap).toBeUndefined();
+    });
+  });
+
+  test('a tiny line stays positive and the rest is taken from the largest line', () => {
+    const items = [line('tiny', 0.01), line('big', 99.99)];
+    const payload = buildSettlementPayload({ selectedOrder: { id: 'order-9' }, items, chargeCap: 40 });
+    expect(payload.finalSum).toBe(40);
+    expect(payload.finalInvoiceLines[0].linePrice).toBe(0.01);
+    expect(payload.finalInvoiceLines[1].linePrice).toBe(39.99);
+  });
+
+  test('kg lines: the cap applies to the weighed price', () => {
+    const items = [line('tom', 12, { measurementType: 'kg' }), line('cuc', 8, { measurementType: 'kg' })];
+    const draft = { weightsByLineId: {
+      'order-9::tom::biz::::s0': { actualQuantity: 2.345, source: 'scale' },
+      'order-9::cuc::biz::::s0': { actualQuantity: 1.1, source: 'scale' },
+    } };
+    const payload = buildSettlementPayload({ selectedOrder: { id: 'order-9' }, items, draft, chargeCap: 30 });
+    expect(payload.holdCap.originalSum).toBe(36.94);
+    expect(payload.finalSum).toBe(30);
+    expect(growSum(payload)).toBe(30);
+    expect(payload.finalInvoiceLines[0].actualQuantity).toBe(2.345);
+  });
+});

@@ -106,9 +106,13 @@ export function orderToCartItems(order, { lockedFormIds = new Set() } = {}) {
       if (quantity <= 0) return;
       const selectedOption = line.selectedOption && line.selectedOption !== 'None' ? line.selectedOption : '';
       const key = subscriptionItemKey(line.productId, selectedOption);
+      // "basket": the line came from the recurring basket when the delivery was
+      // generated; "customer_added": added to this delivery only.
+      const source = line.subscriptionLineSource === 'customer_added' ? 'customer_added' : 'basket';
       const existing = byKey.get(key);
       if (existing) {
         existing.quantity = Math.round((existing.quantity + quantity) * 1000) / 1000;
+        if (source === 'basket') existing.source = 'basket';
         return;
       }
       byKey.set(key, {
@@ -134,6 +138,16 @@ export function orderToCartItems(order, { lockedFormIds = new Set() } = {}) {
         lineId: line.lineId || '',
         locked: lockedFormIds.has(formId),
         isSubscriptionLine: true,
+        source,
+        // A farmer's shared promotion priced on the server (functions/utils/groupPromotionPricing.js):
+        // the cart shows the order's price instead of recomputing it from the base price.
+        ...(line.groupPromotionApplied === true && Number.isFinite(Number(line.price))
+          ? {
+            effectivePrice: Number(line.price),
+            groupPromotionApplied: true,
+            groupPromotionLabel: line.groupPromotionLabel || '',
+          }
+          : {}),
       });
     });
   });
@@ -192,6 +206,15 @@ export function formatDeadline(value) {
   if (!date) return '';
   const time = date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false });
   return `${formatDeliveryDay(toLocalDateKey(date))} בשעה ${time}`;
+}
+
+/** "יום ב׳ 23.11, 20:00": the same deadline, short enough for a phone header. */
+export function formatShortDeadline(value) {
+  const date = parseDateSafe(value);
+  if (!date) return '';
+  const weekday = date.toLocaleDateString('he-IL', { weekday: 'short' });
+  const time = date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${weekday} ${date.getDate()}.${date.getMonth() + 1}, ${time}`;
 }
 
 /** The final amount once an order is weighed, or null. */

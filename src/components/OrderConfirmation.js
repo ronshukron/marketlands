@@ -26,6 +26,7 @@ import { refreshCartCommercialTerms } from '../services/productPromotionService'
 import { describeCommunityWeeklyCheckoutRefreshError } from '../services/communityWeeklyPromotionService';
 import { persistCustomerOrderWithCompensation } from '../services/compensationService';
 import { rememberPendingPurchase, trackPurchase } from '../utils/metaPixel';
+import { trackFunnelStep, trackFunnelStepBeforeLeaving } from '../services/funnelService';
 import CheckoutAccountModal from './CheckoutAccountModal';
 import {
     buildOrderAccountPayload,
@@ -33,6 +34,7 @@ import {
     resolveCheckoutAccountAction,
 } from '../utils/checkoutAccountUtils';
 import { buildCommunityWeeklyPromotionOrderAttribution } from '../utils/communityWeeklyPromotionUrl';
+import { getActiveCampaign } from '../utils/campaignAttribution';
 // Catalog numbers for shipping line items
 const SHIPPING_CATALOG_NUMBER = process.env.REACT_APP_SHIPPING_CATALOG_NUMBER || '118';
 const BOX_COLLECTION_CATALOG_NUMBER = process.env.REACT_APP_BOX_COLLECTION_CATALOG_NUMBER || '999002';
@@ -70,6 +72,8 @@ const OrderConfirmation = () => {
     });
     const { userLoggedIn, currentUser } = useAuth();
     const promotionOrderAttribution = buildCommunityWeeklyPromotionOrderAttribution(localStorage);
+    // The flyer / QR campaign this visitor came from (last 30 days), saved on the order.
+    const campaignOrderAttribution = getActiveCampaign();
 
     // Get pickup spots from the order
     const [availablePickupSpots, setAvailablePickupSpots] = useState([]);
@@ -102,6 +106,11 @@ const OrderConfirmation = () => {
         // Otherwise default to pickup
         return 'pickup';
     });
+
+    // Funnel (admin "משפכים"): reached the checkout.
+    useEffect(() => {
+        trackFunnelStep('cart', 'checkout_opened');
+    }, []);
 
     // Add this useEffect to update deliveryOption when pickup spot changes
     useEffect(() => {
@@ -552,6 +561,7 @@ const OrderConfirmation = () => {
                 ...(promotionOrderAttribution ? {
                     communityWeeklyPromotionAttribution: promotionOrderAttribution
                 } : {}),
+                ...(campaignOrderAttribution ? { campaign: campaignOrderAttribution } : {}),
                 createdAt: new Date().toISOString(),
                 paymentStatus: 'pending_payment',
                 grandTotal: totalWithDelivery,
@@ -625,6 +635,7 @@ const OrderConfirmation = () => {
                     value: totalWithDelivery,
                     items: Object.values(checkoutItemsByOrder).flatMap((orderData) => orderData.items || []),
                 });
+                await trackFunnelStepBeforeLeaving('cart', 'payment_started');
                 window.location.href = paymentResponse.data.paymentLink;
                 // setPaymentUrl(paymentResponse.data.paymentLink); // for iframe Open the payment link in an iframe 
             } else {
@@ -814,6 +825,7 @@ const OrderConfirmation = () => {
                 ...(promotionOrderAttribution ? {
                     communityWeeklyPromotionAttribution: promotionOrderAttribution
                 } : {}),
+                ...(campaignOrderAttribution ? { campaign: campaignOrderAttribution } : {}),
                 createdAt: new Date().toISOString(),
                 paymentStatus: 'completed',
                 paymentMethod: 'free',

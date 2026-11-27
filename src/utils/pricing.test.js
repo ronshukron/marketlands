@@ -758,3 +758,73 @@ describe('weekly promotion quantity limit', () => {
     expect(formatWeeklyPromotionLimit(null, 'kg')).toBe('');
   });
 });
+
+// The owner's case: red and black raspberry, each "1 for ₪22.5, 2 for ₪40",
+// linked so one red plus one black gets the pair price.
+describe('linked raspberries (one discount across products)', () => {
+  const raspberryPair = {
+    id: 'raspberry-pair',
+    active: true,
+    productIds: ['raspberry-red', 'raspberry-black'],
+    threshold: 2,
+    pricingBasis: 'package',
+    bundleTotalPrice: 40,
+  };
+  const raspberry = (id, quantity, extra = {}) => attachGroupPromotionFields({
+    id,
+    orderId: 'farm-form-1',
+    price: 22.5,
+    quantity,
+    measurementType: 'package',
+    quantityDiscountThreshold: 2,
+    quantityDiscountPrice: 20,
+    ...extra,
+  }, raspberryPair);
+  const total = (items) => Math.round(items.reduce((sum, item) => sum + getEstimatedLineTotal(item), 0) * 100) / 100;
+
+  test('one red and one black: ₪20 each, ₪40 together', () => {
+    const priced = applyCartPricing([raspberry('raspberry-red', 1), raspberry('raspberry-black', 1)]);
+    expect(priced.map((item) => item.effectivePrice)).toEqual([20, 20]);
+    expect(priced.every((item) => item.groupPromotionApplied)).toBe(true);
+    expect(total(priced)).toBe(40);
+  });
+
+  test('one red alone stays ₪22.5', () => {
+    const [priced] = applyCartPricing([raspberry('raspberry-red', 1)]);
+    expect(priced.effectivePrice).toBe(22.5);
+    expect(priced.groupPromotionApplied).toBe(false);
+  });
+
+  test('two reds alone get the pair price', () => {
+    const [priced] = applyCartPricing([raspberry('raspberry-red', 2)]);
+    expect(priced.effectivePrice).toBe(20);
+    expect(getEstimatedLineTotal(priced)).toBe(40);
+  });
+
+  test('dropping from two to one goes back to ₪22.5', () => {
+    const pair = applyCartPricing([raspberry('raspberry-red', 1), raspberry('raspberry-black', 1)]);
+    const single = applyCartPricing([{ ...pair[0] }, { ...pair[1], quantity: 0 }].filter((item) => item.quantity > 0));
+    expect(single[0].effectivePrice).toBe(22.5);
+    expect(single[0].groupPromotionApplied).toBe(false);
+  });
+
+  test('a weekly community price on one of them takes precedence, and the other is not paired', () => {
+    const red = attachWeekly(raspberry('raspberry-red', 1, {
+      communityCode: 'community-a',
+      deliveryWeekKey: '2026-08-23',
+    }), { startsAt: null, endsAt: null, productId: 'raspberry-red', orderId: 'farm-form-1' });
+    const priced = applyCartPricing([red, raspberry('raspberry-black', 1)]);
+    expect(priced[0].communityWeeklyPromotionApplied).toBe(true);
+    expect(priced[0].groupPromotionApplied).toBe(false);
+    expect(priced[1].effectivePrice).toBe(22.5);
+    expect(priced[1].groupPromotionApplied).toBe(false);
+  });
+
+  test('the same pair on two different farmer forms does not combine', () => {
+    const priced = applyCartPricing([
+      raspberry('raspberry-red', 1),
+      raspberry('raspberry-black', 1, { orderId: 'farm-form-2' }),
+    ]);
+    expect(priced.map((item) => item.effectivePrice)).toEqual([22.5, 22.5]);
+  });
+});

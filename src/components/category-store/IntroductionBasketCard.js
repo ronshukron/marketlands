@@ -65,7 +65,7 @@ const IntroductionBasketCard = ({ basket, onAdd }) => {
 
         <button
           type="button"
-          onClick={() => onAdd(basket)}
+          onClick={(event) => onAdd(basket, event.currentTarget)}
           className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg text-sm font-bold transition-colors"
         >
           הוסף סל היכרות

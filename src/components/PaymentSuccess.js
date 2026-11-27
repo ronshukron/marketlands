@@ -12,6 +12,7 @@ import {
 import './PaymentSuccess.css';
 import LoadingSpinner from './LoadingSpinner';
 import { discardPendingPurchase, trackPendingPurchase } from '../utils/metaPixel';
+import { trackFunnelStep } from '../services/funnelService';
 
 const readDelayedOrder = async (orderId) => {
   if (!orderId) return { exists: false, data: null, readable: false };
@@ -219,6 +220,7 @@ const PaymentSuccess = () => {
   useEffect(() => {
     if (view.kind === 'success') {
       trackPendingPurchase(view.orderId);
+      trackFunnelStep('cart', 'order_completed');
       return;
     }
     if (view.kind === 'not_paid' || view.kind === 'abandoned' || view.kind === 'error' || view.kind === 'unrecoverable') {

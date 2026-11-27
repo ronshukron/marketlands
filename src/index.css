@@ -56,6 +56,51 @@ code {
   border-radius: 4px;
 }
 
+/* Add-to-cart bubble (components/cart/CartAddFeedback.js): slides in under the
+   cart icon; the thin line at the bottom shows how long it stays. */
+.cart-add-bubble {
+  animation: cart-add-bubble-in 180ms ease-out;
+}
+.cart-add-bubble-timer {
+  animation-name: cart-add-bubble-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.cart-add-bubble:hover .cart-add-bubble-timer,
+.cart-add-bubble:focus-within .cart-add-bubble-timer {
+  animation-play-state: paused;
+}
+@keyframes cart-add-bubble-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cart-add-bubble-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cart-add-bubble { animation: none; }
+}
+
+/* The logo stays on one line on narrow phones (two lines made the fixed header tall). */
+.logo-text {
+  white-space: nowrap;
+}
+@media (max-width: 359px) {
+  .logo-text {
+    font-size: 1.15rem;
+    letter-spacing: 0.2px;
+  }
+}
+
+/* Phones: lift the floating accessibility button above a bar pinned to the
+   bottom of the screen (hooks/useBottomBarSpace.js). */
+@media (max-width: 639px) {
+  body.has-bottom-bar .a11y-fab {
+    bottom: 5.5rem;
+  }
+}
+
 /* Enhanced hover effect */
 a:hover .logo-text {
   background: linear-gradient(45deg, #1e40af 0%, #1d4ed8 50%, #3563E9 100%);

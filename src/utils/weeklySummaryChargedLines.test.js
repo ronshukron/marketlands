@@ -82,6 +82,35 @@ describe('weekly charged-line reconciliation', () => {
     expect(result.hasDiscrepancy).toBe(false);
   });
 
+  test('an order charged at its card hold adds up to the charged amount, with no discrepancy', async () => {
+    // Built the way the station builds it (orderDraftUtils.buildSettlementPayload with chargeCap).
+    const { buildSettlementPayload } = await import('../components/adminV5/deliveryWeighingV5/v7/orderDraftUtils');
+    const payload = buildSettlementPayload({
+      selectedOrder: { id: 'order-1' },
+      items: [
+        { lineId: 'order-1::tomato::business-a::Large::s0', productId: 'tomato', productName: 'Tomato', requestedQuantity: 2, pricePerUnit: 10, measurementType: 'kg' },
+        { lineId: 'order-1::egg::business-a::::s0', productId: 'egg', productName: 'Eggs', requestedQuantity: 1, pricePerUnit: 19.99, measurementType: 'package' },
+      ],
+      draft: { weightsByLineId: { 'order-1::tomato::business-a::Large::s0': { actualQuantity: 2.25 } } },
+      chargeCap: 37,
+    });
+    const order = delayedOrder({
+      orderBreakdown: {
+        'business-a': {
+          businessId: 'business-a',
+          items: [checkoutItem(), checkoutItem({ lineId: 'order-1::egg::business-a::::s0', productId: 'egg', productName: 'Eggs', selectedOption: '', estimatedLineTotal: 19.99 })],
+        },
+      },
+      weighing: { finalSum: payload.finalSum, finalInvoiceLines: payload.finalInvoiceLines, holdCap: payload.holdCap },
+    });
+    const result = reconcileChargedOrder(order);
+    expect(payload.holdCap).toEqual({ max: 37, originalSum: 42.49, reducedBy: 5.49 });
+    expect(result.productCharges).toBe(37);
+    expect(result.reportedProductTotal).toBe(37);
+    expect(result.hasDiscrepancy).toBe(false);
+    expect(result.totalPaid).toBe(52);
+  });
+
   test('matches a legacy final line through parsed product and option', () => {
     const result = reconcileChargedOrder(delayedOrder({
       weighing: {

@@ -36,6 +36,10 @@ export default function BatchChargeControlModal({
   onConfirm,
   onClose,
   getOpenRefundsForOrder,
+  // Orders over their card hold (summarizeBatchHoldCaps) and whether to charge them at the hold.
+  holdCapSummary = null,
+  capOverHold = true,
+  onToggleCapOverHold,
 }) {
   const [confirmCountdown, setConfirmCountdown] = React.useState(0);
   const selectedKey = selectedCommunityNames.slice().sort().join('|');
@@ -233,6 +237,13 @@ export default function BatchChargeControlModal({
                                 ? `₪${formatBatchChargeIls(preview.finalSum)}`
                                 : t.stWeighed)
                               : t.batchChargeExcludedBadge}
+                            {included && holdCapSummary?.overOrderIds?.has(orderId) && (
+                              <span className="ms-2 inline-block rounded px-1.5 font-bold text-red-700 bg-red-50 border border-red-200">
+                                {capOverHold
+                                  ? t.batchOverHoldBadge(preview?.finalSum, preview?.holdMax)
+                                  : t.batchSkipOverHold}
+                              </span>
+                            )}
                             {included && preview?.weeklySavings > 0 && (
                               <span className="ms-2 font-bold text-sky-700">
                                 {t.batchWeeklyPromotionSavings(formatBatchChargeIls(preview.weeklySavings))}
@@ -267,6 +278,21 @@ export default function BatchChargeControlModal({
         </div>
 
         <div className="px-5 py-4 border-t bg-white space-y-3">
+          {holdCapSummary?.overCount > 0 && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+              <div className="font-bold">{t.batchHoldCapSummary(holdCapSummary.overCount, holdCapSummary.waived)}</div>
+              <label className="mt-1 flex items-center gap-2 font-semibold cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={capOverHold}
+                  onChange={() => onToggleCapOverHold?.()}
+                  className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                {t.batchCapOverHoldLabel}
+              </label>
+              {!capOverHold && <div className="mt-1 text-xs">{t.batchCapOverHoldOff}</div>}
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <div className="font-bold text-gray-800">
               {t.batchChargePreviewCharge}: ₪{formatBatchChargeIls(previewTotal)}

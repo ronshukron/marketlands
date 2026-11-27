@@ -41,13 +41,16 @@ import { useCommunityWeeklyPromotion } from '../../contexts/CommunityWeeklyPromo
 import { usePickupSpot } from '../../contexts/PickupSpotContext';
 import { ProductFeedbackProvider } from '../../contexts/ProductFeedbackContext';
 import {
+  BY_TYPE_CATEGORY,
   STORE_CATEGORIES,
   calculateCategoryCounts,
   getCategoryStoreSortRank,
+  groupProductsByType,
   productMatchesStoreCategory,
   sortCategoryStoreProducts,
 } from '../../utils/categoryStoreUtils';
 import { trackViewContent } from '../../utils/metaPixel';
+import { announceCartAdd, tapFeedback } from '../../utils/cartAddFeedback';
 
 // Firestore allows up to 30 values in an `in` filter.
 const PRODUCT_QUERY_CHUNK_SIZE = 30;
@@ -668,6 +671,7 @@ const CategoryStore = () => {
                 options: productData.options || [],
                 stockAmount: productData.stockAmount,
                 category: productData.category || 'אחר',
+                productType: productData.productType || null,
                 showInAllCategory: productData.showInAllCategory,
                 catalogNumber: productData.catalogNumber,
                 vatType: productData.vatType ?? 3,
@@ -941,7 +945,7 @@ const CategoryStore = () => {
     });
   }, [addItem]);
 
-  const handleAddIntroductionBasket = useCallback((basket) => {
+  const handleAddIntroductionBasket = useCallback((basket, sourceEl = null) => {
     if (!selectedCommunity) {
       Swal.fire('בחרו קהילה', 'יש לבחור נקודת איסוף לפני הוספת סל היכרות.', 'warning');
       return;
@@ -1029,13 +1033,9 @@ const CategoryStore = () => {
       }, anchor.orderId, anchor.businessId, 0);
     }
 
-    Swal.fire({
-      title: 'סל היכרות נוסף!',
-      text: `${basket.title} נוסף לסל עם ${componentLines.length} פריטים`,
-      icon: 'success',
-      timer: 1800,
-      showConfirmButton: false,
-    });
+    // No popup: the basket flies into the cart icon and a bubble confirms.
+    announceCartAdd({ name: basket.title, quantityLabel: `${componentLines.length} פריטים`, sourceEl });
+    tapFeedback();
   }, [addItem, getCartItems, selectedCommunity]);
 
   const scrollToSubscriptionBaskets = useCallback(() => {
@@ -1067,7 +1067,8 @@ const CategoryStore = () => {
   const baseProducts = useMemo(() => {
     if (isMultiSearchActive) return [];
     if (isSearchActive) return searchResultsWithFarmerBadges;
-    if (selectedCategory === 'הכל') {
+    // "לפי סוג" holds the same products as "הכל", grouped by type below.
+    if (selectedCategory === 'הכל' || selectedCategory === BY_TYPE_CATEGORY) {
       return productsWithFarmerBadges.filter((product) => {
         const productCategory = product.category || 'אחר';
         if (productCategory === 'משתלה') {
@@ -1086,6 +1087,15 @@ const CategoryStore = () => {
   const displayProducts = useMemo(
     () => filterProductsForCommunity(baseProducts),
     [baseProducts, filterProductsForCommunity]
+  );
+
+  // "לפי סוג": every product of "הכל", in one section per product type
+  // (all the cucumbers together, then all the tomatoes...).
+  const typeSections = useMemo(
+    () => (selectedCategory === BY_TYPE_CATEGORY && !isSearchActive && !isMultiSearchActive
+      ? groupProductsByType(displayProducts)
+      : null),
+    [displayProducts, isMultiSearchActive, isSearchActive, selectedCategory],
   );
   const viewContentKeyRef = useRef('');
 
@@ -1308,6 +1318,7 @@ const CategoryStore = () => {
                 const isActive = category === selectedCategory;
                 const categoryIcon = {
                   'הכל': '🛒',
+                  [BY_TYPE_CATEGORY]: '🥒',
                   'ירקות': '🥬',
                   'פירות': '🍎',
                   'ירוקים ופטריות': '🌿',
@@ -1457,11 +1468,27 @@ const CategoryStore = () => {
             ))
           ) : (
             (displayProducts.length > 0 || !loading) && (
-              <ProductGrid
-                products={displayProducts}
-                calculateTimeRemaining={calculateTimeRemaining}
-                selectedCommunity={selectedCommunity}
-              />
+              typeSections ? (
+                typeSections.map((section) => (
+                  <section key={section.key} className="mb-8" aria-label={section.title}>
+                    <h3 className="mb-3 border-r-4 border-green-500 pr-2 text-lg font-bold text-gray-800">
+                      {section.title}
+                      <span className="mr-2 text-sm font-normal text-gray-500">({section.products.length})</span>
+                    </h3>
+                    <ProductGrid
+                      products={section.products}
+                      calculateTimeRemaining={calculateTimeRemaining}
+                      selectedCommunity={selectedCommunity}
+                    />
+                  </section>
+                ))
+              ) : (
+                <ProductGrid
+                  products={displayProducts}
+                  calculateTimeRemaining={calculateTimeRemaining}
+                  selectedCommunity={selectedCommunity}
+                />
+              )
             )
           )
         )}

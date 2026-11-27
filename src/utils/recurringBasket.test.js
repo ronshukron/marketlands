@@ -1,5 +1,9 @@
 import {
   addRecurringLine,
+  diffRecurringLines,
+  priceRecurringLines,
+  isInRecurringLines,
+  withRecurringLine,
   hasRealOptions,
   normalizeOptionKey,
   estimateRecurringLines,
@@ -112,4 +116,109 @@ test('"ללא אופציות" is no option at all', () => {
   expect(hasRealOptions(['ללא אופציות', 'מארז'])).toBe(true);
   expect(hasRealOptions(undefined)).toBe(false);
   expect(recurringLineKey({ productId: 'eggs', selectedOption: 'ללא אופציות' })).toBe(recurringLineKey({ productId: 'eggs' }));
+});
+
+describe('diffRecurringLines', () => {
+  const before = [
+    { productId: 'cucumber', quantity: 1, selectedOption: '', productName: 'מלפפון', formId: 'f1' },
+    { productId: 'tomato', quantity: 2, selectedOption: 'None', productName: 'עגבנייה', formId: 'f1' },
+    { productId: 'onion', quantity: 1, selectedOption: '', productName: 'בצל', formId: 'f2' },
+  ];
+
+  test('lists added, changed and removed products with the quantity the delivery should hold', () => {
+    const after = [
+      { productId: 'cucumber', quantity: 1.5, selectedOption: '', productName: 'מלפפון', formId: 'f1' },
+      { productId: 'tomato', quantity: 2, selectedOption: '' },
+      { productId: 'broccoli', quantity: 1, selectedOption: '', productName: 'ברוקולי', formId: 'f3' },
+    ];
+    const changes = diffRecurringLines(before, after);
+    const byId = Object.fromEntries(changes.map((change) => [change.productId, change]));
+    expect(Object.keys(byId).sort()).toEqual(['broccoli', 'cucumber', 'onion']);
+    expect(byId.cucumber).toEqual(expect.objectContaining({ change: 'changed', before: 1, quantity: 1.5, formId: 'f1' }));
+    expect(byId.broccoli).toEqual(expect.objectContaining({ change: 'added', before: 0, quantity: 1, formId: 'f3', productName: 'ברוקולי' }));
+    expect(byId.onion).toEqual(expect.objectContaining({ change: 'removed', before: 1, quantity: 0, productName: 'בצל' }));
+  });
+
+  test('an unchanged basket gives no changes ("None" equals no option)', () => {
+    const same = before.map((line) => ({ ...line, selectedOption: line.selectedOption === 'None' ? '' : line.selectedOption }));
+    expect(diffRecurringLines(before, same)).toEqual([]);
+  });
+
+  test('options are separate products', () => {
+    const changes = diffRecurringLines(
+      [{ productId: 'pepper', quantity: 1, selectedOption: 'אדום' }],
+      [{ productId: 'pepper', quantity: 1, selectedOption: 'צהוב' }],
+    );
+    expect(changes.map((change) => [change.selectedOption, change.change, change.quantity])).toEqual([
+      ['צהוב', 'added', 1],
+      ['אדום', 'removed', 0],
+    ]);
+  });
+
+  test('form ids come from recurringLines.orderId and from the catalog', () => {
+    expect(initialRecurringLines({ recurringLines: [{ productId: 'a', quantity: 1, orderId: 'form-a' }] }, null).lines[0].formId).toBe('form-a');
+    expect(toProductInfo({ name: 'x', formId: 'form-x' }).formId).toBe('form-x');
+    expect(addRecurringLine([], { productId: 'b', formId: 'form-b', measurementType: 'unit' })[0].formId).toBe('form-b');
+  });
+});
+
+describe('withRecurringLine', () => {
+  const lines = [{ productId: 'cucumber', quantity: 1, selectedOption: '' }];
+
+  test('adds the product at the delivery quantity', () => {
+    const result = withRecurringLine(lines, { productId: 'broccoli', quantity: 2, productName: 'ברוקולי', measurementType: 'unit', formId: 'f9' });
+    expect(result.alreadyThere).toBe(false);
+    expect(toRecurringPayload(result.lines)).toEqual([
+      { productId: 'cucumber', quantity: 1, selectedOption: '' },
+      { productId: 'broccoli', quantity: 2, selectedOption: '' },
+    ]);
+  });
+
+  test('a product already in the basket is left as it is', () => {
+    const result = withRecurringLine(lines, { productId: 'cucumber', quantity: 3, selectedOption: 'None' });
+    expect(result.alreadyThere).toBe(true);
+    expect(result.lines).toBe(lines);
+  });
+
+  test('isInRecurringLines reads the customer own lines only', () => {
+    const subscription = { recurringLines: [{ productId: 'pepper', selectedOption: 'אדום', quantity: 1 }] };
+    expect(isInRecurringLines(subscription, 'pepper', 'אדום')).toBe(true);
+    expect(isInRecurringLines(subscription, 'pepper', '')).toBe(false);
+    expect(isInRecurringLines({}, 'pepper')).toBe(false);
+  });
+});
+
+describe('shared promotions in the recurring basket estimate', () => {
+  const raspberryInfo = (name) => toProductInfo({
+    name, price: 22.5, measurementType: 'package', businessId: 'farm1', quantityDiscountThreshold: 2, quantityDiscountPrice: 20,
+  });
+  const productInfo = { red: raspberryInfo('פטל אדום'), black: raspberryInfo('פטל שחור') };
+  const promotions = {
+    farm1: [{ id: 'pair', active: true, productIds: ['red', 'black'], threshold: 2, pricingBasis: 'package', bundleTotalPrice: 40 }],
+  };
+  const line = (productId, quantity) => ({ productId, quantity, selectedOption: '', measurementType: 'package' });
+
+  test('one red plus one black: ₪20 each, ₪40, the same as the delivery', () => {
+    const lines = [line('red', 1), line('black', 1)];
+    const pricing = priceRecurringLines(lines, productInfo, promotions);
+    expect(pricing['red|'].unitPrice).toBe(20);
+    expect(pricing['black|'].group).toEqual(expect.objectContaining({ applied: true, threshold: 2, label: '2 ב-₪40.00' }));
+    expect(estimateRecurringLines(lines, productInfo, promotions)).toBe(40);
+  });
+
+  test('one alone: ₪22.5, and how many more are needed', () => {
+    const pricing = priceRecurringLines([line('red', 1)], productInfo, promotions);
+    expect(pricing['red|'].unitPrice).toBe(22.5);
+    expect(pricing['red|'].group).toEqual(expect.objectContaining({ applied: false, missing: 1 }));
+    expect(estimateRecurringLines([line('red', 1)], productInfo, promotions)).toBe(22.5);
+  });
+
+  test('without the farmer promotions the estimate is as before', () => {
+    expect(estimateRecurringLines([line('red', 1), line('black', 1)], productInfo)).toBe(45);
+    expect(priceRecurringLines([line('red', 1)], productInfo)['red|'].group).toBeNull();
+  });
+
+  test('Products docs give the farmer through Owner_ID', () => {
+    expect(toProductInfo({ name: 'x', Owner_ID: 'farm9' }).businessId).toBe('farm9');
+  });
 });

@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isElectron } from '../utils/electronDetect';
 
+// One QL-800 per station. Every component that prints (the weighing screen,
+// the printer panel's test print) shares this flag, so a second print request
+// while one is on its way is ignored instead of queued behind it. It is a
+// plain variable, not state, so two taps in the same frame both see it.
+let printInFlight = false;
+
+/** For tests only. */
+export function resetPrintLockForTests() {
+  printInFlight = false;
+}
+
 export function useBrotherLabelPrinter() {
   const printerAPI = isElectron() && window.electron?.printer ? window.electron.printer : null;
   const [status, setStatus] = useState({
@@ -46,6 +57,10 @@ export function useBrotherLabelPrinter() {
     if (!printerAPI) {
       return { ok: false, code: 'no_electron', error: 'no_electron' };
     }
+    if (printInFlight) {
+      return { ok: false, code: 'already_printing', error: 'already_printing', ignored: true };
+    }
+    printInFlight = true;
     setIsPrinting(true);
     try {
       const result = await printerAPI.print({
@@ -63,7 +78,9 @@ export function useBrotherLabelPrinter() {
         }));
       } else {
         setError(null);
-        await refreshStatus();
+        // Not awaited: a status read can take seconds (or time out) after the
+        // label is already out, and the worker must not wait for it.
+        refreshStatus().catch(() => {});
       }
       return result || { ok: false, code: 'print_failed' };
     } catch (err) {
@@ -71,6 +88,7 @@ export function useBrotherLabelPrinter() {
       setError(code);
       return { ok: false, code, error: code, message: err?.message };
     } finally {
+      printInFlight = false;
       setIsPrinting(false);
     }
   }, [printerAPI, refreshStatus]);

@@ -992,6 +992,7 @@ export async function handleSuspendedPaymentV7({
   finalSum = 0,
   productDataForGrow = {},
   weighingAudit = null,
+  holdCap = null,
 }) {
   const token = await getIdTokenIfAvailable();
   const url = functionsEndpoint('handleSuspendedPayment');
@@ -1005,6 +1006,8 @@ export async function handleSuspendedPaymentV7({
       finalSum,
       productDataForGrow,
       ...(weighingAudit ? { weighingAudit } : {}),
+      // Charged at the card hold: the lines were scaled down to it (orderDraftUtils).
+      ...(holdCap ? { holdCap } : {}),
     },
     {
       headers: getMutationHeaders(token),
@@ -1029,6 +1032,7 @@ export async function chargeSubscriptionOrderV7({
   productDataForGrow = {},
   weighingAudit = null,
   confirmedChargeTotal = null,
+  chargeDeliveryFee = false,
 }) {
   const token = await getIdTokenIfAvailable();
   const { data } = await axios.post(
@@ -1042,6 +1046,7 @@ export async function chargeSubscriptionOrderV7({
       productDataForGrow,
       ...(weighingAudit ? { weighingAudit } : {}),
       ...(confirmedChargeTotal != null ? { confirmedChargeTotal } : {}),
+      ...(chargeDeliveryFee ? { chargeDeliveryFee: true } : {}),
     },
     {
       headers: getMutationHeaders(token),

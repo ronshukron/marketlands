@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Basta Basket · חמישה פליירים</title>
+  <style>
+    @font-face { font-family: Rubik; src: url('Fonts/Rubik-400.ttf') format('truetype'); font-weight: 400; font-display: block; }
+    @font-face { font-family: Rubik; src: url('Fonts/Rubik-500.ttf') format('truetype'); font-weight: 500; font-display: block; }
+    @font-face { font-family: Rubik; src: url('Fonts/Rubik-700.ttf') format('truetype'); font-weight: 700; font-display: block; }
+    @font-face { font-family: Rubik; src: url('Fonts/Rubik-800.ttf') format('truetype'); font-weight: 800; font-display: block; }
+    @font-face { font-family: 'Frank Ruhl Libre'; src: url('Fonts/FrankRuhlLibre-700.ttf') format('truetype'); font-weight: 700; font-display: block; }
+    @page { margin: 0; }
+    @page card { size: 154mm 111mm; margin: 0; }
+    @page gallery { size: 216mm 303mm; margin: 0; }
+    @page mail { size: 154mm 216mm; margin: 0; }
+    @page landscape { size: 216mm 154mm; margin: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body { font-family: Rubik, Arial, sans-serif; color: #172a21; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    h1, h2, p, ol { margin: 0; padding: 0; }
+    img { display: block; }
+    a { color: inherit; text-decoration: none; }
+    [hidden] { display: none !important; }
+    .page { position: relative; width: calc(var(--w) + 6mm); height: calc(var(--h) + 6mm); overflow: hidden; isolation: isolate; break-inside: avoid; break-after: page; }
+    .page:last-child { break-after: auto; }
+    .card { --w: 148mm; --h: 105mm; page: card; }
+    .gallery { --w: 210mm; --h: 297mm; page: gallery; }
+    .tall { --w: 148mm; --h: 210mm; page: mail; }
+    .wide { --w: 210mm; --h: 148mm; page: landscape; }
+    .trim { position: absolute; top: 3mm; left: 3mm; width: var(--w); height: var(--h); }
+    .place { position: absolute; }
+    .serif { font-family: 'Frank Ruhl Libre', David, serif; }
+    .brand { font-weight: 720; font-size: 15pt; line-height: 1; white-space: nowrap; }
+    .brand-name { white-space: nowrap; }
+    .line { display: block; }
+    .domain { display: block; direction: ltr; unicode-bidi: isolate; width: fit-content; margin-inline-end: 0; font-size: 9.5pt; line-height: 1.1; font-weight: 500; letter-spacing: .02em; }
+    .action { display: block; font-weight: 730; line-height: 1.12; }
+    .qr { display: block; flex: none; background: #fff; width: 23mm; height: 23mm; }
+    .qr img { width: 100%; height: 100%; }
+    .strip { display: flex; flex-direction: row; justify-content: space-between; align-items: center; gap: 7mm; }
+    .strip .domain { margin-top: 2.6mm; }
+
+    /* A6 landscape invitation. Keep all lettering inside the quiet area of the parchment. */
+    .pledge { background: #b6864e url('../Art/01-royal-scroll.png') center / 100% 100% no-repeat; color: #44220f; }
+    .parchment { inset: 0; width: 100%; height: 100%; object-fit: fill; }
+    .pledge-header { top: 18mm; left: 18mm; right: 18mm; text-align: center; }
+    .pledge .brand { font-weight: 650; color: #71351c; font-size: 12.5pt; }
+    .pledge h1 { margin-top: 2.6mm; color: #502009; font-size: 41pt; font-weight: 740; line-height: 1.05; }
+    .pledge-copy { top: 46mm; left: 12.5mm; right: 12.5mm; text-align: center; }
+    .pledge-question { font-size: 16.3pt; font-weight: 630; line-height: 1.15; }
+    .pledge-aside { margin-top: 1.4mm; font-size: 11.9pt; line-height: 1.2; color: #67402a; }
+    .emoji { display: inline-block; height: 1em; width: 1em; vertical-align: -.13em; }
+    .pledge-detail { margin-top: 4.3mm; font-size: 12pt; line-height: 1.48; font-weight: 450; }
+    .pledge-detail strong { font-weight: 650; }
+
+    /* A4 gallery print. The photographed blank canvas is the physical mounting area. */
+    .gallery { background: #f8f5ec; color: #24251e; }
+    .gallery-mast { top: 13mm; left: 14mm; right: 14mm; display: flex; align-items: center; justify-content: center; gap: 5mm; }
+    .gallery-mast::before, .gallery-mast::after { content: ''; flex: 1; border-top: .25mm solid #a99b81; }
+    .gallery-mast .brand { font-size: 15pt; color: #384738; }
+    .gallery-heading { top: 26.2mm; left: 10mm; right: 10mm; text-align: center; }
+    .gallery h1 { font-size: 52pt; line-height: .99; font-weight: 690; }
+    .gallery-sub { margin-top: 4mm; font-size: 16pt; line-height: 1.25; font-weight: 450; }
+    .canvas-cloth { left: 5.75mm; top: 84.5mm; width: 198.5mm; height: 130.3mm; object-fit: cover; }
+    .gallery-footer { top: 237mm; left: 14mm; right: 14mm; height: 45mm; padding-top: 5.8mm; border-top: .4mm solid #403c30; }
+    .gallery-footer .action { font-family: 'Frank Ruhl Libre', David, serif; font-size: 25pt; font-weight: 700; }
+    .gallery-footer .domain { color: #3e4c3a; font-size: 11pt; }
+    .gallery-footer .qr { width: 26mm; height: 26mm; }
+
+    /* A5 weekly subscription. Give the field and the whole basket a full photograph. */
+    .weekly { background: #163f30; color: #f8f4df; }
+    .weekly-mast { top: 5.8mm; left: 9mm; right: 9mm; display: flex; align-items: center; gap: 5mm; }
+    .weekly-mast::after { content: ''; flex: 1; border-top: .25mm solid #8da77f; }
+    .field-photo { left: -3mm; top: 16.8mm; width: 154mm; height: 100.5mm; object-fit: cover; object-position: center top; }
+    .weekly-copy { top: 123.0mm; right: 8.5mm; left: 8.5mm; }
+    .weekly h1 { font-size: 38pt; line-height: 1.01; font-weight: 780; }
+    .weekly-sub { margin-top: 4.5mm; font-size: 14.1pt; line-height: 1.15; font-weight: 430; color: #e2ecbd; }
+    .weekly-footer { top: 175.7mm; right: 8.5mm; left: 8.5mm; height: 29.2mm; padding-top: 3.7mm; border-top: .3mm solid #9eb48b; }
+    .weekly-footer .action { font-size: 17.4pt; }
+    .weekly-footer .domain { color: #d7e7c2; }
+
+    /* A5 still life. Simple shop-window typography and a single photograph. */
+    .local { background: #fbf7ed; color: #203625; }
+    .local-mast { top: 8mm; left: 10mm; right: 10mm; display: flex; align-items: center; justify-content: center; gap: 4mm; }
+    .local-mast::before,.local-mast::after { content: ''; flex: 1; border-top: .27mm solid #a7ae94; }
+    .local-mast .brand { font-size: 14.5pt; color: #2953b0; }
+    .local-heading { top: 21mm; left: 7mm; right: 7mm; text-align: center; }
+    .local h1 { font-size: 40.5pt; font-weight: 720; line-height: 1.03; }
+    .local-photo { top: 58mm; left: 8mm; width: 132mm; height: 88mm; object-fit: cover; }
+    .local-sub { top: 154mm; right: 8mm; left: 8mm; font-size: 15pt; font-weight: 500; line-height: 1.27; text-align: center; }
+    .local-footer { top: 175.7mm; right: 8mm; left: 8mm; height: 29.4mm; padding-top: 3.7mm; border-top: .35mm solid #37503b; }
+    .local-footer .action { font-size: 17pt; }
+    .local-footer .domain { color: #3c563f; }
+
+    /* A5 landscape explainer. The three numbered stops follow normal Hebrew reading order. */
+    .ahead { background: #fff2d9; color: #1b3b72; }
+    .journey-art { top: -2.4mm; left: -3mm; width: 117mm; height: 78mm; object-fit: cover; }
+    .ahead-heading { top: 8.5mm; right: 9mm; width: 82.5mm; }
+    .ahead-heading .brand { font-size: 14.2pt; color: #2650a3; }
+    .ahead h1 { margin-top: 5.8mm; font-size: 36pt; line-height: .99; font-weight: 800; }
+    .ahead-sub { margin-top: 4.6mm; font-size: 13.5pt; line-height: 1.25; }
+    .steps { top: 79mm; right: 9mm; left: 9mm; border-top: .38mm solid #244170; list-style: none; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5.5mm; padding-top: 4mm; }
+    .steps li { min-width: 0; }
+    .step-title { display: flex; align-items: baseline; gap: 2mm; }
+    .step-number { color: #a74725; font-size: 15pt; font-weight: 650; line-height: 1; }
+    .steps h2 { font-size: 14.2pt; font-weight: 690; line-height: 1.15; }
+    .steps p { margin-top: 1.8mm; font-size: 10.9pt; font-weight: 440; line-height: 1.3; }
+    .ahead-band { top: 113.9mm; left: -3mm; right: -3mm; height: 37.1mm; background: #19396e; }
+    .ahead-footer { top: 116.7mm; right: 9mm; left: 8mm; height: 27mm; color: #fff5dd; }
+    .ahead-footer .action { font-size: 16.7pt; }
+    .ahead-note { margin-top: 2.2mm; font-size: 11.1pt; line-height: 1.18; }
+    .ahead-footer .domain { margin-top: 2mm; font-size: 8.7pt; }
+    @media screen { html { background: #e3e3df; } .page { margin: 8mm auto; box-shadow: 0 1mm 4mm #0002; } }
+    @media print { html,body { background: transparent; } .page { margin: 0; } }
+  </style>
+</head>
+<body>
+  <article id="warranty" class="page card pledge" aria-label="אחריות לשבוע">
+    <div class="trim">
+      <img class="place parchment" src="../Art/01-royal-scroll.png" alt="מגילת קלף עם חצוצרות וחותם שעווה">
+      <header class="place pledge-header">
+        <p class="brand"><bdi lang="en" dir="ltr">Basta Basket</bdi></p>
+        <h1 class="serif">אחריות לשבוע</h1>
+      </header>
+      <div class="place pledge-copy">
+        <p class="pledge-question">מצאתם בסל פרי או ירק פגום?</p>
+        <p class="pledge-aside">(לפעמים קורה <img class="emoji" src="upside-down.svg" alt="🙃">)</p>
+        <p class="pledge-detail">ניתן לקבל זיכוי או פיצוי דרך האתר בצורה אוטומטית.<br><strong>אין צורך בהסברים והוכחות.</strong></p>
+      </div>
+    </div>
+  </article>
+
+  <article id="gallery" class="page gallery" aria-label="חקלאות אמיתית היא אמנות">
+    <div class="trim">
+      <div class="place gallery-mast"><span class="brand"><bdi lang="en" dir="ltr">Basta Basket</bdi></span></div>
+      <header class="place gallery-heading">
+        <h1 class="serif"><span class="line">חקלאות אמיתית</span> <span class="line">היא אמנות</span></h1>
+        <p class="gallery-sub">מחברים בין קהילות לחקלאים מקומיים.</p>
+      </header>
+      <img class="place canvas-cloth" src="../Art/02-white-canvas.png" alt="בד קנבס לבן ופנוי להצמדת בננה אמיתית">
+      <footer class="place strip gallery-footer">
+        <a href="https://www.bastabasket.com/"><span class="action">את שאר האוסף תמצאו ב־<bdi class="brand-name" lang="en" dir="ltr">Basta Basket</bdi>.</span><span class="domain">bastabasket.com</span></a>
+        <a class="qr" href="https://www.bastabasket.com/" aria-label="לאתר Basta Basket"><img src="store-qr.svg" alt="קוד סריקה לאתר"></a>
+      </footer>
+    </div>
+  </article>
+
+  <article id="weekly" class="page tall weekly" aria-label="מנוי לסל ירקות ופירות שבועי">
+    <div class="trim">
+      <div class="place weekly-mast"><span class="brand"><bdi lang="en" dir="ltr">Basta Basket</bdi></span></div>
+      <img class="place field-photo" src="../Art/03-weekly-field-basket.png" alt="סל קלוע עם פירות וירקות מול שדה חקלאי">
+      <header class="place weekly-copy">
+        <h1><span class="line">מנוי לסל</span> <span class="line">ירקות ופירות שבועי</span></h1>
+        <p class="weekly-sub">מחברים בין קהילות לחקלאים מקומיים.</p>
+      </header>
+      <footer class="place strip weekly-footer">
+        <a href="https://www.bastabasket.com/"><span class="action">הרכיבו את הסל שלכם</span><span class="domain">bastabasket.com</span></a>
+        <a class="qr" href="https://www.bastabasket.com/" aria-label="להרכבת סל באתר"><img src="store-qr.svg" alt="קוד סריקה לאתר"></a>
+      </footer>
+    </div>
+  </article>
+
+  <article id="local" class="page tall local" aria-label="פירות וירקות מחקלאים מקומיים">
+    <div class="trim">
+      <div class="place local-mast"><span class="brand"><bdi lang="en" dir="ltr">Basta Basket</bdi></span></div>
+      <header class="place local-heading"><h1 class="serif"><span class="line">פירות וירקות</span> <span class="line">מחקלאים מקומיים</span></h1></header>
+      <img class="place local-photo" src="../Art/04-classic-local-produce.png" alt="עגבניות, מלפפון, תפוז ולימון באור טבעי">
+      <p class="place local-sub">תוצרת טרייה שמגיעה ביום המשלוח או יום לפני</p>
+      <footer class="place strip local-footer">
+        <a href="https://www.bastabasket.com/"><span class="action">הרכיבו את הסל הראשון שלכם</span><span class="domain">bastabasket.com</span></a>
+        <a class="qr" href="https://www.bastabasket.com/" aria-label="להרכבת סל ראשון באתר"><img src="store-qr.svg" alt="קוד סריקה לאתר"></a>
+      </footer>
+    </div>
+  </article>
+
+  <article id="preorder" class="page wide ahead" aria-label="למה מזמינים מראש?">
+    <div class="trim">
+      <img class="place journey-art" src="../Art/05-order-ahead-illustration.png" alt="איור של ארגז ירקות שעובר מהחקלאי לבית">
+      <header class="place ahead-heading">
+        <p class="brand"><bdi lang="en" dir="ltr">Basta Basket</bdi></p>
+        <h1><span class="line">למה מזמינים</span> <span class="line">מראש?</span></h1>
+        <p class="ahead-sub">ב־<bdi class="brand-name" lang="en" dir="ltr">Basta Basket</bdi> אנחנו לא מחזיקים מלאי.</p>
+      </header>
+      <ol class="place steps">
+        <li><div class="step-title"><span class="step-number" aria-hidden="true">1</span><h2>בוחרים סל</h2></div><p>בוחרים פירות וירקות באתר ומזמינים מראש.</p></li>
+        <li><div class="step-title"><span class="step-number" aria-hidden="true">2</span><h2>התוצרת מגיעה</h2></div><p>החקלאים מספקים לנו תוצרת פרימיום ביום המשלוח או יום לפניו.</p></li>
+        <li><div class="step-title"><span class="step-number" aria-hidden="true">3</span><h2>הסל מגיע אליכם</h2></div><p>אנחנו אורזים את מה שבחרתם ומביאים את הסל עד הבית.</p></li>
+      </ol>
+      <div class="place ahead-band"></div>
+      <footer class="place strip ahead-footer">
+        <div><a class="action" href="https://www.bastabasket.com/">הזמינו את הסל שלכם מראש</a><p class="ahead-note">פרי או ירק פגום? יש לכם שבוע לקבל עליו זיכוי מלא ואוטומטי באתר.</p><span class="domain">bastabasket.com</span></div>
+        <a class="qr" href="https://www.bastabasket.com/" aria-label="להזמנת סל באתר"><img src="store-qr.svg" alt="קוד סריקה לאתר"></a>
+      </footer>
+    </div>
+  </article>
+</body>
+</html>

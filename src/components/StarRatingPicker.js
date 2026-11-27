@@ -18,7 +18,7 @@ const StarRatingPicker = ({ value = 0, onChange }) => {
       onMouseLeave={() => setHoverValue(0)}
     >
       <legend className="text-sm font-medium text-gray-700">דירוג</legend>
-      <div className="mt-2 flex gap-2" dir="ltr" role="radiogroup" aria-label="דירוג מ־1 גרוע עד 5 מצוין">
+      <div className="mt-2 flex gap-1.5 sm:gap-2" dir="ltr" role="radiogroup" aria-label="דירוג מ־1 גרוע עד 5 מצוין">
         {[1, 2, 3, 4, 5].map((rating) => {
           const filled = shown >= rating;
           return (
@@ -32,7 +32,7 @@ const StarRatingPicker = ({ value = 0, onChange }) => {
               onFocus={() => setHoverValue(rating)}
               onBlur={() => setHoverValue(0)}
               onClick={() => onChange(rating)}
-              className={`flex h-14 min-w-11 flex-1 flex-col items-center justify-center rounded-lg border text-xl leading-none ${
+              className={`flex h-14 min-w-9 flex-1 flex-col items-center sm:min-w-11 justify-center rounded-lg border text-xl leading-none ${
                 filled
                   ? 'border-amber-500 bg-amber-100'
                   : 'border-gray-300 bg-white'

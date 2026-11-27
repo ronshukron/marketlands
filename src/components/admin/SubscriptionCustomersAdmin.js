@@ -15,6 +15,17 @@ import {
 import { isAdminAccount } from '../../utils/accountRoles';
 import { getCustomerOrderDisplayTotal, getCustomerOrderStatusInfo, STATUS_BADGE_CLASSES } from '../../utils/customerOrderDisplay';
 import { parseDateSafe } from '../../utils/deliveryScheduleUtils';
+import { WhatsappReminderSettings, WhatsappReminderStatus } from './WhatsappReminderAdmin';
+import FunnelReport from './FunnelReport';
+import { LEAVE_REASON_LABELS } from '../../constants/funnel';
+import {
+  ADMIN_PAUSE_CONFIRM_TEXT,
+  ADMIN_RESUME_CONFIRM_TEXT,
+  deliveryOptionOutcomeMessage,
+  pauseOutcomeMessage,
+  resumeOutcomeMessage,
+} from '../subscriptions/copy';
+import DeliveryOptionSwitch from '../subscriptions/DeliveryOptionSwitch';
 
 // /admin/subscriptions: every basket subscription, with the customer's details
 // and the same actions the customer has (except saving a card, which needs the
@@ -48,6 +59,13 @@ const SKIP_REASON_LABELS = {
   cutoff_passed: 'עבר מועד הסגירה',
   no_items_available: 'אין מוצרים זמינים',
   basket_unavailable: 'הסל לא זמין',
+};
+
+// The customer's answer to "מה הסיבה?" when pausing or canceling.
+const describeLeaveFeedback = (feedback) => {
+  if (!feedback || (!feedback.reason && !feedback.note)) return '';
+  const label = LEAVE_REASON_LABELS[feedback.reason] || '';
+  return [label, feedback.note ? `"${feedback.note}"` : ''].filter(Boolean).join(': ');
 };
 
 const toDate = (value) => {
@@ -121,6 +139,10 @@ const SubscriberDetails = ({ subscription, currentUid, onChanged }) => {
           ? `בוטלו גם ${result.canceledOrderIds.length} משלוחים פתוחים, והמלאי שלהם חזר.`
           : 'לא היה משלוח פתוח לביטול. משלוח שכבר עבר את מועד הסגירה נשאר, ואפשר לבטל אותו בדף ההזמנות השבועיות.', 'success');
       }
+      const outcome = action === 'pause' ? pauseOutcomeMessage(result, { admin: true })
+        : action === 'resume' ? resumeOutcomeMessage(result)
+          : action === 'delivery_option' ? deliveryOptionOutcomeMessage(result) : null;
+      if (outcome) Swal.fire({ ...outcome, confirmButtonText: 'הבנתי' });
       if (action === 'unskip' && result?.droppedProductNames?.length > 0) {
         Swal.fire('המשלוח חזר', `חלק מהמוצרים אזלו ולא נכנסו: ${result.droppedProductNames.join(', ')}`, 'info');
       }
@@ -169,7 +191,12 @@ const SubscriberDetails = ({ subscription, currentUid, onChanged }) => {
           <Field label="אימייל">
             {details.email ? <a href={`mailto:${details.email}`} className="text-blue-700 hover:underline">{details.email}</a> : '—'}
           </Field>
-          <Field label="קבלה">{DELIVERY_OPTION_LABELS[subscription.deliveryOption] || subscription.deliveryOption || '—'}</Field>
+          <Field label="קבלה">
+            {isOpen ? (
+              <DeliveryOptionSwitch subscription={subscription} busy={Boolean(busy)} compact
+                onSave={(choice) => run('delivery_option', choice)} />
+            ) : (DELIVERY_OPTION_LABELS[subscription.deliveryOption] || subscription.deliveryOption || '—')}
+          </Field>
           {details.address && <Field label="כתובת">{details.address}</Field>}
           {details.directions && <Field label="הערות">{details.directions}</Field>}
         </section>
@@ -178,12 +205,25 @@ const SubscriberDetails = ({ subscription, currentUid, onChanged }) => {
           <Field label="נרשם">{formatDateTime(subscription.createdAt)}</Field>
           {subscription.activatedAt && <Field label="הופעל">{formatDateTime(subscription.activatedAt)}</Field>}
           <Field label="כרטיס">{describeCard(subscription.card)}</Field>
+          <Field label="וואטסאפ">
+            <WhatsappReminderStatus
+              subscription={subscription}
+              busy={busy}
+              onToggle={isOpen ? (enabled) => run('whatsapp_opt_in', { enabled }) : null}
+            />
+          </Field>
           {status === 'paused' && <Field label="סיבת השהיה">{PAUSE_REASON_LABELS[subscription.pauseReason] || subscription.pauseReason || '—'}</Field>}
+          {status === 'paused' && describeLeaveFeedback(subscription.pauseFeedback) && (
+            <Field label="למה השהה">{describeLeaveFeedback(subscription.pauseFeedback)}</Field>
+          )}
           {status === 'canceled' && (
             <Field label="בוטל">
               {formatDateTime(subscription.canceledAt)}
               {subscription.canceledBy ? ` (${subscription.canceledBy === 'admin' ? 'אדמין' : 'הלקוח'})` : ''}
             </Field>
+          )}
+          {status === 'canceled' && describeLeaveFeedback(subscription.cancelFeedback) && (
+            <Field label="למה ביטל">{describeLeaveFeedback(subscription.cancelFeedback)}</Field>
           )}
           {subscription.lastGeneration && (
             <Field label="הפעלה אחרונה">
@@ -318,14 +358,14 @@ const SubscriberDetails = ({ subscription, currentUid, onChanged }) => {
           ))}
           {status === 'active' && (
             <button type="button" disabled={Boolean(busy)}
-              onClick={() => run('pause', {}, { title: 'להשהות את המנוי?', text: 'לא ייווצרו משלוחים חדשים עד החידוש. משלוח שכבר נוצר נשאר.' })}
+              onClick={() => run('pause', {}, { title: 'להשהות את המנוי?', text: ADMIN_PAUSE_CONFIRM_TEXT })}
               className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-50">
               השהיה
             </button>
           )}
           {status === 'paused' && (
             <button type="button" disabled={Boolean(busy)}
-              onClick={() => run('resume', {}, { title: 'לחדש את המנוי?', text: 'המשלוח הבא ייקבע לתאריך הפנוי הקרוב, וההזמנה שלו תיווצר כבר עכשיו.' })}
+              onClick={() => run('resume', {}, { title: 'לחדש את המנוי?', text: ADMIN_RESUME_CONFIRM_TEXT })}
               className="rounded-md bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
               חידוש
             </button>
@@ -378,6 +418,10 @@ const SubscriptionCustomersAdmin = () => {
   const [basketId, setBasketId] = useState('');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState('');
+  // The funnel report reads funnelEvents, so it loads only when opened.
+  const [showFunnels, setShowFunnels] = useState(() => (
+    typeof window !== 'undefined' && window.location.hash === '#funnels'
+  ));
 
   const load = useCallback(async () => {
     try {
@@ -447,6 +491,20 @@ const SubscriptionCustomersAdmin = () => {
       </div>
 
       {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+
+      <WhatsappReminderSettings />
+
+      <div>
+        <button type="button" onClick={() => setShowFunnels((open) => !open)} aria-expanded={showFunnels}
+          aria-controls="funnel-report" className="text-sm font-semibold text-blue-700 hover:underline">
+          {showFunnels ? 'הסתרת המשפכים' : 'משפכים: מי התחיל ומי עצר'}
+        </button>
+        {showFunnels && (
+          <div id="funnel-report" className="mt-2">
+            <FunnelReport subscriptions={subscriptions} />
+          </div>
+        )}
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {filterChips.map(([value, label, count]) => (

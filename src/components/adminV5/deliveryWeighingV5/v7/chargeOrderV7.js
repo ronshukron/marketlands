@@ -12,6 +12,7 @@ import {
   saveOrderDraftV7,
 } from '../realtimeStateV7';
 import { buildSettlementPayload } from './orderDraftUtils';
+import { getOrderDeliveryFee } from './deliveryChargeV7';
 
 function nowIso() {
   return new Date().toISOString();
@@ -106,6 +107,12 @@ export function buildCompletedOrderStatePatch(order, {
 
 export async function settleAndChargeOrderV7({
   order,
+  // Cartons this station knows were printed (a count that could not be saved
+  // yet, or the last label printed here). The order's own count may be behind.
+  printedCartonCount = 0,
+  // The order's card hold when the packer chose to charge exactly the maximum.
+  // Ignored for weekly-basket orders (no hold; the server ceiling applies).
+  chargeCap = null,
   items,
   draft,
   session,
@@ -117,6 +124,7 @@ export async function settleAndChargeOrderV7({
   prepareWeeklyPromotion = prepareCommunityWeeklyPromotionForSettlementV7,
   handleSuspendedPayment = handleSuspendedPaymentV7,
   chargeSubscriptionOrder = chargeSubscriptionOrderV7,
+  chargeDeliveryFee = false,
   confirmSubscriptionAboveCeiling = null,
   setPackedCartonCount = setPackedCartonCountV7,
   clearOrderDraft = clearOrderDraftV7,
@@ -160,12 +168,19 @@ export async function settleAndChargeOrderV7({
     };
   }
 
+  const isSubscription = isSubscriptionOrder(order);
+  const cap = isSubscription ? null : (Number(chargeCap) > 0 ? Number(chargeCap) : null);
+  // Delivery only when the admin ticked it: a line here for a regular order;
+  // for a weekly basket the server adds it (chargeDeliveryFee).
+  const deliveryFee = chargeDeliveryFee && !isSubscription ? getOrderDeliveryFee(order) : 0;
   let payload = buildSettlementPayload({
     selectedOrder: order,
     items: settlementItems,
     draft: settlingDraft,
     weighingAudit,
     communityDiscount,
+    chargeCap: cap,
+    deliveryFee,
   });
   const appliedDiscount = payload.communityDiscount ? communityDiscount : null;
   if (appliedDiscount) {
@@ -181,12 +196,14 @@ export async function settleAndChargeOrderV7({
       draft: settlingDraft,
       weighingAudit,
       communityDiscount: appliedDiscount,
+      chargeCap: cap,
+      deliveryFee,
     });
   }
 
-  if (isSubscriptionOrder(order)) {
+  if (isSubscription) {
     await chargeSubscriptionWithCeiling({
-      payload,
+      payload: chargeDeliveryFee ? { ...payload, chargeDeliveryFee: true } : payload,
       chargeSubscriptionOrder,
       confirmAboveCeiling: confirmSubscriptionAboveCeiling,
     });
@@ -194,7 +211,10 @@ export async function settleAndChargeOrderV7({
     await handleSuspendedPayment(payload);
   }
 
-  const packedCartonCount = packedCartonCountFromOrder(order);
+  const packedCartonCount = Math.max(
+    packedCartonCountFromOrder(order),
+    Math.floor(Number(printedCartonCount) || 0),
+  );
   if (packedCartonCount > 0) {
     try {
       await setPackedCartonCount({
@@ -212,6 +232,7 @@ export async function settleAndChargeOrderV7({
     finalInvoiceLines: payload.finalInvoiceLines || [],
     finalSum: payload.finalSum,
     completedAtIso,
+    ...(payload.holdCap ? { holdCap: payload.holdCap } : {}),
     ...(payload.communityDiscount ? { communityDiscount: payload.communityDiscount } : {}),
     ...(appliedWeeklyPromotion ? { communityWeeklyPromotion: appliedWeeklyPromotion } : {}),
     weighingAudit: payload.weighingAudit || weighingAudit,

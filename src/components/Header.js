@@ -4,10 +4,10 @@ import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/authContext';
 
 const Header = () => {
-  const { cartItems, getTotalQuantity } = useCart();
+  const { cartLineCount } = useCart();
   const { userLoggedIn, currentUser, handleLogout } = useAuth();
   
-  const totalItems = getTotalQuantity();
+  const totalItems = cartLineCount;
 
   return (
     <header className="bg-white shadow-md" dir="rtl">

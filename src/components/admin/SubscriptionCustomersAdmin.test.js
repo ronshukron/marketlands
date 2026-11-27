@@ -9,6 +9,7 @@ import {
   updateBasketSubscription,
 } from '../../services/basketSubscriptionService';
 
+jest.mock('../../hooks/usePickupSpots', () => () => ({ pickupSpotsData: {} }));
 jest.mock('../../firebase/firebase', () => ({ db: {}, auth: {} }));
 jest.mock('sweetalert2', () => ({ fire: jest.fn(() => Promise.resolve({ isConfirmed: true })) }));
 jest.mock('../../contexts/authContext', () => ({
@@ -23,6 +24,15 @@ jest.mock('../../services/basketSubscriptionService', () => ({
   listAllSubscriptions: jest.fn(),
   listSubscriptionOrders: jest.fn(),
   updateBasketSubscription: jest.fn(),
+  // WhatsApp reminder pieces: plain functions (CRA resets jest.fn implementations).
+  loadNotificationConfig: () => Promise.resolve({
+    basketReminderEnabled: true, basketReminderHoursBeforeCutoff: 4, quietHoursStart: 21, quietHoursEnd: 8,
+  }),
+  saveNotificationConfig: () => Promise.resolve(4),
+  sendWhatsappTest: () => Promise.resolve({ ok: true, dryRun: true, to: '1234' }),
+  listReminderMessages: (subscription) => Promise.resolve(subscription.id === 'subActive'
+    ? [{ id: 'basket_reminder_x', orderId: 'x', status: 'dry_run', updatedAt: '2026-11-29T18:00:00Z' }]
+    : []),
 }));
 
 const SUBS = [
@@ -143,4 +153,20 @@ test('a canceled confirm sends nothing, and a server error is shown', async () =
   updateBasketSubscription.mockRejectedValueOnce(new Error('NO_CARD'));
   fireEvent.click(within(row).getByRole('button', { name: 'חידוש' }));
   await waitFor(() => expect(Swal.fire).toHaveBeenCalledWith('הפעולה נכשלה', 'הפעולה נכשלה', 'error'));
+});
+
+test('WhatsApp reminder: settings on the page, each customer\'s choice and last reminder, and a toggle', async () => {
+  renderPage();
+  expect(await screen.findByRole('region', { name: 'תזכורת בוואטסאפ' })).toBeInTheDocument();
+  expect(screen.getByRole('spinbutton', { name: 'שעות לפני סגירת ההזמנות' })).toHaveValue(4);
+
+  const row = await rowFor('דנה לוי');
+  fireEvent.click(within(row).getByRole('button', { expanded: false }));
+  expect(await within(row).findByText(/תזכורת אחרונה: מצב בדיקה \(לא נשלח\)/)).toBeInTheDocument();
+  expect(within(row).getByText('לא בחר')).toBeInTheDocument();
+  fireEvent.click(within(row).getByRole('button', { name: 'הפעלה' }));
+  await waitFor(() => expect(updateBasketSubscription).toHaveBeenCalledWith('subActive', 'whatsapp_opt_in', { enabled: true }));
+
+  fireEvent.click(screen.getByRole('button', { name: 'שלח הודעת בדיקה לטלפון שלי' }));
+  await waitFor(() => expect(Swal.fire).toHaveBeenCalledWith('מצב בדיקה', expect.stringContaining('1234'), 'info'));
 });

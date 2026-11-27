@@ -18,7 +18,18 @@ import {
 import {
   formatBatchChargeFailureLine,
   interpretHandleSuspendedPaymentError,
+  readAmountAboveHoldError,
 } from './v7/actionErrorV7';
+import {
+  batchChargeCapFor,
+  getChargeLimit,
+  getChargeRoom,
+  isOverHold,
+  maxQuantityForLine,
+  summarizeBatchHoldCaps,
+} from './v7/chargeLimitV7';
+import { DELIVERY_CHARGE_TEXT, DeliveryChargeToggle, getOrderDeliveryFee } from './v7/deliveryChargeV7';
+import { BACK_TO_WEIGHING_LABEL, CHARGE_LIMIT_TEXT, capChargeButtonLabel } from './v7/chargeLimitTextV7';
 import {
   buildSessionIdV7,
   bulkSetDraftWeightsV7,
@@ -57,6 +68,7 @@ import {
   buildChargeCeilingConfirmText,
   buildCompletedOrderStatePatch,
   settleAndChargeOrderV7,
+  isSubscriptionOrder,
 } from './v7/chargeOrderV7';
 import {
   BATCH_CHARGE_SKIP_REASONS,
@@ -131,8 +143,10 @@ import {
   getDisplayDiscountInfo,
   subscribeDisplayDiscountInfo,
 } from '../../../services/communityDiscountService';
-import { crateLabelAfterPrint, normalizeCrateLabel } from '../../../utils/crateLabelCounter';
-import { readCrateLabel, writeCrateLabel } from '../../../utils/crateLabelStorage';
+import { normalizeCrateLabel, normalizePackedCartonCount } from '../../../utils/crateLabelCounter';
+import { useCartonLabelPrint, useCrateCounterField } from '../../../hooks/useCartonLabelPrint';
+import { CARTON_PRINT_TEXT, printerErrorText } from '../../../utils/printerMessages';
+import PrintAttemptLog from '../../printer/PrintAttemptLog';
 import { renderQl800Label } from '../../../utils/ql800LabelCanvas';
 
 const ADMIN_UIDS = ['rfHOLhNoJOW8ByNypCtm3hlSNKs2'];
@@ -393,24 +407,9 @@ const TR = {
     refundChargeCheckAdmin: 'בדקו ב-/admin/refunds לפני החיוב',
     refundThisOrder: 'הזמנה זו',
     refundOtherOrder: 'הזמנה אחרת',
-    printerError: (code, detail) => {
-      const base = {
-        no_printer: 'המדפסת לא נמצאה. בדקו USB ו-Editor Lite.',
-        busy: 'המדפסת תפוסה. Windows כנראה תפס את ה-USB — השתמשו ב-Zadig (WinUSB).',
-        need_winusb: 'Windows חוסם גישת USB. התקינו WinUSB עם Zadig (בלי דרייבר Brother).',
-        no_usb_module: 'מודול USB לא נטען. הריצו npx electron-builder install-app-deps',
-        no_media: 'אין גליל במדפסת',
-        cover_open: 'המכסה פתוח',
-        editor_lite: 'כבו את Editor Lite (הנורית הירוקה)',
-        wrong_media: 'הגליל במדפסת לא תואם',
-        timeout: 'המדפסת לא ענתה בזמן',
-        communication_error: 'שגיאת תקשורת עם המדפסת. נסו שוב, ואם זה חוזר כבו והדליקו את המדפסת.',
-        print_failed: 'ההדפסה נכשלה',
-        no_electron: 'הדפסה זמינה רק באפליקציית שולחן העבודה',
-      }[code] || 'ההדפסה נכשלה';
-      const extra = detail && detail !== code ? ` — ${detail}` : '';
-      return `${base}${extra}`;
-    },
+    printerError: (code, detail) => printerErrorText('he', code, detail),
+    ...CARTON_PRINT_TEXT.he,
+    ...CHARGE_LIMIT_TEXT.he,
   },
   th: {
     title: 'จัดการจัดส่ง V7',
@@ -620,28 +619,15 @@ const TR = {
     refundChargeCheckAdmin: 'ตรวจสอบใน /admin/refunds ก่อนเรียกเก็บเงิน',
     refundThisOrder: 'ออเดอร์นี้',
     refundOtherOrder: 'ออเดอร์อื่น',
-    printerError: (code, detail) => {
-      const base = {
-        no_printer: 'ไม่พบเครื่องพิมพ์ ตรวจ USB และ Editor Lite',
-        busy: 'เครื่องพิมพ์ไม่ว่าง Windows จับ USB ไว้ — ใช้ Zadig (WinUSB)',
-        need_winusb: 'Windows บล็อก USB ติดตั้ง WinUSB ด้วย Zadig (ไม่ติดตั้งไดรเวอร์ Brother)',
-        no_usb_module: 'โหลดโมดูล USB ไม่ได้ รัน npx electron-builder install-app-deps',
-        no_media: 'ไม่มีม้วนในเครื่องพิมพ์',
-        cover_open: 'ฝาเปิดอยู่',
-        editor_lite: 'ปิด Editor Lite (ไฟเขียว)',
-        wrong_media: 'ม้วนไม่ตรงกับงานพิมพ์',
-        timeout: 'เครื่องพิมพ์ไม่ตอบ',
-        communication_error: 'การสื่อสารกับเครื่องพิมพ์ผิดพลาด ลองอีกครั้ง ถ้ายังไม่พิมพ์ ให้ปิดแล้วเปิดเครื่องพิมพ์',
-        print_failed: 'พิมพ์ไม่สำเร็จ',
-        no_electron: 'พิมพ์ได้เฉพาะแอปเดสก์ท็อป',
-      }[code] || 'พิมพ์ไม่สำเร็จ';
-      const extra = detail && detail !== code ? ` — ${detail}` : '';
-      return `${base}${extra}`;
-    },
+    printerError: (code, detail) => printerErrorText('th', code, detail),
+    ...CARTON_PRINT_TEXT.th,
+    ...CHARGE_LIMIT_TEXT.th,
   },
 };
 
-function BilingualDialog({ open, title, heText, thText, type, confirmButtonDelay = 0, onConfirm, onCancel }) {
+function BilingualDialog({
+  open, title, heText, thText, type, confirmButtonDelay = 0, onConfirm, onCancel, confirmLabel = '', cancelLabel = '',
+}) {
   const [confirmCountdown, setConfirmCountdown] = React.useState(0);
 
   React.useEffect(() => {
@@ -726,13 +712,15 @@ function BilingualDialog({ open, title, heText, thText, type, confirmButtonDelay
                   disabled={confirmDisabled}
                   className={`flex-1 py-3 rounded-xl font-black text-white text-sm transition-all bg-gradient-to-r ${palette.grad} hover:shadow-lg active:scale-[0.98] focus:outline-none focus:ring-2 ${palette.ring} disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                  {confirmDisabled ? `✓ אישור (${confirmSeconds}) / ตกลง (${confirmSeconds})` : '✓ אישור / ตกลง'}
+                  {confirmLabel
+                    ? `✓ ${confirmLabel}${confirmDisabled ? ` (${confirmSeconds})` : ''}`
+                    : (confirmDisabled ? `✓ אישור (${confirmSeconds}) / ตกลง (${confirmSeconds})` : '✓ אישור / ตกลง')}
                 </button>
                 <button
                   onClick={onCancel}
                   className="flex-1 py-3 rounded-xl font-bold text-gray-600 text-sm bg-gray-100 hover:bg-gray-200 active:scale-[0.98] transition-all focus:outline-none"
                 >
-                  ✕&ensp;ביטול / ยกเลิก
+                  ✕&ensp;{cancelLabel || 'ביטול / ยกเลิก'}
                 </button>
               </>
             ) : (
@@ -1167,7 +1155,6 @@ export default function DeliveryManagementV7() {
     isPrinting,
     printImage,
   } = useBrotherLabelPrinter();
-  const [crateIndex, setCrateIndex] = useState(1);
   const [showAdvancedOrderActions, setShowAdvancedOrderActions] = useState(false);
   const [editingLineId, setEditingLineId] = useState(null);
   const [editValue, setEditValue] = useState('');
@@ -1189,6 +1176,8 @@ export default function DeliveryManagementV7() {
   const [batchChargeModalCommunities, setBatchChargeModalCommunities] = useState(() => new Set());
   const [batchChargeExcludedOrderIds, setBatchChargeExcludedOrderIds] = useState(() => new Set());
   const [batchChargeDiscountByCommunity, setBatchChargeDiscountByCommunity] = useState({});
+  // Batch charging: orders over their card hold are charged at the hold (owner's default) or left out.
+  const [batchCapOverHold, setBatchCapOverHold] = useState(true);
   const [batchChargeDiscountLoading, setBatchChargeDiscountLoading] = useState(false);
   const batchChargeAbortRef = useRef(false);
   const [openRefunds, setOpenRefunds] = useState([]);
@@ -1215,10 +1204,12 @@ export default function DeliveryManagementV7() {
 
   const [dialog, setDialog] = useState(null);
   const dialogResolveRef = useRef(null);
-  const showDialog = useCallback(({ heText, thText, title = 'info', type = 'alert', confirmButtonDelay = 0 }) => {
+  const showDialog = useCallback(({
+    heText, thText, title = 'info', type = 'alert', confirmButtonDelay = 0, confirmLabel = '', cancelLabel = '',
+  }) => {
     return new Promise((resolve) => {
       dialogResolveRef.current = resolve;
-      setDialog({ heText, thText, title, type, confirmButtonDelay });
+      setDialog({ heText, thText, title, type, confirmButtonDelay, confirmLabel, cancelLabel });
     });
   }, []);
   const closeDialog = useCallback((result) => {
@@ -1226,8 +1217,10 @@ export default function DeliveryManagementV7() {
     dialogResolveRef.current = null;
     setDialog(null);
   }, []);
-  const biConfirm = useCallback(({ heText, thText, title = 'warning', confirmButtonDelay = 0 }) => (
-    showDialog({ heText, thText, title, type: 'confirm', confirmButtonDelay })
+  const biConfirm = useCallback(({
+    heText, thText, title = 'warning', confirmButtonDelay = 0, confirmLabel = '', cancelLabel = '',
+  }) => (
+    showDialog({ heText, thText, title, type: 'confirm', confirmButtonDelay, confirmLabel, cancelLabel })
   ), [showDialog]);
   const biAlert = useCallback(({ heText, thText, title = 'info' }) => showDialog({ heText, thText, title, type: 'alert' }), [showDialog]);
   const preloadImageUrl = useCallback((url) => {
@@ -2048,18 +2041,7 @@ export default function DeliveryManagementV7() {
   const claimedByOther = isOnline && !!(selectedClaim && selectedClaim.sessionId !== session.sessionId && !isClaimStaleV7(selectedClaim));
 
   useEffect(() => {
-    if (!selectedOrderId) {
-      setCrateIndex(1);
-      setShowAdvancedOrderActions(false);
-      return;
-    }
-    const fromLocal = readCrateLabel(selectedOrderId);
-    const fromDraft = effectiveDraftsByOrder[selectedOrderId]?.crateLabel;
-    const next = normalizeCrateLabel(fromLocal || fromDraft || { index: 1 });
-    setCrateIndex(next.index);
     setShowAdvancedOrderActions(false);
-    // Only re-run when the selected order changes so a late draft snapshot cannot rewind the counter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrderId]);
 
   const items = useMemo(() => {
@@ -2698,6 +2680,79 @@ export default function DeliveryManagementV7() {
     });
   }, [canComplete, selectedCommunityDiscount, selectedOrder, selectedOrderSaved, settlementItems]);
 
+  // Item E: the most this order can be charged, on the same preview the charge uses.
+  const chargeLimit = useMemo(() => getChargeLimit(selectedOrder), [selectedOrder]);
+  // Home delivery: shown to the customer, charged only when ticked here (v7/deliveryChargeV7.js).
+  const [chargeDeliveryByOrderId, setChargeDeliveryByOrderId] = useState({});
+  const selectedDeliveryFee = getOrderDeliveryFee(selectedOrder);
+  const chargeDeliverySelected = Boolean(selectedOrder && selectedDeliveryFee > 0 && chargeDeliveryByOrderId[selectedOrder.id]);
+  // A weekly-basket order gets the fee from the server; a regular one as a line here.
+  const previewDeliveryFee = chargeDeliverySelected && !isSubscriptionOrder(selectedOrder) ? selectedDeliveryFee : 0;
+  const chargePreview = useMemo(() => {
+    if (!selectedOrder || chargeLimit.type === 'none') return null;
+    const discount = preparedCommunityDiscount || (
+      selectedCommunityDiscount ? buildCommunityDiscountSnapshot(selectedCommunityDiscount.mode) : null
+    );
+    return buildSettlementPayload({
+      selectedOrder,
+      items: settlementItems,
+      draft: selectedOrderSaved,
+      communityDiscount: discount,
+      deliveryFee: previewDeliveryFee,
+    });
+  }, [
+    buildCommunityDiscountSnapshot, chargeLimit, preparedCommunityDiscount, previewDeliveryFee, selectedCommunityDiscount,
+    selectedOrder, selectedOrderSaved, settlementItems,
+  ]);
+  const chargeRoom = chargePreview ? getChargeRoom({ limit: chargeLimit, finalSum: chargePreview.finalSum }) : null;
+  const lineChargeMax = (item) => {
+    if (!chargePreview) return null;
+    const line = chargePreview.finalInvoiceLines.find((entry) => entry.lineId === item?.lineId);
+    if (!line) return null;
+    return maxQuantityForLine({
+      limit: chargeLimit,
+      finalSum: chargePreview.finalSum,
+      lineCurrentPrice: line.linePrice,
+      effectiveUnitPrice: line.pricePerUnit,
+      measurementType: line.measurementType,
+    });
+  };
+
+  // Order list: a red badge on orders whose current total is over their card hold.
+  // Same preview as batch charging; a community discount not loaded yet is not counted.
+  const overHoldOrderIds = useMemo(() => {
+    const ids = new Set();
+    (orders || []).forEach((order) => {
+      const limit = getChargeLimit(order);
+      if (limit.type !== 'hold') return;
+      if (order.id === selectedOrderId) {
+        if (chargeRoom?.over) ids.add(order.id);
+        return;
+      }
+      const orderItems = mergeProductDetailsIntoItems(order.items || [], productDetails || {});
+      const draft = sanitizeDraftForItems(
+        mergeOrderDraftWithPersistedCompletion(order, effectiveDraftsByOrder[order.id] || {}),
+        orderItems,
+      );
+      const preparation = order.rawData?.communityDiscountPreparation;
+      const discount = preparation?.status === 'prepared' && preparation.snapshot
+        ? preparation.snapshot
+        : buildBatchDiscountSnapshot(batchChargeDiscountByCommunity[getOrderCommunityName(order)], order, selectedWeek);
+      const weeklyPromotion = isWeeklyPromotionChosen(order.id) ? getOrderWeeklyPromotion(order, orderItems, draft) : null;
+      const payload = buildSettlementPayload({
+        selectedOrder: order,
+        items: applyWeeklyPromotionToItems(orderItems, weeklyPromotion),
+        draft,
+        communityDiscount: discount,
+      });
+      if (getChargeRoom({ limit, finalSum: payload.finalSum }).over) ids.add(order.id);
+    });
+    return ids;
+  }, [
+    batchChargeDiscountByCommunity, chargeRoom, effectiveDraftsByOrder, getOrderWeeklyPromotion,
+    isWeeklyPromotionChosen, orders, productDetails, selectedOrderId, selectedWeek,
+  ]);
+
   const toggleCommunityDiscount = () => {
     if (
       !selectedOrderId
@@ -2730,96 +2785,81 @@ export default function DeliveryManagementV7() {
     });
   }, [applyQueuedOpsOnline, selectedOrder, selectedWeek, session]);
 
-  const persistCrateLabel = useCallback(async (orderId, value) => {
-    const next = normalizeCrateLabel(value);
-    writeCrateLabel(orderId, next);
+  // Carton labels: the same flow as V8 (hooks/useCartonLabelPrint.js).
+  const saveDraftCrateLabel = useCallback(async (orderId, value) => {
     if (!selectedWeek || !isOnline) return;
     try {
       await saveOrderDraftV7({
         weekKey: selectedWeek,
         orderId,
-        draftPatch: { crateLabel: next },
+        draftPatch: { crateLabel: normalizeCrateLabel(value) },
         session,
       });
     } catch (e) {
       if (!isLikelyNetworkErrorV7(e)) console.error(e);
+      throw e;
     }
   }, [isOnline, selectedWeek, session]);
 
-  const handlePrintLabel = useCallback(async () => {
-    if (!selectedOrder || claimedByOther || isPrinting) return;
-    if (!hasPrinterSupport) {
-      showToast(t.printerBrowserHint);
-      return;
-    }
-    const { printUses, afterPrint } = crateLabelAfterPrint(crateIndex);
-    const cid = selectedOrder?.customerDetails?.phone || selectedOrder?.customerDetails?.email || null;
-    const customerNumber = cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-';
-    try {
-      const image = renderQl800Label({
-        customerNumber,
-        name: selectedOrder.customerDetails?.name || t.customer,
-        phone: selectedOrder.customerDetails?.phone || '',
-        community: selectedOrder.customerDetails?.pickupSpot || selectedOrder.pickupSpot || '',
-        crateIndex: printUses.index,
-        loadingOrder: loadingOrderNumbers[selectedOrder.id] || null,
-      });
-      const result = await printImage(image);
-      if (!result?.ok) {
-        console.error('[QL-800] print failed', result);
-        showToast(t.printerError(result?.code || result?.error, result?.message), 8000);
-        return;
-      }
-      setCrateIndex(afterPrint.index);
-      await persistCrateLabel(selectedOrder.id, afterPrint);
-      try {
-        const synced = await setPackedCartonCountV7({
-          orderId: selectedOrder.id,
-          printedIndex: printUses.index,
-          loadingOrder: loadingOrderNumbers[selectedOrder.id] || null,
-        });
-        const packedCartonCount = synced?.packedCartonCount || printUses.index;
-        setOrders((prev) => prev.map((order) => (
-          order.id === selectedOrder.id
-            ? {
-              ...order,
-              packedCartonCount,
-              rawData: {
-                ...(order.rawData || {}),
-                packedCartonCount,
-              },
-            }
-            : order
-        )));
-        showToast(t.printOk(printUses.index), 2500);
-      } catch (syncError) {
-        if (!isLikelyNetworkErrorV7(syncError)) console.error(syncError);
-        showToast(`${t.printOk(printUses.index)}. ${t.packedCartonSyncFailed}`, 6000);
-      }
-    } catch (e) {
-      showToast(t.printerError(e?.code || e?.message, e?.message), 8000);
-    }
-  }, [
-    claimedByOther,
-    crateIndex,
-    hasPrinterSupport,
-    isPrinting,
-    loadingOrderNumbers,
-    permanentNumbersMap,
-    persistCrateLabel,
-    printImage,
-    selectedOrder,
-    showToast,
-    t,
-  ]);
+  // The count the customer sees, also when it could not be saved yet (it is retried).
+  const applyPackedCartonCount = useCallback((orderId, count) => {
+    setOrders((prev) => prev.map((order) => {
+      if (order.id !== orderId) return order;
+      const packedCartonCount = Math.max(
+        normalizePackedCartonCount(order.packedCartonCount),
+        normalizePackedCartonCount(order.rawData?.packedCartonCount),
+        normalizePackedCartonCount(count),
+      );
+      return { ...order, packedCartonCount, rawData: { ...(order.rawData || {}), packedCartonCount } };
+    }));
+  }, []);
 
-  const handleCrateFieldChange = useCallback((rawValue) => {
-    const next = normalizeCrateLabel({ index: rawValue });
-    setCrateIndex(next.index);
-    if (selectedOrder?.id) {
-      writeCrateLabel(selectedOrder.id, next);
-    }
-  }, [selectedOrder?.id]);
+  const confirmLabelOut = useCallback(({ carton }) => biConfirm({
+    heText: CARTON_PRINT_TEXT.he.labelOutQuestion(carton),
+    thText: CARTON_PRINT_TEXT.th.labelOutQuestion(carton),
+    title: 'warning',
+  }), [biConfirm]);
+
+  const cartonPrint = useCartonLabelPrint({
+    printImage,
+    hasPrinterSupport,
+    syncPackedCount: setPackedCartonCountV7,
+    saveDraftCrateLabel,
+    onPackedCount: applyPackedCartonCount,
+    confirmLabelOut,
+    notify: showToast,
+    t,
+  });
+  const { getPrintedCartonCount } = cartonPrint;
+  const crateCounter = useCrateCounterField({
+    orderId: selectedOrderId,
+    draftCrateLabel: selectedOrderId ? effectiveDraftsByOrder[selectedOrderId]?.crateLabel || null : null,
+    printedCount: getPrintedCartonCount(selectedOrder),
+    saveDraftCrateLabel,
+  });
+
+  const handlePrintLabel = useCallback(async () => {
+    if (!selectedOrder || claimedByOther) return;
+    const order = selectedOrder;
+    const carton = crateCounter.commitInput();
+    const cid = order.customerDetails?.phone || order.customerDetails?.email || null;
+    const customerNumber = cid && permanentNumbersMap[cid] ? permanentNumbersMap[cid] : '-';
+    const loadingOrder = loadingOrderNumbers[order.id] || null;
+    await cartonPrint.printCarton({
+      orderId: order.id,
+      carton,
+      loadingOrder,
+      buildImage: (crateIndex) => renderQl800Label({
+        customerNumber,
+        name: order.customerDetails?.name || t.customer,
+        phone: order.customerDetails?.phone || '',
+        community: order.customerDetails?.pickupSpot || order.pickupSpot || '',
+        crateIndex,
+        loadingOrder,
+      }),
+      onAdvanced: ({ orderId, next }) => crateCounter.setAfterPrint(orderId, next),
+    });
+  }, [cartonPrint, claimedByOther, crateCounter, loadingOrderNumbers, permanentNumbersMap, selectedOrder, t]);
 
   const selectItemForWeighing = useCallback(async (idx) => {
     if (idx < 0 || idx >= items.length || claimedByOther) return;
@@ -3309,6 +3349,7 @@ export default function DeliveryManagementV7() {
     [BATCH_CHARGE_SKIP_REASONS.pendingSync]: pack.batchChargeSkipPending,
     [BATCH_CHARGE_SKIP_REASONS.offline]: pack.batchChargeSkipOffline,
     [BATCH_CHARGE_SKIP_REASONS.stopped]: pack.batchChargeSkipStopped,
+    [BATCH_CHARGE_SKIP_REASONS.overHold]: pack.batchSkipOverHold,
   }[reason] || reason), []);
 
   const batchChargeLivePlan = useMemo(() => collectMultiCommunityBatchChargePlan({
@@ -3359,24 +3400,34 @@ export default function DeliveryManagementV7() {
         draft: entry.draft,
         communityDiscount: snapshot,
       });
+      const limit = getChargeLimit(entry.order);
       map[entry.order.id] = {
         finalSum: payload.finalSum,
         discount: payload.communityDiscount?.amount || 0,
         weeklySavings: weeklyPromotion?.estimatedSavings || 0,
+        holdMax: limit.type === 'hold' ? limit.max : null,
       };
     });
     return map;
   }, [batchChargeDiscountByCommunity, batchChargeLivePlan.ready, getBatchWeeklyPromotion, selectedWeek]);
+  const batchHoldCapSummary = useMemo(
+    () => summarizeBatchHoldCaps(batchChargeIncludedReady, batchChargeOrderPreviews),
+    [batchChargeIncludedReady, batchChargeOrderPreviews],
+  );
   const batchChargePreviewTotals = useMemo(() => (
     batchChargeIncludedReady.reduce((acc, entry) => {
       const preview = batchChargeOrderPreviews[entry.order.id];
+      const over = batchHoldCapSummary.overOrderIds.has(entry.order.id);
+      // Over the hold: charged at the hold, or left out when capping is off.
+      let charge = Number(preview?.finalSum) || 0;
+      if (over) charge = batchCapOverHold ? Number(preview?.holdMax) || 0 : 0;
       return {
-        total: acc.total + (Number(preview?.finalSum) || 0),
+        total: acc.total + charge,
         discount: acc.discount + (Number(preview?.discount) || 0),
         weeklySavings: acc.weeklySavings + (Number(preview?.weeklySavings) || 0),
       };
     }, { total: 0, discount: 0, weeklySavings: 0 })
-  ), [batchChargeIncludedReady, batchChargeOrderPreviews]);
+  ), [batchCapOverHold, batchChargeIncludedReady, batchChargeOrderPreviews, batchHoldCapSummary]);
 
   const completeOrder = async () => {
     if (!selectedOrder) return;
@@ -3413,6 +3464,7 @@ export default function DeliveryManagementV7() {
       items: settlementItems,
       draft: selectedOrderSaved,
       communityDiscount: settlementDiscount,
+      deliveryFee: previewDeliveryFee,
     });
     const weeklyConfirmationHe = selectedWeeklyPromotion
       ? TR.he.weeklyPromotionConfirm(selectedWeeklyPromotion.estimatedSavings.toFixed(2))
@@ -3437,72 +3489,118 @@ export default function DeliveryManagementV7() {
       currentOrderId: selectedOrder.id,
       lang: 'th',
     });
-    const ok = await biConfirm({
-      heText: `לסמן כהושלם ולחייב את הלקוח?${weeklyConfirmationHe}${discountConfirmationHe}${refundConfirmationHe}`,
-      thText: `ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?${weeklyConfirmationTh}${discountConfirmationTh}${refundConfirmationTh}`,
-      title: selectedOrderRefunds.length > 0 ? 'warning' : 'info',
-      confirmButtonDelay: selectedOrderRefunds.length > 0 ? 2000 : 0,
-    });
+    const chargeLimitNow = getChargeLimit(selectedOrder);
+    const overHoldNow = isOverHold(chargeLimitNow, confirmationPreview.finalSum);
+    const deliveryConfirmationHe = chargeDeliverySelected ? DELIVERY_CHARGE_TEXT.he.confirm(selectedDeliveryFee) : '';
+    const deliveryConfirmationTh = chargeDeliverySelected ? DELIVERY_CHARGE_TEXT.th.confirm(selectedDeliveryFee) : '';
+    const confirmSuffixHe = `${weeklyConfirmationHe}${discountConfirmationHe}${deliveryConfirmationHe}${refundConfirmationHe}`;
+    const confirmSuffixTh = `${weeklyConfirmationTh}${discountConfirmationTh}${deliveryConfirmationTh}${refundConfirmationTh}`;
+    // Over the card hold: instead of the usual question, offer to charge exactly the hold.
+    const confirmChargeAtHold = ({ total, max, suffixHe = '', suffixTh = '' }) => {
+      const waived = Math.round((total - max) * 100) / 100;
+      return biConfirm({
+        heText: `${TR.he.capChargeQuestion(total, max, waived)}${suffixHe}`,
+        thText: `${TR.th.capChargeQuestion(total, max, waived)}${suffixTh}`,
+        title: 'warning',
+        confirmButtonDelay: 2000,
+        confirmLabel: capChargeButtonLabel(max),
+        cancelLabel: BACK_TO_WEIGHING_LABEL,
+      });
+    };
+    const ok = overHoldNow
+      ? await confirmChargeAtHold({
+        total: confirmationPreview.finalSum,
+        max: chargeLimitNow.max,
+        suffixHe: confirmSuffixHe,
+        suffixTh: confirmSuffixTh,
+      })
+      : await biConfirm({
+        heText: `לסמן כהושלם ולחייב את הלקוח?${confirmSuffixHe}`,
+        thText: `ยืนยันเสร็จสิ้นและเรียกเก็บเงิน?${confirmSuffixTh}`,
+        title: selectedOrderRefunds.length > 0 ? 'warning' : 'info',
+        confirmButtonDelay: selectedOrderRefunds.length > 0 ? 2000 : 0,
+      });
     if (!ok) return;
 
-    setLoading(true);
-    const settlingDraft = markOrderSettling(selectedOrder.id, selectedOrderSaved);
-    try {
-      const result = await settleAndChargeOrderV7({
-        order: selectedOrder,
-        items,
-        draft: settlingDraft,
-        session,
-        weekKey: selectedWeek,
-        communityDiscount: appliedSettlementDiscount,
-        communityWeeklyPromotion: selectedWeeklyPromotion,
-        confirmSubscriptionAboveCeiling: (amounts) => biConfirm({
-          ...buildChargeCeilingConfirmText(amounts),
-          title: 'warning',
-          confirmButtonDelay: 2000,
-        }),
-      });
-      applySuccessfulChargeToState(selectedOrder.id, result);
-      if (selectedClaim?.sessionId === session.sessionId) {
-        try {
-          await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
-        } catch (releaseErr) {
-          console.error(releaseErr);
+    const runCharge = async (chargeCap) => {
+      setLoading(true);
+      const settlingDraft = markOrderSettling(selectedOrder.id, selectedOrderSaved);
+      try {
+        const result = await settleAndChargeOrderV7({
+          order: selectedOrder,
+          printedCartonCount: getPrintedCartonCount(selectedOrder),
+          chargeCap,
+          items,
+          draft: settlingDraft,
+          session,
+          weekKey: selectedWeek,
+          communityDiscount: appliedSettlementDiscount,
+          communityWeeklyPromotion: selectedWeeklyPromotion,
+          chargeDeliveryFee: chargeDeliverySelected,
+          confirmSubscriptionAboveCeiling: (amounts) => biConfirm({
+            ...buildChargeCeilingConfirmText(amounts),
+            title: 'warning',
+            confirmButtonDelay: 2000,
+          }),
+        });
+        applySuccessfulChargeToState(selectedOrder.id, result);
+        if (selectedClaim?.sessionId === session.sessionId) {
+          try {
+            await releaseOrderClaimV7({ weekKey: selectedWeek, orderId: selectedOrder.id, session });
+          } catch (releaseErr) {
+            console.error(releaseErr);
+          }
         }
+        return { ok: true };
+      } catch (e) {
+        console.error(e);
+        await revertChargeDraftToWeighed(selectedOrder.id, selectedOrderSaved);
+        return { ok: false, error: e };
+      } finally {
+        setLoading(false);
       }
-    } catch (e) {
-      console.error(e);
-      await revertChargeDraftToWeighed(selectedOrder.id, selectedOrderSaved);
-      const interpreted = interpretHandleSuspendedPaymentError(e);
-      const detail = interpreted.message;
-      const detailSuffix = detail ? `\n${detail}` : '';
-      if (interpreted.missingGrowHold) {
-        setBatchFailedByOrderId((prev) => ({
-          ...prev,
-          [selectedOrder.id]: detail || TR.he.batchChargeFailedBadge,
-        }));
+    };
+
+    let outcome = await runCharge(overHoldNow ? chargeLimitNow.max : null);
+    if (!outcome.ok && !overHoldNow) {
+      // The server found the total above the hold (this station's order data was stale).
+      const aboveHold = readAmountAboveHoldError(outcome.error);
+      if (aboveHold) {
+        const capOk = await confirmChargeAtHold({ total: aboveHold.total, max: aboveHold.holdSum });
+        if (!capOk) return;
+        outcome = await runCharge(aboveHold.holdSum);
       }
-      if (isBrowserOffline()) {
-        await biAlert({
-          heText: 'לא ניתן לחייב כרגע — אין חיבור לאינטרנט.\nההזמנה נשארה במצב "נשקל" — נסה שוב כשהאינטרנט יחזור.',
-          thText: 'ไม่สามารถเรียกเก็บเงินได้ — ไม่มีอินเทอร์เน็ต\nคำสั่งซื้อยังอยู่ในสถานะ "ชั่งแล้ว" — ลองอีกครั้งเมื่อมีเน็ต',
-          title: 'error',
-        });
-      } else if (isLikelyNetworkErrorV7(e)) {
-        await biAlert({
-          heText: `לא ניתן לחייב כרגע — בעיית תקשורת מול השרת.\nההזמנה נשארה במצב "נשקל" — נסה שוב.${detailSuffix}`,
-          thText: `ไม่สามารถเรียกเก็บเงินได้ — มีปัญหาเชื่อมต่อกับเซิร์ฟเวอร์\nคำสั่งซื้อยังอยู่ในสถานะ "ชั่งแล้ว" — ลองอีกครั้ง${detailSuffix}`,
-          title: 'error',
-        });
-      } else {
-        await biAlert({
-          heText: `שגיאה בחיוב. ההזמנה נשארה במצב "נשקל" — אפשר לנסות שוב.${detailSuffix}`,
-          thText: `เกิดข้อผิดพลาดในการเรียกเก็บเงิน — ลองอีกครั้ง${detailSuffix}`,
-          title: 'error',
-        });
-      }
-    } finally {
-      setLoading(false);
+    }
+    if (outcome.ok) return;
+
+    const e = outcome.error;
+    const interpreted = interpretHandleSuspendedPaymentError(e);
+    const detail = interpreted.message;
+    const detailSuffix = detail ? `\n${detail}` : '';
+    if (interpreted.missingGrowHold) {
+      setBatchFailedByOrderId((prev) => ({
+        ...prev,
+        [selectedOrder.id]: detail || TR.he.batchChargeFailedBadge,
+      }));
+    }
+    if (isBrowserOffline()) {
+      await biAlert({
+        heText: 'לא ניתן לחייב כרגע — אין חיבור לאינטרנט.\nההזמנה נשארה במצב "נשקל" — נסה שוב כשהאינטרנט יחזור.',
+        thText: 'ไม่สามารถเรียกเก็บเงินได้ — ไม่มีอินเทอร์เน็ต\nคำสั่งซื้อยังอยู่ในสถานะ "ชั่งแล้ว" — ลองอีกครั้งเมื่อมีเน็ต',
+        title: 'error',
+      });
+    } else if (isLikelyNetworkErrorV7(e)) {
+      await biAlert({
+        heText: `לא ניתן לחייב כרגע — בעיית תקשורת מול השרת.\nההזמנה נשארה במצב "נשקל" — נסה שוב.${detailSuffix}`,
+        thText: `ไม่สามารถเรียกเก็บเงินได้ — มีปัญหาเชื่อมต่อกับเซิร์ฟเวอร์\nคำสั่งซื้อยังอยู่ในสถานะ "ชั่งแล้ว" — ลองอีกครั้ง${detailSuffix}`,
+        title: 'error',
+      });
+    } else {
+      await biAlert({
+        heText: `שגיאה בחיוב. ההזמנה נשארה במצב "נשקל" — אפשר לנסות שוב.${detailSuffix}`,
+        thText: `เกิดข้อผิดพลาดในการเรียกเก็บเงิน — ลองอีกครั้ง${detailSuffix}`,
+        title: 'error',
+      });
     }
   };
 
@@ -3511,6 +3609,7 @@ export default function DeliveryManagementV7() {
     const names = defaultBatchChargeCommunities(selectedCommunities, batchChargeCommunities);
     setBatchChargeModalCommunities(new Set(names));
     setBatchApplyWeeklyPromotion(autoApplyWeeklyPromotion);
+    setBatchCapOverHold(true);
     weeklyPromotionSettlement.refresh();
     setBatchChargeModalOpen(true);
   };
@@ -3524,7 +3623,7 @@ export default function DeliveryManagementV7() {
     });
   };
 
-  const runBatchChargeForEntries = async (entries, discountByCommunity, plan) => {
+  const runBatchChargeForEntries = async (entries, discountByCommunity, plan, capOverHold = true) => {
     if (!isAdmin || batchChargeProgress || !Array.isArray(entries) || entries.length === 0) return;
     batchChargeAbortRef.current = false;
     const charged = [];
@@ -3622,6 +3721,8 @@ export default function DeliveryManagementV7() {
       try {
         const result = await settleAndChargeOrderV7({
           order: latestOrder,
+          printedCartonCount: getPrintedCartonCount(latestOrder),
+          chargeCap: batchChargeCapFor(latestOrder, capOverHold),
           items: latestContext.items,
           draft: settlingDraft,
           session,
@@ -3705,7 +3806,21 @@ export default function DeliveryManagementV7() {
         || getEffectiveOrderStatus(order, draft) === 'completed'
       ),
     });
-    const { included } = partitionReadyByExclusion(plan.ready, batchChargeExcludedOrderIds);
+    const { included: selected } = partitionReadyByExclusion(plan.ready, batchChargeExcludedOrderIds);
+    // Capping off: orders over their card hold stay out of this batch.
+    const overHold = batchCapOverHold ? new Set() : summarizeBatchHoldCaps(selected, batchChargeOrderPreviews).overOrderIds;
+    const included = selected.filter((entry) => !overHold.has(entry.order.id));
+    const runPlan = overHold.size > 0
+      ? {
+        ...plan,
+        skipped: [
+          ...(plan.skipped || []),
+          ...selected
+            .filter((entry) => overHold.has(entry.order.id))
+            .map((entry) => ({ order: entry.order, reason: BATCH_CHARGE_SKIP_REASONS.overHold })),
+        ],
+      }
+      : plan;
     if (included.length === 0) {
       await biAlert({
         heText: TR.he.batchChargeNoReadySelected,
@@ -3733,7 +3848,7 @@ export default function DeliveryManagementV7() {
       if (!okRefunds) return;
     }
     setBatchChargeModalOpen(false);
-    await runBatchChargeForEntries(included, batchChargeDiscountByCommunity, plan);
+    await runBatchChargeForEntries(included, batchChargeDiscountByCommunity, runPlan, batchCapOverHold);
   };
 
   const toggleCommunity = (community) => {
@@ -4505,6 +4620,14 @@ export default function DeliveryManagementV7() {
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           {statusBadge(effectiveStatus)}
+                          {overHoldOrderIds.has(o.id) && !isDone && (
+                            <span
+                              className="text-[10px] font-black text-white bg-red-600 rounded-full px-2 py-0.5"
+                              title={t.maxChargeTile}
+                            >
+                              {t.overLimitBadge}
+                            </span>
+                          )}
                           {batchFailedByOrderId[o.id] && !isDone && (
                             <span
                               className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-2 py-0.5 max-w-[9rem] truncate"
@@ -4693,22 +4816,32 @@ export default function DeliveryManagementV7() {
                       <button
                         type="button"
                         onClick={handlePrintLabel}
-                        disabled={claimedByOther || isPrinting}
+                        disabled={claimedByOther || isPrinting || cartonPrint.busy}
                         className="w-36 h-36 shrink-0 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white font-black shadow-lg flex flex-col items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-4xl leading-none" aria-hidden="true">🏷️</span>
                         <span className="text-base leading-tight text-center px-2">
-                          {isPrinting ? t.printing : t.printLabel}
+                          {cartonPrint.phase === 'saving'
+                            ? t.printSaving
+                            : (isPrinting || cartonPrint.busy ? t.printing : t.printLabel)}
                         </span>
                       </button>
                       <label className="flex flex-col gap-1 text-sm font-bold text-gray-600">
                         <span className="flex items-center gap-2 text-gray-900">
                           <span className="text-xl font-black">{t.carton}</span>
                           <input
-                            type="number"
-                            min={1}
-                            value={crateIndex}
-                            onChange={(e) => handleCrateFieldChange(e.target.value)}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={crateCounter.inputValue}
+                            onChange={(e) => crateCounter.onInputChange(e.target.value)}
+                            onBlur={crateCounter.commitInput}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                crateCounter.commitInput();
+                              }
+                            }}
                             className="w-20 h-14 px-2 border-2 border-sky-300 rounded-xl text-center text-2xl font-black"
                             disabled={claimedByOther}
                             aria-label={t.carton}
@@ -4822,6 +4955,9 @@ export default function DeliveryManagementV7() {
                               {t.batchChargeCommunityHint}
                             </p>
                           </div>
+                        )}
+                        {hasPrinterSupport && (
+                          <PrintAttemptLog t={t} className="w-full mt-1 pt-2 border-t border-gray-200" />
                         )}
                       </div>
                     )}
@@ -4942,7 +5078,7 @@ export default function DeliveryManagementV7() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className={`grid grid-cols-2 gap-3 ${chargeRoom ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
                   <div className="bg-white rounded-xl shadow-sm p-3">
                     <div className="text-[11px] text-gray-500 font-bold">{t.orderedKg}</div>
                     <div className="text-xl font-black text-gray-900">{totals.requestedTotal.toFixed(3)}</div>
@@ -4959,7 +5095,28 @@ export default function DeliveryManagementV7() {
                     <div className="text-[11px] text-gray-500 font-bold">{t.weighedPrice}</div>
                     <div className="text-xl font-black text-green-700">{totals.actualSum.toFixed(2)}</div>
                   </div>
+                  {chargeRoom && (
+                    <div
+                      className={`rounded-xl shadow-sm p-3 border-2 ${chargeRoom.over ? 'bg-red-50 border-red-300' : 'bg-white border-emerald-200'}`}
+                      data-testid="charge-limit-tile"
+                    >
+                      <div className="text-[11px] text-gray-500 font-bold">
+                        {chargeLimit.type === 'hold' ? t.maxChargeTile : t.ceilingTile}
+                      </div>
+                      <div className="text-xl font-black text-gray-900">₪{chargeLimit.max.toFixed(2)}</div>
+                      <div className={`text-xs font-black ${chargeRoom.over ? 'text-red-700' : 'text-emerald-700'}`}>
+                        {chargeRoom.over ? t.chargeOverBy(chargeRoom.overBy) : t.chargeRemaining(chargeRoom.remaining)}
+                      </div>
+                    </div>
+                  )}
                 </div>
+                <DeliveryChargeToggle
+                  fee={selectedDeliveryFee}
+                  checked={chargeDeliverySelected}
+                  onChange={(value) => setChargeDeliveryByOrderId((prev) => ({ ...prev, [selectedOrder.id]: value }))}
+                  lang={lang}
+                  disabled={loading}
+                />
 
                 {eligibleWeeklyPromotion && (
                   <div className={`rounded-xl border p-3 text-sm font-bold shadow-sm ${
@@ -5107,6 +5264,11 @@ export default function DeliveryManagementV7() {
                       ? (showQtyBadge ? '8.5rem' : '6rem')
                       : (showQtyBadge ? '4.25rem' : '0.75rem');
                     const compactActionStyle = { flex: '0 0 auto', minWidth: 0, width: 'fit-content' };
+                    const lineMax = (isActive || isEditing) && !isRemoved ? lineChargeMax(it) : null;
+                    let enteredQty = Number(weighedQty);
+                    if (isEditing || (isActive && !weighedQty && editValue)) enteredQty = Number(editValue);
+                    else if (isActive && !weighedQty && scaleConnected && liveWeight?.value != null) enteredQty = Number(liveWeight.value);
+                    const lineMaxExceeded = lineMax !== null && Number.isFinite(enteredQty) && enteredQty > lineMax + 1e-9;
 
                     return (
                       <div
@@ -5259,6 +5421,20 @@ export default function DeliveryManagementV7() {
                                 </div>
                               )}
 
+                              {lineMax !== null && (
+                                <div
+                                  className={`mb-2 rounded-md px-2 py-1 text-xs font-black ${
+                                    lineMaxExceeded || lineMax <= 0
+                                      ? 'bg-red-100 text-red-800 border border-red-300'
+                                      : 'bg-indigo-50 text-indigo-900 border border-indigo-200'
+                                  }`}
+                                  data-testid="line-charge-max"
+                                >
+                                  {lineMax > 0
+                                    ? t.lineMaxQty(isPackage ? lineMax : lineMax.toFixed(3), isPackage ? t.pkgLbl : t.kg)
+                                    : t.lineMaxNone}
+                                </div>
+                              )}
                               {weighedQty && !isEditing && (
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="space-y-1">
@@ -5815,7 +5991,12 @@ export default function DeliveryManagementV7() {
         orderPreviews={batchChargeOrderPreviews}
         skipReasonLabel={(reason) => skipReasonLabel(reason, t)}
         getCommunityColor={getEffectiveCommunityColor}
-        readyCount={batchChargeIncludedReady.length}
+        readyCount={batchCapOverHold
+          ? batchChargeIncludedReady.length
+          : batchChargeIncludedReady.length - batchHoldCapSummary.overCount}
+        holdCapSummary={batchHoldCapSummary}
+        capOverHold={batchCapOverHold}
+        onToggleCapOverHold={() => setBatchCapOverHold((value) => !value)}
         excludedReadyCount={batchChargeExcludedReady.length}
         skippedCount={batchChargeLivePlan.skipped.length}
         completedCount={batchChargeLivePlan.alreadyCompleted.length}
@@ -5838,6 +6019,8 @@ export default function DeliveryManagementV7() {
         thText={dialog?.thText}
         type={dialog?.type}
         confirmButtonDelay={dialog?.confirmButtonDelay || 0}
+        confirmLabel={dialog?.confirmLabel || ''}
+        cancelLabel={dialog?.cancelLabel || ''}
         onConfirm={() => closeDialog(true)}
         onCancel={() => closeDialog(dialog?.type === 'alert' ? undefined : false)}
       />

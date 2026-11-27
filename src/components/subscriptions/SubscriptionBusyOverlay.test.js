@@ -27,11 +27,11 @@ describe('SubscriptionBusyOverlay', () => {
   });
 
   test.each([
-    ['pause', 'משהים את המנוי'],
-    ['resume', 'מחדשים את המנוי'],
+    ['pause', 'משהים את הסל השבועי'],
+    ['resume', 'מחדשים את הסל השבועי'],
     ['skip', 'מדלגים על המשלוח'],
     ['unskip', 'מחזירים את המשלוח'],
-    ['cancel', 'מבטלים את המנוי'],
+    ['cancel', 'מבטלים את ההרשמה לסל השבועי'],
   ])('%s has a message', (action, title) => {
     render(<SubscriptionBusyOverlay action={action} />);
     expect(screen.getByText(title)).toBeInTheDocument();

@@ -1,7 +1,10 @@
 import {
+  BY_TYPE_CATEGORY,
   KOSHER_MEHADRIN_CATEGORY,
   STORE_CATEGORIES,
   calculateCategoryCounts,
+  groupProductsByType,
+  resolveProductType,
   isKosherMehadrinProduct,
   productMatchesStoreCategory,
   sortCategoryStoreProducts,
@@ -23,6 +26,12 @@ describe('STORE_CATEGORIES', () => {
   it('includes the kosher mehadrin category at the end', () => {
     expect(STORE_CATEGORIES).toContain(KOSHER_MEHADRIN_CATEGORY);
     expect(STORE_CATEGORIES[STORE_CATEGORIES.length - 1]).toBe(KOSHER_MEHADRIN_CATEGORY);
+  });
+
+  it('has "לפי סוג" right after "הכל", matching every product', () => {
+    expect(STORE_CATEGORIES.slice(0, 2)).toEqual(['הכל', BY_TYPE_CATEGORY]);
+    expect(productMatchesStoreCategory({ category: 'פירות' }, BY_TYPE_CATEGORY)).toBe(true);
+    expect(calculateCategoryCounts([{ category: 'ירקות' }, { category: 'פירות' }])[BY_TYPE_CATEGORY]).toBe(2);
   });
 });
 
@@ -119,5 +128,81 @@ describe('searchProducts kosher mehadrin ordering', () => {
 
     expect(searchProducts(products, 'עגבניה').map((p) => p.id))
       .toEqual(['mehadrin-exact', 'mehadrin-desc']);
+  });
+});
+
+describe('product types', () => {
+  const typeOf = (name, category = 'ירקות', extra = {}) => resolveProductType({ name, category, ...extra })?.name ?? null;
+
+  it('detects the type from a whole word anywhere in the name', () => {
+    expect(typeOf('מלפפון בייבי')).toBe('מלפפון');
+    expect(typeOf('קרטון מלפפון 5 ק"ג')).toBe('מלפפון');
+    expect(typeOf('פלפל אדום')).toBe('פלפל');
+    expect(typeOf("פלפל חריף צ'ילי אדום")).toBe('פלפל');
+    expect(typeOf('עגבניות שרי')).toBe('עגבנייה');
+    expect(typeOf('שרי לובלו')).toBe('עגבנייה');
+    expect(typeOf('עגבניית תמר')).toBe('עגבנייה');
+  });
+
+  it('uses the product category, and the specific type wins', () => {
+    expect(typeOf('תפוח אדמה אדום')).toBe('תפוח אדמה');
+    expect(typeOf('אצבעות בטטה קרטון')).toBe('בטטה');
+    expect(typeOf('תפוח עץ גאלה', 'פירות')).toBe('תפוח');
+    expect(typeOf('סלק עלים/מנגולד', 'ירוקים')).toBe('עלים ירוקים');
+    expect(typeOf('באק צוי מהדרין', 'ירוקים ופטריות')).toBe("באק צ'וי");
+    expect(typeOf('מיקס פטריות אקזוטי', 'ירוקים')).toBe('פטריות');
+    expect(typeOf('פטל אדום', 'פירות')).toBe('פירות יער');
+  });
+
+  it('part of a word is not a match, and unknown names have no type', () => {
+    expect(typeOf('מלפפונון')).toBeNull();
+    expect(typeOf('במיה')).toBeNull();
+    expect(typeOf('עגבנייה', 'משתלה')).toBeNull();
+    expect(typeOf('')).toBeNull();
+    expect(resolveProductType(null)).toBeNull();
+  });
+
+  it("the farmer's choice wins over the name, and 'none' means no type", () => {
+    expect(typeOf('מלפפון בייבי', 'ירקות', { productType: 'פלפל' })).toBe('פלפל');
+    expect(typeOf('מלפפון בייבי', 'ירקות', { productType: 'none' })).toBeNull();
+    expect(typeOf('מלפפון בייבי', 'ירקות', { productType: 'unknown' })).toBe('מלפפון');
+  });
+
+  it('other categories keep their old order: farmer rank and sortIndex, not type', () => {
+    const products = [
+      { id: 'pepper', name: 'פלפל צהוב', category: 'ירקות', sortIndex: 1 },
+      { id: 'cucumber', name: 'מלפפון', category: 'ירקות', sortIndex: 2 },
+      { id: 'okra', name: 'במיה', category: 'ירקות', sortIndex: 0 },
+      { id: 'cucumber-farmer', name: 'מלפפון בייבי', category: 'ירקות', sortIndex: 3, isFarmerOrder: true },
+    ];
+    expect([...products].sort(sortCategoryStoreProducts).map((product) => product.id))
+      .toEqual(['cucumber-farmer', 'okra', 'pepper', 'cucumber']);
+  });
+
+  it('"לפי סוג": sections per type in category order, untyped last in their category, farmer order kept', () => {
+    const products = [
+      { id: 'pepper', name: 'פלפל צהוב', category: 'ירקות', sortIndex: 1 },
+      { id: 'cucumber2', name: 'מלפפון', category: 'ירקות', sortIndex: 2 },
+      { id: 'okra', name: 'במיה', category: 'ירקות', sortIndex: 0 },
+      { id: 'cucumber1', name: 'מלפפון בייבי', category: 'ירקות', sortIndex: 0, isFarmerOrder: true },
+      { id: 'apple', name: 'תפוח עץ', category: 'פירות', sortIndex: 0 },
+      { id: 'cucumber-mehadrin', name: 'מלפפון', category: 'ירקות', sortIndex: 0, isKosherMehadrin: true },
+      { id: 'tomato', name: 'עגבנייה', category: 'ירקות', sortIndex: 3 },
+      { id: 'honey', name: 'דבש', category: 'אחר', sortIndex: 0 },
+      { id: 'mint', name: 'נענע', category: 'ירוקים', sortIndex: 0 },
+    ];
+    const input = [...products];
+    const sections = groupProductsByType(products);
+    expect(sections.map((section) => [section.title, section.products.map((product) => product.id)])).toEqual([
+      ['עגבניות', ['tomato']],
+      ['מלפפונים', ['cucumber1', 'cucumber2', 'cucumber-mehadrin']],
+      ['פלפלים', ['pepper']],
+      ['עוד בירקות', ['okra']],
+      ['תפוחים', ['apple']],
+      ['עלי תבלין', ['mint']],
+      ['אחר', ['honey']],
+    ]);
+    expect(products).toEqual(input);
+    expect(groupProductsByType(null)).toEqual([]);
   });
 });

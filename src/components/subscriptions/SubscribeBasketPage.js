@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
@@ -8,6 +8,7 @@ import usePickupSpots from '../../hooks/usePickupSpots';
 import LoadingSpinner from '../LoadingSpinner';
 import SecureCardProgress, { useResetOnPageRestore } from './SecureCardProgress';
 import RecurringLinesEditor from './RecurringLinesEditor';
+import useBusinessPromotions from './useBusinessPromotions';
 import { getSubscriptionBasket } from '../../services/subscriptionBasketService';
 import {
   CARD_CONSENT_TEXT,
@@ -26,19 +27,19 @@ import {
 } from '../../utils/deliveryScheduleUtils';
 import {
   estimateRecurringLines,
+  priceRecurringLines,
   initialRecurringLines,
   isRecurringBasketChanged,
   toProductInfo,
   toRecurringPayload,
 } from '../../utils/recurringBasket';
-import { computeCityDeliveryFee, formatShekels, isCityPlace } from '../../utils/cityDeliveryFee';
+import { computeCityDeliveryFee, formatShekels } from '../../utils/cityDeliveryFee';
 import { validateCustomerEmail, validateCustomerName, validateCustomerPhone } from '../../utils/marketplaceCustomerValidation';
+import { WHATSAPP_OPT_IN_HINT, WHATSAPP_OPT_IN_LABEL } from './copy';
+import { trackFunnelStep, trackFunnelStepBeforeLeaving } from '../../services/funnelService';
+import { DELIVERY_OPTION_LABELS, deliveryOptionsForSpot, preferredDeliveryOption } from '../../utils/subscriptionDelivery';
+import { getActiveCampaign } from '../../utils/campaignAttribution';
 
-const DELIVERY_OPTION_LABELS = {
-  pickup: 'איסוף מנקודת החלוקה',
-  homeDelivery: 'משלוח עד הבית',
-  boxCollection: 'איסוף מארגז',
-};
 
 const MAX_FIRST_DATE_OPTIONS = 8;
 const DETAIL_FIELDS = ['name', 'phone', 'email', 'address'];
@@ -82,6 +83,8 @@ const SubscribeBasketPage = () => {
   const [growUrl, setGrowUrl] = useState('');
   const submitting = cardStep !== '';
   const [cardConsent, setCardConsent] = useState(false);
+  // WhatsApp reminder a few hours before orders close (owner's choice: on by default).
+  const [whatsappOptIn, setWhatsappOptIn] = useState(true);
   // The basket as the customer changes it here; sent only when it differs from the admin basket.
   const [basketStart, setBasketStart] = useState([]);
   const [lines, setLines] = useState([]);
@@ -109,6 +112,23 @@ const SubscribeBasketPage = () => {
       active = false;
     };
   }, [basketId]);
+
+  // Funnel (admin "משפכים"): which basket, and whether it starts empty
+  // (build-your-own) or ready-made.
+  const funnelContextRef = useRef({});
+  funnelContextRef.current = {
+    basketId,
+    community,
+    buildYourOwn: basket ? basket.componentLines.length === 0 : undefined,
+  };
+  useEffect(() => {
+    if (basket) trackFunnelStep('weekly_basket', 'signup_opened', funnelContextRef.current);
+  }, [basket]);
+  // Every change the customer makes goes through the editor's setLines.
+  const editLines = useCallback((update) => {
+    trackFunnelStep('weekly_basket', 'basket_edited', funnelContextRef.current);
+    setLines(update);
+  }, []);
 
   useEffect(() => {
     if (!basket) return undefined;
@@ -231,15 +251,11 @@ const SubscribeBasketPage = () => {
   }, [community]);
 
   const spotData = community ? pickupSpotsData[community] : null;
-  const deliveryOptions = useMemo(() => {
-    if (!spotData) return ['pickup'];
-    if (isCityPlace(spotData)) return ['homeDelivery'];
-    const options = Array.isArray(spotData.options) && spotData.options.length > 0 ? spotData.options : ['pickup'];
-    return options.filter((option) => DELIVERY_OPTION_LABELS[option]);
-  }, [spotData]);
+  const deliveryOptions = useMemo(() => deliveryOptionsForSpot(spotData), [spotData]);
 
   useEffect(() => {
-    if (!deliveryOptions.includes(deliveryOption)) setDeliveryOption(deliveryOptions[0] || 'pickup');
+    // Home delivery is the default when the community offers it.
+    if (!deliveryOptions.includes(deliveryOption)) setDeliveryOption(preferredDeliveryOption(deliveryOptions));
   }, [deliveryOptions, deliveryOption]);
 
   const deliveryDates = useMemo(
@@ -251,7 +267,16 @@ const SubscribeBasketPage = () => {
     if (!deliveryDates.includes(firstDeliveryDate)) setFirstDeliveryDate(deliveryDates[0] || '');
   }, [deliveryDates, firstDeliveryDate]);
 
-  const estimate = useMemo(() => estimateRecurringLines(lines, productInfo), [lines, productInfo]);
+  // Farmers' shared promotions ("N for ₪X" across products), priced like the delivery.
+  const promotionsByBusinessId = useBusinessPromotions(lines, productInfo);
+  const linePricing = useMemo(
+    () => priceRecurringLines(lines, productInfo, promotionsByBusinessId),
+    [lines, productInfo, promotionsByBusinessId],
+  );
+  const estimate = useMemo(
+    () => estimateRecurringLines(lines, productInfo, promotionsByBusinessId),
+    [lines, productInfo, promotionsByBusinessId],
+  );
   const basketEdited = useMemo(() => isRecurringBasketChanged(basketStart, lines), [basketStart, lines]);
   const emptyBasket = Boolean(basket) && basket.componentLines.length === 0;
   const deliveryFee = useMemo(() => {
@@ -309,18 +334,22 @@ const SubscribeBasketPage = () => {
         frequency,
         customerDetails: details,
         ...(basketEdited ? { recurringLines: toRecurringPayload(lines) } : {}),
+        whatsappOptIn,
+        // The flyer / QR campaign this visitor came from, if any (last 30 days).
+        ...(getActiveCampaign() ? { campaign: getActiveCampaign() } : {}),
         ...cardConsentPayload(),
       });
       if (!result?.url) throw new Error('PAYMENT_PAGE_FAILED');
       // The overlay stays up while the browser leaves for Grow.
       setGrowUrl(result.url);
       setCardStep('redirecting');
+      await trackFunnelStepBeforeLeaving('weekly_basket', 'submitted', funnelContextRef.current);
       window.location.assign(result.url);
     } catch (error) {
       setCardStep('');
       const code = error?.response?.data?.error;
       if (code === 'ALREADY_SUBSCRIBED') {
-        await Swal.fire('כבר רשומים', 'כבר יש לך מנוי לסל הזה. אפשר לנהל אותו בעמוד המנויים.', 'info');
+        await Swal.fire('כבר רשומים', 'כבר נרשמת לסל הזה. אפשר לנהל אותו בעמוד "הסל השבועי שלי".', 'info');
         navigate('/my-subscriptions');
         return;
       }
@@ -348,7 +377,7 @@ const SubscribeBasketPage = () => {
     return (
       <div className="max-w-xl mx-auto p-6 text-center" dir="rtl">
         <h1 className="text-xl font-bold mb-2">{basket.title}</h1>
-        <p className="text-gray-600 mb-4">כדי להירשם למנוי ולנהל אותו צריך להתחבר לחשבון.</p>
+        <p className="text-gray-600 mb-4">כדי להירשם לסל שבועי ולנהל אותו צריך להתחבר לחשבון.</p>
         <button
           type="button"
           onClick={() => navigate('/login', { state: { from: `${location.pathname}${location.search}` } })}
@@ -423,7 +452,7 @@ const SubscribeBasketPage = () => {
         )}
         <RecurringLinesEditor
           lines={lines}
-          setLines={setLines}
+          setLines={editLines}
           productInfo={productInfo}
           setProductInfo={setProductInfo}
           loadCatalog={() => listSignupBasketProducts({ basketId, community, firstDeliveryDate })
@@ -432,6 +461,7 @@ const SubscribeBasketPage = () => {
           addDisabledText={!community ? 'בחרו יישוב כדי להוסיף מוצרים' : scheduleLoading ? 'טוענים את המוצרים ליישוב...' : ''}
           emptyText={emptyBasket ? 'עוד לא בחרתם מוצרים.' : 'הסל ריק. הוסיפו לפחות מוצר אחד.'}
           emphasizeAdd={emptyBasket}
+          linePricing={linePricing}
         />
         {lines.length > 0 && (
           <p className="text-sm text-gray-700">
@@ -527,6 +557,18 @@ const SubscribeBasketPage = () => {
             <input {...detailProps('phone')} type="tel" inputMode="tel" placeholder="0501234567" autoComplete="tel" dir="ltr" />
             {fieldError('phone')}
           </label>
+          <label className="flex items-start gap-2 sm:col-span-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-gray-800 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={whatsappOptIn}
+              onChange={(event) => setWhatsappOptIn(event.target.checked)}
+              className="mt-0.5 h-5 w-5 shrink-0 accent-green-600"
+            />
+            <span>
+              {WHATSAPP_OPT_IN_LABEL}
+              <span className="block text-xs text-gray-600">{WHATSAPP_OPT_IN_HINT}</span>
+            </span>
+          </label>
           <label className="block">
             <span className="text-sm font-medium text-gray-700">אימייל</span>
             <input {...detailProps('email')} type="email" autoComplete="email" dir="ltr" />
@@ -553,7 +595,7 @@ const SubscribeBasketPage = () => {
             שאינה נגבית.
           </p>
           <p>כמה ימים לפני כל משלוח נשלח לכם את הסל לעריכה. אחרי השקילה מחייבים רק על מה שנשאר בסל.</p>
-          <p>אפשר לדלג על משלוח, להשהות או לבטל בכל זמן מעמוד המנויים.</p>
+          <p>אפשר לדלג על משלוח, להשהות או לבטל בכל זמן מעמוד "הסל השבועי שלי".</p>
         </div>
 
         <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-gray-800 cursor-pointer">

@@ -5,6 +5,7 @@ const QL800_VID = 0x04f9;
 const QL800_PID = 0x209b;
 const TRANSFER_CHUNK = 4096;
 const TRANSFER_TIMEOUT_MS = 30000;
+const PRINT_WAIT_MS = 20000;
 
 function log(...args) {
   console.error('[QL-800]', ...args);
@@ -118,6 +119,8 @@ class PrinterService extends EventEmitter {
     this.inEndpoint = null;
     this.usb = null;
     this.opQueue = Promise.resolve();
+    // How long to wait for "printing completed" after the raster data was sent.
+    this.printWaitMs = PRINT_WAIT_MS;
   }
 
   runExclusive(work) {
@@ -360,7 +363,7 @@ class PrinterService extends EventEmitter {
   }
 
   async waitForPrintComplete() {
-    const deadline = Date.now() + 20000;
+    const deadline = Date.now() + this.printWaitMs;
     const previous = this.inEndpoint.timeout;
     let sawPhaseChange = false;
     try {
@@ -395,6 +398,10 @@ class PrinterService extends EventEmitter {
   }
 
   async printLocked({ width, height, data }) {
+    // True once the whole raster job reached the printer. A timeout after that
+    // usually means the label came out but the printer did not report it, so
+    // the station asks the worker instead of printing the same number again.
+    let dataSent = false;
     try {
       const pixels = coerceImageData(data);
       log('print start', { width, height, bytes: pixels.length });
@@ -424,7 +431,9 @@ class PrinterService extends EventEmitter {
         });
         log('sending raster bytes', job.length, 'twoColor', twoColor);
         await this.drainIn();
+        dataSent = false;
         await transferOutChunked(this.outEndpoint, job);
+        dataSent = true;
         return this.waitForPrintComplete();
       };
 
@@ -441,9 +450,10 @@ class PrinterService extends EventEmitter {
           code: finished.code || 'print_failed',
           error: finished.code || 'print_failed',
           message: `Printer status error: ${finished.code}`,
+          dataSent,
         };
       }
-      return { ok: true };
+      return { ok: true, dataSent: true };
     } catch (error) {
       log('print threw', error);
       const mapped = mapUsbError(error);
@@ -453,6 +463,7 @@ class PrinterService extends EventEmitter {
         code: mapped.code,
         error: mapped.code,
         message: mapped.error,
+        dataSent,
       };
     } finally {
       await this.close();

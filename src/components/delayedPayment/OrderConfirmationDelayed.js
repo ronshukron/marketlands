@@ -32,6 +32,7 @@ import { useWeightBuffer } from '../../contexts/WeightBufferContext';
 import { refreshCartCommercialTerms } from '../../services/productPromotionService';
 import { describeCommunityWeeklyCheckoutRefreshError } from '../../services/communityWeeklyPromotionService';
 import { buildCommunityWeeklyPromotionOrderAttribution } from '../../utils/communityWeeklyPromotionUrl';
+import { getActiveCampaign } from '../../utils/campaignAttribution';
 import {
     getEffectiveOrderCutoffAt,
     getWeekKey,
@@ -65,6 +66,7 @@ import { validateCheckoutCustomer } from '../../utils/marketplaceCustomerValidat
 import { describePaymentPageError } from '../../utils/paymentPageErrors';
 import { computeCityDeliveryFee, getProductSubtotal, isCityPlace, normalizeFreeShippingMinCart } from '../../utils/cityDeliveryFee';
 import { attachGoLiveLinkedOrdersById } from '../../services/orderGoLiveService';
+import { trackFunnelStep, trackFunnelStepBeforeLeaving } from '../../services/funnelService';
 
 async function processReferralReward({ orderId, buyerUid, orderTotal }) {
   const refCode = getStoredReferralCode();
@@ -227,6 +229,8 @@ const OrderConfirmationDelayed = () => {
     const ensureIntroductionBasketsOrderable = useIntroductionBasketGuard();
     const { configuredPercent: displayWeightBufferPercent } = useWeightBuffer();
     const promotionOrderAttribution = buildCommunityWeeklyPromotionOrderAttribution(localStorage);
+    // The flyer / QR campaign this visitor came from (last 30 days), saved on the order.
+    const campaignOrderAttribution = getActiveCampaign();
     
     const [loading, setLoading] = useState(false);
     useResetOnPageRestore(() => setLoading(false));
@@ -329,6 +333,11 @@ const OrderConfirmationDelayed = () => {
         // Otherwise default to pickup
         return 'pickup';
     });
+
+    // Funnel (admin "משפכים"): reached the checkout.
+    useEffect(() => {
+        trackFunnelStep('cart', 'checkout_opened');
+    }, []);
 
     // Add this useEffect to update deliveryOption when pickup spot changes
     useEffect(() => {
@@ -996,6 +1005,7 @@ const OrderConfirmationDelayed = () => {
             ...(promotionOrderAttribution ? {
                 communityWeeklyPromotionAttribution: promotionOrderAttribution
             } : {}),
+            ...(campaignOrderAttribution ? { campaign: campaignOrderAttribution } : {}),
             ...(cartHasAlwaysOnGrocery ? {
                 fulfillment: {
                     community: selectedPickupSpot,
@@ -1121,6 +1131,7 @@ const OrderConfirmationDelayed = () => {
                     items: checkoutItems,
                 });
                 redirecting = true;
+                await trackFunnelStepBeforeLeaving('cart', 'payment_started');
                 window.location.href = url;
             } else {
                 console.error('Failed to create delayed payment checkout', checkoutResult);
@@ -1317,6 +1328,7 @@ const OrderConfirmationDelayed = () => {
                 ...(promotionOrderAttribution ? {
                     communityWeeklyPromotionAttribution: promotionOrderAttribution
                 } : {}),
+                ...(campaignOrderAttribution ? { campaign: campaignOrderAttribution } : {}),
                 ...(cartHasAlwaysOnGrocery ? {
                     fulfillment: {
                         community: selectedPickupSpot,

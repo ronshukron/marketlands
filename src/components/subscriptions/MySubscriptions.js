@@ -15,10 +15,31 @@ import {
   describeSubscriptionError,
   listMySubscriptions,
   listSubscriptionOrders,
+  loadCommunitySchedule,
   updateBasketSubscription,
 } from '../../services/basketSubscriptionService';
 import { getCustomerOrderDisplayTotal, getCustomerOrderStatusInfo, STATUS_BADGE_CLASSES } from '../../utils/customerOrderDisplay';
-import { parseDateSafe } from '../../utils/deliveryScheduleUtils';
+import { getEffectiveCutoffAt, parseDateSafe } from '../../utils/deliveryScheduleUtils';
+import { formatDeadline, formatDeliveryDay } from '../../utils/subscriberStorefront';
+import {
+  DELIVERY_TONE,
+  EDIT_RECURRING,
+  EDIT_THIS_DELIVERY,
+  MY_WEEKLY_BASKET,
+  ONE_TIME,
+  PAUSE_CONFIRM_TEXT,
+  RECURRING_BASKET,
+  RECURRING_SCOPE,
+  RECURRING_TONE,
+  WEEKLY_BASKET,
+  WHATSAPP_OPT_IN_HINT,
+  WHATSAPP_ROW_LABEL,
+  deliveryOptionOutcomeMessage,
+  pauseOutcomeMessage,
+  resumeOutcomeMessage,
+} from './copy';
+import DeliveryOptionSwitch from './DeliveryOptionSwitch';
+import { confirmLeaving } from './leaveReasonPrompt';
 
 // After replacing a card: how long to wait for Grow's server update.
 const REPLACE_CARD_CHECKS = 8;
@@ -38,6 +59,9 @@ const STATUS_TONES = {
   canceled: 'gray',
 };
 
+// "יום רביעי, 25.11", the same day format as the store and the cart.
+const deliveryDayText = (dateKey) => formatDeliveryDay(dateKey);
+
 const formatDateKey = (dateKey) => {
   const date = parseDateSafe(dateKey);
   return date ? date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' }) : '';
@@ -48,6 +72,7 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
   // In subscriber mode the upcoming delivery is edited in the store itself.
   const editInStore = Boolean(subscriber?.active) && subscriber?.delivery?.subscription?.id === subscription.id;
   const [orders, setOrders] = useState([]);
+  const [schedule, setSchedule] = useState(null);
   const [busy, setBusy] = useState('');
   // '' | 'preparing' | 'redirecting', while opening Grow's card page
   const [cardStep, setCardStep] = useState('');
@@ -61,6 +86,20 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
       .catch(() => { if (active) setOrders([]); });
     return () => { active = false; };
   }, [subscription]);
+
+  // Editing deadlines of the upcoming deliveries.
+  useEffect(() => {
+    let active = true;
+    loadCommunitySchedule(subscription.community)
+      .then((result) => { if (active) setSchedule(result); })
+      .catch(() => { if (active) setSchedule(null); });
+    return () => { active = false; };
+  }, [subscription.community]);
+  const editDeadline = (deliveryDate) => {
+    if (!schedule || !deliveryDate) return '';
+    const cutoffAt = getEffectiveCutoffAt(deliveryDate, schedule);
+    return cutoffAt ? formatDeadline(cutoffAt) : '';
+  };
 
   const run = async (action, extra = {}, confirmText = '') => {
     if (confirmText) {
@@ -81,11 +120,22 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
         return;
       }
       await onChanged();
+      // What happened to the delivery that was already open.
+      const outcome = action === 'pause' ? pauseOutcomeMessage(result)
+        : action === 'resume' ? resumeOutcomeMessage(result)
+          : action === 'delivery_option' ? deliveryOptionOutcomeMessage(result) : null;
+      if (outcome) Swal.fire({ ...outcome, confirmButtonText: 'הבנתי' });
     } catch (error) {
       Swal.fire('הפעולה נכשלה', describeSubscriptionError(error), 'error');
     } finally {
       setBusy('');
     }
+  };
+
+  // Pause and cancel ask "why?" too (optional); the answer goes with the action.
+  const leave = async (action, title, text = '') => {
+    const answer = await confirmLeaving(Swal, title, text);
+    if (answer) await run(action, answer);
   };
 
   const replaceCard = async () => {
@@ -117,6 +167,11 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
 
   const status = subscription.status;
   const isOpen = status !== 'canceled';
+  // WhatsApp reminder before orders close: the customer's choice, if made.
+  const whatsapp = subscription.notifications?.whatsapp || null;
+  const whatsappOn = whatsapp?.optIn === true;
+  const whatsappPhoneDigits = String(whatsapp?.phoneE164 || subscription.customerDetails?.phone || '').replace(/\D/g, '').slice(-4);
+  const setWhatsapp = (enabled) => run('whatsapp_opt_in', { enabled });
   const skipDates = Array.isArray(subscription.skipDates) ? subscription.skipDates : [];
   const nextDate = subscription.nextDeliveryDate;
   const nextIsSkipped = nextDate && skipDates.includes(nextDate);
@@ -158,10 +213,19 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
     <article className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-5">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">{subscription.basketTitle || 'סל קבוע'}</h2>
+          <h2 className="text-lg font-bold text-gray-900">{subscription.basketTitle || WEEKLY_BASKET}</h2>
           <p className="text-sm text-gray-600">
-            {subscription.community} · {DELIVERY_OPTION_LABELS[subscription.deliveryOption] || ''} · {FREQUENCY_LABELS[subscription.frequency] || ''}
+            {subscription.community} · {FREQUENCY_LABELS[subscription.frequency] || ''}
           </p>
+          {isOpen && status !== 'pending_card' ? (
+            <DeliveryOptionSwitch
+              subscription={subscription}
+              busy={Boolean(busy)}
+              onSave={(choice) => run('delivery_option', choice)}
+            />
+          ) : (
+            <p className="text-sm text-gray-600">{DELIVERY_OPTION_LABELS[subscription.deliveryOption] || ''}</p>
+          )}
           {subscription.card?.status === 'saved' && (
             <p className="text-xs text-gray-500 mt-1">
               כרטיס שמור{subscription.card.last4 ? ` מסתיים ב-${subscription.card.last4}` : ''}
@@ -173,19 +237,36 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
         </span>
       </div>
 
+      {isOpen && status !== 'pending_card' && !whatsapp && (
+        <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-950">
+          <p className="font-semibold">רוצים תזכורת בוואטסאפ כמה שעות לפני סגירת ההזמנות?</p>
+          <p className="mt-0.5 text-xs text-green-900">{WHATSAPP_OPT_IN_HINT}</p>
+          <div className="mt-2 flex gap-2">
+            <button type="button" disabled={Boolean(busy)} onClick={() => setWhatsapp(true)}
+              className="px-3 py-1.5 rounded-md bg-green-700 text-white text-xs font-semibold hover:bg-green-800 disabled:opacity-50">
+              כן, שלחו לי
+            </button>
+            <button type="button" disabled={Boolean(busy)} onClick={() => setWhatsapp(false)}
+              className="px-3 py-1.5 rounded-md bg-white text-gray-700 border border-gray-300 text-xs font-semibold disabled:opacity-50">
+              לא תודה
+            </button>
+          </div>
+        </div>
+      )}
+
       {status === 'payment_failed' && (
         <div className="mt-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">
-          החיוב האחרון לא עבר. עדכנו כרטיס כדי שהמנוי ימשיך.
+          החיוב האחרון לא עבר. עדכנו כרטיס כדי שהסל השבועי ימשיך.
         </div>
       )}
       {status === 'paused' && subscription.pauseReason === 'basket_unavailable' && (
         <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3 text-sm text-gray-700">
-          הסל הזה לא זמין כרגע ולכן המנוי מושהה.
+          הסל הזה לא זמין כרגע, ולכן המשלוחים מושהים.
         </div>
       )}
       {status === 'pending_card' && (
         <div className="mt-3 rounded-lg bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-900">
-          הכרטיס עדיין לא נשמר. המנוי יתחיל אחרי שמירת כרטיס.
+          הכרטיס עדיין לא נשמר. הסל השבועי יתחיל אחרי שמירת כרטיס.
         </div>
       )}
 
@@ -210,52 +291,65 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
       )}
 
       {isOpen && status !== 'pending_card' && (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+        <section className={`mt-4 rounded-lg border-2 p-3 ${RECURRING_TONE.box}`} aria-label={RECURRING_BASKET}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-semibold text-emerald-900">הסל הקבוע שלי</h3>
-              <p className="text-xs text-emerald-800">
+              <h3 className="flex flex-wrap items-center gap-2 text-sm font-bold">
+                {RECURRING_BASKET}
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${RECURRING_TONE.chip}`}>{RECURRING_SCOPE}</span>
+              </h3>
+              <p className="mt-1 text-xs">
                 {subscription.recurringLines?.length > 0
                   ? `${subscription.recurringLines.length} מוצרים שבחרתם`
-                  : 'הסל כפי שהוגדר במנוי'}
-                {' · השינוי יחול על משלוחים שעדיין לא נוצרו'}
+                  : 'הסל כפי שנבחר בהרשמה'}
+                {status === 'active' && nextDate
+                  ? ` · שינוי יחול מ${deliveryDayText(nextDate)}`
+                  : ' · שינוי יחול על המשלוחים הבאים'}
               </p>
             </div>
-            <span className="flex flex-wrap gap-2">
-              <Link to={`/my-subscriptions/${subscription.id}/basket`} className="px-3 py-1.5 rounded-md bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800">
-                עריכת הסל הקבוע
-              </Link>
-              {editInStore && upcomingOrders.length > 0 && (
-                <Link to="/" className="px-3 py-1.5 rounded-md bg-white text-emerald-800 border border-emerald-300 text-xs font-semibold hover:bg-emerald-100">
-                  לעריכת המשלוח הקרוב
-                </Link>
-              )}
-            </span>
+            <Link to={`/my-subscriptions/${subscription.id}/basket`} className={`px-3 py-1.5 rounded-md text-xs font-semibold ${RECURRING_TONE.button}`}>
+              {EDIT_RECURRING}
+            </Link>
           </div>
-        </div>
+        </section>
       )}
 
       {(upcomingOrders.length > 0 || skippedOrders.length > 0 || skippedDates.length > 0) && (
         <div className="mt-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-2">המשלוחים הקרובים</h3>
           <ul className="space-y-2">
-            {upcomingOrders.map((order) => (
-              <li key={order.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
-                <span>
-                  {formatDateKey(order.deliveryDate)} · כ-₪{getCustomerOrderDisplayTotal(order).amount.toFixed(2)}
-                </span>
-                <span className="flex gap-2">
-                  <Link to={editInStore ? '/' : `/my-orders/${order.id}`} className="px-3 py-1 rounded-md bg-amber-600 text-white text-xs font-semibold">
-                    עריכת הסל
-                  </Link>
-                  <button type="button" disabled={Boolean(busy)}
-                    onClick={() => run('skip', { deliveryDate: order.deliveryDate }, 'לדלג על המשלוח הזה? אפשר לבטל את הדילוג עד מועד הסגירה.')}
-                    className="px-3 py-1 rounded-md bg-white text-gray-700 border border-gray-300 text-xs font-semibold disabled:opacity-50">
-                    דלג
-                  </button>
-                </span>
-              </li>
-            ))}
+            {upcomingOrders.map((order) => {
+              const deadline = editDeadline(order.deliveryDate);
+              const inStore = editInStore && subscriber?.order?.id === order.id;
+              return (
+                <li key={order.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border-2 p-3 text-sm ${DELIVERY_TONE.box}`}>
+                  <span className="min-w-0">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <strong>המשלוח של {deliveryDayText(order.deliveryDate)}</strong>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${DELIVERY_TONE.chip}`}>{ONE_TIME}</span>
+                    </span>
+                    <span className="block text-xs">
+                      כ-₪{getCustomerOrderDisplayTotal(order).amount.toFixed(2)}
+                      {deadline ? ` · אפשר לערוך עד ${deadline}` : ''}
+                    </span>
+                  </span>
+                  <span className="flex gap-2">
+                    <Link
+                      to={inStore ? '/' : `/my-orders/${order.id}`}
+                      state={inStore ? { openSubscriptionCart: true } : undefined}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold ${DELIVERY_TONE.button}`}
+                    >
+                      {EDIT_THIS_DELIVERY}
+                    </Link>
+                    <button type="button" disabled={Boolean(busy)}
+                      onClick={() => run('skip', { deliveryDate: order.deliveryDate }, 'לדלג על המשלוח הזה? אפשר לבטל את הדילוג עד מועד הסגירה.')}
+                      className="px-3 py-1 rounded-md bg-white text-gray-700 border border-gray-300 text-xs font-semibold disabled:opacity-50">
+                      דלג
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
             {skippedOrders.map((order) => (
               <li key={order.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
                 <span className="text-gray-600">
@@ -301,6 +395,28 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
         </div>
       )}
 
+      {isOpen && whatsapp && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+          <span className="text-gray-800">
+            {WHATSAPP_ROW_LABEL}
+            {whatsappPhoneDigits && (
+              <span className="block text-xs text-gray-500" dir="rtl">למספר שמסתיים ב-{whatsappPhoneDigits}</span>
+            )}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={whatsappOn}
+            aria-label={WHATSAPP_ROW_LABEL}
+            disabled={Boolean(busy)}
+            onClick={() => setWhatsapp(!whatsappOn)}
+            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${whatsappOn ? 'bg-green-600' : 'bg-gray-300'}`}
+          >
+            <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${whatsappOn ? '-translate-x-6' : '-translate-x-1'}`} />
+          </button>
+        </div>
+      )}
+
       {isOpen && (
         <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-2">
           {Object.entries(FREQUENCY_LABELS).map(([value, label]) => (
@@ -314,7 +430,7 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
             </button>
           ))}
           {status === 'active' && (
-            <button type="button" disabled={Boolean(busy)} onClick={() => run('pause', {}, 'להשהות את המנוי?')}
+            <button type="button" disabled={Boolean(busy)} onClick={() => leave('pause', 'להשהות את הסל השבועי?', PAUSE_CONFIRM_TEXT)}
               className="px-3 py-1.5 rounded-md text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">
               השהיה
             </button>
@@ -322,7 +438,7 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
           {status === 'paused' && (
             <button type="button" disabled={Boolean(busy)} onClick={() => run('resume')}
               className="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
-              חידוש המנוי
+              חידוש הסל השבועי
             </button>
           )}
           <button type="button" disabled={Boolean(busy)} onClick={replaceCard}
@@ -330,9 +446,9 @@ const SubscriptionCard = ({ subscription, onChanged }) => {
             {status === 'pending_card' ? 'שמירת כרטיס' : 'החלפת כרטיס'}
           </button>
           <button type="button" disabled={Boolean(busy)}
-            onClick={() => run('cancel', {}, 'לבטל את המנוי? משלוח שעוד לא נסגר יבוטל גם הוא.')}
+            onClick={() => leave('cancel', 'לבטל את ההרשמה לסל השבועי? משלוח שעוד לא נסגר יבוטל גם הוא.')}
             className="px-3 py-1.5 rounded-md text-xs font-semibold bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50">
-            ביטול מנוי
+            ביטול ההרשמה
           </button>
         </div>
       )}
@@ -362,7 +478,7 @@ const MySubscriptions = () => {
       setError('');
     } catch (err) {
       console.error('Failed to load subscriptions:', err);
-      setError('טעינת המנויים נכשלה');
+      setError('טעינת הסל השבועי נכשלה');
     } finally {
       setLoading(false);
     }
@@ -411,7 +527,7 @@ const MySubscriptions = () => {
   if (!currentUser) {
     return (
       <div className="max-w-xl mx-auto p-6 text-center" dir="rtl">
-        <p className="mb-3">כדי לנהל מנויים צריך להתחבר.</p>
+        <p className="mb-3">כדי לנהל את הסל השבועי צריך להתחבר.</p>
         <Link to="/login" state={{ from: '/my-subscriptions' }} className="text-emerald-700 underline">התחברות</Link>
       </div>
     );
@@ -419,11 +535,11 @@ const MySubscriptions = () => {
 
   return (
     <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4" dir="rtl">
-      <h1 className="text-2xl font-black text-gray-900">המנויים שלי</h1>
+      <h1 className="text-2xl font-black text-gray-900">{MY_WEEKLY_BASKET}</h1>
       {error && <p className="text-red-600">{error}</p>}
       {subscriptions.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-600">
-          אין לך עדיין מנויים. סלי מנוי מופיעים בחנות של היישוב שלך.
+          עדיין לא נרשמת לסל שבועי. אפשר להירשם בחנות של היישוב שלך
           <div className="mt-3"><Link to="/" className="text-emerald-700 underline">לחנות</Link></div>
         </div>
       ) : (

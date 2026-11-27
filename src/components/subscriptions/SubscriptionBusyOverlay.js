@@ -7,12 +7,15 @@ import { FiCalendar, FiPause, FiPlay, FiRefreshCw, FiShoppingBag, FiSkipForward,
 
 const ACTIONS = {
   frequency: { icon: FiRefreshCw, title: 'מעדכנים את תדירות המשלוחים' },
-  pause: { icon: FiPause, title: 'משהים את המנוי' },
-  resume: { icon: FiPlay, title: 'מחדשים את המנוי', detail: 'מחפשים את תאריך המשלוח הקרוב' },
+  pause: { icon: FiPause, title: 'משהים את הסל השבועי' },
+  resume: { icon: FiPlay, title: 'מחדשים את הסל השבועי', detail: 'מחפשים את תאריך המשלוח הקרוב' },
   skip: { icon: FiSkipForward, title: 'מדלגים על המשלוח' },
   unskip: { icon: FiCalendar, title: 'מחזירים את המשלוח' },
-  cancel: { icon: FiXCircle, title: 'מבטלים את המנוי' },
+  cancel: { icon: FiXCircle, title: 'מבטלים את ההרשמה לסל השבועי' },
   recurring_basket: { icon: FiShoppingBag, title: 'שומרים את הסל הקבוע' },
+  apply_to_delivery: { icon: FiShoppingBag, title: 'מעדכנים את המשלוח הקרוב', detail: 'מוצר אחרי מוצר, לפי המלאי וההזמנות מהחקלאים' },
+  add_to_recurring: { icon: FiShoppingBag, title: 'מוסיפים לסל הקבוע' },
+  whatsapp_opt_in: { icon: FiRefreshCw, title: 'מעדכנים את התזכורת בוואטסאפ' },
 };
 
 const ANIMATION_CSS = `

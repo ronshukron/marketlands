@@ -1,3 +1,4 @@
+import { getEstimatedLineTotal } from './pricing';
 import {
   SUBSCRIBER_STATES,
   applyPendingQuantities,
@@ -126,6 +127,49 @@ describe('orderToCartItems', () => {
     ]);
     expect(items[0].key).toBe(subscriptionItemKey('cucumber', ''));
     expect(items[0].selectedOption).toBe('');
+  });
+
+  test('each item keeps where it came from: the recurring basket or this delivery only', () => {
+    const items = orderToCartItems({
+      orderBreakdown: {
+        f1: {
+          businessId: 'b1',
+          items: [
+            line('cucumber', 1, { subscriptionLineSource: 'basket' }),
+            line('broccoli', 1, { lineId: 'added', subscriptionLineSource: 'customer_added' }),
+            line('tomato', 1, { lineId: 'old' }),
+            // The same product from both: it is in the recurring basket.
+            line('pepper', 1, { lineId: 'p1', subscriptionLineSource: 'customer_added' }),
+            line('pepper', 1, { lineId: 'p2', subscriptionLineSource: 'basket' }),
+          ],
+        },
+      },
+    });
+    expect(items.map((item) => [item.id, item.source])).toEqual([
+      ['cucumber', 'basket'],
+      ['broccoli', 'customer_added'],
+      ['tomato', 'basket'],
+      ['pepper', 'basket'],
+    ]);
+  });
+});
+
+describe('orderToCartItems with a shared promotion', () => {
+  test('the order price of a linked pair is what the cart shows', () => {
+    const items = orderToCartItems({
+      orderBreakdown: {
+        f1: {
+          businessId: 'b1',
+          items: [
+            line('red', 1, { lineId: 'r', measurementType: 'package', price: 20, basePrice: 22.5, groupPromotionApplied: true, groupPromotionLabel: '' }),
+            line('blue', 1, { lineId: 'u', measurementType: 'package', price: 30, basePrice: 30 }),
+          ],
+        },
+      },
+    });
+    expect(items[0]).toEqual(expect.objectContaining({ price: 22.5, effectivePrice: 20, groupPromotionApplied: true }));
+    expect(getEstimatedLineTotal(items[0])).toBe(20);
+    expect(items[1].effectivePrice).toBeUndefined();
   });
 });
 

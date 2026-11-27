@@ -26,9 +26,12 @@ jest.mock('../firebase/firebase', () => ({ db: {} }));
 jest.mock('firebase/firestore', () => ({ doc: jest.fn(), getDoc: jest.fn() }));
 jest.mock('../services/orderGoLiveService', () => ({ attachGoLiveLinkedOrders: jest.fn(async (orders) => orders) }));
 jest.mock('../utils/metaPixel', () => ({ trackAddToCart: jest.fn() }));
+jest.mock('../services/funnelService', () => ({ trackFunnelStep: jest.fn() }));
 
 // eslint-disable-next-line import/first
 import { CartProvider, useCart, useCartActions } from './CartContext';
+// eslint-disable-next-line import/first
+import { trackFunnelStep } from '../services/funnelService';
 
 const mountCart = () => {
   const api = {};
@@ -54,6 +57,21 @@ describe('CartProvider in subscriber mode', () => {
     expect(cart.cartItems.map((item) => item.id)).toEqual(['cucumber']);
     expect(cart.cartTotal).toBe(8);
     expect(cart.totalItems).toBe(1);
+    expect(cart.cartLineCount).toBe(1);
+  });
+
+  test('kg fractions give a whole line count for the cart badge', () => {
+    const original = mockSubscriber.items;
+    mockSubscriber.items = [0.7, 0.7, 0.7, 0.9].map((quantity, index) => ({
+      uid: `sub::line-${index}`, key: `p${index}|`, id: `p${index}`, name: 'ירק', price: 10, quantity, measurementType: 'kg', orderId: 'f1',
+    }));
+    try {
+      const cart = mountCart();
+      expect(cart.cartLineCount).toBe(4);
+      expect(cart.totalItems).toBe(3);
+    } finally {
+      mockSubscriber.items = original;
+    }
   });
 
   test('add, change and remove are saved to the delivery, not the local cart', () => {
@@ -64,6 +82,8 @@ describe('CartProvider in subscriber mode', () => {
     });
     expect(added).toBe(true);
     expect(mockSubscriber.addToOrder).toHaveBeenCalledWith({ id: 'broccoli', quantity: 1 }, 'f2');
+    // Editing the delivery is not the regular cart funnel.
+    expect(trackFunnelStep).not.toHaveBeenCalled();
     expect(cart.actions.addItem).toBe(cart.addItem);
 
     act(() => cart.updateQuantity('sub::line-1', 2));
@@ -76,5 +96,18 @@ describe('CartProvider in subscriber mode', () => {
     expect(savedRegularCart).not.toBeNull();
     act(() => cart.clearCart());
     expect(localStorage.getItem('cartItems')).toBe(savedRegularCart);
+  });
+
+  test('outside subscriber mode, adding a product starts the cart funnel', () => {
+    mockSubscriber.active = false;
+    try {
+      const cart = mountCart();
+      act(() => {
+        cart.addItem({ id: 'tomato', name: 'עגבנייה', price: 5, quantity: 1 }, 'f3', 'b3', 0, 0);
+      });
+      expect(trackFunnelStep).toHaveBeenCalledWith('cart', 'cart_started');
+    } finally {
+      mockSubscriber.active = true;
+    }
   });
 });

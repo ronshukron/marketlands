@@ -16,6 +16,7 @@ import {
   toggleCustomerLineExclusion,
 } from '../services/customerOrderService';
 import SubscriptionAddItems from './subscriptions/SubscriptionAddItems';
+import { deliveryName } from './subscriptions/copy';
 import { describeSubscriptionError, setSubscriptionOrderItem } from '../services/basketSubscriptionService';
 import { ensureLineIdsInBreakdown } from './adminV5/deliveryWeighingV5/v7/orderDraftUtils';
 import { getDeliveryScheduleDocumentKeys } from '../utils/deliveryScheduleUtils';
@@ -246,10 +247,25 @@ const CustomerOrderDetail = () => {
 
         {canEditOrder && isSubscription && (
           <div className="mx-6 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            זה הסל הקבוע שלך{order.subscription?.basketTitle ? ` (${order.subscription.basketTitle})` : ''}.
-            אפשר להסיר כל פריט עד השקילה. להוסיף מוצרים אפשר רק כל עוד ההזמנה מהחקלאי פתוחה.
-            החיוב בכרטיס השמור, לפי מה שנשאר ונשקל.
-            {' '}<Link to="/my-subscriptions" className="underline font-semibold">ניהול המנוי</Link>
+            <p className="font-bold">
+              עורכים את {deliveryName(order.deliveryDate)}
+              {order.subscription?.basketTitle ? ` (${order.subscription.basketTitle})` : ''}
+              <span className="mr-2 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-xs font-semibold">חד-פעמי</span>
+            </p>
+            <p className="mt-1">
+              השינויים כאן חלים על המשלוח הזה בלבד, לא על הסל הקבוע.
+              אפשר להסיר כל פריט עד השקילה. להוסיף מוצרים אפשר רק כל עוד ההזמנה מהחקלאי פתוחה.
+              החיוב בכרטיס השמור, לפי מה שנשאר ונשקל.
+            </p>
+            <p className="mt-1">
+              {order.subscription?.subscriptionId && (
+                <Link to={`/my-subscriptions/${order.subscription.subscriptionId}/basket`} className="font-semibold text-emerald-800 underline">
+                  עריכת הסל הקבוע (לכל המשלוחים)
+                </Link>
+              )}
+              {order.subscription?.subscriptionId ? ' · ' : ''}
+              <Link to="/my-subscriptions" className="underline font-semibold">הסל השבועי שלי</Link>
+            </p>
           </div>
         )}
 

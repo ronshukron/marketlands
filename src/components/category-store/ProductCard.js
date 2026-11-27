@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Slider from "react-slick";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
-import Swal from 'sweetalert2';
 import {
   attachCommunityWeeklyPromotionFields,
   attachGroupPromotionFields,
@@ -19,6 +18,7 @@ import { isNewProduct } from '../../utils/productFreshness';
 import { useWeightBuffer } from '../../contexts/WeightBufferContext';
 import { useProductFeedback } from '../../contexts/ProductFeedbackContext';
 import QuickProductReviewSheet from './QuickProductReviewSheet';
+import { announceCartAdd, announceCartProblem, tapFeedback } from '../../utils/cartAddFeedback';
 
 const CATEGORY_CARD_IMAGE_LIMIT = 1;
 
@@ -132,6 +132,10 @@ const ProductCard = ({
   const showWeightBuffer = isKgItem && bufferPercent > 0;
 
   const [quantity, setQuantity] = useState(isKgItem ? unitSize : 1);
+  // "✓ נוסף" on the button for a moment after adding.
+  const [justAdded, setJustAdded] = useState(false);
+  const justAddedTimer = useRef(null);
+  useEffect(() => () => clearTimeout(justAddedTimer.current), []);
   const [reviewOpen, setReviewOpen] = useState(false);
   const { getReviewTarget, markReviewed } = useProductFeedback();
   const reviewTarget = getReviewTarget(product);
@@ -176,7 +180,7 @@ const ProductCard = ({
     return `${Math.round(qty)} מארז`;
   };
 
-  const handleQuantityChange = (increment) => {
+  const handleQuantityChange = (increment, sourceEl = null) => {
     const step = isKgItem ? unitSize : 1;
 
     if (increment) {
@@ -188,13 +192,7 @@ const ProductCard = ({
           : isUnitItem
           ? `יש רק ${product.stockAmount} יחידות זמינות במלאי`
           : `יש רק ${product.stockAmount} מארזים זמינים במלאי`;
-        Swal.fire({
-          title: 'הגעת למלאי המקסימלי',
-          text: stockText,
-          icon: 'info',
-          confirmButtonText: 'הבנתי',
-          confirmButtonColor: '#3b82f6'
-        });
+        announceCartProblem({ message: `הגעת למלאי המקסימלי: ${stockText}`, sourceEl });
         return;
       }
 
@@ -205,14 +203,10 @@ const ProductCard = ({
     }
   };
 
-  const addToCart = () => {
+  const addToCart = (event) => {
+    const sourceEl = event?.currentTarget || null;
     if (quantity <= 0) {
-      Swal.fire({
-        title: 'אופס!',
-        text: 'אנא בחר כמות גדולה מאפס',
-        icon: 'warning',
-        confirmButtonText: 'אישור'
-      });
+      announceCartProblem({ message: 'בחרו כמות גדולה מאפס (בכפתור +)', sourceEl });
       return;
     }
 
@@ -222,12 +216,7 @@ const ProductCard = ({
         : isUnitItem
         ? `יש רק ${product.stockAmount} יחידות במלאי מתוך ${quantity} שביקשת`
         : `יש רק ${product.stockAmount} מארזים במלאי מתוך ${quantity} שביקשת`;
-      Swal.fire({
-        title: 'מלאי לא מספיק',
-        text: stockText,
-        icon: 'warning',
-        confirmButtonText: 'אישור'
-      });
+      announceCartProblem({ message: `מלאי לא מספיק: ${stockText}`, sourceEl });
       return;
     }
 
@@ -263,17 +252,19 @@ const ProductCard = ({
     // In subscriber mode addItem returns false when it could not add (and said why).
     if (added === false) return;
 
-    setQuantity(isKgItem ? unitSize : 1);
-
-    Swal.fire({
-      title: 'נוסף לסל!',
-      text: subscriberMode
-        ? `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף למשלוח הקרוב שלך`
-        : `${product.name} (${formatQuantityWithUnit(quantity)}) נוסף לסל הקניות שלך`,
-      icon: 'success',
-      timer: 1500,
-      showConfirmButton: false
+    // No popup: the product flies into the cart icon and a small bubble under
+    // it confirms, with undo (components/cart/CartAddFeedback.js).
+    announceCartAdd({
+      name: product.name,
+      quantityLabel: formatQuantityWithUnit(quantity),
+      sourceEl,
+      match: { orderId: product.orderId, id: product.id, selectedOption },
     });
+    tapFeedback();
+    setJustAdded(true);
+    clearTimeout(justAddedTimer.current);
+    justAddedTimer.current = setTimeout(() => setJustAdded(false), 1300);
+    setQuantity(isKgItem ? unitSize : 1);
   };
 
   const sliderSettings = {
@@ -286,6 +277,10 @@ const ProductCard = ({
   };
 
   const isOutOfStock = product.stockAmount <= 0;
+  const addButtonColor = isOutOfStock
+    ? 'cursor-not-allowed bg-gray-400'
+    : justAdded ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600';
+  const addButtonLabel = justAdded ? '✓ נוסף' : (subscriberMode ? 'הוסף למשלוח הקרוב' : 'הוסף לסל');
   const quantityInCartLabel = formatQuantityWithUnit(quantityInCart);
   const hasQuantityDiscount = Boolean(quantityDiscount || groupPromotion || hasWeeklyPromotion);
 
@@ -447,7 +442,7 @@ const ProductCard = ({
               {formatQuantity(toDisplayQuantity(quantity))}{isKgItem ? ' ק"ג' : ''}
             </span>
             <button
-              onClick={() => handleQuantityChange(true)}
+              onClick={(event) => handleQuantityChange(true, event.currentTarget)}
               className="flex h-11 w-11 flex-shrink-0 items-center justify-center bg-gray-50 text-2xl font-bold leading-none text-gray-700 hover:bg-gray-100"
               disabled={isOutOfStock}
             >
@@ -458,12 +453,14 @@ const ProductCard = ({
           <button
             onClick={addToCart}
             disabled={isOutOfStock}
-            className={`flex h-11 w-full items-center justify-center gap-1.5 rounded-sm text-sm font-medium text-white ${isOutOfStock ? 'cursor-not-allowed bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'}`}
+            className={`flex h-11 w-full items-center justify-center gap-1.5 rounded-sm text-sm font-medium text-white transition-colors ${addButtonColor}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            הוסף לסל
+            {!justAdded && (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+            )}
+            {addButtonLabel}
           </button>
         </div>
       </div>
@@ -618,7 +615,7 @@ const ProductCard = ({
               {formatQuantity(toDisplayQuantity(quantity))}{isKgItem ? ' ק"ג' : ''}
             </span>
             <button
-              onClick={() => handleQuantityChange(true)}
+              onClick={(event) => handleQuantityChange(true, event.currentTarget)}
               className="flex h-11 w-10 flex-shrink-0 items-center justify-center bg-gray-50 text-2xl font-bold leading-none text-gray-700 hover:bg-gray-100"
               disabled={isOutOfStock}
             >
@@ -629,9 +626,10 @@ const ProductCard = ({
           <button
             onClick={addToCart}
             disabled={isOutOfStock}
-            className={`flex h-11 min-w-0 flex-1 items-center justify-center rounded-sm px-2 text-sm font-medium text-white ${isOutOfStock ? 'cursor-not-allowed bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'}`}
+            className={`flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-sm px-2 py-1 text-sm font-medium text-white transition-colors ${addButtonColor}`}
           >
-            <span className="truncate">הוסף לסל</span>
+            {/* Wraps to two lines on narrow phones instead of cutting the words off. */}
+            <span className="text-center leading-tight">{addButtonLabel}</span>
           </button>
         </div>
       </div>

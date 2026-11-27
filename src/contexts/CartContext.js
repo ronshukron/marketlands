@@ -12,6 +12,8 @@ import { attachGoLiveLinkedOrders } from '../services/orderGoLiveService';
 import CommunityWeeklyPromotionContext from './CommunityWeeklyPromotionContext';
 import { useWeightBuffer } from './WeightBufferContext';
 import { useSubscriber } from './SubscriberContext';
+import { countCartLines, sumCartQuantity } from '../utils/cartCounts';
+import { trackFunnelStep } from '../services/funnelService';
 
 // Create a new React Context for managing cart state.
 // This context will hold the cart items, order information, and functions to manipulate them.
@@ -210,6 +212,9 @@ export const CartProvider = ({ children }) => {
         contentName: item.name,
         items: [{ ...item, orderId }],
       });
+      // Funnel (admin "משפכים"): the first product of this visit. Subscriber
+      // mode adds through subscriberAddItem, so it is not counted here.
+      trackFunnelStep('cart', 'cart_started');
     }
     setCartItems(prevItems => {
       const incomingKey = getCartLineKey({ ...item, orderId });
@@ -479,12 +484,11 @@ export const CartProvider = ({ children }) => {
     effectiveItems.reduce((sum, item) => sum + getEstimatedLineTotal(item, { bufferPercent }), 0)
   ), [bufferPercent, effectiveItems]);
 
-  // Calculate the total number of individual items in the cart (sum of quantities).
-  // useMemo ensures this calculation is only re-run when cartItems changes.
-  const totalItems = useMemo(() => {
-    // Sum the quantity for each item.
-    return effectiveItems.reduce((sum, item) => sum + (item.isBasketAdjustment ? 0 : item.quantity), 0);
-  }, [effectiveItems]); // Dependency array: recalculate only if cartItems changes
+  // Sum of quantities, rounded to 3 decimals (kg lines are fractions). Saved as the order's itemCount.
+  const totalItems = useMemo(() => sumCartQuantity(effectiveItems), [effectiveItems]);
+
+  // Number of product lines: what the cart badge shows.
+  const cartLineCount = useMemo(() => countCartLines(effectiveItems), [effectiveItems]);
 
   // Group cart items by their orderId. Also calculates the total for each order.
   // This is useful for displaying the cart separated by orders or for processing checkouts per order.
@@ -555,6 +559,7 @@ export const CartProvider = ({ children }) => {
     cartTotal,
     cartHoldTotal,
     totalItems,
+    cartLineCount,
     itemsByOrder,
     orderInfoMap,
     getCartSnapshot: subscriberMode ? emptySnapshot : getCartSnapshot,

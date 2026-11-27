@@ -66,8 +66,10 @@ const OrganicBadge = () => (
  * The line's price, with the product's quantity discount: struck-through
  * regular price once the quantity reaches it, otherwise how much more is needed.
  */
-const LinePrice = ({ info, quantity, measurementType, businessName }) => {
-  const pricing = getRecurringUnitPricing(info, quantity);
+const LinePrice = ({ info, quantity, measurementType, businessName, override = null }) => {
+  // override: priceRecurringLines() for this line, with the farmer's shared promotion.
+  const pricing = override || getRecurringUnitPricing(info, quantity);
+  const group = override?.group || null;
   if (!(pricing.basePrice > 0)) {
     return businessName ? <p className="text-xs text-gray-500">{businessName}</p> : null;
   }
@@ -86,7 +88,15 @@ const LinePrice = ({ info, quantity, measurementType, businessName }) => {
         {' '}{unitLabel(measurementType)}
         {businessName ? ` · ${businessName}` : ''}
       </p>
-      {discount && (
+      {group && (
+        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+          <DiscountBadge label={`מבצע משותף: ${group.label}`} />
+          <span className={group.applied ? 'font-semibold text-emerald-700' : 'text-gray-600'}>
+            {group.applied ? 'מחיר המבצע חל' : `עוד ${formatQuantity(group.missing, measurementType)} מהמוצרים במבצע`}
+          </span>
+        </p>
+      )}
+      {discount && !group?.applied && (
         <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
           <DiscountBadge label={discount.label} />
           <span className={applied ? 'font-semibold text-emerald-700' : 'text-gray-600'}>
@@ -111,6 +121,7 @@ const LinePrice = ({ info, quantity, measurementType, businessName }) => {
  * @param {string} [props.emptyText]
  * @param {string} [props.addDisabledText] when set, adding is off and this says why
  * @param {boolean} [props.emphasizeAdd] a big "choose products" button for an empty basket
+ * @param {Object} [props.linePricing] priceRecurringLines() result: shared promotions shown on the lines
  */
 const RecurringLinesEditor = ({
   lines,
@@ -123,6 +134,7 @@ const RecurringLinesEditor = ({
   emptyText = 'הסל ריק. הוסיפו לפחות מוצר אחד.',
   addDisabledText = '',
   emphasizeAdd = false,
+  linePricing = null,
 }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [catalog, setCatalog] = useState(null);
@@ -218,7 +230,7 @@ const RecurringLinesEditor = ({
 
   return (
     <>
-      <section className="rounded-xl border border-gray-200 bg-white text-right">
+      <section className="rounded-xl border border-gray-200 bg-white text-right [&_p]:mb-0">
         {lines.length === 0 ? (
           <div className="p-6 text-center">
             <p className="text-sm text-gray-500">{emptyText}</p>
@@ -242,57 +254,61 @@ const RecurringLinesEditor = ({
               const step = quantityStep(info.measurementType, info.unitSize);
               const option = normalizeOptionKey(line.selectedOption);
               return (
-                <li key={key} className="flex gap-3 p-3">
-                  {info.image ? (
-                    <img src={info.image} alt="" loading="lazy" className="h-14 w-14 shrink-0 rounded-lg border border-gray-100 object-cover" />
-                  ) : (
-                    <div className="h-14 w-14 shrink-0 rounded-lg bg-gray-100" aria-hidden="true" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start gap-2">
-                      <p className="flex-1 text-sm font-semibold leading-snug text-gray-900">{info.name}</p>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => setLines((prev) => setRecurringLineQuantity(prev, key, 0))}
-                          className="-mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label={`הסרת ${info.name}`}
-                        >
-                          <FiTrash2 className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      )}
-                    </div>
-                    {option && <p className="text-xs text-gray-500">{option}</p>}
-                    <LinePrice
-                      info={productInfo[line.productId] || {}}
-                      quantity={line.quantity}
-                      measurementType={info.measurementType}
-                      businessName={info.businessName}
-                    />
-                    {!readOnly ? (
-                      <div className="mt-2 inline-flex items-center rounded-lg border border-gray-200">
-                        <button
-                          type="button"
-                          onClick={() => setLines((prev) => setRecurringLineQuantity(prev, key, line.quantity - step))}
-                          className="flex h-9 w-10 items-center justify-center text-gray-700 hover:bg-gray-50"
-                          aria-label={`הפחתת ${info.name}`}
-                        >
-                          <FiMinus className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        <span className="min-w-[4.5rem] text-center text-sm font-semibold">{formatQuantity(line.quantity, info.measurementType)}</span>
-                        <button
-                          type="button"
-                          onClick={() => setLines((prev) => setRecurringLineQuantity(prev, key, line.quantity + step))}
-                          className="flex h-9 w-10 items-center justify-center text-gray-700 hover:bg-gray-50"
-                          aria-label={`הוספת ${info.name}`}
-                        >
-                          <FiPlus className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      </div>
+                // Name and price on top, using the full width; the quantity
+                // controls and remove on their own row, so + and − and the
+                // amount stay visible on narrow phones.
+                <li key={key} className="px-2.5 py-3 sm:px-3">
+                  <div className="flex items-start gap-2.5">
+                    {info.image ? (
+                      <img src={info.image} alt="" loading="lazy" className="h-11 w-11 shrink-0 rounded-lg border border-gray-100 object-cover sm:h-14 sm:w-14" />
                     ) : (
-                      <p className="mt-1 text-sm font-semibold">{formatQuantity(line.quantity, info.measurementType)}</p>
+                      <div className="h-11 w-11 shrink-0 rounded-lg bg-gray-100 sm:h-14 sm:w-14" aria-hidden="true" />
                     )}
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900">{info.name}</p>
+                      {option && <p className="text-xs text-gray-500">{option}</p>}
+                      <LinePrice
+                        info={productInfo[line.productId] || {}}
+                        quantity={line.quantity}
+                        measurementType={info.measurementType}
+                        businessName={info.businessName}
+                        override={linePricing ? linePricing[key] : null}
+                      />
+                    </div>
                   </div>
+                  {!readOnly ? (
+                    <div className="mt-2 flex items-center gap-1.5">
+                    <div className="flex h-10 min-w-0 max-w-[12rem] flex-1 items-center rounded-lg border border-gray-300">
+                      <button
+                        type="button"
+                        onClick={() => setLines((prev) => setRecurringLineQuantity(prev, key, line.quantity - step))}
+                        className="flex h-full w-9 shrink-0 items-center justify-center rounded-r-lg text-gray-800 hover:bg-gray-50 sm:w-10"
+                        aria-label={`הפחתת ${info.name}`}
+                      >
+                        <FiMinus className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <span className="min-w-[2.5rem] flex-1 whitespace-nowrap text-center text-sm font-semibold">{formatQuantity(line.quantity, info.measurementType)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setLines((prev) => setRecurringLineQuantity(prev, key, line.quantity + step))}
+                        className="flex h-full w-9 shrink-0 items-center justify-center rounded-l-lg text-gray-800 hover:bg-gray-50 sm:w-10"
+                        aria-label={`הוספת ${info.name}`}
+                      >
+                        <FiPlus className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLines((prev) => setRecurringLineQuantity(prev, key, 0))}
+                      className="flex h-10 w-9 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 sm:w-10"
+                      aria-label={`הסרת ${info.name}`}
+                    >
+                      <FiTrash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-sm font-semibold">{formatQuantity(line.quantity, info.measurementType)}</p>
+                  )}
                 </li>
               );
             })}
@@ -327,7 +343,7 @@ const RecurringLinesEditor = ({
             if (event.target === event.currentTarget) setPickerOpen(false);
           }}
         >
-          <div className="flex h-[92vh] w-full flex-col rounded-t-2xl bg-white text-right shadow-xl sm:h-[85vh] sm:max-w-2xl sm:rounded-2xl">
+          <div className="flex h-[92vh] w-full flex-col rounded-t-2xl bg-white text-right shadow-xl sm:h-[85vh] sm:max-w-2xl sm:rounded-2xl [&_p]:mb-0">
             <div className="space-y-2 border-b border-gray-100 p-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-bold text-gray-900">הוספת מוצרים</h2>

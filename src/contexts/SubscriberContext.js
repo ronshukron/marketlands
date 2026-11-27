@@ -60,7 +60,7 @@ const closedMessage = (delivery) => {
       : 'הסל למשלוח הקרוב עוד לא נפתח לעריכה.';
   }
   if (delivery.state === SUBSCRIBER_STATES.SKIPPED) {
-    return `דילגתם על המשלוח של ${formatDeliveryDay(delivery.skippedDate)}. אפשר לבטל את הדילוג בעמוד ניהול המנויים.`;
+    return `דילגתם על המשלוח של ${formatDeliveryDay(delivery.skippedDate)}. אפשר לבטל את הדילוג בעמוד "הסל השבועי שלי".`;
   }
   return 'המשלוח הקרוב כבר נסגר לעריכה.';
 };
@@ -95,7 +95,7 @@ export const SubscriberProvider = ({ children }) => {
     );
   }, [uid]);
 
-  // 2. The customer's subscriptions (also tells the menu to show "ניהול מנויים").
+  // 2. The customer's subscriptions (also tells the menu to show "הסל השבועי שלי").
   useEffect(() => {
     setSubscriptions(null);
     if (!uid) return undefined;

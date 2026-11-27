@@ -288,6 +288,89 @@ describe('settleAndChargeOrderV7', () => {
   });
 });
 
+describe('charging at the card hold (chargeCap)', () => {
+  // Two packages at 30 and 40 = 70; the hold is 60.
+  const capItems = [
+    { ...items[0], lineId: 'line-a', pricePerUnit: 30 },
+    { ...items[0], lineId: 'line-b', productId: 'b', pricePerUnit: 40, catalogNumber: '101' },
+  ];
+  const capDraft = { weightsByLineId: {}, removedLineIds: {} };
+  const run = (overrides, deps = buildDeps()) => settleAndChargeOrderV7({
+    order,
+    items: capItems,
+    draft: capDraft,
+    session,
+    weekKey: '2026-08-09',
+    ...overrides,
+    ...deps,
+  }).then((result) => ({ result, deps }));
+
+  test('the cap reaches the payload sent to the server, lines and total', async () => {
+    const { result, deps } = await run({ chargeCap: 60 });
+    const sent = deps.handleSuspendedPayment.mock.calls[0][0];
+    expect(sent.finalSum).toBe(60);
+    expect(sent.holdCap).toEqual({ max: 60, originalSum: 70, reducedBy: 10 });
+    expect(sent.productDataForGrow['productData[0][price]'] + sent.productDataForGrow['productData[1][price]']).toBeCloseTo(60, 2);
+    expect(result.completedWeighing).toEqual(expect.objectContaining({ finalSum: 60, holdCap: sent.holdCap }));
+  });
+
+  test('without a cap the weighed total is sent as before', async () => {
+    const { deps } = await run({});
+    const sent = deps.handleSuspendedPayment.mock.calls[0][0];
+    expect(sent.finalSum).toBe(70);
+    expect(sent.holdCap).toBeUndefined();
+  });
+
+  test('the cap is kept when the community discount is prepared and the payload is rebuilt', async () => {
+    const deps = buildDeps({ prepareCommunityDiscount: jest.fn().mockResolvedValue({ preparedItems: capItems }) });
+    await run({ chargeCap: 60, communityDiscount: { percent: 10 } }, deps);
+    const sent = deps.handleSuspendedPayment.mock.calls[0][0];
+    // 70 - 10% = 63, still above 60. The discount's own numbers are not touched by the cap.
+    expect(sent.communityDiscount).toEqual(expect.objectContaining({ preDiscountTotal: 70, amount: 7, finalTotal: 63 }));
+    expect(sent.finalSum).toBe(60);
+    expect(sent.holdCap).toEqual({ max: 60, originalSum: 63, reducedBy: 3 });
+  });
+
+  test('a weekly-basket order ignores the cap and keeps the ceiling path', async () => {
+    const deps = buildDeps({ chargeSubscriptionOrder: jest.fn().mockResolvedValue({ ok: true }) });
+    await run({ order: { ...order, isSubscriptionOrder: true }, chargeCap: 60 }, deps);
+    const sent = deps.chargeSubscriptionOrder.mock.calls[0][0];
+    expect(sent.finalSum).toBe(70);
+    expect(sent.holdCap).toBeUndefined();
+    expect(deps.handleSuspendedPayment).not.toHaveBeenCalled();
+  });
+});
+
+describe('carton count at charge', () => {
+  const charge = (orderOverrides, printedCartonCount, deps = buildDeps()) => settleAndChargeOrderV7({
+    order: { ...order, ...orderOverrides },
+    printedCartonCount,
+    items,
+    draft,
+    session,
+    weekKey: '2026-08-09',
+    ...deps,
+  }).then((result) => ({ result, deps }));
+
+  test('a count the station printed but could not save yet is saved with the charge', async () => {
+    const { result, deps } = await charge({ packedCartonCount: 1 }, 3);
+    expect(deps.setPackedCartonCount).toHaveBeenCalledWith({ orderId: 'order-7', printedIndex: 3 });
+    expect(result.packedCartonCount).toBe(3);
+  });
+
+  test('the order count wins when it is higher (another station printed more)', async () => {
+    const { result, deps } = await charge({ packedCartonCount: 4, rawData: { ...order.rawData, packedCartonCount: 4 } }, 2);
+    expect(deps.setPackedCartonCount).toHaveBeenCalledWith({ orderId: 'order-7', printedIndex: 4 });
+    expect(result.packedCartonCount).toBe(4);
+  });
+
+  test('no labels printed: no count is written', async () => {
+    const { result, deps } = await charge({ packedCartonCount: 0 }, 0);
+    expect(deps.setPackedCartonCount).not.toHaveBeenCalled();
+    expect(result.packedCartonCount).toBe(0);
+  });
+});
+
 describe('buildCompletedOrderStatePatch', () => {
   test('marks payment complete only after a successful charge payload exists', () => {
     const patched = buildCompletedOrderStatePatch(order, {

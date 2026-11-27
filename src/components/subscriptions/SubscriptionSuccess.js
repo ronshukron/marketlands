@@ -9,6 +9,7 @@ import {
   describeSubscriptionError,
 } from '../../services/basketSubscriptionService';
 import { parseDateSafe } from '../../utils/deliveryScheduleUtils';
+import { trackFunnelStep } from '../../services/funnelService';
 
 // The card is saved by Grow's server update, which usually arrives before the
 // customer is back. If it is late, the server asks Grow directly a minute
@@ -32,6 +33,14 @@ const SubscriptionSuccess = () => {
 
   // Once the card is saved and subscriber mode is on, the store becomes the
   // upcoming delivery: go there right away.
+  useEffect(() => {
+    if (state.phase !== 'done') return;
+    trackFunnelStep('weekly_basket', 'card_saved', {
+      basketId: state.result?.basketId,
+      community: state.result?.community,
+    });
+  }, [state.phase, state.result]);
+
   useEffect(() => {
     if (state.phase === 'done' && subscriberActive) {
       navigate('/', { replace: true, state: { subscriptionActivated: true } });
@@ -71,7 +80,7 @@ const SubscriptionSuccess = () => {
   if (!currentUser || !subscriptionId) {
     return (
       <div className="max-w-xl mx-auto p-6 text-center" dir="rtl">
-        <p className="mb-3">כדי לראות את המנוי צריך להתחבר.</p>
+        <p className="mb-3">כדי לראות את הסל השבועי צריך להתחבר.</p>
         <Link to="/login" className="text-emerald-700 underline">התחברות</Link>
       </div>
     );
@@ -87,7 +96,7 @@ const SubscriptionSuccess = () => {
     <div className="max-w-xl mx-auto p-6 text-center" dir="rtl">
       {state.phase === 'done' && (
         <>
-          <h1 className="text-2xl font-black text-emerald-800 mb-2">נרשמתם למנוי</h1>
+          <h1 className="text-2xl font-black text-emerald-800 mb-2">ההרשמה לסל השבועי הושלמה</h1>
           <p className="text-gray-700 mb-1">
             הכרטיס נשמר{state.result.card?.last4 ? ` (מסתיים ב-${state.result.card.last4})` : ''}. לא בוצע חיוב.
           </p>
@@ -98,22 +107,22 @@ const SubscriptionSuccess = () => {
             </p>
           )}
           <Link to="/my-subscriptions" className="inline-block px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-bold">
-            לניהול המנוי
+            לעמוד הסל השבועי שלי
           </Link>
         </>
       )}
       {state.phase === 'pending' && (
         <>
           <h1 className="text-xl font-bold mb-2">עדיין מחכים לאישור מחברת הסליקה</h1>
-          <p className="text-gray-700 mb-4">זה יכול לקחת כמה דקות. המנוי יופעל אוטומטית ברגע שהכרטיס יאושר.</p>
-          <Link to="/my-subscriptions" className="text-emerald-700 underline">לעמוד המנויים</Link>
+          <p className="text-gray-700 mb-4">זה יכול לקחת כמה דקות. ההרשמה תושלם אוטומטית ברגע שהכרטיס יאושר.</p>
+          <Link to="/my-subscriptions" className="text-emerald-700 underline">לעמוד הסל השבועי שלי</Link>
         </>
       )}
       {state.phase === 'error' && (
         <>
-          <h1 className="text-xl font-bold mb-2 text-red-700">לא הצלחנו לאשר את המנוי</h1>
+          <h1 className="text-xl font-bold mb-2 text-red-700">לא הצלחנו להשלים את ההרשמה לסל השבועי</h1>
           <p className="text-gray-700 mb-4">{state.error}</p>
-          <Link to="/my-subscriptions" className="text-emerald-700 underline">לעמוד המנויים</Link>
+          <Link to="/my-subscriptions" className="text-emerald-700 underline">לעמוד הסל השבועי שלי</Link>
         </>
       )}
     </div>

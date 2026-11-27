@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/authContext';
+import ProductTypeSelect, { productTypeForCategory } from './ProductTypeSelect';
+import LinkedDiscountPanel, { saveLinkedDiscount } from './LinkedDiscountPanel';
 import { db, storage } from '../../firebase/firebase'; // Correct storage import
 import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'; // Import necessary storage methods
@@ -23,6 +25,8 @@ const AddProduct = () => {
   const [quantityDiscountThreshold, setQuantityDiscountThreshold] = useState('');
   const [quantityDiscountPrice, setQuantityDiscountPrice] = useState('');
   const [quantityDiscountLabel, setQuantityDiscountLabel] = useState('');
+  // Products to share this product's quantity discount with, saved once the product exists.
+  const [pendingLinkedIds, setPendingLinkedIds] = useState([]);
   const [description, setDescription] = useState('');
   const [options, setOptions] = useState([]);
   const [currentOption, setCurrentOption] = useState('');
@@ -41,6 +45,7 @@ const AddProduct = () => {
   const [isIndependent, setIsIndependent] = useState(false);
   const [isSample, setIsSample] = useState(false);
   const [category, setCategory] = useState('');
+  const [productType, setProductType] = useState('');
   const [showInAllCategory, setShowInAllCategory] = useState(false);
   const [isOrganic, setIsOrganic] = useState(false);
   const [isRecommended, setIsRecommended] = useState(false);
@@ -245,6 +250,7 @@ const AddProduct = () => {
         ...(merchantPrice !== '' ? { merchantPrice: parseFloat(merchantPrice) } : {}),
         ...(thaiName !== '' ? { thaiName: thaiName } : {}),
         ...(category !== '' ? { category } : {}),
+        ...(productTypeForCategory(productType, category) ? { productType: productTypeForCategory(productType, category) } : {}),
         showInAllCategory: category === 'משתלה' ? showInAllCategory : false,
         verified: false,
         rejected: false,
@@ -265,15 +271,36 @@ const AddProduct = () => {
         if (customLabel) productData.quantityDiscountLabel = customLabel;
       }
 
-      await addDoc(collection(db, 'Products'), productData);
-      
+      const newProductRef = await addDoc(collection(db, 'Products'), productData);
+
+      let linkError = '';
+      if (pendingLinkedIds.length > 0 && quantityDiscount) {
+        try {
+          linkError = await saveLinkedDiscount({
+            businessId: currentUser.uid,
+            ownerEmail: currentUser.email,
+            productId: newProductRef.id,
+            productName,
+            measurementType,
+            price,
+            threshold: quantityDiscount.quantityDiscountThreshold,
+            discountPrice: quantityDiscount.quantityDiscountPrice,
+            linkedIds: pendingLinkedIds,
+          });
+        } catch (linkFailure) {
+          linkError = linkFailure?.message || 'שמירת המבצע נכשלה';
+        }
+      }
+
       setLoading(false);
 
       // Show success message
       Swal.fire({
-        icon: 'success',
+        icon: linkError ? 'warning' : 'success',
         title: 'המוצר נוסף בהצלחה',
-        text: 'המוצר נוסף לחנות שלך בהצלחה!',
+        text: linkError
+          ? `המוצר נוסף, אבל ההנחה לא חוברה למוצרים האחרים: ${linkError}`
+          : 'המוצר נוסף לחנות שלך בהצלחה!',
       }).then(() => {
         navigate('/Business-Products');
       });
@@ -413,6 +440,20 @@ const AddProduct = () => {
                   }`}
               </p>
             </div>
+            <div className="md:col-span-2">
+              <LinkedDiscountPanel
+                mode="add"
+                businessId={currentUser?.uid}
+                ownerEmail={currentUser?.email}
+                productName={productName}
+                measurementType={measurementType}
+                price={price}
+                threshold={quantityDiscountThreshold}
+                discountPrice={quantityDiscountPrice}
+                pendingLinkedIds={pendingLinkedIds}
+                onPendingChange={setPendingLinkedIds}
+              />
+            </div>
             <p className="md:col-span-2 text-xs text-emerald-800">
               יש למלא את שני השדות. המחיר המוזל יחול על כל הכמות כאשר הסף מושג.
             </p>
@@ -495,6 +536,7 @@ const AddProduct = () => {
               onChange={(e) => {
                 const nextCategory = e.target.value;
                 setCategory(nextCategory);
+                setProductType((prev) => productTypeForCategory(prev, nextCategory));
                 if (nextCategory !== 'משתלה') {
                   setShowInAllCategory(false);
                 }
@@ -509,6 +551,13 @@ const AddProduct = () => {
             </select>
             <p className="mt-1 text-xs text-gray-500">בחירת קטגוריה תאפשר למוצר להופיע בתצוגת הקטגוריות בחנות</p>
           </div>
+
+          <ProductTypeSelect
+            category={category}
+            productName={productName}
+            value={productType}
+            onChange={setProductType}
+          />
 
           {category === 'משתלה' && (
             <div className="mb-4">

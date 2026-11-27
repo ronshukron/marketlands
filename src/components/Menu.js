@@ -12,9 +12,11 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { isDeliveryDriverAccount, isIndependentBusinessAccount } from '../utils/accountRoles';
 import { useSubscriber } from '../contexts/SubscriberContext';
+import { formatCartBadge } from '../utils/cartCounts';
+import CartAddFeedback from './cart/CartAddFeedback';
 const Menu = () => {
   const { userLoggedIn, userRole, currentUser } = useAuth();
-  const { totalItems } = useCart();
+  const { cartLineCount } = useCart();
   const subscriber = useSubscriber();
   // Customers with a subscription manage it from the menu; /admin/subscription-baskets stays admin-only.
   const showSubscriptionsLink = Boolean(subscriber?.hasSubscriptions);
@@ -35,6 +37,8 @@ const Menu = () => {
   // and the page never jumps while scrolling.
   const headerRef = useRef(null);
   const barRef = useRef(null);
+  // The add-to-cart flight lands here, and its bubble opens under it.
+  const cartButtonRef = useRef(null);
   const maxPaddingRef = useRef(0);
   const [spacerHeight, setSpacerHeight] = useState(0);
   const [isIndependent, setIsIndependent] = useState(false);
@@ -173,7 +177,7 @@ const Menu = () => {
   const businessId = currentUser && (userRole === 'business' || userRole === 'localBusiness') && !isDriver
     ? currentUser.uid
     : null;
-  const categories = ['הכל', 'ירקות', 'פירות', 'ירוקים', 'אחר', 'כשר מהדרין'];
+  const categories = ['הכל', 'לפי סוג', 'ירקות', 'פירות', 'ירוקים', 'אחר', 'כשר מהדרין'];
 
   return (
     <>
@@ -185,7 +189,9 @@ const Menu = () => {
         dir="rtl"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div ref={barRef} className="flex justify-between items-center">
+          {/* barRef wraps both desktop rows, so the page spacer below the fixed header fits them. */}
+          <div ref={barRef}>
+          <div className="flex justify-between items-center">
             {/* Logo and brand */}
             <div className="flex items-center">
               <Link to="/" className="flex items-center gap-2">
@@ -220,7 +226,7 @@ const Menu = () => {
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
-                      ניהול מנויים
+                      הסל השבועי שלי
                     </Link>
                   )}
                   <Link to="/saved-carts" className={`flex items-center gap-2 text-sm font-medium transition-colors py-2 px-3 rounded-lg ${isActive('/saved-carts') ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
@@ -351,9 +357,71 @@ const Menu = () => {
               )} */}
             </nav>
 
-            {/* Category tabs - desktop (now with icons) - Hidden for business accounts */}
+            {/* Right side items - cart, auth, mobile menu */}
+            <div className="flex items-center space-x-3 space-x-reverse">
+              <button
+                ref={cartButtonRef}
+                type="button"
+                onClick={toggleCart}
+                className="relative inline-flex items-center p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700"
+                aria-label={subscriber?.active ? 'המשלוח הקרוב' : 'סל קניות'}
+                title={subscriber?.active ? 'המשלוח הקרוב' : 'סל קניות'}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                {cartLineCount > 0 && (
+                  <span className="absolute -top-1 -right-1 h-5 min-w-[1.25rem] px-1 rounded-full bg-blue-600 text-white text-xs leading-none flex items-center justify-center">
+                    {formatCartBadge(cartLineCount)}
+                  </span>
+                )}
+              </button>
+
+              {/* Auth buttons - hidden on mobile */}
+              <div className="hidden md:block">
+                {userLoggedIn ? (
+                  <button
+                    onClick={handleLogout}
+                    className="bg-red-100 text-red-700 hover:bg-red-200 text-sm font-medium py-2 px-3 rounded-md transition-colors"
+                  >
+                    התנתק
+                  </button>
+                ) : (
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <Link to="/login" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded-md transition-colors">
+                      התחברות
+                    </Link>
+                    <Link to="/user-register" className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2 px-3 rounded-md transition-colors">
+                      הרשמה
+                    </Link>
+                  </div>
+                )}
+              </div>
+
+              {/* Mobile menu button */}
+              <button
+                type="button"
+                className="md:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-blue-600 hover:bg-blue-50 focus:outline-none"
+                onClick={toggleMenu}
+              >
+                <span className="sr-only">פתח תפריט</span>
+                {isOpen ? (
+                  <svg className="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                ) : (
+                  <svg className="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
+
+            {/* Category tabs - desktop: their own row under the bar, so they stay visible when the
+                signed-in links (ההזמנות שלי, הסל השבועי שלי...) fill the first row. Hidden for business accounts. */}
             {userRole !== 'business' && userRole !== 'localBusiness' && userRole !== 'driver' && !isDriver && (
-              <div className="hidden md:flex items-center gap-2 mr-4">
+              <div className="hidden md:flex flex-wrap items-center justify-center gap-2 pt-2">
                 <button
                   onClick={() => navigateToCategory('הכל')}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm transition-all"
@@ -362,6 +430,13 @@ const Menu = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                   </svg>
                   הכל
+                </button>
+                <button
+                  onClick={() => navigateToCategory('לפי סוג')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-lime-50 hover:bg-lime-100 text-lime-800 hover:text-lime-900 transition-colors"
+                >
+                  <span aria-hidden="true">🥒</span>
+                  לפי סוג
                 </button>
                 <button
                   onClick={() => navigateToCategory('ירקות')}
@@ -408,63 +483,6 @@ const Menu = () => {
               </div>
             )}
 
-            {/* Right side items - cart, auth, mobile menu */}
-            <div className="flex items-center space-x-3 space-x-reverse">
-              <button
-                type="button"
-                onClick={toggleCart}
-                className="relative inline-flex items-center p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700"
-                aria-label="סל קניות"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                {totalItems > 0 && (
-                  <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center">
-                    {totalItems}
-                  </span>
-                )}
-              </button>
-
-              {/* Auth buttons - hidden on mobile */}
-              <div className="hidden md:block">
-                {userLoggedIn ? (
-                  <button
-                    onClick={handleLogout}
-                    className="bg-red-100 text-red-700 hover:bg-red-200 text-sm font-medium py-2 px-3 rounded-md transition-colors"
-                  >
-                    התנתק
-                  </button>
-                ) : (
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Link to="/login" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded-md transition-colors">
-                      התחברות
-                    </Link>
-                    <Link to="/user-register" className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2 px-3 rounded-md transition-colors">
-                      הרשמה
-                    </Link>
-                  </div>
-                )}
-              </div>
-
-              {/* Mobile menu button */}
-              <button
-                type="button"
-                className="md:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-blue-600 hover:bg-blue-50 focus:outline-none"
-                onClick={toggleMenu}
-              >
-                <span className="sr-only">פתח תפריט</span>
-                {isOpen ? (
-                  <svg className="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                ) : (
-                  <svg className="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                )}
-              </button>
-            </div>
           </div>
 
           {/* Mobile menu */}
@@ -489,6 +507,13 @@ const Menu = () => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                       </svg>
                       הכל
+                    </button>
+                    <button
+                      onClick={() => navigateToCategory('לפי סוג')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-lime-50 hover:bg-lime-100 text-lime-800 transition-colors"
+                    >
+                      <span aria-hidden="true">🥒</span>
+                      לפי סוג
                     </button>
                     <button
                       onClick={() => navigateToCategory('ירקות')}
@@ -552,7 +577,7 @@ const Menu = () => {
                   </Link>
                   {showSubscriptionsLink && (
                     <Link to="/my-subscriptions" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/my-subscriptions') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
-                      ניהול מנויים
+                      הסל השבועי שלי
                     </Link>
                   )}
                   <Link to="/saved-carts" className={`block px-3 py-2 rounded-md text-base font-medium ${isActive('/saved-carts') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'}`}>
@@ -709,6 +734,7 @@ const Menu = () => {
       ></div>
       
       <Cart isOpen={isCartOpen} onClose={toggleCart} />
+      {!isCartOpen && <CartAddFeedback cartButtonRef={cartButtonRef} onOpenCart={() => setIsCartOpen(true)} />}
     </>
   );
 };

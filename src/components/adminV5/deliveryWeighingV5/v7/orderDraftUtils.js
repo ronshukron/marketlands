@@ -1,3 +1,5 @@
+import { buildDeliveryInvoiceLine } from './deliveryChargeV7';
+
 export const BUFFER_LINE_CATALOG_NUMBER = process.env.REACT_APP_BUFFER_LINE_CATALOG_NUMBER || '999003';
 export const INTRODUCTION_BASKET_CATALOG_NUMBER =
   process.env.REACT_APP_INTRODUCTION_BASKET_CATALOG_NUMBER || '999004';
@@ -248,12 +250,64 @@ export function deriveWeighingStatus(order, draft) {
   return draftStatus || order.status || 'pending';
 }
 
+/**
+ * Bring invoice lines down to a maximum (the card hold the customer approved).
+ * Every line is scaled by cap / total and rounded to the agora; the rounding
+ * remainder goes on the largest line so the lines add up to the cap exactly.
+ * Lines stay positive (Grow refuses negative or zero lines). Each capped line
+ * keeps preCapLinePrice and holdCapShare; unit prices are left as quoted.
+ * @param {Array<Object>} lines final invoice lines
+ * @param {number} cap
+ * @return {{lines: Array<Object>, holdCap: Object|null}}
+ */
+export function applyChargeCapToLines(lines = [], cap = null) {
+  const capValue = roundTo(safeNumber(cap, 0), 2);
+  const originalSum = roundTo(lines.reduce((sum, line) => sum + safeNumber(line?.linePrice, 0), 0), 2);
+  if (!(capValue > 0) || originalSum <= capValue + 0.005) return { lines, holdCap: null };
+
+  const factor = capValue / originalSum;
+  const scaled = lines.map((line) => {
+    const before = roundTo(safeNumber(line?.linePrice, 0), 2);
+    if (before <= 0) return before;
+    return Math.max(0.01, roundTo(before * factor, 2));
+  });
+  const scaledSum = roundTo(scaled.reduce((sum, value) => sum + value, 0), 2);
+  const remainder = roundTo(capValue - scaledSum, 2);
+  if (remainder !== 0) {
+    let largest = 0;
+    scaled.forEach((value, index) => { if (value > scaled[largest]) largest = index; });
+    scaled[largest] = roundTo(scaled[largest] + remainder, 2);
+  }
+  return {
+    lines: lines.map((line, index) => {
+      const before = roundTo(safeNumber(line?.linePrice, 0), 2);
+      if (before <= 0) return line;
+      return {
+        ...line,
+        preCapLinePrice: before,
+        holdCapShare: roundTo(before - scaled[index], 2),
+        linePrice: scaled[index],
+      };
+    }),
+    holdCap: {
+      max: capValue,
+      originalSum,
+      reducedBy: roundTo(originalSum - capValue, 2),
+    },
+  };
+}
+
 export function buildSettlementPayload({
   selectedOrder,
   items = [],
   draft = {},
   weighingAudit = null,
   communityDiscount = null,
+  // The most this order may be charged (its card hold). Above it, the lines are
+  // scaled down to exactly this amount; at or below it nothing changes.
+  chargeCap = null,
+  // Home delivery, added only when the admin ticked it in V7/V8 (0 = not charged).
+  deliveryFee = 0,
 }) {
   const weightsByLineId = draft?.weightsByLineId || {};
   const removedLineIds = draft?.removedLineIds || {};
@@ -343,7 +397,7 @@ export function buildSettlementPayload({
   const discountPercent = Math.min(100, Math.max(0, requestedDiscountPercent));
   const shouldApplyCommunityDiscount = discountPercent > 0 && preDiscountTotal > 0;
   const discountFactor = 1 - (discountPercent / 100);
-  const finalInvoiceLines = undiscountedInvoiceLines.map((line) => {
+  const discountedInvoiceLines = undiscountedInvoiceLines.map((line) => {
     if (!shouldApplyCommunityDiscount || line.communityWeeklyPromotionApplied === true) return line;
     const preDiscountPricePerUnit = safeNumber(line.pricePerUnit, 0);
     const discountedPricePerUnit = roundTo(preDiscountPricePerUnit * discountFactor, 6);
@@ -361,12 +415,12 @@ export function buildSettlementPayload({
       linePrice: discountedLinePrice,
     };
   });
-  const finalSum = roundTo(
-    finalInvoiceLines.reduce((sum, line) => sum + safeNumber(line.linePrice, 0), 0),
+  const discountedSum = roundTo(
+    discountedInvoiceLines.reduce((sum, line) => sum + safeNumber(line.linePrice, 0), 0),
     2,
   );
   const discountAmount = shouldApplyCommunityDiscount
-    ? roundTo(preDiscountTotal - finalSum, 2)
+    ? roundTo(preDiscountTotal - discountedSum, 2)
     : 0;
   const communityDiscountAudit = shouldApplyCommunityDiscount
     ? {
@@ -374,9 +428,17 @@ export function buildSettlementPayload({
       percent: discountPercent,
       preDiscountTotal,
       amount: discountAmount,
-      finalTotal: finalSum,
+      finalTotal: discountedSum,
     }
     : null;
+  // Delivery is not discounted; it comes before the hold cap, which covers it too.
+  const chargedDeliveryFee = roundTo(Math.max(0, safeNumber(deliveryFee, 0)), 2);
+  const linesWithDelivery = chargedDeliveryFee > 0
+    ? [...discountedInvoiceLines, buildDeliveryInvoiceLine(chargedDeliveryFee)]
+    : discountedInvoiceLines;
+  // The hold cap comes after the discount, so the discount's own numbers stay as they were.
+  const { lines: finalInvoiceLines, holdCap } = applyChargeCapToLines(linesWithDelivery, chargeCap);
+  const finalSum = roundTo(finalInvoiceLines.reduce((sum, line) => sum + safeNumber(line.linePrice, 0), 0), 2);
   const finalWeighingAudit = hasWeighingAudit
     ? {
       ...weighingAudit,
@@ -411,6 +473,7 @@ export function buildSettlementPayload({
     productDataForGrow,
     ...(communityDiscountAudit ? { communityDiscount: communityDiscountAudit } : {}),
     ...(finalWeighingAudit ? { weighingAudit: finalWeighingAudit } : {}),
+    ...(holdCap ? { holdCap } : {}),
   };
 }
 

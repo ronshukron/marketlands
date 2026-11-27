@@ -125,6 +125,24 @@ const initialCards = [
     featured: true
   },
   {
+    title: 'משפכים: מי התחיל ומי עצר',
+    description: 'כמה פתחו הרשמה לסל שבועי וכמה סיימו, מי השהה או ביטל ולמה, וארבעת שלבי העגלה הרגילה, לפי שבוע',
+    to: '/admin/funnels',
+    featured: true
+  },
+  {
+    title: 'בסטה ליד הבית',
+    description: 'מוצרים שנשארו, בהנחה, ליד הבית: הגדרת ההנחה, קישור ל-QR, וחיוב ההזמנות',
+    to: '/admin/stands',
+    featured: true
+  },
+  {
+    title: 'קמפיינים (QR ופליירים)',
+    description: 'קישור וקוד QR לכל פלייר, ומעקב: כמה סרקו, לאן הלכו, מי הוסיף לעגלה ומי קנה',
+    to: '/admin/campaigns',
+    featured: true
+  },
+  {
     title: 'רשימת המתנה לשוק',
     description: 'עסקים מקומיים שנרשמו לפיילוט השוק (שם, טלפון, אימייל, סוג עסק וקהילה)',
     to: '/admin/marketplace-waitlist',

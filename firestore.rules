@@ -551,6 +551,67 @@ service cloud.firestore {
       allow read: if isAdmin() || (isAuthenticated() && request.auth.uid == uid);
       allow write: if false;
     }
+
+    // WhatsApp messages sent by functions (reminders, test sends): admin only.
+    match /whatsappMessages/{messageId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Funnel steps written by the browser (src/services/funnelService.js), read
+    // by the admin report. Anyone may add one event of exactly this shape; the
+    // step names match src/constants/funnel.js. Never changed or deleted.
+    function isValidFunnelEvent(data) {
+      // campaign and path (flyer / QR campaigns) are optional, so events from
+      // a page loaded before they existed still pass.
+      return data.keys().hasAll(['funnel', 'step', 'sessionId', 'userId', 'community', 'basketId', 'buildYourOwn', 'createdAt'])
+        && data.keys().hasOnly(['funnel', 'step', 'sessionId', 'userId', 'community', 'basketId', 'buildYourOwn', 'createdAt', 'campaign', 'path'])
+        && (
+          (data.funnel == 'weekly_basket' && data.step in ['signup_opened', 'basket_edited', 'submitted', 'card_saved'])
+          || (data.funnel == 'cart' && data.step in ['cart_started', 'checkout_opened', 'payment_started', 'order_completed'])
+          || (data.funnel == 'campaign' && data.step in ['scan', 'page_view'])
+        )
+        && (data.get('campaign', null) == null
+          || (data.campaign is string && data.campaign.matches('^[a-z0-9][a-z0-9-]{1,39}$')))
+        && (data.get('path', null) == null || (data.path is string && data.path.size() <= 120))
+        && data.sessionId is string
+        && data.sessionId.size() >= 8
+        && data.sessionId.size() <= 64
+        && data.sessionId.matches('^[A-Za-z0-9_-]+$')
+        && (data.userId == null || (isAuthenticated() && data.userId == request.auth.uid))
+        && data.community is string
+        && data.community.size() <= 100
+        && (data.basketId == null || (data.basketId is string && data.basketId.size() <= 128))
+        && (data.buildYourOwn == null || data.buildYourOwn is bool)
+        && data.createdAt == request.time;
+    }
+
+    // Leftovers stand ("בסטה ליד הבית", functions/handlers/standOrders.js):
+    // stands are set up by the admin and read by the stand page; stand orders
+    // and their payment ids are written only by the functions.
+    match /stands/{standId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /standOrders/{orderId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /standPaymentSecrets/{orderId} {
+      allow read, write: if false;
+    }
+
+    // Flyer / QR campaign links (/q/{code}): read by the redirect page, set up in /admin/campaigns.
+    match /campaignLinks/{code} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /funnelEvents/{eventId} {
+      allow read: if isAdmin();
+      allow create: if isValidFunnelEvent(request.resource.data);
+      allow update, delete: if false;
+    }
     
     match /blogPosts/{slug} {
       allow read: if resource.data.status == 'published' || isAdmin();

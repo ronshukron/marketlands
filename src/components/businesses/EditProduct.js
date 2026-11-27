@@ -4,6 +4,8 @@ import { db, storage } from '../../firebase/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'; // Added deleteObject for image deletion
 import { useAuth } from '../../contexts/authContext'; // Import useAuth to get currentUser
+import ProductTypeSelect, { productTypeForCategory } from './ProductTypeSelect';
+import LinkedDiscountPanel from './LinkedDiscountPanel';
 import Swal from 'sweetalert2';
 import LoadingSpinner from '../LoadingSpinner';
 import './AddProduct.css';
@@ -34,6 +36,7 @@ const EditProduct = () => {
     quantityDiscountPrice: '',
     quantityDiscountLabel: '',
     category: '',
+    productType: '',
     showInAllCategory: false,
     isOrganic: false,
     isRecommended: false,
@@ -110,6 +113,7 @@ const EditProduct = () => {
               : '',
             quantityDiscountLabel: data.quantityDiscountLabel || '',
             category: data.category || '',
+            productType: data.productType || '',
             showInAllCategory: Boolean(data.showInAllCategory),
             isOrganic: Boolean(data.isOrganic),
             isRecommended: Boolean(data.isRecommended),
@@ -313,6 +317,8 @@ const handleSubmit = async (e) => {
         : 1,
       ...(formData.merchantPrice !== '' ? { merchantPrice: parseFloat(formData.merchantPrice) } : { merchantPrice: null }),
       ...(formData.category !== '' ? { category: formData.category } : {}),
+      // Empty: detected from the name in the store.
+      productType: productTypeForCategory(formData.productType, formData.category) || null,
       showInAllCategory: formData.category === 'משתלה' ? Boolean(formData.showInAllCategory) : false,
       ...(formData.thaiName !== '' ? { thaiName: formData.thaiName } : {}),
       isSample: isSample || parseFloat(price) === 0,
@@ -447,6 +453,19 @@ const handleSubmit = async (e) => {
                     ) || '4+ ב-₪4.90 ליחידת מחיר'
                   }`}
               </p>
+            </div>
+            <div className="md:col-span-2">
+              <LinkedDiscountPanel
+                mode="edit"
+                businessId={currentUser?.uid}
+                ownerEmail={currentUser?.email}
+                productId={productId}
+                productName={productName}
+                measurementType={formData.measurementType}
+                price={price}
+                threshold={formData.quantityDiscountThreshold}
+                discountPrice={formData.quantityDiscountPrice}
+              />
             </div>
             <p className="md:col-span-2 text-xs text-emerald-800">
               יש למלא את שני השדות. ניקוי שניהם מסיר את ההנחה.
@@ -721,6 +740,7 @@ const handleSubmit = async (e) => {
                 setFormData({
                   ...formData,
                   category: nextCategory,
+                  productType: productTypeForCategory(formData.productType, nextCategory),
                   showInAllCategory: nextCategory === 'משתלה' ? formData.showInAllCategory : false,
                 });
               }}
@@ -734,6 +754,13 @@ const handleSubmit = async (e) => {
             </select>
             <p className="mt-1 text-xs text-gray-500">בחירת קטגוריה תאפשר למוצר להופיע בתצוגת הקטגוריות בחנות</p>
           </div>
+
+          <ProductTypeSelect
+            category={formData.category}
+            productName={productName}
+            value={formData.productType}
+            onChange={(productType) => setFormData((prev) => ({ ...prev, productType }))}
+          />
 
           {formData.category === 'משתלה' && (
             <div className="mb-4">

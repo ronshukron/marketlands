@@ -17,7 +17,7 @@ describe('SecureCardProgress', () => {
     const { unmount } = render(<SecureCardProgress step="preparing" />);
     expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByText('מכינים עמוד מאובטח לשמירת הכרטיס')).toBeInTheDocument();
-    expect(screen.getByText('מכינים את המנוי שלך')).toHaveClass('font-semibold');
+    expect(screen.getByText('מכינים את ההרשמה לסל השבועי')).toHaveClass('font-semibold');
     expect(screen.getByText(/לא עוברים דרך בסטה בסקט/)).toBeInTheDocument();
     expect(document.body.style.overflow).toBe('hidden');
     unmount();
@@ -37,7 +37,7 @@ describe('SecureCardProgress', () => {
   test('confirming inline does not lock page scroll', () => {
     render(<SecureCardProgress step="confirming" variant="inline" />);
     expect(screen.getByText('מאמתים את שמירת הכרטיס')).toBeInTheDocument();
-    expect(screen.getByText('מפעילים את המנוי')).toBeInTheDocument();
+    expect(screen.getByText('משלימים את ההרשמה לסל השבועי')).toBeInTheDocument();
     expect(document.body.style.overflow).toBe('');
   });
 });

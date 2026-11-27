@@ -99,6 +99,7 @@ jest.mock('../apiV7', () => ({
   searchProductsV7: async () => [],
   setPackedCartonCountV7: async (args) => {
     mockRecord('packed', args);
+    if (mockState.failPacked) throw new Error('unavailable');
     return { packedCartonCount: args.printedIndex };
   },
   subscribeDelayedOrdersForWeekV7: (args) => {
@@ -237,6 +238,7 @@ function seed() {
     failReset: false,
     printerSupport: false,
     printResult: { ok: true },
+    failPacked: false,
     onOrders: null,
   });
   mockState.orders = [
@@ -295,6 +297,10 @@ async function releaseAllWrites() {
     mockState.heldWrites.splice(0).forEach((gate) => gate.resolve());
   });
 }
+
+// Each test renders the whole V8 page; the item-picking ones take 2-5 s alone
+// (the same before the carton-label change) and passed 5 s under a full parallel run.
+jest.setTimeout(15000);
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => {};
@@ -446,6 +452,55 @@ test('"print missing labels" stops at the first printer error', async () => {
   await waitFor(() => expect(calls('print')).toHaveLength(1));
   await waitFor(() => expect(screen.getByRole('button', { name: /הדפס מדבקות חסרות \(2\)/ })).toBeEnabled());
   expect(calls('packed')).toHaveLength(0);
+});
+
+test('two fast taps on "print missing labels" still print each box once', async () => {
+  mockState.printerSupport = true;
+  renderV8();
+  const button = await screen.findByRole('button', { name: /הדפס מדבקות חסרות \(2\)/ });
+  fireEvent.click(button);
+  fireEvent.click(button);
+  await waitFor(() => expect(calls('packed')).toHaveLength(2));
+  expect(calls('print')).toHaveLength(2);
+  expect(calls('print').map((image) => image.label.crateIndex)).toEqual([1, 1]);
+  expect(calls('packed').map((entry) => entry.orderId)).toEqual(['o1', 'o2']);
+});
+
+test('the per-order print button starts after the cartons another station already printed', async () => {
+  mockState.printerSupport = true;
+  mockState.orders[0].packedCartonCount = 2;
+  mockState.orders[0].rawData.packedCartonCount = 2;
+  renderV8();
+  expect(await screen.findByText(/הודפסו 2/)).toBeInTheDocument();
+  // "Print missing" skips it: only the other box in this picking scope still needs a label.
+  expect(screen.getByRole('button', { name: /הדפס מדבקות חסרות \(1\)/ })).toBeEnabled();
+  const [firstBox] = await screen.findAllByRole('button', { name: 'הדפס מדבקה' });
+  fireEvent.click(firstBox);
+  await waitFor(() => expect(calls('packed')).toHaveLength(1));
+  expect(calls('print')[0].label.crateIndex).toBe(3);
+  expect(lastCall('packed')).toEqual(expect.objectContaining({ orderId: 'o1', printedIndex: 3 }));
+  expect(await screen.findByText(/הודפסו 3/)).toBeInTheDocument();
+});
+
+test('a carton count that could not be saved is shown, kept on the station, and saved when the network is back', async () => {
+  mockState.printerSupport = true;
+  mockState.failPacked = true;
+  renderV8();
+  const [firstBox] = await screen.findAllByRole('button', { name: 'הדפס מדבקה' });
+  fireEvent.click(firstBox);
+  await waitFor(() => expect(calls('packed')).toHaveLength(1));
+  expect(await screen.findByText(/הודפסו 1/)).toBeInTheDocument();
+  expect(JSON.parse(localStorage.getItem('deliveryV7::pendingCartonSync')).o1.printedIndex).toBe(1);
+
+  mockState.failPacked = false;
+  await act(async () => { window.dispatchEvent(new Event('online')); });
+  await waitFor(() => expect(calls('packed')).toHaveLength(2));
+  expect(lastCall('packed')).toEqual(expect.objectContaining({ orderId: 'o1', printedIndex: 1 }));
+  await waitFor(() => expect(JSON.parse(localStorage.getItem('deliveryV7::pendingCartonSync'))).toEqual({}));
+  // A second label for the same box is carton 2, not 1 again.
+  fireEvent.click((await screen.findAllByRole('button', { name: 'הדפס מדבקה' }))[0]);
+  await waitFor(() => expect(calls('print')).toHaveLength(2));
+  expect(calls('print')[1].label.crateIndex).toBe(2);
 });
 
 test('an empty or non-numeric weight is ignored and the box stays pending', async () => {

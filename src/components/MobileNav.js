@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 
 const MobileNav = () => {
-  const { cartItems, getTotalQuantity } = useCart();
+  const { cartLineCount } = useCart();
 
-  const totalItems = getTotalQuantity();
+  const totalItems = cartLineCount;
 
   const closeMenu = () => {
     // Implement the logic to close the menu

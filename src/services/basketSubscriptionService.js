@@ -6,10 +6,13 @@ import {
   getDoc,
   getDocs,
   query,
+  setDoc,
   where,
 } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { functionsEndpoint } from '../utils/functionsClient';
+import { getDeliveryScheduleDocumentKeys } from '../utils/deliveryScheduleUtils';
+import { initialRecurringLines, toRecurringPayload, withRecurringLine } from '../utils/recurringBasket';
 
 export const BASKET_SUBSCRIPTIONS_COLLECTION = 'basketSubscriptions';
 
@@ -41,8 +44,8 @@ export const cardConsentPayload = () => ({
 const ERROR_MESSAGES = {
   UNAUTHENTICATED: 'יש להתחבר כדי להמשיך',
   CARD_CONSENT_REQUIRED: 'יש לאשר את שמירת פרטי הכרטיס לחיובים עתידיים',
-  PHONE_NOT_VERIFIED: 'יש לאמת את מספר הטלפון לפני ההצטרפות למנוי',
-  SUBSCRIPTIONS_NOT_OPEN: 'ההרשמה למנויים עוד לא נפתחה. נעדכן ממש בקרוב',
+  PHONE_NOT_VERIFIED: 'יש לאמת את מספר הטלפון לפני ההרשמה לסל שבועי',
+  SUBSCRIPTIONS_NOT_OPEN: 'ההרשמה לסל שבועי עוד לא נפתחה. נעדכן ממש בקרוב',
   CUSTOMER_DETAILS_REQUIRED: 'יש למלא שם וטלפון',
   BASKET_UNAVAILABLE: 'הסל אינו זמין כרגע',
   COMMUNITY_UNAVAILABLE: 'היישוב אינו זמין',
@@ -52,19 +55,21 @@ const ERROR_MESSAGES = {
   ADDRESS_REQUIRED: 'יש למלא כתובת למשלוח עד הבית',
   NO_DELIVERY_SCHEDULE: 'אין ליישוב לוח משלוחים קבוע',
   DELIVERY_DATE_UNAVAILABLE: 'תאריך המשלוח כבר לא זמין, בחרו תאריך אחר',
-  ALREADY_SUBSCRIBED: 'כבר יש לך מנוי לסל הזה',
+  ALREADY_SUBSCRIBED: 'כבר נרשמת לסל הזה',
   PAYMENT_PAGE_FAILED: 'פתיחת עמוד התשלום נכשלה, נסו שוב',
   PAYMENT_PROVIDER_UNAVAILABLE: 'ספק התשלום אינו זמין כרגע, נסו שוב בעוד כמה דקות',
-  NOT_ACTIVE: 'המנוי אינו פעיל',
-  NOT_PAUSED: 'המנוי אינו מושהה',
-  NO_CARD: 'אין כרטיס שמור למנוי',
+  NOT_ACTIVE: 'הסל השבועי אינו פעיל',
+  NOT_PAUSED: 'הסל השבועי אינו מושהה',
+  DELIVERY_OPTION_UNAVAILABLE: 'דרך הקבלה הזו לא זמינה ביישוב של הסל השבועי',
+  ADDRESS_REQUIRED: 'כדי לקבל משלוח עד הבית צריך למלא כתובת',
+  NO_CARD: 'אין כרטיס שמור לסל השבועי',
   NO_DELIVERY_DATE: 'לא נמצא תאריך משלוח פנוי',
   INVALID_DATE: 'תאריך לא תקין',
   TOO_LATE_TO_SKIP: 'מועד העריכה של משלוח זה עבר',
   TOO_LATE_TO_RESTORE: 'מועד העריכה של משלוח זה עבר, ולכן אי אפשר להחזיר אותו',
   CANNOT_RESTORE: 'את המשלוח הזה אי אפשר להחזיר',
   ITEMS_SOLD_OUT: 'כל המוצרים של המשלוח הזה אזלו בינתיים, ולכן אי אפשר להחזיר אותו',
-  CANCELED: 'המנוי בוטל',
+  CANCELED: 'ההרשמה לסל השבועי בוטלה',
   ORDER_LOCKED: 'ההזמנה כבר בטיפול ולא ניתן לערוך אותה',
   FORM_CLOSED: 'ההזמנה מהחקלאי נסגרה, אי אפשר להוסיף את המוצר',
   OUT_OF_STOCK: 'אין מספיק מלאי',
@@ -81,6 +86,8 @@ const ERROR_MESSAGES = {
   ORDER_CLOSED: 'המשלוח הקרוב כבר נסגר לעריכה',
   CUSTOMER_ONLY: 'רק הלקוח יכול לשמור או להחליף כרטיס, כי זה דורש את האישור שלו',
   UNKNOWN_ACTION: 'פעולה לא מוכרת',
+  BAD_PHONE: 'מספר הטלפון בסל השבועי אינו מספר נייד ישראלי, ולכן אי אפשר לשלוח אליו וואטסאפ',
+  NO_ADMIN_PHONE: 'בחשבון האדמין אין מספר נייד, ולכן אין לאן לשלוח הודעת בדיקה',
 };
 
 export const describeSubscriptionError = (error) => {
@@ -210,4 +217,84 @@ export async function listSubscriptionOrders(subscription) {
     .filter((snap) => snap?.exists())
     .map((snap) => ({ id: snap.id, ...snap.data() }))
     .sort((a, b) => String(b.deliveryDate || '').localeCompare(String(a.deliveryDate || '')));
+}
+
+/**
+ * The community's delivery schedule (deliverySchedules doc), or null. Read only;
+ * used to show editing deadlines. The server decides what is still editable.
+ */
+export async function loadCommunitySchedule(community) {
+  if (!community) return null;
+  for (const key of getDeliveryScheduleDocumentKeys(community)) {
+    try {
+      const snap = await getDoc(doc(db, 'deliverySchedules', key));
+      if (snap.exists()) return snap.data();
+    } catch {
+      // Unreadable: the deadline is not shown.
+    }
+  }
+  return null;
+}
+
+/**
+ * Add one product of this week's delivery to the customer's recurring basket.
+ * Starts from the current recurring lines (the customer's own, else the admin
+ * basket's) so nothing else changes.
+ * @return {Promise<{alreadyThere: boolean}>}
+ */
+export async function addProductToRecurringBasket(subscription, product) {
+  const personal = Array.isArray(subscription?.recurringLines) ? subscription.recurringLines : [];
+  let basket = null;
+  if (personal.length === 0 && subscription?.basketId) {
+    const snap = await getDoc(doc(db, 'subscriptionBaskets', subscription.basketId));
+    basket = snap.exists() ? snap.data() : null;
+  }
+  const { lines } = initialRecurringLines(subscription, basket);
+  const next = withRecurringLine(lines, product);
+  if (next.alreadyThere) return { alreadyThere: true };
+  await updateRecurringBasket(subscription.id, toRecurringPayload(next.lines));
+  return { alreadyThere: false };
+}
+
+// ---- WhatsApp reminder before orders close (functions/handlers/whatsappReminders.js) ----
+
+export const NOTIFICATION_CONFIG_DEFAULTS = Object.freeze({
+  basketReminderEnabled: true,
+  basketReminderHoursBeforeCutoff: 4,
+  quietHoursStart: 21,
+  quietHoursEnd: 8,
+});
+
+/** settings/notificationConfig, with the server's defaults for missing fields. */
+export async function loadNotificationConfig() {
+  const snap = await getDoc(doc(db, 'settings', 'notificationConfig'));
+  return { ...NOTIFICATION_CONFIG_DEFAULTS, ...(snap.exists() ? snap.data() : {}) };
+}
+
+/** Admin only (rules): enabled and lead time. Quiet hours stay as they are. */
+export async function saveNotificationConfig({ basketReminderEnabled, basketReminderHoursBeforeCutoff }) {
+  const hours = Math.min(72, Math.max(1, Math.round(Number(basketReminderHoursBeforeCutoff) || 4)));
+  await setDoc(doc(db, 'settings', 'notificationConfig'), {
+    basketReminderEnabled: basketReminderEnabled === true,
+    basketReminderHoursBeforeCutoff: hours,
+  }, { merge: true });
+  return hours;
+}
+
+/** Admin: sends the reminder template to the admin's own phone (or records a dry run). */
+export const sendWhatsappTest = () => postAuthed('sendWhatsappTest', {});
+
+/**
+ * The reminder messages of a subscription's recent deliveries, newest first
+ * (whatsappMessages/basket_reminder_{orderId}; admin read only).
+ */
+export async function listReminderMessages(subscription) {
+  const orderIds = Array.isArray(subscription?.orderIds) ? subscription.orderIds.slice(-4) : [];
+  const snaps = await Promise.all(orderIds.map((orderId) => (
+    getDoc(doc(db, 'whatsappMessages', `basket_reminder_${orderId}`)).catch(() => null)
+  )));
+  return snaps
+    .filter((snap) => snap?.exists())
+    .map((snap) => ({ id: snap.id, ...snap.data() }))
+    .sort((a, b) => String(b.orderId || '').localeCompare(String(a.orderId || '')));
 }

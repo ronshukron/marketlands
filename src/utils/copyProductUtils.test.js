@@ -67,6 +67,7 @@ describe('buildCopiedProductPayload', () => {
     expect(payload.merchantPrice).toBe(8);
     expect(payload.thaiName).toBe('มะเขือเทศ');
     expect(payload.category).toBe('ירקות');
+    expect(payload.productType).toBeUndefined();
     expect(payload.showInAllCategory).toBe(false);
     expect(payload.isOrganic).toBe(true);
     expect(payload.isRecommended).toBe(true);
@@ -103,6 +104,17 @@ describe('buildCopiedProductPayload', () => {
     expect(() => buildCopiedProductPayload(source, { email: 'x' }, 1)).toThrow(/id/i);
     expect(() => buildCopiedProductPayload(source, { id: 'x' }, 1)).toThrow(/email/i);
     expect(() => buildCopiedProductPayload(source, target, null)).toThrow(/catalogNumber/i);
+  });
+});
+
+describe('buildCopiedProductPayload product type', () => {
+  test('a chosen product type is copied with the product', () => {
+    const payload = buildCopiedProductPayload(
+      { name: 'מלפפון בייבי', price: 8, category: 'ירקות', productType: 'מלפפון' },
+      { id: 'b2', email: 'b2@example.com' },
+      100,
+    );
+    expect(payload.productType).toBe('מלפפון');
   });
 });
 

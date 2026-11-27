@@ -55,7 +55,7 @@ const CommunityWeeklyPromotionSummary = ({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-bold text-emerald-800">
-            {requiresSubscription ? 'מבצע שבועי למנויי הסל הקבוע' : 'מבצע שבועי לקהילה'}
+            {requiresSubscription ? 'מבצע שבועי לנרשמים לסל השבועי' : 'מבצע שבועי לקהילה'}
           </p>
           <h2 className="mt-0.5 text-lg font-black text-gray-900">
             {promotion.title || 'מחיר קהילתי מיוחד'}
@@ -76,7 +76,7 @@ const CommunityWeeklyPromotionSummary = ({
             onClick={onSubscribe}
             className="min-h-11 shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-700"
           >
-            להצטרפות למנוי
+            להרשמה לסל שבועי
           </button>
         )}
         {!requiresSignIn && !requiresSubscription && !checkingAccess && !unlocked && (
@@ -116,7 +116,7 @@ const CommunityWeeklyPromotionSummary = ({
       )}
       {requiresSubscription && (
         <p className="mt-2 text-sm font-medium text-emerald-900">
-          המחירים האלה למנויי הסל הקבוע בלבד, גם למי שמצטרף עכשיו. בהזמנה רגילה חל המחיר הרגיל.
+          המחירים האלה לנרשמים לסל השבועי בלבד, גם למי שנרשם עכשיו. בהזמנה רגילה חל המחיר הרגיל.
         </p>
       )}
       {!requiresSignIn && !requiresSubscription && !checkingAccess && !unlocked && (

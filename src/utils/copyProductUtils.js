@@ -82,6 +82,9 @@ export const buildCopiedProductPayload = (sourceProduct = {}, targetBusiness = {
   if (sourceProduct.category) {
     payload.category = String(sourceProduct.category);
   }
+  if (sourceProduct.productType) {
+    payload.productType = String(sourceProduct.productType);
+  }
   if (Array.isArray(sourceProduct.tags) && sourceProduct.tags.length > 0) {
     payload.tags = sourceProduct.tags;
   }

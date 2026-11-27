@@ -13,6 +13,7 @@ import AppMenu from './components/AppMenu';
 import Home from './components/Home';
 import Footer from './components/Footer';
 import AccessibilityButton from './components/AccessibilityButton';
+import CampaignPageTracker from './components/campaign/CampaignPageTracker';
 import { PickupSpotProvider } from './contexts/PickupSpotContext';
 import { SaleModeProvider } from './contexts/SaleModeContext';
 import { CommunityWeeklyPromotionProvider } from './contexts/CommunityWeeklyPromotionContext';
@@ -102,6 +103,11 @@ const IndependentOrdersAdmin = lazy(() => import('./components/admin/Independent
 const Deliveries = lazy(() => import('./components/admin/Deliveries'));
 const AbandonedCarts = lazy(() => import('./components/admin/AbandonedCarts'));
 const AnalyticsDashboard = lazy(() => import('./components/admin/AnalyticsDashboard'));
+const FunnelReportPage = lazy(() => import('./components/admin/FunnelReportPage'));
+const StandsAdmin = lazy(() => import('./components/admin/StandsAdmin'));
+const StandPage = lazy(() => import('./components/stand/StandPage'));
+const CampaignRedirect = lazy(() => import('./components/campaign/CampaignRedirect'));
+const CampaignsAdmin = lazy(() => import('./components/admin/CampaignsAdmin'));
 const CustomerInsights = lazy(() => import('./components/admin/CustomerInsights'));
 const PaymentConfigAdmin = lazy(() => import('./components/admin/PaymentConfigAdmin'));
 const CommunityHub = lazy(() => import('./components/communityHub/CommunityHub'));
@@ -142,6 +148,7 @@ const SubscribeBasketPage = lazy(() => import('./components/subscriptions/Subscr
 const SubscriptionSuccess = lazy(() => import('./components/subscriptions/SubscriptionSuccess'));
 const MySubscriptions = lazy(() => import('./components/subscriptions/MySubscriptions'));
 const RecurringBasketEditor = lazy(() => import('./components/subscriptions/RecurringBasketEditor'));
+const MyBasketRedirect = lazy(() => import('./components/subscriptions/MyBasketRedirect'));
 const SupplierPriceImportAdmin = lazy(() => import('./components/admin/SupplierPriceImportAdmin'));
 const ProductFeedbackAdmin = lazy(() => import('./components/admin/ProductFeedbackAdmin'));
 const CopyProductsAdmin = lazy(() => import('./components/admin/CopyProductsAdmin'));
@@ -183,6 +190,7 @@ const App = () => {
             <Router>
             <ScrollToTop />
             <MetaPixelTracker />
+            <CampaignPageTracker />
             <AppFrame>
                 <Suspense fallback={<RouteFallback />}>
                 <Routes>
@@ -218,6 +226,7 @@ const App = () => {
                   <Route path="/subscription-success" element={<SubscriptionSuccess />} />
                   <Route path="/my-subscriptions" element={<MySubscriptions />} />
                   <Route path="/my-subscriptions/:subscriptionId/basket" element={<RecurringBasketEditor />} />
+                  <Route path="/my-basket" element={<MyBasketRedirect />} />
                   <Route path="/saved-carts" element={<SavedCarts />} />
                   <Route path="/ongoing-orders" element={<OngoingOrders />} />
                   <Route path="/business-register" element={<BusinessRegister />} />
@@ -298,6 +307,11 @@ const App = () => {
                   <Route path="/admin/introduction-baskets" element={<IntroductionBasketAdmin />} />
                   <Route path="/admin/subscription-baskets" element={<SubscriptionBasketAdmin />} />
                   <Route path="/admin/subscriptions" element={<SubscriptionCustomersAdmin />} />
+                  <Route path="/admin/funnels" element={<FunnelReportPage />} />
+                  <Route path="/admin/stands" element={<StandsAdmin />} />
+                  <Route path="/stand/:standId" element={<StandPage />} />
+                  <Route path="/q/:code" element={<CampaignRedirect />} />
+                  <Route path="/admin/campaigns" element={<CampaignsAdmin />} />
                   <Route path="/admin/referral-config" element={<ReferralConfigAdmin />} />
                   <Route path="/admin/community-weekly-promotions" element={<CommunityWeeklyPromotionsAdmin />} />
                   <Route path="/admin/pwa-install" element={<AdminPwaInstall />} />
